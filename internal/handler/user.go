@@ -3,12 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"bonfire-api/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type UserHandler struct {
-	// Future: We will inject the database repository here
+	DB *repository.Queries // This links your handler to your sqlc queries
 }
 
 // Request payloads
