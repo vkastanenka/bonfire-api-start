@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/repository"
@@ -11,13 +12,22 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	ctx := context.Background()
+
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, falling back to system environment variables")
+	}
 	
 	// 1. Connect to PostgreSQL
-	connStr := "postgres://postgres:password123@localhost:5432/discord_db?sslmode=disable"
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		log.Fatal("DATABASE_URL environment variable is required")
+	}
+
 	dbPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
