@@ -20,8 +20,11 @@ CREATE TABLE users (
 
     email CITEXT NOT NULL UNIQUE CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     username CITEXT NOT NULL UNIQUE CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
-    password_hash VARCHAR(255) NOT NULL CONSTRAINT password_hash_not_empty CHECK (char_length(password_hash) > 7)
+    password_hash VARCHAR(255) NOT NULL
 );
+
+CREATE UNIQUE INDEX users_active_email_idx ON users (email) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX users_active_username_idx ON users (username) WHERE deleted_at IS NULL;
 
 CREATE TRIGGER update_users_modtime
     BEFORE UPDATE ON users
@@ -39,7 +42,7 @@ CREATE TABLE user_profiles (
     display_name VARCHAR(32)
 );
 
-CREATE TRIGGER update_user_profiless_modtime
+CREATE TRIGGER update_user_profiles_modtime
     BEFORE UPDATE ON user_profiles
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
