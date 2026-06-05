@@ -14,8 +14,8 @@ type UserHandler struct {
 
 // Request payloads
 type RegisterRequest struct {
-	Username string `json:"username"`
 	Email    string `json:"email"`
+	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
