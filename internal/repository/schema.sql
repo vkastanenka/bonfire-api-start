@@ -9,28 +9,35 @@ $$ LANGUAGE plpgsql;
 
 -- users
 
--- 2. Create the users table using native PG18 UUIDv7
 CREATE TABLE users (
-    -- Secure, time-sortable, unpredictable ID
     id UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    -- Timestamps for account age and soft-deletion tracking
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
     deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
 
-    -- Discord specific: username and the optional global display name
-    username VARCHAR(32) NOT NULL UNIQUE,
-    display_name VARCHAR(32),
-
-    -- Essential auth and communication
     email VARCHAR(255) NOT NULL UNIQUE,
+    username VARCHAR(32) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    avatar_url VARCHAR(512),
 );
 
--- 3. Attach the trigger to the users table
 CREATE TRIGGER update_users_modtime
     BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+-- user profiles
+
+CREATE TABLE user_profiles (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+    
+    display_name VARCHAR(32),
+);
+
+CREATE TRIGGER update_user_profiless_modtime
+    BEFORE UPDATE ON user_profiles
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
