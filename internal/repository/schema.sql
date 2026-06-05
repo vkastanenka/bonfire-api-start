@@ -16,11 +16,11 @@ CREATE TABLE users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
 
+    verified_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+
     email CITEXT NOT NULL UNIQUE CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     username CITEXT NOT NULL UNIQUE CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
-    password_hash VARCHAR(255) NOT NULL CONSTRAINT password_hash_not_empty CHECK (char_length(password_hash) > 7),
-
-    is_verified BOOLEAN DEFAULT FALSE NOT NULL
+    password_hash VARCHAR(255) NOT NULL CONSTRAINT password_hash_not_empty CHECK (char_length(password_hash) > 7)
 );
 
 CREATE TRIGGER update_users_modtime
@@ -34,9 +34,9 @@ CREATE TABLE user_profiles (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     
-    display_name VARCHAR(32),
+    display_name VARCHAR(32)
 );
 
 CREATE TRIGGER update_user_profiless_modtime
