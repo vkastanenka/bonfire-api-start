@@ -1,22 +1,40 @@
 package handler
 
 import (
+	"bonfire-api/internal/repository"
 	"encoding/json"
 	"net/http"
-	"bonfire-api/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 )
+
+/*
+TODO:
+Format go files on save
+*/
 
 type UserHandler struct {
 	DB *repository.Queries // This links your handler to your sqlc queries
 }
 
+/*
+Register logic:
+
+* Validate request body
+2. Validate email availability
+3. Validate user availability
+TRANSACTION:
+4. Create a new user
+
+5. Success response
+*/
+
 // Request payloads
 type RegisterRequest struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+    Email       string `json:"email"`
+    DisplayName string `json:"displayName"`
+    Username    string `json:"username"`
+    Password    string `json:"password"`
 }
 
 // Register handles user registration
@@ -30,7 +48,10 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Add database save logic here via repository
+	// TODO: Validate request body, respond with error if not valid
+	// TODO: Check email availability, respond with error if not available.
+	// TODO: Check username availability, respond with error if not available.
+	// TODO: Create transaction where we create user and user profile.
 
 	// Respond back
 	w.Header().Set("Content-Type", "application/json")
