@@ -65,16 +65,16 @@ func (v *Validator) ValidateStruct(s interface{}) map[string]string {
 func msgForTag(tag string, param string) string {
 	switch tag {
 	case "required":
-		return "This field is required"
+		return "This field is required."
 	case "email":
-		return "Invalid email format"
+		return "Invalid email format."
 	case "min":
-		return fmt.Sprintf("Must be at least %s characters long", param)
+		return fmt.Sprintf("Must be at least %s characters long.", param)
 	case "max":
-		return fmt.Sprintf("Cannot be longer than %s characters", param)
+		return fmt.Sprintf("Cannot be longer than %s characters.", param)
 	case "alphanum":
-		return "Must contain only letters and numbers"
+		return "Must contain only letters and numbers."
 	default:
-		return "Invalid value"
+		return "Invalid value."
 	}
 }

@@ -9,10 +9,19 @@ import (
 )
 
 type User struct {
-	ID           int64
-	Username     string
-	Email        string
-	PasswordHash string
+	ID           pgtype.UUID
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
+	DeletedAt    pgtype.Timestamptz
+	VerifiedAt   pgtype.Timestamptz
+	Email        string
+	Username     string
+	PasswordHash string
+}
+
+type UserProfile struct {
+	UserID      pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	DisplayName pgtype.Text
 }

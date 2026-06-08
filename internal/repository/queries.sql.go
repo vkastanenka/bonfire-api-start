@@ -12,48 +12,106 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (username, email, password_hash)
+
+INSERT INTO users (email, username, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, username, email, created_at
+RETURNING id, created_at, email, username
 `
 
 type CreateUserParams struct {
-	Username     string
 	Email        string
+	Username     string
 	PasswordHash string
 }
 
 type CreateUserRow struct {
-	ID        int64
-	Username  string
-	Email     string
+	ID        pgtype.UUID
 	CreatedAt pgtype.Timestamptz
+	Email     string
+	Username  string
 }
 
+// users
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Username, arg.Email, arg.PasswordHash)
+	row := q.db.QueryRow(ctx, createUser, arg.Email, arg.Username, arg.PasswordHash)
 	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
-		&i.Username,
-		&i.Email,
 		&i.CreatedAt,
+		&i.Email,
+		&i.Username,
 	)
 	return i, err
 }
 
+const createUserProfile = `-- name: CreateUserProfile :one
+
+INSERT INTO user_profiles (user_id, display_name)
+VALUES ($1, $2)
+RETURNING user_id, created_at, display_name
+`
+
+type CreateUserProfileParams struct {
+	UserID      pgtype.UUID
+	DisplayName pgtype.Text
+}
+
+type CreateUserProfileRow struct {
+	UserID      pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
+	DisplayName pgtype.Text
+}
+
+// user_profiles
+func (q *Queries) CreateUserProfile(ctx context.Context, arg CreateUserProfileParams) (CreateUserProfileRow, error) {
+	row := q.db.QueryRow(ctx, createUserProfile, arg.UserID, arg.DisplayName)
+	var i CreateUserProfileRow
+	err := row.Scan(&i.UserID, &i.CreatedAt, &i.DisplayName)
+	return i, err
+}
+
+const deleteUser = `-- name: DeleteUser :exec
+DELETE FROM users
+WHERE id = $1
+`
+
+func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUser, id)
+	return err
+}
+
+const getUserAuthCredentials = `-- name: GetUserAuthCredentials :one
+SELECT id, password_hash
+FROM users 
+WHERE email = $1 LIMIT 1
+`
+
+type GetUserAuthCredentialsRow struct {
+	ID           pgtype.UUID
+	PasswordHash string
+}
+
+func (q *Queries) GetUserAuthCredentials(ctx context.Context, email string) (GetUserAuthCredentialsRow, error) {
+	row := q.db.QueryRow(ctx, getUserAuthCredentials, email)
+	var i GetUserAuthCredentialsRow
+	err := row.Scan(&i.ID, &i.PasswordHash)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, created_at 
+SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
 FROM users 
 WHERE email = $1 LIMIT 1
 `
 
 type GetUserByEmailRow struct {
-	ID           int64
-	Username     string
-	Email        string
-	PasswordHash string
-	CreatedAt    pgtype.Timestamptz
+	ID         pgtype.UUID
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	DeletedAt  pgtype.Timestamptz
+	VerifiedAt pgtype.Timestamptz
+	Email      string
+	Username   string
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
@@ -61,35 +119,117 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
-		&i.Username,
-		&i.Email,
-		&i.PasswordHash,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.VerifiedAt,
+		&i.Email,
+		&i.Username,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, created_at 
+SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
 FROM users 
 WHERE id = $1 LIMIT 1
 `
 
 type GetUserByIDRow struct {
-	ID        int64
-	Username  string
-	Email     string
-	CreatedAt pgtype.Timestamptz
+	ID         pgtype.UUID
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	DeletedAt  pgtype.Timestamptz
+	VerifiedAt pgtype.Timestamptz
+	Email      string
+	Username   string
 }
 
-func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error) {
+func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
 	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.Username,
-		&i.Email,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.VerifiedAt,
+		&i.Email,
+		&i.Username,
 	)
+	return i, err
+}
+
+const getUserByUsername = `-- name: GetUserByUsername :one
+SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
+FROM users
+WHERE username = $1 LIMIT 1
+`
+
+type GetUserByUsernameRow struct {
+	ID         pgtype.UUID
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	DeletedAt  pgtype.Timestamptz
+	VerifiedAt pgtype.Timestamptz
+	Email      string
+	Username   string
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
+	row := q.db.QueryRow(ctx, getUserByUsername, username)
+	var i GetUserByUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.VerifiedAt,
+		&i.Email,
+		&i.Username,
+	)
+	return i, err
+}
+
+const getUserProfile = `-- name: GetUserProfile :one
+SELECT user_id, created_at, updated_at, display_name
+FROM user_profiles
+WHERE user_id = $1
+`
+
+func (q *Queries) GetUserProfile(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, getUserProfile, userID)
+	var i UserProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+	)
+	return i, err
+}
+
+const validateUserCredentialsAvailability = `-- name: ValidateUserCredentialsAvailability :one
+SELECT 
+    COUNT(CASE WHEN email = $1 THEN 1 END) = 0 AS email,
+    COUNT(CASE WHEN username = $2 THEN 1 END) = 0 AS username
+FROM users
+WHERE deleted_at IS NULL
+`
+
+type ValidateUserCredentialsAvailabilityParams struct {
+	Email    string
+	Username string
+}
+
+type ValidateUserCredentialsAvailabilityRow struct {
+	Email    bool
+	Username bool
+}
+
+func (q *Queries) ValidateUserCredentialsAvailability(ctx context.Context, arg ValidateUserCredentialsAvailabilityParams) (ValidateUserCredentialsAvailabilityRow, error) {
+	row := q.db.QueryRow(ctx, validateUserCredentialsAvailability, arg.Email, arg.Username)
+	var i ValidateUserCredentialsAvailabilityRow
+	err := row.Scan(&i.Email, &i.Username)
 	return i, err
 }
