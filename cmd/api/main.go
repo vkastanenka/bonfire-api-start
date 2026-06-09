@@ -50,21 +50,10 @@ func main() {
 
 	// 3. Setup router and inject our DB queries into the handler
 	r := chi.NewRouter()
+
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
-	// userHandler := &handler.UserHandler{
-	// 	DB: queries, // Injecting the database access layer
-	// }
-
-	r.NotFound(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
-		return apperr.NewNotFound("The requested API endpoint does not exist.")
-	}))
-
-	r.MethodNotAllowed(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
-		return apperr.NewInvalidInput("HTTP method not allowed for this endpoint.")
-	}))
 
 	authHandler := &auth.AuthHandler{}
 
@@ -72,6 +61,23 @@ func main() {
 		api.Get("/auth/ping", authHandler.Ping)
 		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
 	})
+
+	// userHandler := &handler.UserHandler{
+	// 	DB: queries, // Injecting the database access layer
+	// }
+
+	// 3. Catch-all routes for fallbacks (Must be defined LAST)
+	// This replaces r.NotFound and guarantees middleware execution (like RequestID)
+	r.HandleFunc("/*", httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
+		return apperr.NewNotFound("The requested API endpoint does not exist.")
+	}))
+
+	// Optional: If you want to explicitly catch bad methods globally across the app,
+	// chi matches specific routes first. If a request hits an existing path with a wrong method,
+	// you can override Chi's default behavior by assigning your custom handler directly to the Mux:
+	r.MethodNotAllowed(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
+		return apperr.NewInvalidInput("HTTP method not allowed for this endpoint.")
+	}))
 
 	srv := &http.Server{
 		Addr:         ":8080",
