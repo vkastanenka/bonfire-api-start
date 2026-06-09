@@ -20,7 +20,7 @@ type ErrorResponse struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
-func DecodeJSON(w http.ResponseWriter, r *http.Request, data interface{}) error {
+func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
 		return apperr.NewInvalidInput("Missing Content-Type header; must be application/json.")
@@ -41,7 +41,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, data interface{}) error 
 	dec := json.NewDecoder(limitedBody)
 	dec.DisallowUnknownFields()
 
-	if err := dec.Decode(data); err != nil {
+	if err := dec.Decode(dst); err != nil {
 		if r.Context().Err() != nil {
 			return apperr.NewInvalidInput("Client closed connection mid-request.", apperr.WithErr(r.Context().Err()))
 		}
@@ -76,8 +76,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, data interface{}) error 
 		// Safe string checking fallback for unknown JSON fields
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
-			fieldName = strings.ReplaceAll(fieldName, `"`, "")
-			return apperr.NewInvalidInput(fmt.Sprintf("Unknown field '%s' present in request body.", fieldName), apperr.WithErr(err))
+			return apperr.NewInvalidInput(fmt.Sprintf("Unknown field %s present in request body.", fieldName), apperr.WithErr(err))
 
 		default:
 			return apperr.NewInvalidInput("Malformed or invalid request body JSON payload.", apperr.WithErr(err))
@@ -106,7 +105,7 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 func MapErrorToResponse(err error) (int, ErrorResponse) {
-	var appErr *apperr.AppError
+	var appErr *apperr.Error
 
 	statusCode := http.StatusInternalServerError
 	resp := ErrorResponse{
@@ -130,6 +129,8 @@ func MapErrorToResponse(err error) (int, ErrorResponse) {
 			statusCode = http.StatusConflict
 		case apperr.TypeUnauthenticated:
 			statusCode = http.StatusUnauthorized
+		case apperr.TypeMethodNotAllowed:
+			statusCode = http.StatusMethodNotAllowed
 		case apperr.TypeInternal:
 			statusCode = http.StatusInternalServerError
 			resp.Message = "An unexpected internal error occurred."
@@ -155,7 +156,7 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 				reqID = "unknown"
 			}
 
-			var appErr *apperr.AppError
+			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
 				// Don't log full internal details to standard error output if it's just a user syntax error
 				if appErr.Type == apperr.TypeInternal {

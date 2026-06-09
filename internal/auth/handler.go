@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"bonfire-api/internal/pkg/httpio"
+	"bonfire-api/internal/httpio"
 	"net/http"
 )
 
@@ -13,10 +13,12 @@ func NewAuthHandler() *AuthHandler {
 }
 
 // Ping confirms the auth routes are available
-func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
 		"status": "healthy",
 	})
+
+	return nil
 }
 
 // Register handles user registration
