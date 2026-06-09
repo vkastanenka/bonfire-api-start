@@ -20,7 +20,7 @@ const (
 type AppError struct {
 	Type    Type   `json:"-"`
 	Message string `json:"message"`
-	Err     error  `json:"-"` // Underlying root cause error
+	Err     error  `json:"-"`
 }
 
 func (e *AppError) Error() string {
