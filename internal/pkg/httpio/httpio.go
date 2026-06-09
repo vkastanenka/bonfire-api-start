@@ -26,13 +26,17 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, data interface{}) error 
 		return apperr.NewInvalidInput("Missing Content-Type header; must be application/json.")
 	}
 
-	mediaType, _, err := mime.ParseMediaType(ct)
-	if err != nil || mediaType != "application/json" {
-		return apperr.NewInvalidInput("Content-Type header must be application/json.")
+	ctLower := strings.ToLower(ct)
+	if !strings.HasPrefix(ctLower, "application/json") {
+		mediaType, _, err := mime.ParseMediaType(ct)
+		if err != nil || mediaType != "application/json" {
+			return apperr.NewInvalidInput("Content-Type header must be application/json.")
+		}
 	}
 
 	// 1MB standard buffer ceiling
 	limitedBody := http.MaxBytesReader(w, r.Body, 1048576)
+	defer limitedBody.Close()
 
 	dec := json.NewDecoder(limitedBody)
 	dec.DisallowUnknownFields()
