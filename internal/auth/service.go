@@ -1,13 +1,6 @@
 package auth
 
 import (
-	"context"
-	"errors"
-	"fmt"
-
-	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/crypto/bcrypt"
-
 	"bonfire-api/internal/domain"
 )
 
@@ -23,49 +16,49 @@ func NewAuthService(repo domain.DBRepository, broker domain.MessageBroker) *Auth
 	}
 }
 
-func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (pgtype.UUID, error) {
-	// 1. CPU heavy work out-of-band
-	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("hashing password failed: %w", err)
-	}
-	passwordHash := string(hashedPasswordBytes)
+// func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (pgtype.UUID, error) {
+// 	// Hash password
+// 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+// 	if err != nil {
+// 		return pgtype.UUID{}, fmt.Errorf("hashing password failed: %w", err)
+// 	}
+// 	passwordHash := string(hashedPasswordBytes)
 
-	var userID pgtype.UUID
+// 	var userID pgtype.UUID
 
-	// 2. Wrap operations using our pristine, SQL-agnostic domain interface
-	err = s.repo.WithTx(ctx, func(tx domain.TxUnit) error {
+// 	// Create transaction
+// 	err = s.repo.WithTx(ctx, func(tx domain.TxUnit) error {
 
-		// Directly call CreateUser on the transactional unit using primitive parameters
-		var txErr error
-		userID, txErr = tx.CreateUser(ctx, req.Email, req.Username, passwordHash)
-		if txErr != nil {
-			if errors.Is(txErr, context.Canceled) {
-				return txErr
-			}
-			// Note: The infrastructure layer implementing tx.CreateUser should
-			// map DB-specific unique violations to a generic domain error, or you can
-			// inspect it here if your repo passes specialized errors back.
-			return txErr
-		}
+// 		// Directly call CreateUser on the transactional unit using primitive parameters
+// 		var txErr error
+// 		userID, txErr = tx.CreateUser(ctx, req.Email, req.Username, passwordHash)
+// 		if txErr != nil {
+// 			if errors.Is(txErr, context.Canceled) {
+// 				return txErr
+// 			}
+// 			// Note: The infrastructure layer implementing tx.CreateUser should
+// 			// map DB-specific unique violations to a generic domain error, or you can
+// 			// inspect it here if your repo passes specialized errors back.
+// 			return txErr
+// 		}
 
-		// Conditionally create the user profile if a DisplayName was provided
-		if req.DisplayName != nil {
-			_, txErr = tx.CreateUserProfile(ctx, userID, req.DisplayName)
-			if txErr != nil {
-				return txErr
-			}
-		}
+// 		// Conditionally create the user profile if a DisplayName was provided
+// 		if req.DisplayName != nil {
+// 			_, txErr = tx.CreateUserProfile(ctx, userID, req.DisplayName)
+// 			if txErr != nil {
+// 				return txErr
+// 			}
+// 		}
 
-		return nil
-	})
+// 		return nil
+// 	})
 
-	if err != nil {
-		return pgtype.UUID{}, err
-	}
+// 	if err != nil {
+// 		return pgtype.UUID{}, err
+// 	}
 
-	// 3. Async downstream side-effects
-	s.msgBroker.PublishUserRegisteredEvent(userID, req.Email)
+// 	// 3. Async downstream side-effects
+// 	s.msgBroker.PublishUserRegisteredEvent(userID, req.Email)
 
-	return userID, nil
-}
+// 	return userID, nil
+// }
