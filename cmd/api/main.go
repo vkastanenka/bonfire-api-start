@@ -58,12 +58,13 @@ func main() {
 	// 	DB: queries, // Injecting the database access layer
 	// }
 
-	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		httpio.MapErrorToResponse(w, r, apperr.NewNotFound("The requested API endpoint does not exist."))
-	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		httpio.MapErrorToResponse(w, r, apperr.NewInvalidInput("HTTP method not allowed for this endpoint."))
-	})
+	r.NotFound(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
+		return apperr.NewNotFound("The requested API endpoint does not exist.")
+	}))
+
+	r.MethodNotAllowed(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
+		return apperr.NewInvalidInput("HTTP method not allowed for this endpoint.")
+	}))
 
 	authHandler := &auth.AuthHandler{}
 
