@@ -53,16 +53,14 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 	if errors.As(err, &validationErrors) {
 		errsMap := make(map[string]string, len(validationErrors))
 		for _, fieldErr := range validationErrors {
-			// StructNamespace contains JSON tags: "RegisterData.profile_info.biography"
-			// In internal/validator/validator.go
-			structNs := fieldErr.StructNamespace() // e.g., "RegisterData.displayName"
-			jsonPath := structNs
+			// Namespace() preserves the custom JSON tag names registered via RegisterTagNameFunc
+			// e.g., "RegisterData.profile_info.biography" or just "RegisterData.displayName"
+			ns := fieldErr.Namespace()
 
-			idx := strings.Index(structNs, ".")
-			if idx != -1 {
-				jsonPath = structNs[idx+1:]
-			} else {
-				// Fallback safely to Field if no structural wrapper prefix exists
+			// Strips out the top-level struct name dynamically (e.g., "RegisterData.")
+			_, jsonPath, found := strings.Cut(ns, ".")
+			if !found {
+				// Fallback safely to Field if no structural dot separator exists
 				jsonPath = fieldErr.Field()
 			}
 
@@ -83,9 +81,10 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 func msgForFieldError(err goValidator.FieldError) string {
 	// Custom handling for empty/whitespace string edge-cases caught by 'required'
 	if err.Tag() == "required" {
-		// Unpack interface pointers safely if present
 		val := err.Value()
-		if reflect.TypeOf(val).Kind() == reflect.Ptr {
+
+		// Guard against raw nil interface values before checking reflect.TypeOf(val)
+		if val != nil && reflect.TypeOf(val).Kind() == reflect.Ptr {
 			sv := reflect.ValueOf(val)
 			if !sv.IsNil() {
 				val = sv.Elem().Interface()
