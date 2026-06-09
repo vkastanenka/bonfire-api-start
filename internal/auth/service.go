@@ -9,7 +9,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"bonfire-api/internal/domain"
-	"bonfire-api/internal/repository"
 )
 
 type AuthService struct {
@@ -35,40 +34,29 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (pgtype
 	var userID pgtype.UUID
 
 	// 2. Wrap operations using our pristine, SQL-agnostic domain interface
-	err = s.repo.WithTx(ctx, func(txCtx context.Context) error {
-		// Extract the scoped transaction queries out of the context.
-		// If WithTx wasn't called, this falls back to nil (or a base repo if preferred)
-		q := repository.FromContext(txCtx, nil)
-		if q == nil {
-			return fmt.Errorf("database queries missing from transaction context")
+	err = s.repo.WithTx(ctx, func(tx domain.TxUnit) error {
+
+		// Directly call CreateUser on the transactional unit using primitive parameters
+		var txErr error
+		userID, txErr = tx.CreateUser(ctx, req.Email, req.Username, passwordHash)
+		if txErr != nil {
+			if errors.Is(txErr, context.Canceled) {
+				return txErr
+			}
+			// Note: The infrastructure layer implementing tx.CreateUser should
+			// map DB-specific unique violations to a generic domain error, or you can
+			// inspect it here if your repo passes specialized errors back.
+			return txErr
 		}
 
-		userRow, err := q.CreateUser(txCtx, repository.CreateUserParams{
-			Email:        req.Email,
-			Username:     req.Username,
-			PasswordHash: passwordHash,
-		})
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				return err // Or a custom domain error like domain.ErrRequestCanceled
-			}
-			if repository.IsUniqueViolation(err) {
-				return ErrCredentialsUnavailable
-			}
-			return err
-		}
-
-		userID = userRow.ID
-
+		// Conditionally create the user profile if a DisplayName was provided
 		if req.DisplayName != nil {
-			_, err := q.CreateUserProfile(txCtx, repository.CreateUserProfileParams{
-				UserID:      userRow.ID,
-				DisplayName: pgtype.Text{String: *req.DisplayName, Valid: true},
-			})
-			if err != nil {
-				return err
+			_, txErr = tx.CreateUserProfile(ctx, userID, req.DisplayName)
+			if txErr != nil {
+				return txErr
 			}
 		}
+
 		return nil
 	})
 
