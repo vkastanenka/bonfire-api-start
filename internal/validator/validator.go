@@ -23,6 +23,7 @@ type Validator struct {
 func New() *Validator {
 	v := goValidator.New()
 
+	// Use JSON tags for validation names
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
 		if name == "-" {
@@ -36,14 +37,13 @@ func New() *Validator {
 
 // ValidateStruct validates an arbitrary struct against its defined validation tags.
 // If validation fails, it returns a structured *apperr.Error containing field-level
-// details, which can be safely bubbled up through the HTTP layer.
+// details mapped to their exact JSON structural paths.
 func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 	err := v.engine.Struct(s)
 	if err == nil {
 		return nil
 	}
 
-	// Guard against initialization or type errors to prevent panics
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
 		return apperr.NewInternal("Invalid validation target provided", apperr.WithErr(err))
@@ -53,10 +53,22 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 	if errors.As(err, &validationErrors) {
 		errsMap := make(map[string]string, len(validationErrors))
 		for _, fieldErr := range validationErrors {
-			errsMap[fieldErr.Field()] = msgForFieldError(fieldErr)
+			// StructNamespace contains JSON tags: "RegisterData.profile_info.biography"
+			// In internal/validator/validator.go
+			structNs := fieldErr.StructNamespace() // e.g., "RegisterData.displayName"
+			jsonPath := structNs
+
+			idx := strings.Index(structNs, ".")
+			if idx != -1 {
+				jsonPath = structNs[idx+1:]
+			} else {
+				// Fallback safely to Field if no structural wrapper prefix exists
+				jsonPath = fieldErr.Field()
+			}
+
+			errsMap[jsonPath] = msgForFieldError(fieldErr)
 		}
 
-		// Wrap the validation map cleanly into your domain error model
 		return apperr.NewInvalidInput(
 			"Validation failed for the request payload.",
 			apperr.WithDetails(errsMap),
@@ -69,9 +81,26 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 
 // msgForFieldError evaluates the field error and returns a contextual message.
 func msgForFieldError(err goValidator.FieldError) string {
-	switch err.Tag() {
-	case "required":
+	// Custom handling for empty/whitespace string edge-cases caught by 'required'
+	if err.Tag() == "required" {
+		// Unpack interface pointers safely if present
+		val := err.Value()
+		if reflect.TypeOf(val).Kind() == reflect.Ptr {
+			sv := reflect.ValueOf(val)
+			if !sv.IsNil() {
+				val = sv.Elem().Interface()
+			}
+		}
+
+		if valStr, ok := val.(string); ok {
+			if len(valStr) > 0 && strings.TrimSpace(valStr) == "" {
+				return "This field cannot consist entirely of whitespace."
+			}
+		}
 		return "This field is required."
+	}
+
+	switch err.Tag() {
 	case "email":
 		return "Invalid email format."
 	case "alphanum":

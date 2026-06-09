@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -67,16 +68,25 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 			fieldName := unmarshalTypeErr.Field
 			if fieldName == "" {
 				fieldName = "field"
+			} else {
+				// Resolve the full structural path if the type mismatch occurred inside a nested struct
+				fieldName = resolveUnmarshalPath(unmarshalTypeErr.Struct, fieldName)
 			}
+
 			details := map[string]string{
 				fieldName: fmt.Sprintf("Must be of type %s", unmarshalTypeErr.Type),
 			}
-			return apperr.NewInvalidInput("Invalid data type provided for request body field(s).", apperr.WithDetails(details), apperr.WithErr(err))
+			return apperr.NewInvalidInput(
+				"Invalid data type provided for request body field(s).",
+				apperr.WithDetails(details),
+				apperr.WithErr(err),
+			)
 
 		// Safe string checking fallback for unknown JSON fields
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
-			return apperr.NewInvalidInput(fmt.Sprintf("Unknown field %s present in request body.", fieldName), apperr.WithErr(err))
+			fieldName = strings.Trim(fieldName, `"`)
+			return apperr.NewInvalidInput(fmt.Sprintf("Unknown field '%s' present in request body.", fieldName), apperr.WithErr(err))
 
 		default:
 			return apperr.NewInvalidInput("Malformed or invalid request body JSON payload.", apperr.WithErr(err))
@@ -145,9 +155,6 @@ type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
 
 func ToHTTP(h HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Clean up is handled gracefully via standard library context execution
-		// inside standard HTTP multiplexers; manual deep draining omitted
-		// here to avoid swallowing MaxBytes errors prematurely.
 		if err := h(w, r); err != nil {
 			status, resp := MapErrorToResponse(err)
 
@@ -158,7 +165,6 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 
 			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
-				// Don't log full internal details to standard error output if it's just a user syntax error
 				if appErr.Type == apperr.TypeInternal {
 					log.Printf("[CRITICAL] ReqID: %s | Msg: %s | Details: %v | InternalErr: %v",
 						reqID, appErr.Message, appErr.Details, appErr.Err)
@@ -171,5 +177,33 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 
 			RespondJSON(w, status, resp)
 		}
+	}
+}
+
+// resolveUnmarshalPath maps internal Go sub-struct names to their external
+// camelCase JSON pathways to avoid leaking raw Go struct types to the client.
+func resolveUnmarshalPath(structName, fieldName string) string {
+	if structName == "" {
+		return fieldName
+	}
+
+	// Map your internal Go struct types to their parent JSON keys.
+	// As Bonfire grows, add your nested sub-structs here.
+	switch structName {
+	case "ProfileInfo", "ProfileData":
+		return "profileInfo." + fieldName
+	case "UserSettings", "Settings":
+		return "settings." + fieldName
+	case "ChannelPermissions":
+		return "permissions." + fieldName
+	default:
+		// Fallback: lowercase the internal struct name as a sensible default
+		// if you forget to add a explicit mapping later.
+		if len(structName) > 0 {
+			runes := []rune(structName)
+			runes[0] = unicode.ToLower(runes[0]) // Native, clean rune translation
+			return string(runes) + "." + fieldName
+		}
+		return fieldName
 	}
 }
