@@ -5,80 +5,79 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	"bonfire-api/internal/domain"
 	"bonfire-api/internal/repository"
 )
 
-var (
-	ErrInvalidCredentials = errors.New("Invalid credentials.")
-)
-
 type AuthService struct {
-	pool *pgxpool.Pool
+	repo      domain.DBRepository
+	msgBroker domain.MessageBroker
 }
 
-func NewService(pool *pgxpool.Pool) *AuthService {
-	return &AuthService{pool: pool}
+func NewAuthService(repo domain.DBRepository, broker domain.MessageBroker) *AuthService {
+	return &AuthService{
+		repo:      repo,
+		msgBroker: broker,
+	}
 }
 
-func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
-	queries := repository.New(s.pool)
-
-	availability, err := queries.ValidateUserCredentialsAvailability(ctx, repository.ValidateUserCredentialsAvailabilityParams{
-		Email:    req.Email,
-		Username: req.Username,
-	})
+func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (pgtype.UUID, error) {
+	// 1. CPU heavy work out-of-band
+	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("checking credentials availability: %w", err)
+		return pgtype.UUID{}, fmt.Errorf("hashing password failed: %w", err)
 	}
+	passwordHash := string(hashedPasswordBytes)
 
-	if !availability.Email || !availability.Username {
-		return ErrInvalidCredentials
-	}
+	var userID pgtype.UUID
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("hashing password failed: %w", err)
-	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("starting transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	txQueries := repository.New(tx)
-
-	userRow, err := txQueries.CreateUser(ctx, repository.CreateUserParams{
-		Email:        req.Email,
-		Username:     req.Username,
-		PasswordHash: string(hashedPassword),
-	})
-
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrInvalidCredentials
+	// 2. Wrap operations using our pristine, SQL-agnostic domain interface
+	err = s.repo.WithTx(ctx, func(txCtx context.Context) error {
+		// Extract the scoped transaction queries out of the context.
+		// If WithTx wasn't called, this falls back to nil (or a base repo if preferred)
+		q := repository.FromContext(txCtx, nil)
+		if q == nil {
+			return fmt.Errorf("database queries missing from transaction context")
 		}
-		return fmt.Errorf("inserting user row: %w", err)
-	}
 
-	if req.DisplayName != "" {
-		_, err := txQueries.CreateUserProfile(ctx, repository.CreateUserProfileParams{
-			UserID: userRow.ID,
-			DisplayName: pgtype.Text{
-				String: req.DisplayName,
-				Valid:  true,
-			},
+		userRow, err := q.CreateUser(txCtx, repository.CreateUserParams{
+			Email:        req.Email,
+			Username:     req.Username,
+			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return fmt.Errorf("inserting user profile row: %w", err)
+			if errors.Is(err, context.Canceled) {
+				return err // Or a custom domain error like domain.ErrRequestCanceled
+			}
+			if repository.IsUniqueViolation(err) {
+				return ErrCredentialsUnavailable
+			}
+			return err
 		}
+
+		userID = userRow.ID
+
+		if req.DisplayName != nil {
+			_, err := q.CreateUserProfile(txCtx, repository.CreateUserProfileParams{
+				UserID:      userRow.ID,
+				DisplayName: pgtype.Text{String: *req.DisplayName, Valid: true},
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 
-	return tx.Commit(ctx)
+	// 3. Async downstream side-effects
+	s.msgBroker.PublishUserRegisteredEvent(userID, req.Email)
+
+	return userID, nil
 }
