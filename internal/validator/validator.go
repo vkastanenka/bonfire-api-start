@@ -1,6 +1,8 @@
 package validator
 
 import (
+	"bonfire-api/internal/apperr"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -33,48 +35,64 @@ func New() *Validator {
 }
 
 // ValidateStruct validates an arbitrary struct against its defined validation tags.
-// It accepts any struct instance via the empty interface.
-//
-// If validation fails, it parses the underlying engine errors and returns a map
-// where the keys are the JSON field names and the values are localized,
-// user-friendly error messages.
-//
-// If the struct is entirely valid and no errors occur, it returns nil.
-func (v *Validator) ValidateStruct(s interface{}) map[string]string {
-	errors := make(map[string]string)
-
+// If validation fails, it returns a structured *apperr.Error containing field-level
+// details, which can be safely bubbled up through the HTTP layer.
+func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 	err := v.engine.Struct(s)
-	if err != nil {
-		for _, err := range err.(goValidator.ValidationErrors) {
-			errors[err.Field()] = msgForTag(err.Tag(), err.Param())
-		}
+	if err == nil {
+		return nil
 	}
 
-	if len(errors) > 0 {
-		return errors
+	// Guard against initialization or type errors to prevent panics
+	var invalidValidationError *goValidator.InvalidValidationError
+	if errors.As(err, &invalidValidationError) {
+		return apperr.NewInternal("Invalid validation target provided", apperr.WithErr(err))
 	}
-	return nil
+
+	var validationErrors goValidator.ValidationErrors
+	if errors.As(err, &validationErrors) {
+		errsMap := make(map[string]string, len(validationErrors))
+		for _, fieldErr := range validationErrors {
+			errsMap[fieldErr.Field()] = msgForFieldError(fieldErr)
+		}
+
+		// Wrap the validation map cleanly into your domain error model
+		return apperr.NewInvalidInput(
+			"Validation failed for the request payload.",
+			apperr.WithDetails(errsMap),
+			apperr.WithErr(err),
+		)
+	}
+
+	return apperr.NewInternal("An unknown error occurred during validation", apperr.WithErr(err))
 }
 
-// msgForTag translates a raw validation tag and its optional parameter
-// into a localized, user-friendly error message string.
-//
-// It evaluates the failing validation rule (tag) against a predefined list
-// of supported constraints and dynamically inserts parameters (param)
-// for length-based validations like 'min' and 'max'.
-func msgForTag(tag string, param string) string {
-	switch tag {
+// msgForFieldError evaluates the field error and returns a contextual message.
+func msgForFieldError(err goValidator.FieldError) string {
+	switch err.Tag() {
 	case "required":
 		return "This field is required."
 	case "email":
 		return "Invalid email format."
-	case "min":
-		return fmt.Sprintf("Must be at least %s characters long.", param)
-	case "max":
-		return fmt.Sprintf("Cannot be longer than %s characters.", param)
 	case "alphanum":
 		return "Must contain only letters and numbers."
+	case "min":
+		return formatRangeMessage(err, "Must be at least %s characters long.", "Must be %s or greater.", "Must contain at least %s items.")
+	case "max":
+		return formatRangeMessage(err, "Cannot be longer than %s characters.", "Must be %s or less.", "Cannot contain more than %s items.")
 	default:
-		return "Invalid value."
+		return fmt.Sprintf("Invalid value for constraint: %s", err.Tag())
+	}
+}
+
+// formatRangeMessage differentiates between string length and numeric value boundaries.
+func formatRangeMessage(err goValidator.FieldError, stringTmpl, numericTmpl, collectionTmpl string) string {
+	switch err.Kind() {
+	case reflect.String:
+		return fmt.Sprintf(stringTmpl, err.Param())
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return fmt.Sprintf(collectionTmpl, err.Param())
+	default:
+		return fmt.Sprintf(numericTmpl, err.Param())
 	}
 }

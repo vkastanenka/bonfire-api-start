@@ -11,6 +11,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/validator"
 
 	// "bonfire-api/internal/handler"
 	// "bonfire-api/internal/repository"
@@ -60,7 +61,8 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	authHandler := &auth.AuthHandler{}
+	val := validator.New()
+	authHandler := auth.NewAuthHandler(val)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		// Unified developer experience: everything uses httpio.ToHTTP

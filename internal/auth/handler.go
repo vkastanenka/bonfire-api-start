@@ -2,14 +2,16 @@ package auth
 
 import (
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/validator"
 	"net/http"
 )
 
 type AuthHandler struct {
+	val *validator.Validator
 }
 
-func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{}
+func NewAuthHandler(val *validator.Validator) *AuthHandler {
+	return &AuthHandler{val: val}
 }
 
 // Ping confirms the auth routes are available
@@ -21,12 +23,25 @@ func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// RegisterData defines the input payload for creating a new user.
+type RegisterData struct {
+	Email       string  `json:"email" validate:"required,email,max=255"`
+	DisplayName *string `json:"displayName" validate:"omitempty,min=3,max=32"`
+	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
+	Password    string  `json:"password" validate:"required,min=8,max=100"`
+}
+
 // Register handles user registration
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var data RegisterData
 
 	// Decode incoming JSON body into the struct
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+		return err
+	}
+
+	// Validate request body
+	if err := h.val.ValidateStruct(&data); err != nil {
 		return err
 	}
 
@@ -37,14 +52,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 
 	return nil
 }
-
-// type AuthHandler struct {
-// 	val *validator.Validator
-// }
-
-// func NewAuthHandler(val *validator.Validator) *AuthHandler {
-// 	return &AuthHandler{val: val}
-// }
 
 // // Validate request body
 // if validationErrs := h.val.ValidateStruct(req); validationErrs != nil {
