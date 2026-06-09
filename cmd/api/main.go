@@ -4,9 +4,12 @@ import (
 	// "context"
 	"log"
 	"net/http"
+
 	// "os"
 
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/pkg/httpio"
+
 	// "bonfire-api/internal/handler"
 	// "bonfire-api/internal/repository"
 
@@ -56,7 +59,7 @@ func main() {
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/auth/ping", authHandler.Ping)
-		api.Post("/auth/register", authHandler.Register)
+		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
 	})
 
 	log.Println("Core API Server starting on :8080...")

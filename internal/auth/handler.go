@@ -15,23 +15,25 @@ func NewAuthHandler() *AuthHandler {
 // Ping confirms the auth routes are available
 func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"message": "User registered successfully!",
+		"status": "healthy",
 	})
 }
 
 // Register handles user registration
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var data RegisterData
 
 	// Decode incoming JSON body into the struct
-	if ok := httpio.DecodeJSON(w, r, &data); !ok {
-		return
+	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+		return err
 	}
 
 	// Respond
 	httpio.RespondJSON(w, http.StatusCreated, map[string]string{
 		"message": "User registered successfully!",
 	})
+
+	return nil
 }
 
 // type AuthHandler struct {
