@@ -4,9 +4,11 @@ import (
 	// "context"
 	"log"
 	"net/http"
+	"time"
 
 	// "os"
 
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/pkg/httpio"
 
@@ -48,12 +50,20 @@ func main() {
 
 	// 3. Setup router and inject our DB queries into the handler
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
 	// userHandler := &handler.UserHandler{
 	// 	DB: queries, // Injecting the database access layer
 	// }
+
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		httpio.MapErrorToResponse(w, r, apperr.NewNotFound("The requested API endpoint does not exist."))
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		httpio.MapErrorToResponse(w, r, apperr.NewInvalidInput("HTTP method not allowed for this endpoint."))
+	})
 
 	authHandler := &auth.AuthHandler{}
 
@@ -62,6 +72,14 @@ func main() {
 		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
 	})
 
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      r,
+		ReadTimeout:  5 * time.Second,   // Max time to read request headers/body
+		WriteTimeout: 10 * time.Second,  // Max time to write response
+		IdleTimeout:  120 * time.Second, // Max time to retain keep-alive connections
+	}
+
 	log.Println("Core API Server starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(srv.ListenAndServe())
 }

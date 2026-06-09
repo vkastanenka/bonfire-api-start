@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"mime"
 	"net/http"
 	"strings"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type ErrorResponse struct {
@@ -18,6 +22,14 @@ type ErrorResponse struct {
 
 // DecodeJSON reads the request body and parses it into the target destination.
 func DecodeJSON(w http.ResponseWriter, r *http.Request, data interface{}) error {
+	ct := r.Header.Get("Content-Type")
+	if ct != "" {
+		mediaType, _, err := mime.ParseMediaType(ct)
+		if err != nil || mediaType != "application/json" {
+			return apperr.NewInvalidInput("Content-Type header must be application/json.")
+		}
+	}
+
 	limitedBody := http.MaxBytesReader(w, r.Body, 1048576) // 1MB max body limit
 
 	dec := json.NewDecoder(limitedBody)
@@ -86,7 +98,7 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 // MapErrorToResponse inspects the error and writes the appropriate JSON payload.
-func MapErrorToResponse(w http.ResponseWriter, err error) {
+func MapErrorToResponse(w http.ResponseWriter, r *http.Request, err error) {
 	if err == nil {
 		return
 	}
@@ -98,6 +110,13 @@ func MapErrorToResponse(w http.ResponseWriter, err error) {
 	resp := ErrorResponse{
 		Error:   string(apperr.TypeInternal),
 		Message: "An unexpected internal error occurred.",
+	}
+
+	// 1. Contextual Telemetry: Extract the Request ID injected by middleware
+	// Chi's built-in middleware stores it in the request context under middleware.RequestIDKey
+	reqID := middleware.GetReqID(r.Context()) // Or use middleware.GetReqID(r.Context())
+	if reqID == "" {
+		reqID = "unknown"
 	}
 
 	// Unpack if it's our structured domain error
@@ -122,6 +141,15 @@ func MapErrorToResponse(w http.ResponseWriter, err error) {
 			resp.Message = "An unexpected internal error occurred." // Mask sensitive internals
 			resp.Details = nil                                      // Prevent leaking backend state
 		}
+
+		// 2. Log out-of-band domain errors with tracing context
+		// Notice how we print the underlying appErr.Err (the raw DB or system error) here,
+		// but the client only receives the sanitized resp.Message!
+		log.Printf("[ERROR] RequestID: %v | Type: %s | Msg: %s | InternalErr: %v",
+			reqID, appErr.Type, appErr.Message, appErr.Err)
+	} else {
+		// 3. Log completely untracked system failures or third-party panics
+		log.Printf("[CRITICAL] RequestID: %v | Unhandled Error: %v", reqID, err)
 	}
 
 	RespondJSON(w, statusCode, resp)
@@ -134,7 +162,7 @@ type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
 func ToHTTP(h HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := h(w, r); err != nil {
-			MapErrorToResponse(w, err)
+			MapErrorToResponse(w, r, err)
 		}
 	}
 }
