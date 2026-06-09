@@ -18,9 +18,10 @@ const (
 
 // AppError represents a structured domain error.
 type AppError struct {
-	Type    Type   `json:"-"`
-	Message string `json:"message"`
-	Err     error  `json:"-"`
+	Type    Type              `json:"-"`
+	Message string            `json:"message"`
+	Details map[string]string `json:"-"`
+	Err     error             `json:"-"`
 }
 
 func (e *AppError) Error() string {
@@ -34,19 +35,51 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-// Helper factory functions to clean up creation
-func NewInvalidInput(msg string, err error) *AppError {
-	return &AppError{Type: TypeInvalidInput, Message: msg, Err: err}
+// Option defines a function signature for configuring an AppError.
+type Option func(*AppError)
+
+// WithErr wraps an underlying cause error.
+func WithErr(err error) Option {
+	return func(e *AppError) {
+		e.Err = err
+	}
 }
 
-func NewInternal(msg string, err error) *AppError {
-	return &AppError{Type: TypeInternal, Message: msg, Err: err}
+// WithDetails attaches key-value metadata to the error.
+func WithDetails(details map[string]string) Option {
+	return func(e *AppError) {
+		e.Details = details
+	}
 }
 
-func NewNotFound(msg string, err error) *AppError {
-	return &AppError{Type: TypeNotFound, Message: msg, Err: err}
+// Generic factory to minimize boilerplate
+func newAppError(t Type, msg string, opts ...Option) *AppError {
+	err := &AppError{
+		Type:    t,
+		Message: msg,
+	}
+	for _, opt := range opts {
+		opt(err)
+	}
+	return err
 }
 
-func NewPayloadTooLarge(msg string, err error) *AppError {
-	return &AppError{Type: TypePayloadTooLarge, Message: msg, Err: err}
+// Public Factory Functions
+func NewInvalidInput(msg string, opts ...Option) *AppError {
+	return newAppError(TypeInvalidInput, msg, opts...)
+}
+func NewInternal(msg string, opts ...Option) *AppError {
+	return newAppError(TypeInternal, msg, opts...)
+}
+func NewNotFound(msg string, opts ...Option) *AppError {
+	return newAppError(TypeNotFound, msg, opts...)
+}
+func NewPayloadTooLarge(msg string, opts ...Option) *AppError {
+	return newAppError(TypePayloadTooLarge, msg, opts...)
+}
+func NewConflict(msg string, opts ...Option) *AppError {
+	return newAppError(TypeConflict, msg, opts...)
+}
+func NewUnauthenticated(msg string, opts ...Option) *AppError {
+	return newAppError(TypeUnauthenticated, msg, opts...)
 }
