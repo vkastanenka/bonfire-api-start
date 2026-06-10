@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/repository"
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -26,7 +27,9 @@ func NewAuthService(store Store) *AuthService {
 
 // Register runs the business logic for creating a new user account.
 func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
-	// Step 1. Execute fast-path availability pre-check
+	// Step 1. Credentials availability validation
+
+	// 1a. Execute fast-path availability pre-check
 	availability, err := s.store.ValidateUserCredentialsAvailability(ctx, repository.ValidateUserCredentialsAvailabilityParams{
 		Email:    data.Email,
 		Username: data.Username,
@@ -38,7 +41,7 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 		)
 	}
 
-	// Gather explicit field violations
+	// 1b. Gather explicit field violations
 	details := make(map[string]string)
 	if !availability.EmailAvailable {
 		details["email"] = "This email address is already registered."
@@ -47,7 +50,7 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 		details["username"] = "This username is already taken."
 	}
 
-	// If there are any violations, return a conflict error with structured details
+	// 1c. If there are any violations, return a conflict error with structured details
 	if len(details) > 0 {
 		return apperr.NewConflict(
 			"Registration failed due to unavailable credentials.",
@@ -65,8 +68,44 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 	}
 	passwordHash := string(hashedPasswordBytes)
 
-	// Suppress compiler warning for the next phase
-	_ = passwordHash
+	// Step 3: Execute DB transaction (CreateUser + CreateUserProfile)
+	// We pass the transaction block callback. Notice it uses the decoupled `qtx` (*repository.Queries) instance.
+	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
+		// 3a. Insert the core user record
+		userRow, err := qtx.CreateUser(ctx, repository.CreateUserParams{
+			Email:        data.Email,
+			Username:     data.Username,
+			PasswordHash: passwordHash,
+		})
+		if err != nil {
+			return err // Bubbles back to ExecTx to trigger an automatic Rollback
+		}
+
+		// Determine a fallback display name if none was provided in the request payload
+		displayName := data.Username
+		if data.DisplayName != nil && *data.DisplayName != "" {
+			displayName = *data.DisplayName
+		}
+
+		// 3b. Insert the accompanying profile record, linking it via the new user's ID
+		_, err = qtx.CreateUserProfile(ctx, repository.CreateUserProfileParams{
+			UserID:      userRow.ID,
+			DisplayName: pgtype.Text{String: displayName, Valid: true},
+		})
+		if err != nil {
+			return err // Bubbles back to ExecTx to trigger an automatic Rollback
+		}
+
+		return nil // Everything succeeded, ExecTx will attempt a Commit
+	})
+
+	// Handle transactional completion states
+	if txErr != nil {
+		return apperr.NewInternal(
+			"An unexpected error occurred while creating your account. Please try again.",
+			apperr.WithErr(txErr),
+		)
+	}
 
 	return nil
 }
