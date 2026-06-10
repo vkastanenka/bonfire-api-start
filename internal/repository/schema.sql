@@ -1,4 +1,7 @@
--- 1. Create a reusable function for updating timestamps
+-- 1. Enable the Case-Insensitive Text extension
+CREATE EXTENSION IF NOT EXISTS citext;
+
+-- 2. Create a reusable function for updating timestamps
 CREATE OR REPLACE FUNCTION update_modified_column()
 RETURNS TRIGGER AS $$
 BEGIN

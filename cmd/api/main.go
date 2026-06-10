@@ -9,9 +9,11 @@ import (
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/email-mock"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
+	"bonfire-api/internal/worker"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -43,13 +45,23 @@ func main() {
 		log.Fatalf("Database ping failed: %v\n", err)
 	}
 
-	// 1. Initialize the concrete SQLStore wrapper directly with the pool
-	store := repository.NewStore(dbPool)
+	// 1. Initialize storage and query wrappers
+	store := repository.NewStore(dbPool) // For services running atomic transactions
+	queries := repository.New(dbPool)    // For the background worker executing raw inline queries
 
-	// 2. Initialize Services and pass the store wrapper
+	// 2. Initialize email infrastructure dependencies
+	mailer := email.NewLogMockMailer()
+
+	// 3. Initialize Services and pass the store wrapper
 	authService := auth.NewAuthService(store)
 
-	// 3. Setup router
+	// 4. Instantiate and BOOT the background outbox processing engine
+	// Polls the database every 1 second, processing up to 10 events per batch
+	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
+	outboxWorker.Start()
+	defer outboxWorker.Stop() // Guarantees the ticker stops cleanly if main terminates
+
+	// Setup router
 	r := chi.NewRouter()
 
 	// Global Middlewares
