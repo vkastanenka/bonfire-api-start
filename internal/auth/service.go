@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Store interface {
@@ -21,8 +24,51 @@ func NewAuthService(store Store) *AuthService {
 	return &AuthService{store: store}
 }
 
-func (s *AuthService) Register() {
+// Register runs the business logic for creating a new user account.
+func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
+	// Step 1. Execute fast-path availability pre-check
+	availability, err := s.store.ValidateUserCredentialsAvailability(ctx, repository.ValidateUserCredentialsAvailabilityParams{
+		Email:    data.Email,
+		Username: data.Username,
+	})
+	if err != nil {
+		return apperr.NewInternal(
+			"An unexpected error occurred while verifying your account details.",
+			apperr.WithErr(err),
+		)
+	}
 
+	// Gather explicit field violations
+	details := make(map[string]string)
+	if !availability.EmailAvailable {
+		details["email"] = "This email address is already registered."
+	}
+	if !availability.UsernameAvailable {
+		details["username"] = "This username is already taken."
+	}
+
+	// If there are any violations, return a conflict error with structured details
+	if len(details) > 0 {
+		return apperr.NewConflict(
+			"Registration failed due to unavailable credentials.",
+			apperr.WithDetails(details),
+		)
+	}
+
+	// Step 2: Password Hashing (Securely inside the Service layer!)
+	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(data.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return apperr.NewInternal(
+			"An unexpected error occurred while securing your account password.",
+			apperr.WithErr(err),
+		)
+	}
+	passwordHash := string(hashedPasswordBytes)
+
+	// Suppress compiler warning for the next phase
+	_ = passwordHash
+
+	return nil
 }
 
 // func (s *AuthService) Register(ctx context.Context, data RegisterData) (pgtype.UUID, error) {

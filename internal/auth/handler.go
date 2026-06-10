@@ -38,6 +38,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Register user
+	if err := h.service.Register(r.Context(), data); err != nil {
+		return err
+	}
+
 	// Respond
 	httpio.RespondJSON(w, http.StatusCreated, map[string]string{
 		"message": "User registered successfully!",
