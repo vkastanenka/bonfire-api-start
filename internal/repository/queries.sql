@@ -1,5 +1,10 @@
 -- outbox_events
 
+-- name: CreateOutboxEvent :one
+INSERT INTO outbox_events (event_type, payload)
+VALUES ($1, $2)
+RETURNING id, event_type, payload, created_at, processed_at, last_error, attempts, max_attempts, next_attempt_at;
+
 -- name: GetUnprocessedOutboxEvents :many
 SELECT id, event_type, payload, attempts
 FROM outbox_events

@@ -11,6 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createOutboxEvent = `-- name: CreateOutboxEvent :one
+
+INSERT INTO outbox_events (event_type, payload)
+VALUES ($1, $2)
+RETURNING id, event_type, payload, created_at, processed_at, last_error, attempts, max_attempts, next_attempt_at
+`
+
+type CreateOutboxEventParams struct {
+	EventType string
+	Payload   []byte
+}
+
+type CreateOutboxEventRow struct {
+	ID            pgtype.UUID
+	EventType     string
+	Payload       []byte
+	CreatedAt     pgtype.Timestamptz
+	ProcessedAt   pgtype.Timestamptz
+	LastError     pgtype.Text
+	Attempts      int32
+	MaxAttempts   int32
+	NextAttemptAt pgtype.Timestamptz
+}
+
+// outbox_events
+func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) (CreateOutboxEventRow, error) {
+	row := q.db.QueryRow(ctx, createOutboxEvent, arg.EventType, arg.Payload)
+	var i CreateOutboxEventRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.CreatedAt,
+		&i.ProcessedAt,
+		&i.LastError,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (email, username, password_hash)
@@ -81,7 +123,6 @@ func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getUnprocessedOutboxEvents = `-- name: GetUnprocessedOutboxEvents :many
-
 SELECT id, event_type, payload, attempts
 FROM outbox_events
 WHERE processed_at IS NULL
@@ -99,7 +140,6 @@ type GetUnprocessedOutboxEventsRow struct {
 	Attempts  int32
 }
 
-// outbox_events
 func (q *Queries) GetUnprocessedOutboxEvents(ctx context.Context, limit int32) ([]GetUnprocessedOutboxEventsRow, error) {
 	rows, err := q.db.Query(ctx, getUnprocessedOutboxEvents, limit)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
@@ -13,7 +14,7 @@ type Store interface {
 	ValidateUserCredentialsAvailability(ctx context.Context, arg repository.ValidateUserCredentialsAvailabilityParams) (repository.ValidateUserCredentialsAvailabilityRow, error)
 	CreateUser(ctx context.Context, arg repository.CreateUserParams) (repository.CreateUserRow, error)
 	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
-
+	CreateOutboxEvent(ctx context.Context, arg repository.CreateOutboxEventParams) (repository.CreateOutboxEventRow, error)
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
@@ -94,6 +95,25 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 		})
 		if err != nil {
 			return err // Bubbles back to ExecTx to trigger an automatic Rollback
+		}
+
+		// 3c. Marshal the specialized payload map into a dynamic JSON byte slice
+		eventPayload := map[string]string{
+			"email":    data.Email,
+			"username": data.Username,
+		}
+		jsonBytes, err := json.Marshal(eventPayload)
+		if err != nil {
+			return err
+		}
+
+		// 3d. Append the operational notification intent directly inside the transaction log
+		_, err = qtx.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+			EventType: "user.registered",
+			Payload:   jsonBytes,
+		})
+		if err != nil {
+			return err
 		}
 
 		return nil // Everything succeeded, ExecTx will attempt a Commit
