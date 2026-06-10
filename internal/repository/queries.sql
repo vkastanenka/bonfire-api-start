@@ -30,11 +30,19 @@ DELETE FROM users
 WHERE id = $1;
 
 -- name: ValidateUserCredentialsAvailability :one
-SELECT 
-    COUNT(CASE WHEN email = @email THEN 1 END) = 0 AS email,
-    COUNT(CASE WHEN username = @username THEN 1 END) = 0 AS username
-FROM users
-WHERE deleted_at IS NULL;
+SELECT
+    NOT EXISTS (
+        SELECT 1
+        FROM users u
+        WHERE u.email = @email
+          AND u.deleted_at IS NULL
+    ) AS email_available,
+    NOT EXISTS (
+        SELECT 1
+        FROM users u
+        WHERE u.username = @username
+          AND u.deleted_at IS NULL
+    ) AS username_available;
 
 -- user_profiles
 

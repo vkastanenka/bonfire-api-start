@@ -1,22 +1,31 @@
 package auth
 
 import (
-	"bonfire-api/internal/domain"
+	"bonfire-api/internal/repository"
+	"context"
 )
 
+type Store interface {
+	ValidateUserCredentialsAvailability(ctx context.Context, arg repository.ValidateUserCredentialsAvailabilityParams) (repository.ValidateUserCredentialsAvailabilityRow, error)
+	CreateUser(ctx context.Context, arg repository.CreateUserParams) (repository.CreateUserRow, error)
+	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
+
+	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
+}
+
 type AuthService struct {
-	repo      domain.DBRepository
-	msgBroker domain.MessageBroker
+	store Store
 }
 
-func NewAuthService(repo domain.DBRepository, broker domain.MessageBroker) *AuthService {
-	return &AuthService{
-		repo:      repo,
-		msgBroker: broker,
-	}
+func NewAuthService(store Store) *AuthService {
+	return &AuthService{store: store}
 }
 
-// func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (pgtype.UUID, error) {
+func (s *AuthService) Register() {
+
+}
+
+// func (s *AuthService) Register(ctx context.Context, data RegisterData) (pgtype.UUID, error) {
 // 	// Hash password
 // 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 // 	if err != nil {
@@ -43,7 +52,7 @@ func NewAuthService(repo domain.DBRepository, broker domain.MessageBroker) *Auth
 // 		}
 
 // 		// Conditionally create the user profile if a DisplayName was provided
-// 		if req.DisplayName != nil {
+// 		if data.DisplayName != nil {
 // 			_, txErr = tx.CreateUserProfile(ctx, userID, req.DisplayName)
 // 			if txErr != nil {
 // 				return txErr

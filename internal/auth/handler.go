@@ -7,11 +7,12 @@ import (
 )
 
 type AuthHandler struct {
-	val *validator.Validator
+	service *AuthService
+	val     *validator.Validator
 }
 
-func NewAuthHandler(val *validator.Validator) *AuthHandler {
-	return &AuthHandler{val: val}
+func NewAuthHandler(service *AuthService, val *validator.Validator) *AuthHandler {
+	return &AuthHandler{service: service, val: val}
 }
 
 // Ping confirms the auth routes are available
@@ -21,14 +22,6 @@ func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
 	})
 
 	return nil
-}
-
-// RegisterData defines the input payload for creating a new user.
-type RegisterData struct {
-	Email       string  `json:"email" validate:"required,email,max=255"`
-	DisplayName *string `json:"displayName" validate:"omitempty,min=3,max=32"`
-	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
-	Password    string  `json:"password" validate:"required,min=8,max=100"`
 }
 
 // Register handles user registration
@@ -52,33 +45,3 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 
 	return nil
 }
-
-// // Validate request body
-// if validationErrs := h.val.ValidateStruct(req); validationErrs != nil {
-// 	httpio.RespondJSON(w, http.StatusUnprocessableEntity, validationErrs)
-// 	return
-// }
-
-// // Respond
-// httpio.RespondJSON(w, http.StatusCreated, map[string]string{
-// 	"message": "User registered successfully!",
-// })
-
-// err = h.auth.CreateUserAccount(r.Context(), req)
-// if err != nil {
-// 	w.Header().Set("Content-Type", "application/json")
-
-// 	// If your service returns a known error, handle it cleanly
-// 	switch err {
-// 	case ErrEmailTaken:
-// 		w.WriteHeader(http.StatusConflict) // 409 status code
-// 		json.NewEncoder(w).Encode(map[string]string{"email": "Email is already in use"})
-// 	case ErrUsernameTaken:
-// 		w.WriteHeader(http.StatusConflict) // 409 status code
-// 		json.NewEncoder(w).Encode(map[string]string{"username": "Username is already taken"})
-// 	default:
-// 		w.WriteHeader(http.StatusInternalServerError) // 500 status code
-// 		json.NewEncoder(w).Encode(map[string]string{"error": "An unexpected error occurred"})
-// 	}
-// 	return
-// }

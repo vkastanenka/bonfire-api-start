@@ -210,11 +210,19 @@ func (q *Queries) GetUserProfile(ctx context.Context, userID pgtype.UUID) (UserP
 }
 
 const validateUserCredentialsAvailability = `-- name: ValidateUserCredentialsAvailability :one
-SELECT 
-    COUNT(CASE WHEN email = $1 THEN 1 END) = 0 AS email,
-    COUNT(CASE WHEN username = $2 THEN 1 END) = 0 AS username
-FROM users
-WHERE deleted_at IS NULL
+SELECT
+    NOT EXISTS (
+        SELECT 1
+        FROM users u
+        WHERE u.email = $1
+          AND u.deleted_at IS NULL
+    ) AS email_available,
+    NOT EXISTS (
+        SELECT 1
+        FROM users u
+        WHERE u.username = $2
+          AND u.deleted_at IS NULL
+    ) AS username_available
 `
 
 type ValidateUserCredentialsAvailabilityParams struct {
@@ -223,13 +231,13 @@ type ValidateUserCredentialsAvailabilityParams struct {
 }
 
 type ValidateUserCredentialsAvailabilityRow struct {
-	Email    bool
-	Username bool
+	EmailAvailable    bool
+	UsernameAvailable bool
 }
 
 func (q *Queries) ValidateUserCredentialsAvailability(ctx context.Context, arg ValidateUserCredentialsAvailabilityParams) (ValidateUserCredentialsAvailabilityRow, error) {
 	row := q.db.QueryRow(ctx, validateUserCredentialsAvailability, arg.Email, arg.Username)
 	var i ValidateUserCredentialsAvailabilityRow
-	err := row.Scan(&i.Email, &i.Username)
+	err := row.Scan(&i.EmailAvailable, &i.UsernameAvailable)
 	return i, err
 }
