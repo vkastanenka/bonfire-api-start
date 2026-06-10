@@ -1,3 +1,28 @@
+-- outbox_events
+
+-- name: GetUnprocessedOutboxEvents :many
+SELECT id, event_type, payload, attempts
+FROM outbox_events
+WHERE processed_at IS NULL
+  AND attempts < max_attempts
+  AND next_attempt_at <= CURRENT_TIMESTAMP
+ORDER BY created_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED;
+
+-- name: MarkOutboxEventProcessed :exec
+UPDATE outbox_events
+SET processed_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: RecordOutboxEventFailure :exec
+UPDATE outbox_events
+SET 
+    attempts = attempts + 1,
+    last_error = $2,
+    next_attempt_at = $3
+WHERE id = $1;
+
 -- users
 
 -- name: CreateUser :one

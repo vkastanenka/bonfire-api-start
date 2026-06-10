@@ -7,6 +7,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- outbox_events
+
+CREATE TABLE outbox_events (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+
+    event_type VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    last_error TEXT DEFAULT NULL,
+    
+    attempts INT DEFAULT 0 NOT NULL,
+    max_attempts INT DEFAULT 5 NOT NULL,
+    next_attempt_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+
+    CONSTRAINT check_attempts_ceiling CHECK (attempts <= max_attempts)
+);
+
+CREATE TRIGGER update_outbox_events_modtime
+    BEFORE UPDATE ON outbox_events
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
 -- users
 
 CREATE TABLE users (
@@ -31,7 +56,7 @@ CREATE TRIGGER update_users_modtime
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
--- user profiles
+-- user_profiles
 
 CREATE TABLE user_profiles (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

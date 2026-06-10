@@ -80,6 +80,51 @@ func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const getUnprocessedOutboxEvents = `-- name: GetUnprocessedOutboxEvents :many
+
+SELECT id, event_type, payload, attempts
+FROM outbox_events
+WHERE processed_at IS NULL
+  AND attempts < max_attempts
+  AND next_attempt_at <= CURRENT_TIMESTAMP
+ORDER BY created_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+type GetUnprocessedOutboxEventsRow struct {
+	ID        pgtype.UUID
+	EventType string
+	Payload   []byte
+	Attempts  int32
+}
+
+// outbox_events
+func (q *Queries) GetUnprocessedOutboxEvents(ctx context.Context, limit int32) ([]GetUnprocessedOutboxEventsRow, error) {
+	rows, err := q.db.Query(ctx, getUnprocessedOutboxEvents, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUnprocessedOutboxEventsRow
+	for rows.Next() {
+		var i GetUnprocessedOutboxEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.Payload,
+			&i.Attempts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserAuthCredentials = `-- name: GetUserAuthCredentials :one
 SELECT id, password_hash
 FROM users 
@@ -207,6 +252,37 @@ func (q *Queries) GetUserProfile(ctx context.Context, userID pgtype.UUID) (UserP
 		&i.DisplayName,
 	)
 	return i, err
+}
+
+const markOutboxEventProcessed = `-- name: MarkOutboxEventProcessed :exec
+UPDATE outbox_events
+SET processed_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) MarkOutboxEventProcessed(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, markOutboxEventProcessed, id)
+	return err
+}
+
+const recordOutboxEventFailure = `-- name: RecordOutboxEventFailure :exec
+UPDATE outbox_events
+SET 
+    attempts = attempts + 1,
+    last_error = $2,
+    next_attempt_at = $3
+WHERE id = $1
+`
+
+type RecordOutboxEventFailureParams struct {
+	ID            pgtype.UUID
+	LastError     pgtype.Text
+	NextAttemptAt pgtype.Timestamptz
+}
+
+func (q *Queries) RecordOutboxEventFailure(ctx context.Context, arg RecordOutboxEventFailureParams) error {
+	_, err := q.db.Exec(ctx, recordOutboxEventFailure, arg.ID, arg.LastError, arg.NextAttemptAt)
+	return err
 }
 
 const validateUserCredentialsAvailability = `-- name: ValidateUserCredentialsAvailability :one
