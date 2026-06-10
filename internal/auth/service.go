@@ -4,7 +4,9 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
@@ -15,6 +17,7 @@ type Store interface {
 	CreateUser(ctx context.Context, arg repository.CreateUserParams) (repository.CreateUserRow, error)
 	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
 	CreateOutboxEvent(ctx context.Context, arg repository.CreateOutboxEventParams) (repository.CreateOutboxEventRow, error)
+	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
@@ -124,6 +127,31 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 		return apperr.NewInternal(
 			"An unexpected error occurred while creating your account. Please try again.",
 			apperr.WithErr(txErr),
+		)
+	}
+
+	return nil
+}
+
+// Login
+func (s *AuthService) Login(ctx context.Context, data LoginData) error {
+	// 1. Get the user from the database by email
+	// user, err := s.store.GetUserByEmail(ctx, data.Email)
+	_, err := s.store.GetUserByEmail(ctx, data.Email)
+	if err != nil {
+		// User not found
+		if errors.Is(err, sql.ErrNoRows) {
+			details := map[string]string{
+				"email":    "Invalid credentials.",
+				"password": "Invalid credentials.",
+			}
+			return apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(details))
+		}
+
+		// Internal server error
+		return apperr.NewInternal(
+			"An unexpected error occurred while verifying your account details.",
+			apperr.WithErr(err),
 		)
 	}
 

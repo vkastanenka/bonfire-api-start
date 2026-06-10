@@ -50,3 +50,30 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 
 	return nil
 }
+
+// Login handles user login
+func (h *AuthHandler) LoginData(w http.ResponseWriter, r *http.Request) error {
+	var data LoginData
+
+	// Decode incoming JSON body into the struct
+	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+		return err
+	}
+
+	// Validate request body
+	if err := h.val.ValidateStruct(&data); err != nil {
+		return err
+	}
+
+	// Login user
+	if err := h.service.Login(r.Context(), data); err != nil {
+		return err
+	}
+
+	// Respond
+	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"message": "User login successful!",
+	})
+
+	return nil
+}
