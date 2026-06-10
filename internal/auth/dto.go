@@ -7,8 +7,3 @@ type RegisterData struct {
 	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
 	Password    string  `json:"password" validate:"required,min=8,max=100"`
 }
-
-// // AuthResponse defines the standard payload sent back to successful clients.
-// type AuthResponse struct {
-// 	Token string `json:"token"`
-// }
