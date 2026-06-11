@@ -102,6 +102,12 @@ SET verified_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND verified_at IS NULL;
 
+-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
 -- user_profiles
 
 -- name: CreateUserProfile :one

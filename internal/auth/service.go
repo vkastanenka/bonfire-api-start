@@ -25,14 +25,16 @@ type Store interface {
 	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
 	GetUserAuthCredentials(ctx context.Context, email string) (repository.GetUserAuthCredentialsRow, error)
 	UpdateSessionRefreshToken(ctx context.Context, arg repository.UpdateSessionRefreshTokenParams) error
+	UpdateUserPassword(ctx context.Context, arg repository.UpdateUserPasswordParams) error
 	VerifyUserEmail(ctx context.Context, arg repository.VerifyUserEmailParams) error
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
 type TokenConfig struct {
-	AccessSecret  string
-	RefreshSecret string
-	VerificationSecret string
+	AccessSecret        string
+	RefreshSecret       string
+	VerificationSecret  string
+	PasswordResetSecret string
 }
 
 type AuthService struct {
@@ -150,26 +152,26 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 }
 
 func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
-    // 1. Validate the stateless token structure
-    claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.VerificationSecret)
-    if err != nil {
-        return apperr.NewUnauthenticated("The verification link is invalid or has expired.")
-    }
+	// 1. Validate the stateless token structure
+	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.VerificationSecret)
+	if err != nil {
+		return apperr.NewUnauthenticated("The verification link is invalid or has expired.")
+	}
 
-    var pgUserID pgtype.UUID
-    pgUserID.Bytes = claims.UserID
-    pgUserID.Valid = true
+	var pgUserID pgtype.UUID
+	pgUserID.Bytes = claims.UserID
+	pgUserID.Valid = true
 
-    // 2. Perform safe, atomic bitwise alteration
-    err = s.store.VerifyUserEmail(ctx, repository.VerifyUserEmailParams{
-        ID:    pgUserID,
-        Flags: int64(UserFlagVerified), // Merges bit value 1 via bitwise OR
-    })
-    if err != nil {
-        return apperr.NewInternal("Failed to update verification flags.", apperr.WithErr(err))
-    }
+	// 2. Perform safe, atomic bitwise alteration
+	err = s.store.VerifyUserEmail(ctx, repository.VerifyUserEmailParams{
+		ID:    pgUserID,
+		Flags: int64(UserFlagVerified), // Merges bit value 1 via bitwise OR
+	})
+	if err != nil {
+		return apperr.NewInternal("Failed to update verification flags.", apperr.WithErr(err))
+	}
 
-    return nil
+	return nil
 }
 
 // Login
@@ -307,9 +309,56 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 	}, nil
 }
 
-// TODO: ForgotPassword
+func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
+	user, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		// If not found, return nil (don't leak user existence)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return apperr.NewInternal("System error", apperr.WithErr(err))
+	}
 
-// TODO: ResetPassword
+	// Generate a short-lived token (15 mins) specifically for resetting
+	userID := uuid.UUID(user.ID.Bytes)
+	resetToken, err := token.GenerateJWT(userID, s.tokenConfig.PasswordResetSecret, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+
+	// Create Outbox Event
+	jsonBytes, _ := json.Marshal(map[string]string{"email": email, "token": resetToken})
+	_, err = s.store.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+		EventType: "user.forgot_password",
+		Payload:   jsonBytes,
+	})
+	return err
+}
+
+func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPassword string) error {
+	// Verify the token using the PasswordResetSecret
+	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
+	if err != nil {
+		return apperr.NewUnauthenticated("Invalid or expired reset token.")
+	}
+
+	// Hash the new password
+	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return apperr.NewInternal("Failed to hash password", apperr.WithErr(err))
+	}
+
+	// Execute update
+	err = s.store.UpdateUserPassword(ctx, repository.UpdateUserPasswordParams{
+		ID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
+		PasswordHash: string(hashedPasswordBytes),
+	})
+	if err != nil {
+		return apperr.NewInternal("Failed to update password", apperr.WithErr(err))
+	}
+
+	return nil
+}
 
 // TODO: ResendUserVerification
 

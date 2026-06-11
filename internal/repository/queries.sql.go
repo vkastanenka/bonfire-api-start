@@ -438,6 +438,23 @@ func (q *Queries) UpdateSessionRefreshToken(ctx context.Context, arg UpdateSessi
 	return err
 }
 
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           pgtype.UUID
+	PasswordHash string
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
 const validateUserCredentialsAvailability = `-- name: ValidateUserCredentialsAvailability :one
 SELECT
     NOT EXISTS (

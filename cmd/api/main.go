@@ -49,14 +49,16 @@ func main() {
 	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
 	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
 	verificationSecret := os.Getenv("JWT_VERIFICATION_SECRET")
+	passwordResetSecret := os.Getenv("JWT_PASSWORD_RESET_SECRET")
 	if accessSecret == "" || refreshSecret == "" {
 		log.Fatal("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET environment variables are required")
 	}
 
 	tokenConfig := auth.TokenConfig{
-		AccessSecret:       accessSecret,
-		RefreshSecret:      refreshSecret,
-		VerificationSecret: verificationSecret,
+		AccessSecret:        accessSecret,
+		RefreshSecret:       refreshSecret,
+		VerificationSecret:  verificationSecret,
+		PasswordResetSecret: passwordResetSecret,
 	}
 
 	// 1. Initialize storage and query wrappers
@@ -121,6 +123,8 @@ func main() {
 		api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
 		api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
 		api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
+		api.Post("/auth/forgot-password", httpio.ToHTTP(authHandler.ForgotPassword))
+		api.Post("/auth/reset-password", httpio.ToHTTP(authHandler.ResetPassword))
 
 		// ----------------------------------------------------
 		// PROTECTED ROUTES (Valid Access Token required)

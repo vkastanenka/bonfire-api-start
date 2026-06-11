@@ -13,6 +13,7 @@ import (
 // Mailer abstracts our email delivery engine (e.g., SendGrid, MockMailer, AWS SES)
 type Mailer interface {
 	SendWelcomeEmail(ctx context.Context, email string, username string, token string) error
+	SendPasswordResetEmail(ctx context.Context, email string, resetToken string) error
 }
 
 type OutboxWorker struct {
@@ -89,6 +90,19 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.GetUnp
 		}
 
 		executionErr = w.mailer.SendWelcomeEmail(ctx, payload.Email, payload.Username, payload.Token)
+
+	case "user.forgot_password":
+		var payload struct {
+			Email string `json:"email"`
+			Token string `json:"token"`
+		}
+
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			w.handleFailure(ctx, event, err, true)
+			return
+		}
+
+		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
 
 	default:
 		log.Printf("[WORKER WARN] Unhandled event type dropped: %s", event.EventType)

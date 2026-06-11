@@ -75,3 +75,20 @@ func (m *ResendMailer) SendWelcomeEmail(ctx context.Context, emailAddress, usern
 	log.Printf("[RESEND] Successfully dispatched to %s (ID: %s)", recipient, resp.Id)
 	return nil
 }
+
+func (m *ResendMailer) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, resetToken)
+
+	// Build your HTML template here, similar to your Welcome Email
+	htmlBody := fmt.Sprintf(`... Link: %s ...`, resetLink)
+
+	params := &resend.SendEmailRequest{
+		From:    m.fromAddress,
+		To:      []string{email},
+		Subject: "Reset your Bonfire password",
+		Html:    htmlBody,
+	}
+
+	_, err := m.client.Emails.Send(params)
+	return err
+}
