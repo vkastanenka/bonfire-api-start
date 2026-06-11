@@ -129,3 +129,19 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 
 	return nil
 }
+
+// ----------------------------------------------------
+// PROTECTED ROUTES (Valid Access Token required) example
+// ----------------------------------------------------
+// func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
+//     // 1. Pull the user ID out of the context
+//     userID, err := auth.GetUserIDFromContext(r.Context())
+//     if err != nil {
+//         httpio.RespondJSON(w, http.StatusInternalServerError, map[string]string{"error": "Context failure"})
+//         return
+//     }
+
+//     // 2. Fetch data specifically for this user
+//     // userProfile, err := h.service.GetUserProfileByID(r.Context(), userID)
+//     // ...
+// }

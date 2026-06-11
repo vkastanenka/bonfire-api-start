@@ -38,8 +38,8 @@ type AuthService struct {
 	tokenConfig TokenConfig
 }
 
-func NewAuthService(store Store) *AuthService {
-	return &AuthService{store: store}
+func NewAuthService(store Store, tokenConfig TokenConfig) *AuthService {
+	return &AuthService{store: store, tokenConfig: tokenConfig}
 }
 
 // Register runs the business logic for creating a new user account.

@@ -45,6 +45,18 @@ func main() {
 		log.Fatalf("Database ping failed: %v\n", err)
 	}
 
+	// Load JWT Secrets
+	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
+	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
+	if accessSecret == "" || refreshSecret == "" {
+		log.Fatal("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET environment variables are required")
+	}
+
+	tokenConfig := auth.TokenConfig{
+		AccessSecret:  accessSecret,
+		RefreshSecret: refreshSecret,
+	}
+
 	// 1. Initialize storage and query wrappers
 	store := repository.NewStore(dbPool) // For services running atomic transactions
 	queries := repository.New(dbPool)    // For the background worker executing raw inline queries
@@ -53,7 +65,7 @@ func main() {
 	mailer := email.NewLogMockMailer()
 
 	// 3. Initialize Services and pass the store wrapper
-	authService := auth.NewAuthService(store)
+	authService := auth.NewAuthService(store, tokenConfig)
 
 	// 4. Instantiate and BOOT the background outbox processing engine
 	// Polls the database every 1 second, processing up to 10 events per batch
@@ -74,8 +86,27 @@ func main() {
 	authHandler := auth.NewAuthHandler(authService, val)
 
 	r.Route("/api/v1", func(api chi.Router) {
+		// ----------------------------------------------------
+		// PUBLIC ROUTES (No token required)
+		// ----------------------------------------------------
 		api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
 		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
+		api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
+		api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
+
+		// ----------------------------------------------------
+		// PROTECTED ROUTES (Valid Access Token required)
+		// ----------------------------------------------------
+		api.Group(func(protected chi.Router) {
+			// Apply the authorization middleware to EVERYTHING in this group
+			protected.Use(auth.RequireAuth(accessSecret))
+
+			// Example: A user requesting their own profile
+			// protected.Get("/users/me", httpio.ToHTTP(userHandler.GetProfile))
+
+			// Example: Updating profile details
+			// protected.Put("/users/me", httpio.ToHTTP(userHandler.UpdateProfile))
+		})
 	})
 
 	// Chi-idiomatic global fallback for missing endpoints (404)
