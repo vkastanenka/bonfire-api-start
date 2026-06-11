@@ -21,6 +21,7 @@ type Store interface {
 	CreateSession(ctx context.Context, arg repository.CreateSessionParams) (repository.CreateSessionRow, error)
 	CreateUser(ctx context.Context, arg repository.CreateUserParams) (repository.CreateUserRow, error)
 	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
+	GetSession(ctx context.Context, arg string) (repository.GetSessionRow, error)
 	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
 	GetUserAuthCredentials(ctx context.Context, email string) (repository.GetUserAuthCredentialsRow, error)
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
@@ -210,4 +211,48 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 	}, nil
+}
+
+// RefreshAccessToken validates the refresh token and issues a new access token.
+func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshToken string) (string, error) {
+	// 1. Cryptographically verify the refresh token
+	claims, err := token.VerifyJWT(refreshToken, s.tokenConfig.RefreshSecret)
+	if err != nil {
+		return "", apperr.NewUnauthenticated("Invalid or expired refresh token.")
+	}
+
+	// 2. Look up the session in the database
+	session, err := s.store.GetSession(ctx, refreshToken)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", apperr.NewUnauthenticated("Session not found.")
+		}
+		return "", apperr.NewInternal("An unexpected error occurred while validating your session.", apperr.WithErr(err))
+	}
+
+	// 3. Validate the session state
+	if session.IsBlocked {
+		return "", apperr.NewUnauthenticated("Your session has been blocked.")
+	}
+
+	// Security check: Ensure the database user ID matches the token's payload user ID
+	if claims.UserID != uuid.UUID(session.UserID.Bytes) {
+		return "", apperr.NewUnauthenticated("Session identity mismatch.")
+	}
+
+	// Check database-level expiration as a fallback (JWT expiry is also checked in VerifyJWT)
+	if time.Now().After(session.ExpiresAt.Time) {
+		return "", apperr.NewUnauthenticated("Session expired. Please log in again.")
+	}
+
+	// 4. Issue a fresh Access Token (15 minutes)
+	accessDuration := 15 * time.Minute
+	userID := uuid.UUID(session.UserID.Bytes)
+
+	newAccessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
+	if err != nil {
+		return "", apperr.NewInternal("Failed to generate new access token.", apperr.WithErr(err))
+	}
+
+	return newAccessToken, nil
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/validator"
 	"net/http"
@@ -53,7 +54,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Login handles user login
-func (h *AuthHandler) LoginData(w http.ResponseWriter, r *http.Request) error {
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	var data LoginData
 
 	// Decode incoming JSON body into the struct
@@ -91,6 +92,29 @@ func (h *AuthHandler) LoginData(w http.ResponseWriter, r *http.Request) error {
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
 		"message":      "User login successful!",
 		"access_token": tokens["access_token"],
+	})
+
+	return nil
+}
+
+// RefreshToken handles requests to issue a new access token
+func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error {
+	// 1. Extract the refresh token from the HttpOnly cookie
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		// If the cookie is missing, the user is unauthenticated
+		return apperr.NewUnauthenticated("Missing refresh token. Please log in.")
+	}
+
+	// 2. Process the refresh request
+	newAccessToken, err := h.service.RefreshAccessToken(r.Context(), cookie.Value)
+	if err != nil {
+		return err // Let your centralized error middleware handle this
+	}
+
+	// 3. Respond with the fresh access token
+	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"access_token": newAccessToken,
 	})
 
 	return nil
