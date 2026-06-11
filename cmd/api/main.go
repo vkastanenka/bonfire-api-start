@@ -48,13 +48,15 @@ func main() {
 	// Load JWT Secrets
 	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
 	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
+	verificationSecret := os.Getenv("JWT_VERIFICATION_SECRET")
 	if accessSecret == "" || refreshSecret == "" {
 		log.Fatal("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET environment variables are required")
 	}
 
 	tokenConfig := auth.TokenConfig{
-		AccessSecret:  accessSecret,
-		RefreshSecret: refreshSecret,
+		AccessSecret:       accessSecret,
+		RefreshSecret:      refreshSecret,
+		VerificationSecret: verificationSecret,
 	}
 
 	// 1. Initialize storage and query wrappers
@@ -91,6 +93,7 @@ func main() {
 		// ----------------------------------------------------
 		api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
 		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
+		api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
 		api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
 		api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
 
@@ -101,11 +104,19 @@ func main() {
 			// Apply the authorization middleware to EVERYTHING in this group
 			protected.Use(auth.RequireAuth(accessSecret))
 
-			// Example: A user requesting their own profile
+			// // Unverified users CAN access these:
 			// protected.Get("/users/me", httpio.ToHTTP(userHandler.GetProfile))
-
-			// Example: Updating profile details
 			// protected.Put("/users/me", httpio.ToHTTP(userHandler.UpdateProfile))
+
+			// 2. Strict Verification Sub-Group
+			protected.Group(func(verified chi.Router) {
+				// Only verified users pass this line
+				verified.Use(auth.RequireVerified())
+
+				// // Unverified users CANNOT access these (they get 403 Forbidden):
+				// verified.Post("/guilds", httpio.ToHTTP(guildHandler.CreateGuild))
+				// verified.Post("/messages", httpio.ToHTTP(messageHandler.SendMessage))
+			})
 		})
 	})
 

@@ -53,6 +53,30 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// VerifyEmail handles incoming verification tokens sent from the frontend client.
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
+	var req VerifyEmailData
+
+	if err := httpio.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+
+	if err := h.val.ValidateStruct(&req); err != nil {
+		return err
+	}
+
+	// Pass the token to the service method you just wrote
+	if err := h.service.VerifyEmail(r.Context(), req.Token); err != nil {
+		return err
+	}
+
+	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"message": "Your email address has been successfully verified!",
+	})
+
+	return nil
+}
+
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	var data LoginData

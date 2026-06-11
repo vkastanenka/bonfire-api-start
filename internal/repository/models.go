@@ -42,6 +42,7 @@ type User struct {
 	Email        string
 	Username     string
 	PasswordHash string
+	Flags        int64
 }
 
 type UserProfile struct {

@@ -69,7 +69,9 @@ CREATE TABLE users (
 
     email CITEXT NOT NULL UNIQUE CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     username CITEXT NOT NULL UNIQUE CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
-    password_hash VARCHAR(255) NOT NULL
+    password_hash VARCHAR(255) NOT NULL,
+
+    flags BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE UNIQUE INDEX users_active_email_idx ON users (email) WHERE deleted_at IS NULL;

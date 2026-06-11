@@ -25,12 +25,14 @@ type Store interface {
 	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
 	GetUserAuthCredentials(ctx context.Context, email string) (repository.GetUserAuthCredentialsRow, error)
 	UpdateSessionRefreshToken(ctx context.Context, arg repository.UpdateSessionRefreshTokenParams) error
+	VerifyUserEmail(ctx context.Context, arg repository.VerifyUserEmailParams) error
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
 type TokenConfig struct {
 	AccessSecret  string
 	RefreshSecret string
+	VerificationSecret string
 }
 
 type AuthService struct {
@@ -93,6 +95,7 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 			Email:        data.Email,
 			Username:     data.Username,
 			PasswordHash: passwordHash,
+			Flags:        int64(UserFlagNone),
 		})
 		if err != nil {
 			return err // Bubbles back to ExecTx to trigger an automatic Rollback
@@ -144,6 +147,29 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 	}
 
 	return nil
+}
+
+func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
+    // 1. Validate the stateless token structure
+    claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.VerificationSecret)
+    if err != nil {
+        return apperr.NewUnauthenticated("The verification link is invalid or has expired.")
+    }
+
+    var pgUserID pgtype.UUID
+    pgUserID.Bytes = claims.UserID
+    pgUserID.Valid = true
+
+    // 2. Perform safe, atomic bitwise alteration
+    err = s.store.VerifyUserEmail(ctx, repository.VerifyUserEmailParams{
+        ID:    pgUserID,
+        Flags: int64(UserFlagVerified), // Merges bit value 1 via bitwise OR
+    })
+    if err != nil {
+        return apperr.NewInternal("Failed to update verification flags.", apperr.WithErr(err))
+    }
+
+    return nil
 }
 
 // Login

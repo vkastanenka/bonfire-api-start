@@ -8,6 +8,10 @@ type RegisterData struct {
 	Password    string  `json:"password" validate:"required,min=8,max=100"`
 }
 
+type VerifyEmailData struct {
+	Token string `json:"token" validate:"required"`
+}
+
 // LoginData defines the input payload for logging in a user.
 type LoginData struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`

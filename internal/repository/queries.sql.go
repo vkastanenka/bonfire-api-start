@@ -109,15 +109,16 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (C
 
 const createUser = `-- name: CreateUser :one
 
-INSERT INTO users (email, username, password_hash)
-VALUES ($1, $2, $3)
-RETURNING id, created_at, email, username
+INSERT INTO users (email, username, password_hash, flags)
+VALUES ($1, $2, $3, $4)
+RETURNING id, created_at, email, username, flags
 `
 
 type CreateUserParams struct {
 	Email        string
 	Username     string
 	PasswordHash string
+	Flags        int64
 }
 
 type CreateUserRow struct {
@@ -125,17 +126,24 @@ type CreateUserRow struct {
 	CreatedAt pgtype.Timestamptz
 	Email     string
 	Username  string
+	Flags     int64
 }
 
 // users
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Email, arg.Username, arg.PasswordHash)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.Email,
+		arg.Username,
+		arg.PasswordHash,
+		arg.Flags,
+	)
 	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
 		&i.Email,
 		&i.Username,
+		&i.Flags,
 	)
 	return i, err
 }
@@ -461,4 +469,22 @@ func (q *Queries) ValidateUserCredentialsAvailability(ctx context.Context, arg V
 	var i ValidateUserCredentialsAvailabilityRow
 	err := row.Scan(&i.EmailAvailable, &i.UsernameAvailable)
 	return i, err
+}
+
+const verifyUserEmail = `-- name: VerifyUserEmail :exec
+UPDATE users
+SET verified_at = CURRENT_TIMESTAMP,
+    flags = flags | $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND verified_at IS NULL
+`
+
+type VerifyUserEmailParams struct {
+	ID    pgtype.UUID
+	Flags int64
+}
+
+func (q *Queries) VerifyUserEmail(ctx context.Context, arg VerifyUserEmailParams) error {
+	_, err := q.db.Exec(ctx, verifyUserEmail, arg.ID, arg.Flags)
+	return err
 }

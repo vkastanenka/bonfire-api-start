@@ -10,8 +10,9 @@ import (
 )
 
 type Claims struct {
-	UserID uuid.UUID `json:"user_id"`
 	jwt.RegisteredClaims
+	UserID uuid.UUID `json:"user_id"`
+	Flags  int64     `json:"flags"`
 }
 
 // GenerateJWT creates a new token for a given user and duration

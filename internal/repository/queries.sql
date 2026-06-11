@@ -52,9 +52,9 @@ WHERE id = $1;
 -- users
 
 -- name: CreateUser :one
-INSERT INTO users (email, username, password_hash)
-VALUES ($1, $2, $3)
-RETURNING id, created_at, email, username;
+INSERT INTO users (email, username, password_hash, flags)
+VALUES ($1, $2, $3, $4)
+RETURNING id, created_at, email, username, flags;
 
 -- name: GetUserByID :one
 SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
@@ -94,6 +94,13 @@ SELECT
         WHERE u.username = @username
           AND u.deleted_at IS NULL
     ) AS username_available;
+
+-- name: VerifyUserEmail :exec
+UPDATE users
+SET verified_at = CURRENT_TIMESTAMP,
+    flags = flags | $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND verified_at IS NULL;
 
 -- user_profiles
 
