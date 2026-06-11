@@ -154,6 +154,10 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+// TODO: ForgotPassword
+
+// TODO: ResetPassword
+
 // ----------------------------------------------------
 // PROTECTED ROUTES (Valid Access Token required) example
 // ----------------------------------------------------

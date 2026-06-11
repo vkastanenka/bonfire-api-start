@@ -306,3 +306,17 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 		"refresh_token": newRefreshToken,
 	}, nil
 }
+
+// TODO: ForgotPassword
+
+// TODO: ResetPassword
+
+// TODO: ResendUserVerification
+
+// TODO: 2FA
+
+// TODO: DeviceVerification
+
+// TODO: Handle phones
+
+// TODO: Handle QR codes
