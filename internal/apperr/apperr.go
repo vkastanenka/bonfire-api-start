@@ -15,6 +15,7 @@ const (
 	TypeConflict         Type = "CONFLICT"
 	TypeUnauthenticated  Type = "UNAUTHENTICATED"
 	TypeMethodNotAllowed Type = "METHOD_NOT_ALLOWED"
+	TypeTooManyRequests  Type = "TOO_MANY_REQUESTS"
 )
 
 // Error represents a structured domain error.
@@ -95,4 +96,8 @@ func NewUnauthenticated(msg string, opts ...Option) *Error {
 
 func NewMethodNotAllowed(msg string, opts ...Option) *Error {
 	return newError(TypeMethodNotAllowed, msg, opts...)
+}
+
+func NewTooManyRequests(msg string, opts ...Option) *Error {
+	return newError(TypeTooManyRequests, msg, opts...)
 }

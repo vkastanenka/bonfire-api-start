@@ -279,19 +279,20 @@ func (q *Queries) GetUserAuthCredentials(ctx context.Context, email string) (Get
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
+SELECT id, created_at, updated_at, deleted_at, verified_at, last_verification_sent_at, email, username
 FROM users 
 WHERE email = $1 LIMIT 1
 `
 
 type GetUserByEmailRow struct {
-	ID         pgtype.UUID
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
-	DeletedAt  pgtype.Timestamptz
-	VerifiedAt pgtype.Timestamptz
-	Email      string
-	Username   string
+	ID                     pgtype.UUID
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+	DeletedAt              pgtype.Timestamptz
+	VerifiedAt             pgtype.Timestamptz
+	LastVerificationSentAt pgtype.Timestamptz
+	Email                  string
+	Username               string
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
@@ -303,6 +304,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
 		&i.Email,
 		&i.Username,
 	)
@@ -435,6 +437,17 @@ type UpdateSessionRefreshTokenParams struct {
 
 func (q *Queries) UpdateSessionRefreshToken(ctx context.Context, arg UpdateSessionRefreshTokenParams) error {
 	_, err := q.db.Exec(ctx, updateSessionRefreshToken, arg.ID, arg.RefreshToken, arg.ExpiresAt)
+	return err
+}
+
+const updateUserLastVerificationSent = `-- name: UpdateUserLastVerificationSent :exec
+UPDATE users
+SET last_verification_sent_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+func (q *Queries) UpdateUserLastVerificationSent(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, updateUserLastVerificationSent, id)
 	return err
 }
 

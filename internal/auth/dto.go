@@ -12,6 +12,10 @@ type VerifyEmailData struct {
 	Token string `json:"token" validate:"required"`
 }
 
+type ResendVerificationEmailData struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
 // LoginData defines the input payload for logging in a user.
 type LoginData struct {
 	Email    string `json:"email" validate:"required,email,max=255"`

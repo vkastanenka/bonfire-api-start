@@ -62,7 +62,7 @@ FROM users
 WHERE id = $1 LIMIT 1;
 
 -- name: GetUserByEmail :one
-SELECT id, created_at, updated_at, deleted_at, verified_at, email, username
+SELECT id, created_at, updated_at, deleted_at, verified_at, last_verification_sent_at, email, username
 FROM users 
 WHERE email = $1 LIMIT 1;
 
@@ -106,6 +106,11 @@ WHERE id = $1 AND verified_at IS NULL;
 UPDATE users
 SET password_hash = $2,
     updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: UpdateUserLastVerificationSent :exec
+UPDATE users
+SET last_verification_sent_at = CURRENT_TIMESTAMP
 WHERE id = $1;
 
 -- user_profiles

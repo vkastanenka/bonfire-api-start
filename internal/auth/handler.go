@@ -77,6 +77,30 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
+func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
+	var data ResendVerificationEmailData
+
+	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+		return err
+	}
+
+	if err := h.val.ValidateStruct(&data); err != nil {
+		return err
+	}
+
+	// Dispatch to service
+	if err := h.service.ResendVerificationEmail(r.Context(), data.Email); err != nil {
+		return err
+	}
+
+	// Return a generic 200 OK regardless of whether the email was found or not
+	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"message": "If an unverified account exists with that email, a verification link has been sent.",
+	})
+
+	return nil
+}
+
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	var data LoginData

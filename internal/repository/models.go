@@ -34,15 +34,16 @@ type Session struct {
 }
 
 type User struct {
-	ID           pgtype.UUID
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	DeletedAt    pgtype.Timestamptz
-	VerifiedAt   pgtype.Timestamptz
-	Email        string
-	Username     string
-	PasswordHash string
-	Flags        int64
+	ID                     pgtype.UUID
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+	DeletedAt              pgtype.Timestamptz
+	LastVerificationSentAt pgtype.Timestamptz
+	VerifiedAt             pgtype.Timestamptz
+	Email                  string
+	Username               string
+	PasswordHash           string
+	Flags                  int64
 }
 
 type UserProfile struct {

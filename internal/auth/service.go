@@ -174,6 +174,54 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 	return nil
 }
 
+func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string) error {
+	// 1. Fetch the user
+	user, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil {
+		// Security: If the user doesn't exist, return nil to prevent email enumeration
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return apperr.NewInternal("System error", apperr.WithErr(err))
+	}
+
+	// 2. Ensure they actually need verification
+	if user.VerifiedAt.Valid {
+		return apperr.NewConflict("This account is already verified.")
+	}
+
+	// 3. Enforce the Cooldown (e.g., 60 seconds)
+	if user.LastVerificationSentAt.Valid && time.Since(user.LastVerificationSentAt.Time) < 60*time.Second {
+		return apperr.NewTooManyRequests("Please wait a minute before requesting another verification email.")
+	}
+
+	// 4. Generate a fresh verification token
+	userID := uuid.UUID(user.ID.Bytes)
+	tokenStr, err := token.GenerateJWT(userID, s.tokenConfig.VerificationSecret, 24*time.Hour)
+	if err != nil {
+		return err
+	}
+
+	// 5. Execute Transaction: Update throttle timestamp AND queue the outbox event
+	return s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
+		if err := qtx.UpdateUserLastVerificationSent(ctx, user.ID); err != nil {
+			return err
+		}
+
+		jsonBytes, _ := json.Marshal(map[string]string{
+			"email":    user.Email,
+			"username": user.Username,
+			"token":    tokenStr,
+		})
+
+		_, err = qtx.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+			EventType: "user.verify_email", // New event type
+			Payload:   jsonBytes,
+		})
+		return err
+	})
+}
+
 // Login
 func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clientIP string) (map[string]string, error) {
 	unauthorizedErrDetails := map[string]string{
@@ -359,8 +407,6 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPas
 
 	return nil
 }
-
-// TODO: ResendUserVerification
 
 // TODO: 2FA
 

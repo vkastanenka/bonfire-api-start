@@ -121,6 +121,7 @@ func main() {
 		api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
 		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
 		api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
+		api.Post("/auth/resend-verification-email", httpio.ToHTTP(authHandler.ResendVerificationEmail))
 		api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
 		api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
 		api.Post("/auth/forgot-password", httpio.ToHTTP(authHandler.ForgotPassword))
