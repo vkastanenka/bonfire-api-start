@@ -3,26 +3,37 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Store interface {
 	ValidateUserCredentialsAvailability(ctx context.Context, arg repository.ValidateUserCredentialsAvailabilityParams) (repository.ValidateUserCredentialsAvailabilityRow, error)
+	CreateOutboxEvent(ctx context.Context, arg repository.CreateOutboxEventParams) (repository.CreateOutboxEventRow, error)
+	CreateSession(ctx context.Context, arg repository.CreateSessionParams) (repository.CreateSessionRow, error)
 	CreateUser(ctx context.Context, arg repository.CreateUserParams) (repository.CreateUserRow, error)
 	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
-	CreateOutboxEvent(ctx context.Context, arg repository.CreateOutboxEventParams) (repository.CreateOutboxEventRow, error)
 	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
+	GetUserAuthCredentials(ctx context.Context, email string) (repository.GetUserAuthCredentialsRow, error)
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
+type TokenConfig struct {
+	AccessSecret  string
+	RefreshSecret string
+}
+
 type AuthService struct {
-	store Store
+	store       Store
+	tokenConfig TokenConfig
 }
 
 func NewAuthService(store Store) *AuthService {
@@ -134,26 +145,69 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 }
 
 // Login
-func (s *AuthService) Login(ctx context.Context, data LoginData) error {
-	// 1. Get the user from the database by email
-	// user, err := s.store.GetUserByEmail(ctx, data.Email)
-	_, err := s.store.GetUserByEmail(ctx, data.Email)
+func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clientIP string) (map[string]string, error) {
+	unauthorizedErrDetails := map[string]string{
+		"email":    "Invalid credentials.",
+		"password": "Invalid credentials.",
+	}
+
+	// 1. Fetch user credentials
+	userAuth, err := s.store.GetUserAuthCredentials(ctx, data.Email)
 	if err != nil {
 		// User not found
-		if errors.Is(err, sql.ErrNoRows) {
-			details := map[string]string{
-				"email":    "Invalid credentials.",
-				"password": "Invalid credentials.",
-			}
-			return apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(details))
+		if errors.Is(err, pgx.ErrNoRows) { // TODO: Abstract sql implementation details
+			return nil, apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(unauthorizedErrDetails))
 		}
 
 		// Internal server error
-		return apperr.NewInternal(
+		return nil, apperr.NewInternal(
 			"An unexpected error occurred while verifying your account details.",
 			apperr.WithErr(err),
 		)
 	}
 
-	return nil
+	// 2. Compare the provided password with the stored hash
+	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(data.Password))
+	if err != nil {
+		return nil, apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(unauthorizedErrDetails))
+	}
+
+	// Convert pgtype.UUID to uuid.UUID by passing the underlying 16-byte array
+	userID := uuid.UUID(userAuth.ID.Bytes)
+
+	// 3. Generate Access Token (15 minutes)
+	accessDuration := 15 * time.Minute
+	accessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to generate access token.", apperr.WithErr(err))
+	}
+
+	// 4. Generate Refresh Token (7 days)
+	refreshDuration := 7 * 24 * time.Hour
+	refreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to generate refresh token.", apperr.WithErr(err))
+	}
+
+	// 5. Store the session in the database
+	_, err = s.store.CreateSession(ctx, repository.CreateSessionParams{
+		UserID:       userAuth.ID,
+		RefreshToken: refreshToken,
+		UserAgent:    userAgent,
+		ClientIp:     clientIP,
+		IsBlocked:    false,
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().Add(refreshDuration),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to create user session.", apperr.WithErr(err))
+	}
+
+	// 6. Return the tokens
+	return map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	}, nil
 }

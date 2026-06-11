@@ -53,6 +53,60 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 	return i, err
 }
 
+const createSession = `-- name: CreateSession :one
+
+INSERT INTO sessions (
+    user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+RETURNING id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at, created_at
+`
+
+type CreateSessionParams struct {
+	UserID       pgtype.UUID
+	RefreshToken string
+	UserAgent    string
+	ClientIp     string
+	IsBlocked    bool
+	ExpiresAt    pgtype.Timestamptz
+}
+
+type CreateSessionRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	RefreshToken string
+	UserAgent    string
+	ClientIp     string
+	IsBlocked    bool
+	ExpiresAt    pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
+// sessions
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error) {
+	row := q.db.QueryRow(ctx, createSession,
+		arg.UserID,
+		arg.RefreshToken,
+		arg.UserAgent,
+		arg.ClientIp,
+		arg.IsBlocked,
+		arg.ExpiresAt,
+	)
+	var i CreateSessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshToken,
+		&i.UserAgent,
+		&i.ClientIp,
+		&i.IsBlocked,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (email, username, password_hash)
@@ -120,6 +174,39 @@ WHERE id = $1
 func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteUser, id)
 	return err
+}
+
+const getSession = `-- name: GetSession :one
+SELECT id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at, created_at
+FROM sessions
+WHERE refresh_token = $1 LIMIT 1
+`
+
+type GetSessionRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	RefreshToken string
+	UserAgent    string
+	ClientIp     string
+	IsBlocked    bool
+	ExpiresAt    pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) GetSession(ctx context.Context, refreshToken string) (GetSessionRow, error) {
+	row := q.db.QueryRow(ctx, getSession, refreshToken)
+	var i GetSessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshToken,
+		&i.UserAgent,
+		&i.ClientIp,
+		&i.IsBlocked,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getUnprocessedOutboxEvents = `-- name: GetUnprocessedOutboxEvents :many

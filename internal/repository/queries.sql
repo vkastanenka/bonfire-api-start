@@ -28,6 +28,21 @@ SET
     next_attempt_at = $3
 WHERE id = $1;
 
+-- sessions
+
+-- name: CreateSession :one
+INSERT INTO sessions (
+    user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+RETURNING id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at, created_at;
+
+-- name: GetSession :one
+SELECT id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at, created_at
+FROM sessions
+WHERE refresh_token = $1 LIMIT 1;
+
 -- users
 
 -- name: CreateUser :one

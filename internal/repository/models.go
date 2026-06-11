@@ -21,6 +21,17 @@ type OutboxEvent struct {
 	NextAttemptAt pgtype.Timestamptz
 }
 
+type Session struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+	RefreshToken string
+	UserAgent    string
+	ClientIp     string
+	IsBlocked    bool
+}
+
 type User struct {
 	ID           pgtype.UUID
 	CreatedAt    pgtype.Timestamptz

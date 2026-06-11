@@ -35,6 +35,21 @@ CREATE TRIGGER update_outbox_events_modtime
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
+-- sessions
+
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+
+    refresh_token VARCHAR(512) NOT NULL,
+    user_agent TEXT NOT NULL,
+    client_ip VARCHAR(45) NOT NULL,
+    is_blocked BOOLEAN NOT NULL DEFAULT false
+);
+
 -- users
 
 CREATE TABLE users (

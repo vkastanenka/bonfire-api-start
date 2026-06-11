@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/validator"
 	"net/http"
+	"time"
 )
 
 type AuthHandler struct {
@@ -65,14 +66,31 @@ func (h *AuthHandler) LoginData(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Login user
-	if err := h.service.Login(r.Context(), data); err != nil {
+	// Extract client IP and User-Agent for session tracking
+	clientIP := r.RemoteAddr // Note: Consider a helper to parse X-Forwarded-For if behind a proxy
+	userAgent := r.UserAgent()
+
+	// Login user, get tokens
+	tokens, err := h.service.Login(r.Context(), data, userAgent, clientIP)
+	if err != nil {
 		return err
 	}
 
+	// Set Refresh Token as an HttpOnly cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    tokens["refresh_token"],
+		Path:     "/",
+		Expires:  time.Now().Add(7 * 24 * time.Hour),
+		HttpOnly: true,
+		Secure:   true, // Ensure this is true in production (requires HTTPS)
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	// Respond
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"message": "User login successful!",
+		"message":      "User login successful!",
+		"access_token": tokens["access_token"],
 	})
 
 	return nil

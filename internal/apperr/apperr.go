@@ -88,6 +88,7 @@ func NewConflict(msg string, opts ...Option) *Error {
 	return newError(TypeConflict, msg, opts...)
 }
 
+// TODO: Rename to NewUnauthorized
 func NewUnauthenticated(msg string, opts ...Option) *Error {
 	return newError(TypeUnauthenticated, msg, opts...)
 }
