@@ -12,7 +12,7 @@ import (
 
 // Mailer abstracts our email delivery engine (e.g., SendGrid, MockMailer, AWS SES)
 type Mailer interface {
-	SendWelcomeEmail(ctx context.Context, email string, username string) error
+	SendWelcomeEmail(ctx context.Context, email string, username string, token string) error
 }
 
 type OutboxWorker struct {
@@ -80,6 +80,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.GetUnp
 		var payload struct {
 			Email    string `json:"email"`
 			Username string `json:"username"`
+			Token    string `json:"token"`
 		}
 
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -87,7 +88,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.GetUnp
 			return
 		}
 
-		executionErr = w.mailer.SendWelcomeEmail(ctx, payload.Email, payload.Username)
+		executionErr = w.mailer.SendWelcomeEmail(ctx, payload.Email, payload.Username, payload.Token)
 
 	default:
 		log.Printf("[WORKER WARN] Unhandled event type dropped: %s", event.EventType)

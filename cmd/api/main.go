@@ -9,7 +9,7 @@ import (
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/email-mock"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
@@ -64,7 +64,32 @@ func main() {
 	queries := repository.New(dbPool)    // For the background worker executing raw inline queries
 
 	// 2. Initialize email infrastructure dependencies
-	mailer := email.NewLogMockMailer()
+	var mailer worker.Mailer
+	resendAPIKey := os.Getenv("RESEND_API_KEY")
+
+	if resendAPIKey != "" {
+		// Production/Staging Mode
+		fromAddress := os.Getenv("EMAIL_FROM_ADDRESS") // e.g., "Bonfire <noreply@yourdomain.com>"
+		frontendURL := os.Getenv("FRONTEND_URL")       // e.g., "http://localhost:5173"
+		overrideTo := os.Getenv("EMAIL_OVERRIDE_TO")   // NEW: Fetch the override variable
+
+		if fromAddress == "" || frontendURL == "" {
+			log.Fatal("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when using Resend")
+		}
+
+		// UPDATE: Pass overrideTo as the 4th argument
+		mailer = email.NewResendMailer(resendAPIKey, fromAddress, frontendURL, overrideTo)
+
+		if overrideTo != "" {
+			log.Printf("Email Engine: Resend initialized in SANDBOX mode (Overrides to: %s)", overrideTo)
+		} else {
+			log.Println("Email Engine: Resend initialized in PRODUCTION mode")
+		}
+	} else {
+		// Local Development Mode
+		mailer = email.NewLogMockMailer()
+		log.Println("Email Engine: Mock Mailer initialized (console output only)")
+	}
 
 	// 3. Initialize Services and pass the store wrapper
 	authService := auth.NewAuthService(store, tokenConfig)
