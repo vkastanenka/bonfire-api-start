@@ -412,6 +412,24 @@ func (q *Queries) RecordOutboxEventFailure(ctx context.Context, arg RecordOutbox
 	return err
 }
 
+const updateSessionRefreshToken = `-- name: UpdateSessionRefreshToken :exec
+UPDATE sessions
+SET refresh_token = $2,
+    expires_at = $3
+WHERE id = $1
+`
+
+type UpdateSessionRefreshTokenParams struct {
+	ID           pgtype.UUID
+	RefreshToken string
+	ExpiresAt    pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateSessionRefreshToken(ctx context.Context, arg UpdateSessionRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, updateSessionRefreshToken, arg.ID, arg.RefreshToken, arg.ExpiresAt)
+	return err
+}
+
 const validateUserCredentialsAvailability = `-- name: ValidateUserCredentialsAvailability :one
 SELECT
     NOT EXISTS (

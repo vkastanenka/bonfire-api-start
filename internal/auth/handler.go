@@ -97,24 +97,34 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// RefreshToken handles requests to issue a new access token
+// RefreshToken handles requests to issue rotated access and refresh tokens
 func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error {
-	// 1. Extract the refresh token from the HttpOnly cookie
+	// 1. Extract the old refresh token from the HttpOnly cookie
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		// If the cookie is missing, the user is unauthenticated
 		return apperr.NewUnauthenticated("Missing refresh token. Please log in.")
 	}
 
-	// 2. Process the refresh request
-	newAccessToken, err := h.service.RefreshAccessToken(r.Context(), cookie.Value)
+	// 2. Process the rotation request
+	tokens, err := h.service.RefreshAccessToken(r.Context(), cookie.Value)
 	if err != nil {
-		return err // Let your centralized error middleware handle this
+		return err
 	}
 
-	// 3. Respond with the fresh access token
+	// 3. Set the NEW Refresh Token in the HttpOnly cookie (overwriting the old one)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    tokens["refresh_token"],
+		Path:     "/",
+		Expires:  time.Now().Add(7 * 24 * time.Hour), // Matches the service duration
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// 4. Respond with the fresh access token
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"access_token": newAccessToken,
+		"access_token": tokens["access_token"],
 	})
 
 	return nil

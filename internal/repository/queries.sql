@@ -43,6 +43,12 @@ SELECT id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at
 FROM sessions
 WHERE refresh_token = $1 LIMIT 1;
 
+-- name: UpdateSessionRefreshToken :exec
+UPDATE sessions
+SET refresh_token = $2,
+    expires_at = $3
+WHERE id = $1;
+
 -- users
 
 -- name: CreateUser :one

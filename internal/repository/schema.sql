@@ -42,6 +42,7 @@ CREATE TABLE sessions (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
 
     refresh_token VARCHAR(512) NOT NULL,
@@ -49,6 +50,11 @@ CREATE TABLE sessions (
     client_ip VARCHAR(45) NOT NULL,
     is_blocked BOOLEAN NOT NULL DEFAULT false
 );
+
+CREATE TRIGGER update_sessions_modtime
+    BEFORE UPDATE ON sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
 
 -- users
 

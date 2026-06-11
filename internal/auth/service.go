@@ -24,6 +24,7 @@ type Store interface {
 	GetSession(ctx context.Context, arg string) (repository.GetSessionRow, error)
 	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
 	GetUserAuthCredentials(ctx context.Context, email string) (repository.GetUserAuthCredentialsRow, error)
+	UpdateSessionRefreshToken(ctx context.Context, arg repository.UpdateSessionRefreshTokenParams) error
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
@@ -213,36 +214,36 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 	}, nil
 }
 
-// RefreshAccessToken validates the refresh token and issues a new access token.
-func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshToken string) (string, error) {
-	// 1. Cryptographically verify the refresh token
-	claims, err := token.VerifyJWT(refreshToken, s.tokenConfig.RefreshSecret)
+// RefreshAccessToken validates the refresh token, rotates it, and issues fresh tokens.
+func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken string) (map[string]string, error) {
+	// 1. Cryptographically verify the old refresh token
+	claims, err := token.VerifyJWT(oldRefreshToken, s.tokenConfig.RefreshSecret)
 	if err != nil {
-		return "", apperr.NewUnauthenticated("Invalid or expired refresh token.")
+		return nil, apperr.NewUnauthenticated("Invalid or expired refresh token.")
 	}
 
-	// 2. Look up the session in the database
-	session, err := s.store.GetSession(ctx, refreshToken)
+	// 2. Look up the session using the old token
+	session, err := s.store.GetSession(ctx, oldRefreshToken)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", apperr.NewUnauthenticated("Session not found.")
+			// REPLAY DETECTION: If the JWT is valid but not in the DB, it means
+			// the token was already used (rotated) or the user logged out.
+			return nil, apperr.NewUnauthenticated("Session not found or token already consumed.")
 		}
-		return "", apperr.NewInternal("An unexpected error occurred while validating your session.", apperr.WithErr(err))
+		return nil, apperr.NewInternal("An unexpected error occurred while validating your session.", apperr.WithErr(err))
 	}
 
 	// 3. Validate the session state
 	if session.IsBlocked {
-		return "", apperr.NewUnauthenticated("Your session has been blocked.")
+		return nil, apperr.NewUnauthenticated("Your session has been blocked.")
 	}
 
-	// Security check: Ensure the database user ID matches the token's payload user ID
 	if claims.UserID != uuid.UUID(session.UserID.Bytes) {
-		return "", apperr.NewUnauthenticated("Session identity mismatch.")
+		return nil, apperr.NewUnauthenticated("Session identity mismatch.")
 	}
 
-	// Check database-level expiration as a fallback (JWT expiry is also checked in VerifyJWT)
 	if time.Now().After(session.ExpiresAt.Time) {
-		return "", apperr.NewUnauthenticated("Session expired. Please log in again.")
+		return nil, apperr.NewUnauthenticated("Session expired. Please log in again.")
 	}
 
 	// 4. Issue a fresh Access Token (15 minutes)
@@ -251,8 +252,31 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, refreshToken strin
 
 	newAccessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
 	if err != nil {
-		return "", apperr.NewInternal("Failed to generate new access token.", apperr.WithErr(err))
+		return nil, apperr.NewInternal("Failed to generate new access token.", apperr.WithErr(err))
 	}
 
-	return newAccessToken, nil
+	// 5. Issue a fresh Refresh Token (Reset the 7-day clock)
+	refreshDuration := 7 * 24 * time.Hour
+	newRefreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to generate new refresh token.", apperr.WithErr(err))
+	}
+
+	// 6. ROTATION: Update the database with the new refresh token
+	err = s.store.UpdateSessionRefreshToken(ctx, repository.UpdateSessionRefreshTokenParams{
+		ID:           session.ID,
+		RefreshToken: newRefreshToken,
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().Add(refreshDuration),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to rotate session tokens.", apperr.WithErr(err))
+	}
+
+	return map[string]string{
+		"access_token":  newAccessToken,
+		"refresh_token": newRefreshToken,
+	}, nil
 }

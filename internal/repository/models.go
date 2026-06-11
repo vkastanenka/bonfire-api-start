@@ -25,6 +25,7 @@ type Session struct {
 	ID           pgtype.UUID
 	UserID       pgtype.UUID
 	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 	ExpiresAt    pgtype.Timestamptz
 	RefreshToken string
 	UserAgent    string
