@@ -9,7 +9,18 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: bonfire_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    # Optional: command to enable persistence (AOF)
+    command: ["redis-server", "--appendonly", "yes"]
 
 volumes:
   pgdata:
+  redis_data:

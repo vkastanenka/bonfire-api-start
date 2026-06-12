@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"bonfire-api/internal/apperr"
@@ -46,6 +47,24 @@ func main() {
 	// Ping connection to confirm it's alive
 	if err := dbPool.Ping(ctx); err != nil {
 		log.Fatalf("Database ping failed: %v\n", err)
+	}
+
+	// Add to your main.go setup
+	redisAddr := os.Getenv("REDIS_URL") // e.g., "localhost:6379"
+	if redisAddr == "" {
+		redisAddr = "localhost:6379" // Default for local
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+
+	// Ping to ensure connectivity
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Fatalf("Could not connect to Redis: %v", err)
 	}
 
 	// Load JWT Secrets
@@ -109,7 +128,6 @@ func main() {
 	r := chi.NewRouter()
 
 	// Initialize Redis
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 	rateLimiter := redis_rate.NewLimiter(rdb)
 
 	// 1. Initialize CORS
@@ -221,12 +239,13 @@ func SecurityHeaders(next http.Handler) http.Handler {
 func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, keyPrefix string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Use Client IP as the unique identifier
-			ip := r.RemoteAddr
+			// Use the getIP helper to get the real client IP
+			ip := getIP(r)
 
 			res, err := limiter.Allow(r.Context(), keyPrefix+":"+ip, redis_rate.PerMinute(limit))
 			if err != nil {
-				// Log error but allow request (Fail open) or block (Fail closed)
+				// Fail open: log the error and allow the request
+				log.Printf("Rate limit error: %v", err)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -241,4 +260,19 @@ func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, key
 	}
 }
 
+func getIP(r *http.Request) string {
+	// 1. Try X-Forwarded-For (standard proxy header)
+	xForwardedFor := r.Header.Get("X-Forwarded-For")
+	if xForwardedFor != "" {
+		// The first IP is the actual client
+		return strings.Split(xForwardedFor, ",")[0]
+	}
+
+	// 2. Fallback to RemoteAddr, but strip the port
+	ip := strings.Split(r.RemoteAddr, ":")[0]
+	return ip
+}
+
 // Logging
+
+// Logged-in Devices
