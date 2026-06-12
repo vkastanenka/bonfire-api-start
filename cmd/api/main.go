@@ -17,8 +17,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
 )
 
@@ -106,6 +108,10 @@ func main() {
 	// Setup router
 	r := chi.NewRouter()
 
+	// Initialize Redis
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	rateLimiter := redis_rate.NewLimiter(rdb)
+
 	// 1. Initialize CORS
 	corsMiddleware := cors.New(cors.Options{
 		// Define your allowed origins (use your frontend domain in production)
@@ -132,21 +138,27 @@ func main() {
 		// ----------------------------------------------------
 		// PUBLIC ROUTES (No token required)
 		// ----------------------------------------------------
-		api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
-		api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
-		api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
-		api.Post("/auth/resend-verification-email", httpio.ToHTTP(authHandler.ResendVerificationEmail))
-		api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
-		api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
-		api.Post("/auth/forgot-password", httpio.ToHTTP(authHandler.ForgotPassword))
-		api.Post("/auth/reset-password", httpio.ToHTTP(authHandler.ResetPassword))
+		// Strict limiting for Auth
 
-		api.Post("/auth/login/2fa", httpio.ToHTTP(authHandler.VerifyLogin2FA))
+		api.Group(func(auth chi.Router) {
+			auth.Use(RateLimit(rateLimiter, 5, time.Minute, "auth"))
+			api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
+			api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
+			api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
+			api.Post("/auth/resend-verification-email", httpio.ToHTTP(authHandler.ResendVerificationEmail))
+			api.Post("/auth/login", httpio.ToHTTP(authHandler.Login))
+			api.Post("/auth/refresh", httpio.ToHTTP(authHandler.RefreshToken))
+			api.Post("/auth/forgot-password", httpio.ToHTTP(authHandler.ForgotPassword))
+			api.Post("/auth/reset-password", httpio.ToHTTP(authHandler.ResetPassword))
+			api.Post("/auth/login/2fa", httpio.ToHTTP(authHandler.VerifyLogin2FA))
+		})
 
 		// ----------------------------------------------------
 		// PROTECTED ROUTES (Valid Access Token required)
 		// ----------------------------------------------------
 		api.Group(func(protected chi.Router) {
+			// Moderate limiting for general API
+			protected.Use(RateLimit(rateLimiter, 100, time.Minute, "api"))
 			// Apply the authorization middleware to EVERYTHING in this group
 			protected.Use(auth.RequireAuth(accessSecret))
 
@@ -205,6 +217,28 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// Redis Rate Limiting
+// RateLimit middleware factory
+func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, keyPrefix string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Use Client IP as the unique identifier
+			ip := r.RemoteAddr
+
+			res, err := limiter.Allow(r.Context(), keyPrefix+":"+ip, redis_rate.PerMinute(limit))
+			if err != nil {
+				// Log error but allow request (Fail open) or block (Fail closed)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if res.Allowed == 0 {
+				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 // Logging
