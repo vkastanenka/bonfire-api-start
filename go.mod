@@ -3,6 +3,7 @@ module bonfire-api
 go 1.26.4
 
 require (
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-chi/chi/v5 v5.3.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -16,6 +17,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/resend/resend-go/v3 v3.7.0 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

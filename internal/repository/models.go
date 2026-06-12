@@ -43,6 +43,8 @@ type User struct {
 	Email                  string
 	Username               string
 	PasswordHash           string
+	TotpSecret             pgtype.Text
+	IsTotpEnabled          bool
 	Flags                  int64
 }
 

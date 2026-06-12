@@ -72,7 +72,7 @@ FROM users
 WHERE username = $1 LIMIT 1;
 
 -- name: GetUserAuthCredentials :one
-SELECT id, password_hash
+SELECT id, password_hash, is_totp_enabled
 FROM users 
 WHERE email = $1 LIMIT 1;
 
@@ -111,6 +111,16 @@ WHERE id = $1;
 -- name: UpdateUserLastVerificationSent :exec
 UPDATE users
 SET last_verification_sent_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: EnableUserTOTP :exec
+UPDATE users
+SET totp_secret = $1, is_totp_enabled = TRUE
+WHERE id = $2;
+
+-- name: DisableUserTOTP :exec
+UPDATE users
+SET totp_secret = NULL, is_totp_enabled = FALSE
 WHERE id = $1;
 
 -- user_profiles

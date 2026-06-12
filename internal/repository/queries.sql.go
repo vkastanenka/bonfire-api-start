@@ -184,6 +184,33 @@ func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const disableUserTOTP = `-- name: DisableUserTOTP :exec
+UPDATE users
+SET totp_secret = NULL, is_totp_enabled = FALSE
+WHERE id = $1
+`
+
+func (q *Queries) DisableUserTOTP(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, disableUserTOTP, id)
+	return err
+}
+
+const enableUserTOTP = `-- name: EnableUserTOTP :exec
+UPDATE users
+SET totp_secret = $1, is_totp_enabled = TRUE
+WHERE id = $2
+`
+
+type EnableUserTOTPParams struct {
+	TotpSecret pgtype.Text
+	ID         pgtype.UUID
+}
+
+func (q *Queries) EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error {
+	_, err := q.db.Exec(ctx, enableUserTOTP, arg.TotpSecret, arg.ID)
+	return err
+}
+
 const getSession = `-- name: GetSession :one
 SELECT id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at, created_at
 FROM sessions
@@ -261,20 +288,21 @@ func (q *Queries) GetUnprocessedOutboxEvents(ctx context.Context, limit int32) (
 }
 
 const getUserAuthCredentials = `-- name: GetUserAuthCredentials :one
-SELECT id, password_hash
+SELECT id, password_hash, is_totp_enabled
 FROM users 
 WHERE email = $1 LIMIT 1
 `
 
 type GetUserAuthCredentialsRow struct {
-	ID           pgtype.UUID
-	PasswordHash string
+	ID            pgtype.UUID
+	PasswordHash  string
+	IsTotpEnabled bool
 }
 
 func (q *Queries) GetUserAuthCredentials(ctx context.Context, email string) (GetUserAuthCredentialsRow, error) {
 	row := q.db.QueryRow(ctx, getUserAuthCredentials, email)
 	var i GetUserAuthCredentialsRow
-	err := row.Scan(&i.ID, &i.PasswordHash)
+	err := row.Scan(&i.ID, &i.PasswordHash, &i.IsTotpEnabled)
 	return i, err
 }
 

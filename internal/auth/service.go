@@ -27,6 +27,8 @@ type Store interface {
 	UpdateSessionRefreshToken(ctx context.Context, arg repository.UpdateSessionRefreshTokenParams) error
 	UpdateUserPassword(ctx context.Context, arg repository.UpdateUserPasswordParams) error
 	VerifyUserEmail(ctx context.Context, arg repository.VerifyUserEmailParams) error
+	EnableUserTOTP(ctx context.Context, arg repository.EnableUserTOTPParams) error
+    DisableUserTOTP(ctx context.Context, id pgtype.UUID) error
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 

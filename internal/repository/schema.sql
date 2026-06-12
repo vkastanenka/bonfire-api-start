@@ -72,6 +72,9 @@ CREATE TABLE users (
     username CITEXT NOT NULL UNIQUE CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
     password_hash VARCHAR(255) NOT NULL,
 
+    totp_secret VARCHAR(255),
+    is_totp_enabled BOOLEAN DEFAULT FALSE NOT NULL,
+
     flags BIGINT NOT NULL DEFAULT 0
 );
 
