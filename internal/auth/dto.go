@@ -30,3 +30,13 @@ type ResetPasswordData struct {
 	Token       string `json:"token" validate:"required"`
 	NewPassword string `json:"new_password" validate:"required,min=8"` // Enforce min password length
 }
+
+type VerifyLogin2FAData struct {
+	MFAToken string `json:"mfa_token" validate:"required"`
+	Code     string `json:"code" validate:"required,len=6,numeric"`
+}
+
+type EnableTOTPData struct {
+	Secret string `json:"secret" validate:"required"`
+	Code   string `json:"code" validate:"required,len=6,numeric"`
+}

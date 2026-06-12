@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,7 +29,9 @@ type Store interface {
 	UpdateUserPassword(ctx context.Context, arg repository.UpdateUserPasswordParams) error
 	VerifyUserEmail(ctx context.Context, arg repository.VerifyUserEmailParams) error
 	EnableUserTOTP(ctx context.Context, arg repository.EnableUserTOTPParams) error
-    DisableUserTOTP(ctx context.Context, id pgtype.UUID) error
+	DisableUserTOTP(ctx context.Context, id pgtype.UUID) error
+	GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error)         // ADD THIS
+	GetUserByID(ctx context.Context, id pgtype.UUID) (repository.GetUserByIDRow, error) // ADD THIS
 	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
 }
 
@@ -410,7 +413,139 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPas
 	return nil
 }
 
-// TODO: 2FA
+// GenerateTOTP creates a temporary 2FA secret for the user.
+// It returns the raw secret string and an otpauth:// URL for QR code generation.
+func (s *AuthService) GenerateTOTP(ctx context.Context, email string) (string, string, error) {
+	// The issuer will appear as the app name in Google Authenticator/Authy
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Bonfire",
+		AccountName: email,
+		SecretSize:  20,
+	})
+	if err != nil {
+		return "", "", apperr.NewInternal("Failed to generate 2FA secret.", apperr.WithErr(err))
+	}
+
+	// Return the secret (to pass back during confirmation) and the URL (for the QR code)
+	return key.Secret(), key.URL(), nil
+}
+
+// EnableTOTP validates the user's first 6-digit code and permanently saves the secret.
+func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret string, code string) error {
+	// 1. Verify the provided 6-digit code against the pending secret
+	valid := totp.Validate(code, secret)
+	if !valid {
+		return apperr.NewUnauthenticated("Invalid authenticator code. Please try again.")
+	}
+
+	// 2. Convert standard UUID to pgtype.UUID for sqlc
+	var pgUserID pgtype.UUID
+	pgUserID.Bytes = userID
+	pgUserID.Valid = true
+
+	// 3. Convert string to pgtype.Text for the nullable database column
+	var pgSecret pgtype.Text
+	pgSecret.String = secret
+	pgSecret.Valid = true
+
+	// 4. Save the secret and flip is_totp_enabled to TRUE in the database
+	err := s.store.EnableUserTOTP(ctx, repository.EnableUserTOTPParams{
+		TotpSecret: pgSecret,
+		ID:         pgUserID,
+	})
+	if err != nil {
+		return apperr.NewInternal("Failed to enable 2FA on your account.", apperr.WithErr(err))
+	}
+
+	return nil
+}
+
+// VerifyLogin2FA validates the TOTP code and completes the login process.
+func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code string, userAgent, clientIP string) (map[string]string, error) {
+	// 1. Verify the temporary MFA token.
+	// NOTE: Replace this with your actual JWT verification logic.
+	// You need to extract the userID from the token claims here.
+	userID, err := s.ValidateMFAToken(mfaToken)
+	if err != nil {
+		return nil, apperr.NewUnauthenticated("Invalid or expired MFA token. Please log in again.")
+	}
+
+	// Convert to pgtype.UUID for sqlc
+	var pgUserID pgtype.UUID
+	pgUserID.Bytes = userID
+	pgUserID.Valid = true
+
+	// 2. Fetch the user's secret from the database
+	totpSecret, err := s.store.GetUserTOTPSecret(ctx, pgUserID)
+	if err != nil || !totpSecret.Valid {
+		return nil, apperr.NewInternal("Failed to retrieve 2FA configuration.")
+	}
+
+	// 3. Validate the 6-digit code mathematically against the secret
+	valid := totp.Validate(code, totpSecret.String)
+	if !valid {
+		return nil, apperr.NewUnauthenticated("Invalid 2FA code.")
+	}
+
+	// 4. Code is valid! Generate the real Access and Refresh tokens
+	// NOTE: Use the exact same token generation logic you use in your normal Login service.
+	accessToken, err := s.generateAccessToken(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err := s.generateRefreshToken(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Create the database session
+	// NOTE: Adjust expires_at based on your refresh token lifespan (e.g., 7 days)
+	_, err = s.store.CreateSession(ctx, repository.CreateSessionParams{
+		UserID:       pgUserID,
+		RefreshToken: refreshToken,
+		UserAgent:    userAgent,
+		ClientIp:     clientIP,
+		IsBlocked:    false,
+		ExpiresAt:    pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+	})
+	if err != nil {
+		return nil, apperr.NewInternal("Failed to create user session.")
+	}
+
+	// 6. Return the tokens to the handler
+	return map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	}, nil
+}
+
+func (s *AuthService) GetUserByID(ctx context.Context, userID uuid.UUID) (repository.GetUserByIDRow, error) {
+	var pgUserID pgtype.UUID
+	pgUserID.Bytes = userID
+	pgUserID.Valid = true
+
+	return s.store.GetUserByID(ctx, pgUserID)
+}
+
+// --- Token Helpers ---
+
+func (s *AuthService) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
+	// Replace "MFATokenSecret" with your actual secret key used during the initial login step
+	claims, err := token.VerifyJWT(tokenStr, "YOUR_MFA_TOKEN_SECRET_HERE")
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return claims.UserID, nil
+}
+
+func (s *AuthService) generateAccessToken(userID uuid.UUID) (string, error) {
+	return token.GenerateJWT(userID, s.tokenConfig.AccessSecret, 15*time.Minute)
+}
+
+func (s *AuthService) generateRefreshToken(userID uuid.UUID) (string, error) {
+	return token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, 7*24*time.Hour)
+}
 
 // TODO: DeviceVerification
 

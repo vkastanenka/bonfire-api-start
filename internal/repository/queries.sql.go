@@ -419,6 +419,19 @@ func (q *Queries) GetUserProfile(ctx context.Context, userID pgtype.UUID) (UserP
 	return i, err
 }
 
+const getUserTOTPSecret = `-- name: GetUserTOTPSecret :one
+SELECT totp_secret
+FROM users 
+WHERE id = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getUserTOTPSecret, id)
+	var totp_secret pgtype.Text
+	err := row.Scan(&totp_secret)
+	return totp_secret, err
+}
+
 const markOutboxEventProcessed = `-- name: MarkOutboxEventProcessed :exec
 UPDATE outbox_events
 SET processed_at = CURRENT_TIMESTAMP

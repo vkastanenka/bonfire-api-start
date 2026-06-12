@@ -127,6 +127,8 @@ func main() {
 		api.Post("/auth/forgot-password", httpio.ToHTTP(authHandler.ForgotPassword))
 		api.Post("/auth/reset-password", httpio.ToHTTP(authHandler.ResetPassword))
 
+		api.Post("/auth/login/2fa", httpio.ToHTTP(authHandler.VerifyLogin2FA))
+
 		// ----------------------------------------------------
 		// PROTECTED ROUTES (Valid Access Token required)
 		// ----------------------------------------------------
@@ -142,6 +144,10 @@ func main() {
 			protected.Group(func(verified chi.Router) {
 				// Only verified users pass this line
 				verified.Use(auth.RequireVerified())
+
+				// NEW: 2FA Setup (User must be logged in AND have a verified email)
+				verified.Post("/users/me/2fa/generate", httpio.ToHTTP(authHandler.GenerateTOTP))
+				verified.Post("/users/me/2fa/enable", httpio.ToHTTP(authHandler.EnableTOTP))
 
 				// // Unverified users CANNOT access these (they get 403 Forbidden):
 				// verified.Post("/guilds", httpio.ToHTTP(guildHandler.CreateGuild))

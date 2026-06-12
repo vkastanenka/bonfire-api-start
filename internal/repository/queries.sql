@@ -123,6 +123,11 @@ UPDATE users
 SET totp_secret = NULL, is_totp_enabled = FALSE
 WHERE id = $1;
 
+-- name: GetUserTOTPSecret :one
+SELECT totp_secret
+FROM users 
+WHERE id = $1 LIMIT 1;
+
 -- user_profiles
 
 -- name: CreateUserProfile :one
