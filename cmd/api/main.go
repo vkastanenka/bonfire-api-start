@@ -205,8 +205,6 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// CORS
-
 // Redis Rate Limiting
 
 // Logging
