@@ -174,6 +174,36 @@ func (q *Queries) CreateUserProfile(ctx context.Context, arg CreateUserProfilePa
 	return i, err
 }
 
+const deleteAllSessionsExcept = `-- name: DeleteAllSessionsExcept :exec
+DELETE FROM sessions 
+WHERE user_id = $1 
+  AND id != $2
+`
+
+type DeleteAllSessionsExceptParams struct {
+	UserID pgtype.UUID
+	ID     pgtype.UUID
+}
+
+func (q *Queries) DeleteAllSessionsExcept(ctx context.Context, arg DeleteAllSessionsExceptParams) error {
+	_, err := q.db.Exec(ctx, deleteAllSessionsExcept, arg.UserID, arg.ID)
+	return err
+}
+
+const deleteSession = `-- name: DeleteSession :exec
+DELETE FROM sessions WHERE id = $1 AND user_id = $2
+`
+
+type DeleteSessionParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteSession(ctx context.Context, arg DeleteSessionParams) error {
+	_, err := q.db.Exec(ctx, deleteSession, arg.ID, arg.UserID)
+	return err
+}
+
 const deleteUser = `-- name: DeleteUser :exec
 DELETE FROM users
 WHERE id = $1
@@ -417,6 +447,48 @@ func (q *Queries) GetUserProfile(ctx context.Context, userID pgtype.UUID) (UserP
 		&i.DisplayName,
 	)
 	return i, err
+}
+
+const getUserSessions = `-- name: GetUserSessions :many
+SELECT id, user_agent, client_ip, created_at, last_seen_at, refresh_token 
+FROM sessions 
+WHERE user_id = $1 AND is_blocked = false
+`
+
+type GetUserSessionsRow struct {
+	ID           pgtype.UUID
+	UserAgent    string
+	ClientIp     string
+	CreatedAt    pgtype.Timestamptz
+	LastSeenAt   pgtype.Timestamptz
+	RefreshToken string
+}
+
+func (q *Queries) GetUserSessions(ctx context.Context, userID pgtype.UUID) ([]GetUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, getUserSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUserSessionsRow
+	for rows.Next() {
+		var i GetUserSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserAgent,
+			&i.ClientIp,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+			&i.RefreshToken,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserTOTPSecret = `-- name: GetUserTOTPSecret :one

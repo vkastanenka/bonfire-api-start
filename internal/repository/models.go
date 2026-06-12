@@ -27,6 +27,7 @@ type Session struct {
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 	ExpiresAt    pgtype.Timestamptz
+	LastSeenAt   pgtype.Timestamptz
 	RefreshToken string
 	UserAgent    string
 	ClientIp     string

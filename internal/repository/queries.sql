@@ -49,6 +49,19 @@ SET refresh_token = $2,
     expires_at = $3
 WHERE id = $1;
 
+-- name: GetUserSessions :many
+SELECT id, user_agent, client_ip, created_at, last_seen_at, refresh_token 
+FROM sessions 
+WHERE user_id = $1 AND is_blocked = false;
+
+-- name: DeleteSession :exec
+DELETE FROM sessions WHERE id = $1 AND user_id = $2;
+
+-- name: DeleteAllSessionsExcept :exec
+DELETE FROM sessions 
+WHERE user_id = @user_id 
+  AND id != @id;
+
 -- users
 
 -- name: CreateUser :one

@@ -188,9 +188,9 @@ func main() {
 			// Apply the authorization middleware to EVERYTHING in this group
 			protected.Use(auth.RequireAuth(accessSecret))
 
-			// // Unverified users CAN access these:
-			// protected.Get("/users/me", httpio.ToHTTP(userHandler.GetProfile))
-			// protected.Put("/users/me", httpio.ToHTTP(userHandler.UpdateProfile))
+			protected.Get("/auth/devices", httpio.ToHTTP(authHandler.GetDevices))
+			protected.Delete("/auth/devices", httpio.ToHTTP(authHandler.RevokeAllOtherDevices)) // Deletes all others
+			protected.Delete("/auth/devices/{id}", httpio.ToHTTP(authHandler.RevokeDevice))     // Deletes specific
 
 			// 2. Strict Verification Sub-Group
 			protected.Group(func(verified chi.Router) {

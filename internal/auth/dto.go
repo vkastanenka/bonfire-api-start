@@ -1,5 +1,7 @@
 package auth
 
+import "time"
+
 // RegisterData defines the input payload for creating a new user.
 type RegisterData struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
@@ -39,4 +41,13 @@ type VerifyLogin2FAData struct {
 type EnableTOTPData struct {
 	Secret string `json:"secret" validate:"required"`
 	Code   string `json:"code" validate:"required,len=6,numeric"`
+}
+
+type DeviceResponse struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Location  string    `json:"location"`
+	IPAddress string    `json:"ip_address"`
+	IsCurrent bool      `json:"is_current"`
+	LastSeen  time.Time `json:"last_seen_at"`
 }
