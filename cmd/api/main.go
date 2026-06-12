@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 )
 
 func main() {
@@ -105,10 +106,23 @@ func main() {
 	// Setup router
 	r := chi.NewRouter()
 
+	// 1. Initialize CORS
+	corsMiddleware := cors.New(cors.Options{
+		// Define your allowed origins (use your frontend domain in production)
+		AllowedOrigins:   []string{"http://localhost:5173", "https://yourproductiondomain.com"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	})
+
 	// Global Middlewares
+	r.Use(corsMiddleware.Handler)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(SecurityHeaders)
 
 	// 4. Initialize validator and handler layer
 	val := validator.New()
@@ -177,3 +191,22 @@ func main() {
 	log.Println("Core API Server starting on :8080...")
 	log.Fatal(srv.ListenAndServe())
 }
+
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+
+		// Example CSP: Only allow resources from your own domain
+		w.Header().Set("Content-Security-Policy", "default-src 'self';")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// CORS
+
+// Redis Rate Limiting
+
+// Logging

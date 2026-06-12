@@ -19,6 +19,7 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/resend/resend-go/v3 v3.7.0 // indirect
+	github.com/rs/cors v1.11.1 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
