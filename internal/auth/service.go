@@ -547,8 +547,6 @@ func (s *AuthService) generateRefreshToken(userID uuid.UUID) (string, error) {
 	return token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, 7*24*time.Hour)
 }
 
-// TODO: DeviceVerification
-
 // TODO: Handle phones
 
 // TODO: Handle QR codes
