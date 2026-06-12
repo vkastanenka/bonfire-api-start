@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -25,7 +26,13 @@ import (
 	"github.com/rs/cors"
 )
 
+type contextKey string
+
+const loggerKey contextKey = "logger"
+
 func main() {
+	initLogger()
+
 	ctx := context.Background()
 
 	if err := godotenv.Load(); err != nil {
@@ -144,6 +151,7 @@ func main() {
 	// Global Middlewares
 	r.Use(corsMiddleware.Handler)
 	r.Use(middleware.RequestID)
+	r.Use(LoggingMiddleware) // <--- ADD THIS HERE
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(SecurityHeaders)
@@ -273,6 +281,29 @@ func getIP(r *http.Request) string {
 	return ip
 }
 
-// Logging
+func initLogger() {
+	// Structured JSON logging is industry standard for aggregation
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo, // Use LevelDebug during local dev
+	})
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+}
 
-// Logged-in Devices
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := middleware.GetReqID(r.Context())
+
+		// Add request_id to the logger context
+		logger := slog.Default().With("request_id", requestID)
+
+		// Attach the logger to the request context
+		ctx := context.WithValue(r.Context(), loggerKey, logger)
+
+		logger.Info("started request", "method", r.Method, "path", r.URL.Path)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Logged-in Devices (Login)
