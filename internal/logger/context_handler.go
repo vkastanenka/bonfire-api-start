@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// ContextHandler wraps any standard slog.Handler and injects context values like Request IDs.
+// ContextHandler wraps slog.Handler and injects context values like Request IDs.
 type ContextHandler struct {
 	slog.Handler
 }
