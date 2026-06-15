@@ -111,22 +111,19 @@ func run() error {
 	rateLimiter := redis_rate.NewLimiter(rdb)
 	val := validator.New()
 
-	// 4. Resolve Domain Configuration Objects
-	tokenConfig := auth.TokenConfig{
+	// Setup domain services
+	mailer := email.NewMailer(cfg)
+	authService := auth.NewAuthService(store, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,
 		PasswordResetSecret: cfg.PasswordResetSecret,
-	}
-
-	// Setup domain services
-	mailer := email.NewMailer(cfg)
-	authService := auth.NewAuthService(store, tokenConfig)
+	})
 
 	// Setup background workers
 	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
 	outboxWorker.Start(ctx)
-	defer outboxWorker.Stop() // This will now cleanly finish its batch on exit!
+	defer outboxWorker.Stop()
 
 	// Setup presentation layer
 	authHandler := auth.NewAuthHandler(authService, val)

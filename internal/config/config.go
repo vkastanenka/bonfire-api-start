@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bonfire-api/internal/auth"
 	"log"
 	"os"
 )
@@ -71,5 +72,14 @@ func Load() *Config {
 		EmailFromAddress:    emailFromAddress,
 		FrontendURL:         frontendURL,
 		EmailOverrideTo:     emailOverrideTo,
+	}
+}
+
+func (c *Config) TokenConfig() auth.TokenConfig {
+	return auth.TokenConfig{
+		AccessSecret:        c.AccessSecret,
+		RefreshSecret:       c.RefreshSecret,
+		VerificationSecret:  c.VerificationSecret,
+		PasswordResetSecret: c.PasswordResetSecret,
 	}
 }
