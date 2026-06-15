@@ -1,0 +1,11 @@
+basePath: /api/v1
+host: localhost:8080
+info:
+  contact:
+    email: vkastanenka@gmail.com
+    name: Victoria Kastanenka
+  description: The full-stack, real-time chat application backend API.
+  title: Bonfire API
+  version: "1.0"
+paths: {}
+swagger: "2.0"

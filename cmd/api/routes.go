@@ -10,13 +10,21 @@ import (
 	"bonfire-api/internal/httpio"
 	bfMiddleware "bonfire-api/internal/middleware"
 
+	_ "bonfire-api/docs"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/cors"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 func (app *Application) routes() http.Handler {
 	r := chi.NewRouter()
+
+	// swagger docs
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+	))
 
 	// ----------------------------------------------------
 	// INFRASTRUCTURE HEALTH CHECKS (Un-throttled & Public)

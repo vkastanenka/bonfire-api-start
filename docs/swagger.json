@@ -1,0 +1,15 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "The full-stack, real-time chat application backend API.",
+        "title": "Bonfire API",
+        "contact": {
+            "name": "Victoria Kastanenka",
+            "email": "vkastanenka@gmail.com"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api/v1",
+    "paths": {}
+}

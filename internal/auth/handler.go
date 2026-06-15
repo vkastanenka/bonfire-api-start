@@ -29,7 +29,16 @@ func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// Register handles user registration
+// Register godoc
+// @Summary      Register a new user
+// @Description  Create a new account
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body auth.RegisterRequest true "User Registration"
+// @Success      201 {object} httpio.Response
+// @Failure      400 {object} apperr.AppError
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var data RegisterData
 
