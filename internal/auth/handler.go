@@ -425,3 +425,23 @@ func (h *AuthHandler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Reque
 //     // userProfile, err := h.service.GetUserProfileByID(r.Context(), userID)
 //     // ...
 // }
+
+
+// // RegisterRoutes groups all auth-related routes together
+// func (h *AuthHandler) RegisterRoutes(r chi.Router) {
+// 	r.Route("/auth", func(r chi.Router) {
+// 		r.Post("/register", h.HandleError(h.Register))
+// 		r.Post("/login", h.HandleError(h.Login))
+// 		r.Post("/verify-email", h.HandleError(h.VerifyEmail))
+// 		// ... add remaining routes here
+// 	})
+// }
+
+// // HandleError is a helper to convert your handler methods into http.HandlerFunc
+// func (h *AuthHandler) HandleError(fn func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+// 	return func(w http.ResponseWriter, r *http.Request) {
+// 		if err := fn(w, r); err != nil {
+// 			// central error handling logic goes here
+// 		}
+// 	}
+// }
