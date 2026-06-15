@@ -1,9 +1,7 @@
 package main
 
 import (
-	"log"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
 
@@ -23,23 +21,30 @@ import (
 func main() {
 	initLogger()
 
+	// 1. Hollow main: Execution is delegated to run() so defers are respected.
+	if err := run(); err != nil {
+		slog.Error("startup failed", "error", err.Error())
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, falling back to system environment variables")
+		slog.Warn("No .env file found, falling back to system environment variables")
 	}
 
-	// 1. Load Configurations and Enforce Constraints
 	cfg := config.Load()
 
 	// 2. Establish Infrastructure Connection Pools
 	dbPool, err := database.NewPostgresPool(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Critical Error: Database initialization failed: %v\n", err)
+		return err // Returns error instead of log.Fatal, executing defers!
 	}
 	defer dbPool.Close()
 
 	rdb, err := cache.NewRedisClient(cfg.RedisURL)
 	if err != nil {
-		log.Fatalf("Critical Error: Redis initialization failed: %v\n", err)
+		return err
 	}
 	defer rdb.Close()
 
@@ -63,7 +68,7 @@ func main() {
 	// 6. Instantiate Background Outbox System Threads
 	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
 	outboxWorker.Start()
-	defer outboxWorker.Stop()
+	defer outboxWorker.Stop() // This will now cleanly finish its batch on exit!
 
 	// 7. Assemble Handler Layer Dependencies
 	val := validator.New()
@@ -78,17 +83,8 @@ func main() {
 		AuthHandler: authHandler,
 	}
 
-	// 9. Boot and Configure the Base HTTP Production Server Layer
-	srv := &http.Server{
-		Addr:         cfg.Port,
-		Handler:      app.routes(), // Dispatches handling directly into routes.go
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	log.Printf("Core API Server starting on %s...\n", cfg.Port)
-	log.Fatal(srv.ListenAndServe())
+	// 9. Start the server safely
+	return app.Serve()
 }
 
 func initLogger() {
