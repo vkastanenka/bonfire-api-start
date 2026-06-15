@@ -27,9 +27,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/config"
-	"bonfire-api/internal/database"
+	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/email"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
@@ -37,9 +35,6 @@ import (
 	"bonfire-api/internal/worker"
 
 	"github.com/go-redis/redis_rate/v10"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 )
 
 // @title           Bonfire API
@@ -68,7 +63,7 @@ func main() {
 // shutdown capabilities.
 func run() error {
 	// Init config
-	cfg, err := initConfig()
+	cfg, err := bootstrap.InitConfig()
 	if err != nil {
 		return err
 	}
@@ -78,14 +73,14 @@ func run() error {
 	defer stop()
 
 	// Init db
-	dbPool, err := initDatabase(ctx, cfg.DatabaseURL)
+	dbPool, err := bootstrap.InitDatabase(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer dbPool.Close()
 
 	// Init redis
-	rdb, err := initRedis(ctx, cfg.RedisURL)
+	rdb, err := bootstrap.InitRedis(ctx, cfg.RedisURL)
 	if err != nil {
 		return err
 	}
@@ -125,65 +120,6 @@ func run() error {
 		AuthHandler: authHandler,
 	}
 
-	// Serve appplication safely
+	// Serve application safely
 	return app.Serve(ctx)
-}
-
-// -----------------------------------------------------------------------------
-// Private Bootstrapping Helpers
-// -----------------------------------------------------------------------------
-
-// initConfig loads environment variables and parses them into the Config struct.
-func initConfig() (*config.Config, error) {
-	godotenv.Load() // Silent fallback allowed; validator acts as gatekeeper
-
-	cfg, err := config.Load()
-	if err != nil {
-		slog.Error("configuration load failed", "error", err)
-		return nil, err
-	}
-
-	return cfg, nil
-}
-
-// initDatabase initializes the connection pool and verifies network connectivity.
-// Note: Adjust the *pgxpool.Pool return type if your database.NewPostgresPool
-// returns a custom struct wrapper.
-func initDatabase(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	slog.Info("initializing database connection pool")
-	dbPool, err := database.NewPostgresPool(url)
-	if err != nil {
-		slog.Error("database initialization failed", "error", err)
-		return nil, err
-	}
-
-	if err := dbPool.Ping(ctx); err != nil {
-		slog.Error("database connection verification failed", "error", err)
-		dbPool.Close() // Clean up since run() won't get the defer
-		return nil, err
-	}
-
-	slog.Info("database connection established")
-	return dbPool, nil
-}
-
-// initRedis initializes the caching client and verifies network connectivity.
-// Note: Adjust the *redis.Client return type if your cache.NewRedisClient
-// returns a custom struct wrapper.
-func initRedis(ctx context.Context, url string) (*redis.Client, error) {
-	slog.Info("initializing redis client")
-	rdb, err := cache.NewRedisClient(url)
-	if err != nil {
-		slog.Error("redis initialization failed", "error", err)
-		return nil, err
-	}
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		slog.Error("redis connection verification failed", "error", err)
-		rdb.Close() // Clean up since run() won't get the defer
-		return nil, err
-	}
-
-	slog.Info("redis connection established")
-	return rdb, nil
 }
