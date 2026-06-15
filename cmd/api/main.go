@@ -40,9 +40,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// main is the entry point for the API. It utilizes the "hollow main" pattern,
-// delegating execution to run() to ensure that deferred cleanup functions
-// are honored prior to the application exiting via os.Exit.
+// @title           Bonfire API
+// @version         1.0
+// @description     The full-stack, real-time chat application backend API.
+
+// @contact.name   Victoria Kastanenka
+// @contact.email  vkastanenka@gmail.com
+
+// @host      localhost:8080
+// @BasePath  /api/v1
 func main() {
 	// Configure global slog instance
 	logger.InitLogger()
