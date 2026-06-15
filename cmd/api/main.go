@@ -80,26 +80,28 @@ func run() error {
 	// Load db
 	dbPool, err := database.NewPostgresPool(cfg.DatabaseURL)
 	if err != nil {
+		slog.Error("db init failed", "error", err)
 		return err
 	}
 	defer dbPool.Close()
 
 	// Verify db connection
 	if err := dbPool.Ping(ctx); err != nil {
-		slog.Error("database connection verification failed", "error", err)
+		slog.Error("db ping failed", "error", err)
 		return err
 	}
 
 	// Load cache
 	rdb, err := cache.NewRedisClient(cfg.RedisURL)
 	if err != nil {
+		slog.Error("cache init failed", "error", err)
 		return err
 	}
 	defer rdb.Close()
 
 	// Verify cache connection
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		slog.Error("redis connection verification failed", "error", err)
+		slog.Error("redis ping failed", "error", err)
 		return err
 	}
 
