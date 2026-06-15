@@ -103,10 +103,13 @@ func run() error {
 		return err
 	}
 
-	// Setup data and rate limit
+	// Setup data layer
 	store := repository.NewStore(dbPool)
 	queries := repository.New(dbPool)
+
+	// Setup middleware services
 	rateLimiter := redis_rate.NewLimiter(rdb)
+	val := validator.New()
 
 	// 4. Resolve Domain Configuration Objects
 	tokenConfig := auth.TokenConfig{
@@ -126,7 +129,6 @@ func run() error {
 	defer outboxWorker.Stop() // This will now cleanly finish its batch on exit!
 
 	// Setup presentation layer
-	val := validator.New()
 	authHandler := auth.NewAuthHandler(authService, val)
 
 	// Setup application
