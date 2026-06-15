@@ -13,6 +13,7 @@ import (
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/database"
 	"bonfire-api/internal/email"
+	"bonfire-api/internal/middleware"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
 	"bonfire-api/internal/worker"
@@ -94,8 +95,14 @@ func run() error {
 }
 
 func initLogger() {
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	// 1. Create your base structured JSON handler
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
+
+	// 2. Wrap it with your custom context handler
+	handler := middleware.NewContextHandler(jsonHandler)
+
+	// 3. Set it globally
 	slog.SetDefault(slog.New(handler))
 }

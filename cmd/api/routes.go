@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -16,6 +17,30 @@ import (
 
 func (app *Application) routes() http.Handler {
 	r := chi.NewRouter()
+
+	// ----------------------------------------------------
+	// INFRASTRUCTURE HEALTH CHECKS (Un-throttled & Public)
+	// ----------------------------------------------------
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// Verify Postgres connection pool is healthy
+		if err := app.DB.Ping(r.Context()); err != nil {
+			slog.ErrorContext(r.Context(), "health check failed: database unreachable", "error", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("DATABASE_UNREACHABLE"))
+			return
+		}
+
+		// Verify Redis connection is healthy
+		if err := app.Redis.Ping(r.Context()).Err(); err != nil {
+			slog.ErrorContext(r.Context(), "health check failed: redis unreachable", "error", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("REDIS_UNREACHABLE"))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	// TODO: Move variables to config
 	// Initialize CORS from original setup configuration
