@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"log/slog"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/database"
 	"bonfire-api/internal/email"
@@ -23,7 +23,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
 )
 
@@ -36,7 +35,7 @@ func main() {
 
 	// 1. Load Configuration
 	cfg := config.Load()
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	// 2. Initialize PostgreSQL using your internal package
 	// Assuming cfg.DatabaseURL is populated, otherwise use os.Getenv("DATABASE_URL")
@@ -46,25 +45,16 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	log.Println("Database connection pool established successfully")
+	log.Println("Database ready 💯.")
 
-	// Add to your main.go setup
-	redisAddr := os.Getenv("REDIS_URL") // e.g., "localhost:6379"
-	if redisAddr == "" {
-		redisAddr = "localhost:6379" // Default for local
+	// 3. Setup Redis Cache
+	rdb, err := cache.NewRedisClient(os.Getenv("REDIS_URL"))
+	if err != nil {
+		log.Fatalf("Failed to initialize Redis: %v\n", err)
 	}
+	defer rdb.Close()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr: redisAddr,
-	})
-
-	// Ping to ensure connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Could not connect to Redis: %v", err)
-	}
+	log.Println("Cache ready 💯.")
 
 	// Load JWT Secrets
 	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
