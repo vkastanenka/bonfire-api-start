@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/repository"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 
@@ -34,16 +35,21 @@ func NewOutboxWorker(store *repository.Queries, mailer Mailer, pollInterval time
 	}
 }
 
-// Start boots the asynchronous polling loop in its own persistent background goroutine.
-func (w *OutboxWorker) Start() {
+// Start now accepts the global context to orchestrate lifecycle shutdown.
+func (w *OutboxWorker) Start(ctx context.Context) {
 	log.Println("[WORKER] Initializing background outbox processor...")
 	go func() {
 		for {
 			select {
 			case <-w.ticker.C:
-				w.processBatch()
+				w.processBatch(ctx)
+			case <-ctx.Done():
+				w.ticker.Stop()
+				log.Println("[WORKER] System cancellation detected. Stopping outbox worker loop...")
+				return
 			case <-w.stopChan:
 				w.ticker.Stop()
+				log.Println("[WORKER] Explicit stop signaled. Stopping outbox worker loop...")
 				return
 			}
 		}
@@ -56,18 +62,23 @@ func (w *OutboxWorker) Stop() {
 	log.Println("[WORKER] Outbox background processor gracefully stopped.")
 }
 
-func (w *OutboxWorker) processBatch() {
-	// Use a clean, un-canceled root context for persistent background processing
-	ctx := context.Background()
-
-	// 1. Fetch an isolated, concurrency-locked slice of pending work
+func (w *OutboxWorker) processBatch(ctx context.Context) {
+	// 1. Fetch an isolated, concurrency-locked slice of pending work using the live context
 	events, err := w.store.GetUnprocessedOutboxEvents(ctx, w.batchSize)
 	if err != nil {
-		log.Printf("[WORKER ERROR] Failed to fetch outbox events: %v", err)
+		// Avoid logging errors if the query failed purely because the system is shutting down
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("[WORKER ERROR] Failed to fetch outbox events: %v", err)
+		}
 		return
 	}
 
 	for _, event := range events {
+		// Fail-fast check: If the application context cancelled mid-batch loop,
+		// don't bother wasting execution cycles starting the next event.
+		if ctx.Err() != nil {
+			return
+		}
 		w.executeEvent(ctx, event)
 	}
 }
@@ -124,7 +135,7 @@ func (w *OutboxWorker) handleFailure(ctx context.Context, event repository.GetUn
 
 	var nextAttempt time.Time
 	currentAttempts := event.Attempts + 1
-	const maxAttempts = 5 // Matches your database DDL default constraint ceiling
+	const maxAttempts = 5
 
 	if isFatal || currentAttempts >= maxAttempts {
 		nextAttempt = time.Now().Add(100 * 365 * 24 * time.Hour)

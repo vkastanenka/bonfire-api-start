@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"bonfire-api/internal/auth"
@@ -65,9 +68,12 @@ func run() error {
 	mailer := email.NewMailer(cfg)
 	authService := auth.NewAuthService(store, tokenConfig)
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	// 6. Instantiate Background Outbox System Threads
 	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
-	outboxWorker.Start()
+	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop() // This will now cleanly finish its batch on exit!
 
 	// 7. Assemble Handler Layer Dependencies
@@ -84,7 +90,7 @@ func run() error {
 	}
 
 	// 9. Start the server safely
-	return app.Serve()
+	return app.Serve(ctx)
 }
 
 func initLogger() {

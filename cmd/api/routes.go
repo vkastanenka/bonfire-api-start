@@ -17,6 +17,7 @@ import (
 func (app *Application) routes() http.Handler {
 	r := chi.NewRouter()
 
+	// TODO: Move variables to config
 	// Initialize CORS from original setup configuration
 	corsMiddleware := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "https://yourproductiondomain.com"},
@@ -34,6 +35,7 @@ func (app *Application) routes() http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(bfMiddleware.SecurityHeaders)
+	r.Use(middleware.Timeout(15 * time.Second))
 
 	r.Route("/api/v1", func(api chi.Router) {
 		// ----------------------------------------------------

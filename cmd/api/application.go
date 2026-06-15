@@ -5,9 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"bonfire-api/internal/auth"
@@ -28,7 +25,7 @@ type Application struct {
 }
 
 // Serve configures the HTTP server and manages graceful shutdown.
-func (app *Application) Serve() error {
+func (app *Application) Serve(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:         app.Config.Port,
 		Handler:      app.routes(),
@@ -42,17 +39,14 @@ func (app *Application) Serve() error {
 
 	// Run a background goroutine to listen for OS interrupt signals
 	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		s := <-quit
+		<-ctx.Done() // Blocks until SIGINT or SIGTERM is received
+		slog.Info("shutting down core API server")
 
-		slog.Info("shutting down server", "signal", s.String())
-
-		// Give active connections 5 seconds to complete before killing them
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Create a hard cutoff window for active connections to drain
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		shutdownError <- srv.Shutdown(ctx)
+		shutdownError <- srv.Shutdown(shutdownCtx)
 	}()
 
 	slog.Info("Core API Server starting", "port", app.Config.Port)
