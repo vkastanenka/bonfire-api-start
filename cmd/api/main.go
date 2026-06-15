@@ -33,11 +33,11 @@ const loggerKey contextKey = "logger"
 func main() {
 	initLogger()
 
-	ctx := context.Background()
-
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, falling back to system environment variables")
 	}
+
+	ctx := context.Background()
 
 	// Connect to PostgreSQL
 	connStr := os.Getenv("DATABASE_URL")
