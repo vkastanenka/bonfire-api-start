@@ -73,11 +73,11 @@ func run() error {
 	defer stop()
 
 	// Init db
-	dbPool, err := bootstrap.InitDatabase(ctx, cfg.DatabaseURL)
+	pdbPool, err := bootstrap.InitPostgres(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
-	defer dbPool.Close()
+	defer pdbPool.Close()
 
 	// Init redis
 	rdb, err := bootstrap.InitRedis(ctx, cfg.RedisURL)
@@ -87,8 +87,8 @@ func run() error {
 	defer rdb.Close()
 
 	// Setup data layer
-	store := repository.NewStore(dbPool)
-	queries := repository.New(dbPool)
+	store := repository.NewStore(pdbPool)
+	queries := repository.New(pdbPool)
 
 	// Setup middleware services
 	rateLimiter := redis_rate.NewLimiter(rdb)
@@ -114,7 +114,7 @@ func run() error {
 	// Setup application container
 	app := &Application{
 		Config:      cfg,
-		DB:          dbPool,
+		DB:          pdbPool,
 		Redis:       rdb,
 		RateLimiter: rateLimiter,
 		AuthHandler: authHandler,

@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	AppEnv              string
 	Port                string
 	DatabaseURL         string
 	RedisURL            string
@@ -61,6 +62,7 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		AppEnv:              "development",
 		Port:                ":8080",
 		DatabaseURL:         dbURL,
 		RedisURL:            cacheURL,
