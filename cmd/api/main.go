@@ -44,9 +44,10 @@ import (
 // delegating execution to run() to ensure that deferred cleanup functions
 // are honored prior to the application exiting via os.Exit.
 func main() {
+	// Configure global slog instance
 	logger.InitLogger()
 
-	// 1. Hollow main: Execution is delegated to run() so defers are respected.
+	// Hollow main: Execution is delegated to run() so defers are respected.
 	if err := run(); err != nil {
 		slog.Error("startup failed", "error", err.Error())
 		os.Exit(1)
