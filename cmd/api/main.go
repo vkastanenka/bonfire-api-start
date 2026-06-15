@@ -28,6 +28,7 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
+	"bonfire-api/internal/config"
 	"bonfire-api/internal/email"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
@@ -50,7 +51,7 @@ func main() {
 	// Configure global slog instance
 	logger.InitLogger()
 
-	// Hollow main: Execution is delegated to run() so defers are respected.
+	// Execute in run() to respect defers
 	if err := run(); err != nil {
 		slog.Error("startup failed", "error", err)
 		os.Exit(1)
@@ -63,10 +64,7 @@ func main() {
 // shutdown capabilities.
 func run() error {
 	// Init config
-	cfg, err := bootstrap.InitConfig()
-	if err != nil {
-		return err
-	}
+	cfg, err := config.Load()
 
 	// Define ctx
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

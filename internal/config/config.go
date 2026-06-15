@@ -1,87 +1,48 @@
 package config
 
 import (
-	"bonfire-api/internal/auth"
 	"errors"
-	"os"
+	"fmt"
+
+	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 )
 
+// Config holds all application configuration variables.
+// Struct tags define the environment variable mapping, requirements, and defaults.
 type Config struct {
-	AppEnv              string
-	Port                string
-	DatabaseURL         string
-	RedisURL            string
-	AccessSecret        string
-	RefreshSecret       string
-	VerificationSecret  string
-	PasswordResetSecret string
-	ResendApiKey        string
-	EmailFromAddress    string
-	FrontendURL         string
-	EmailOverrideTo     string
+	AppEnv              string `env:"APP_ENV" envDefault:"development"`
+	Port                string `env:"PORT" envDefault:":8080"`
+	DatabaseURL         string `env:"DATABASE_URL,required"`
+	RedisURL            string `env:"REDIS_URL,required"`
+	AccessSecret        string `env:"JWT_ACCESS_SECRET,required"`
+	RefreshSecret       string `env:"JWT_REFRESH_SECRET,required"`
+	VerificationSecret  string `env:"JWT_VERIFICATION_SECRET,required"`
+	PasswordResetSecret string `env:"JWT_PASSWORD_RESET_SECRET,required"`
+	ResendApiKey        string `env:"RESEND_API_KEY"`
+	EmailFromAddress    string `env:"EMAIL_FROM_ADDRESS"`
+	FrontendURL         string `env:"FRONTEND_URL"`
+	EmailOverrideTo     string `env:"EMAIL_OVERRIDE_TO"`
 }
 
+// Load parses environment variables into the Config struct.
 func Load() (*Config, error) {
-	// 1. Fetch all variables
-	dbURL := os.Getenv("DATABASE_URL")
-	cacheURL := os.Getenv("REDIS_URL")
-	accessSecret := os.Getenv("JWT_ACCESS_SECRET")
-	refreshSecret := os.Getenv("JWT_REFRESH_SECRET")
-	verificationSecret := os.Getenv("JWT_VERIFICATION_SECRET")
-	passwordResetSecret := os.Getenv("JWT_PASSWORD_RESET_SECRET")
-	resendApiKey := os.Getenv("RESEND_API_KEY")
-	emailFromAddress := os.Getenv("EMAIL_FROM_ADDRESS")
-	frontendURL := os.Getenv("FRONTEND_URL")
-	emailOverrideTo := os.Getenv("EMAIL_OVERRIDE_TO")
+	// Load env
+	godotenv.Load()
 
-	// 2. Strict Core Validations
-	if dbURL == "" {
-		return nil, errors.New("DATABASE_URL is required")
-	}
-	if cacheURL == "" {
-		return nil, errors.New("REDIS_URL is required")
-	}
-	if accessSecret == "" {
-		return nil, errors.New("JWT_ACCESS_SECRET is required")
-	}
-	if refreshSecret == "" {
-		return nil, errors.New("JWT_REFRESH_SECRET is required")
-	}
-	if verificationSecret == "" {
-		return nil, errors.New("JWT_VERIFICATION_SECRET is required")
-	}
-	if passwordResetSecret == "" {
-		return nil, errors.New("JWT_PASSWORD_RESET_SECRET is required")
+	var cfg Config
+
+	// Parse env
+	if err := env.Parse(&cfg); err != nil {
+		return nil, fmt.Errorf("configuration error: %w", err)
 	}
 
-	// 3. Conditional Email Validation (Allows local mock fallback)
-	if resendApiKey != "" {
-		if emailFromAddress == "" || frontendURL == "" {
+	// Complex validation
+	if cfg.ResendApiKey != "" {
+		if cfg.EmailFromAddress == "" || cfg.FrontendURL == "" {
 			return nil, errors.New("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when using Resend")
 		}
 	}
 
-	return &Config{
-		AppEnv:              "development",
-		Port:                ":8080",
-		DatabaseURL:         dbURL,
-		RedisURL:            cacheURL,
-		AccessSecret:        accessSecret,
-		RefreshSecret:       refreshSecret,
-		VerificationSecret:  verificationSecret,
-		PasswordResetSecret: passwordResetSecret,
-		ResendApiKey:        resendApiKey,
-		EmailFromAddress:    emailFromAddress,
-		FrontendURL:         frontendURL,
-		EmailOverrideTo:     emailOverrideTo,
-	}, nil
-}
-
-func (c *Config) TokenConfig() auth.TokenConfig {
-	return auth.TokenConfig{
-		AccessSecret:        c.AccessSecret,
-		RefreshSecret:       c.RefreshSecret,
-		VerificationSecret:  c.VerificationSecret,
-		PasswordResetSecret: c.PasswordResetSecret,
-	}
+	return &cfg, nil
 }
