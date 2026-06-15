@@ -6,13 +6,15 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/config"
+	"bonfire-api/internal/database"
 	"bonfire-api/internal/email"
 	"bonfire-api/internal/httpio"
+	bfMiddleware "bonfire-api/internal/middleware"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
 	"bonfire-api/internal/worker"
@@ -20,15 +22,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-redis/redis_rate/v10"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
 )
-
-type contextKey string
-
-const loggerKey contextKey = "logger"
 
 func main() {
 	initLogger()
@@ -37,24 +34,19 @@ func main() {
 		log.Println("No .env file found, falling back to system environment variables")
 	}
 
+	// 1. Load Configuration
+	cfg := config.Load()
 	ctx := context.Background()
 
-	// Connect to PostgreSQL
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
-	}
-
-	dbPool, err := pgxpool.New(ctx, connStr)
+	// 2. Initialize PostgreSQL using your internal package
+	// Assuming cfg.DatabaseURL is populated, otherwise use os.Getenv("DATABASE_URL")
+	dbPool, err := database.NewPostgresPool(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
+		log.Fatalf("Failed to initialize database: %v\n", err)
 	}
 	defer dbPool.Close()
 
-	// Ping connection to confirm it's alive
-	if err := dbPool.Ping(ctx); err != nil {
-		log.Fatalf("Database ping failed: %v\n", err)
-	}
+	log.Println("Database connection pool established successfully")
 
 	// Add to your main.go setup
 	redisAddr := os.Getenv("REDIS_URL") // e.g., "localhost:6379"
@@ -151,10 +143,10 @@ func main() {
 	// Global Middlewares
 	r.Use(corsMiddleware.Handler)
 	r.Use(middleware.RequestID)
-	r.Use(LoggingMiddleware) // <--- ADD THIS HERE
+	r.Use(bfMiddleware.LoggingMiddleware) // <--- ADD THIS HERE
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(SecurityHeaders)
+	r.Use(bfMiddleware.SecurityHeaders)
 
 	// 4. Initialize validator and handler layer
 	val := validator.New()
@@ -167,7 +159,7 @@ func main() {
 		// Strict limiting for Auth
 
 		api.Group(func(auth chi.Router) {
-			auth.Use(RateLimit(rateLimiter, 5, time.Minute, "auth"))
+			auth.Use(bfMiddleware.RateLimit(rateLimiter, 5, time.Minute, "auth"))
 			api.Get("/auth/ping", httpio.ToHTTP(authHandler.Ping))
 			api.Post("/auth/register", httpio.ToHTTP(authHandler.Register))
 			api.Post("/auth/verify", httpio.ToHTTP(authHandler.VerifyEmail))
@@ -184,7 +176,7 @@ func main() {
 		// ----------------------------------------------------
 		api.Group(func(protected chi.Router) {
 			// Moderate limiting for general API
-			protected.Use(RateLimit(rateLimiter, 100, time.Minute, "api"))
+			protected.Use(bfMiddleware.RateLimit(rateLimiter, 100, time.Minute, "api"))
 			// Apply the authorization middleware to EVERYTHING in this group
 			protected.Use(auth.RequireAuth(accessSecret))
 
@@ -230,57 +222,6 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func SecurityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-
-		// Example CSP: Only allow resources from your own domain
-		w.Header().Set("Content-Security-Policy", "default-src 'self';")
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// RateLimit middleware factory
-func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, keyPrefix string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Use the getIP helper to get the real client IP
-			ip := getIP(r)
-
-			res, err := limiter.Allow(r.Context(), keyPrefix+":"+ip, redis_rate.PerMinute(limit))
-			if err != nil {
-				// Fail open: log the error and allow the request
-				log.Printf("Rate limit error: %v", err)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if res.Allowed == 0 {
-				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func getIP(r *http.Request) string {
-	// 1. Try X-Forwarded-For (standard proxy header)
-	xForwardedFor := r.Header.Get("X-Forwarded-For")
-	if xForwardedFor != "" {
-		// The first IP is the actual client
-		return strings.Split(xForwardedFor, ",")[0]
-	}
-
-	// 2. Fallback to RemoteAddr, but strip the port
-	ip := strings.Split(r.RemoteAddr, ":")[0]
-	return ip
-}
-
 func initLogger() {
 	// Structured JSON logging is industry standard for aggregation
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -288,22 +229,6 @@ func initLogger() {
 	})
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
-}
-
-func LoggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := middleware.GetReqID(r.Context())
-
-		// Add request_id to the logger context
-		logger := slog.Default().With("request_id", requestID)
-
-		// Attach the logger to the request context
-		ctx := context.WithValue(r.Context(), loggerKey, logger)
-
-		logger.Info("started request", "method", r.Method, "path", r.URL.Path)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
 
 // Logged-in Devices (Login)
