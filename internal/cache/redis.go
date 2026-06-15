@@ -8,24 +8,25 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// NewRedisClient initializes and pings a new Redis client instance.
-func NewRedisClient(addr string) (*redis.Client, error) {
-	// Provide a sensible default if the address wasn't passed in
-	if addr == "" {
-		addr = "localhost:6379"
+// NewRedisClient initializes a Redis client using a connection string.
+// It leverages ParseURL to handle complex configurations (auth, db, etc.) automatically.
+func NewRedisClient(redisURL string) (*redis.Client, error) {
+	// Parse url
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid redis url: %w", err)
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
+	// Init client
+	rdb := redis.NewClient(opt)
 
-	// Use a focused timeout context for the initial ping check
+	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Ping to ensure connectivity
+	// Ping to verify connection
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		rdb.Close() // Explicitly close the connection pool if ping fails
+		rdb.Close()
 		return nil, fmt.Errorf("redis ping failed: %w", err)
 	}
 

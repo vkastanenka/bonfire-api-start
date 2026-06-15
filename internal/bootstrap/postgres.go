@@ -13,23 +13,23 @@ import (
 func InitPostgres(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	// Start
 	start := time.Now()
-	slog.Info("initializing database connection pool")
+	slog.Info("initializing postgres connection pool")
 
 	// Init new client
 	dbPool, err := database.NewPostgresPool(url)
 	if err != nil {
-		slog.Error("database initialization failed", "error", err)
+		slog.Error("postgres init failed", "error", err)
 		return nil, err
 	}
 
 	// Ping to verify connection
 	if err := dbPool.Ping(ctx); err != nil {
-		slog.Error("database connection verification failed", "error", err)
+		slog.Error("postgres connection verification failed", "error", err)
 		dbPool.Close()
 		return nil, err
 	}
 
 	// Finish
-	slog.Info("database connection established", "duration", time.Since(start))
+	slog.Info("postgres connection established", "duration", time.Since(start))
 	return dbPool, nil
 }
