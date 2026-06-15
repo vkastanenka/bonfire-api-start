@@ -2,7 +2,7 @@ package config
 
 import (
 	"bonfire-api/internal/auth"
-	"log"
+	"errors"
 	"os"
 )
 
@@ -20,7 +20,7 @@ type Config struct {
 	EmailOverrideTo     string
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
 	// 1. Fetch all variables
 	dbURL := os.Getenv("DATABASE_URL")
 	cacheURL := os.Getenv("REDIS_URL")
@@ -35,28 +35,28 @@ func Load() *Config {
 
 	// 2. Strict Core Validations
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL is required")
+		return nil, errors.New("DATABASE_URL is required")
 	}
 	if cacheURL == "" {
-		log.Fatal("REDIS_URL is required")
+		return nil, errors.New("REDIS_URL is required")
 	}
 	if accessSecret == "" {
-		log.Fatal("JWT_ACCESS_SECRET is required")
+		return nil, errors.New("JWT_ACCESS_SECRET is required")
 	}
 	if refreshSecret == "" {
-		log.Fatal("JWT_REFRESH_SECRET is required")
+		return nil, errors.New("JWT_REFRESH_SECRET is required")
 	}
 	if verificationSecret == "" {
-		log.Fatal("JWT_VERIFICATION_SECRET is required")
+		return nil, errors.New("JWT_VERIFICATION_SECRET is required")
 	}
 	if passwordResetSecret == "" {
-		log.Fatal("JWT_PASSWORD_RESET_SECRET is required")
+		return nil, errors.New("JWT_PASSWORD_RESET_SECRET is required")
 	}
 
 	// 3. Conditional Email Validation (Allows local mock fallback)
 	if resendApiKey != "" {
 		if emailFromAddress == "" || frontendURL == "" {
-			log.Fatal("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when using Resend")
+			return nil, errors.New("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when using Resend")
 		}
 	}
 
@@ -72,7 +72,7 @@ func Load() *Config {
 		EmailFromAddress:    emailFromAddress,
 		FrontendURL:         frontendURL,
 		EmailOverrideTo:     emailOverrideTo,
-	}
+	}, nil
 }
 
 func (c *Config) TokenConfig() auth.TokenConfig {
