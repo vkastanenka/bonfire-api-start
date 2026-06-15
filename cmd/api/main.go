@@ -65,26 +65,45 @@ func main() {
 // starts background workers, and launches the HTTP server with graceful
 // shutdown capabilities.
 func run() error {
+	// Load env
 	if err := godotenv.Load(); err != nil {
-		slog.Warn("No .env file found, falling back to system environment variables")
+		slog.Warn("no .env file found, falling back to system environment variables")
 	}
 
+	// Load config
 	cfg := config.Load()
 
-	// 2. Establish Infrastructure Connection Pools
+	// Define ctx
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Load db
 	dbPool, err := database.NewPostgresPool(cfg.DatabaseURL)
 	if err != nil {
-		return err // Returns error instead of log.Fatal, executing defers!
+		return err
 	}
 	defer dbPool.Close()
 
+	// Verify db connection
+	if err := dbPool.Ping(ctx); err != nil {
+		slog.Error("database connection verification failed", "error", err)
+		return err
+	}
+
+	// Load cache
 	rdb, err := cache.NewRedisClient(cfg.RedisURL)
 	if err != nil {
 		return err
 	}
 	defer rdb.Close()
 
-	// 3. Setup Architecture Data Layers
+	// Verify cache connection
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		slog.Error("redis connection verification failed", "error", err)
+		return err
+	}
+
+	// Setup data and rate limit
 	store := repository.NewStore(dbPool)
 	queries := repository.New(dbPool)
 	rateLimiter := redis_rate.NewLimiter(rdb)
@@ -97,23 +116,20 @@ func run() error {
 		PasswordResetSecret: cfg.PasswordResetSecret,
 	}
 
-	// 5. Initialize Mail Engine and Domain Services
+	// Setup domain services
 	mailer := email.NewMailer(cfg)
 	authService := auth.NewAuthService(store, tokenConfig)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	// 6. Instantiate Background Outbox System Threads
+	// Setup background workers
 	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop() // This will now cleanly finish its batch on exit!
 
-	// 7. Assemble Handler Layer Dependencies
+	// Setup presentation layer
 	val := validator.New()
 	authHandler := auth.NewAuthHandler(authService, val)
 
-	// 8. Bind the Application Control Container
+	// Setup application
 	app := &Application{
 		Config:      cfg,
 		DB:          dbPool,
@@ -122,6 +138,6 @@ func run() error {
 		AuthHandler: authHandler,
 	}
 
-	// 9. Start the server safely
+	// Serve app safely
 	return app.Serve(ctx)
 }
