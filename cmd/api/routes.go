@@ -35,7 +35,7 @@ func (app *Application) routes() http.Handler {
 	))
 
 	// Health check
-	r.Get("/healthz", app.HealthHandler.HealthCheck)
+	r.Get("/healthz", app.Handlers.Health.HealthCheck)
 
 	// Routes
 	r.Route("/api/v1", func(api chi.Router) {
@@ -43,15 +43,15 @@ func (app *Application) routes() http.Handler {
 		api.Group(func(publicAuth chi.Router) {
 			publicAuth.Use(customMiddleware.RateLimit(app.RateLimiter, 5, time.Minute, "auth"))
 
-			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.AuthHandler.Ping))
-			publicAuth.Post("/auth/register", httpio.ToHTTP(app.AuthHandler.Register))
-			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.AuthHandler.VerifyEmail))
-			publicAuth.Post("/auth/resend-verification-email", httpio.ToHTTP(app.AuthHandler.ResendVerificationEmail))
-			publicAuth.Post("/auth/login", httpio.ToHTTP(app.AuthHandler.Login))
-			publicAuth.Post("/auth/refresh", httpio.ToHTTP(app.AuthHandler.RefreshToken))
-			publicAuth.Post("/auth/forgot-password", httpio.ToHTTP(app.AuthHandler.ForgotPassword))
-			publicAuth.Post("/auth/reset-password", httpio.ToHTTP(app.AuthHandler.ResetPassword))
-			publicAuth.Post("/auth/login/2fa", httpio.ToHTTP(app.AuthHandler.VerifyLogin2FA))
+			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))
+			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))
+			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.Handlers.Auth.VerifyEmail))
+			publicAuth.Post("/auth/resend-verification-email", httpio.ToHTTP(app.Handlers.Auth.ResendVerificationEmail))
+			publicAuth.Post("/auth/login", httpio.ToHTTP(app.Handlers.Auth.Login))
+			publicAuth.Post("/auth/refresh", httpio.ToHTTP(app.Handlers.Auth.RefreshToken))
+			publicAuth.Post("/auth/forgot-password", httpio.ToHTTP(app.Handlers.Auth.ForgotPassword))
+			publicAuth.Post("/auth/reset-password", httpio.ToHTTP(app.Handlers.Auth.ResetPassword))
+			publicAuth.Post("/auth/login/2fa", httpio.ToHTTP(app.Handlers.Auth.VerifyLogin2FA))
 		})
 
 		// Protected routes
@@ -59,16 +59,16 @@ func (app *Application) routes() http.Handler {
 			protected.Use(customMiddleware.RateLimit(app.RateLimiter, 100, time.Minute, "api"))
 			protected.Use(auth.RequireAuth(app.Config.AccessSecret))
 
-			protected.Get("/auth/devices", httpio.ToHTTP(app.AuthHandler.GetDevices))
-			protected.Delete("/auth/devices", httpio.ToHTTP(app.AuthHandler.RevokeAllOtherDevices))
-			protected.Delete("/auth/devices/{id}", httpio.ToHTTP(app.AuthHandler.RevokeDevice))
+			protected.Get("/auth/devices", httpio.ToHTTP(app.Handlers.Auth.GetDevices))
+			protected.Delete("/auth/devices", httpio.ToHTTP(app.Handlers.Auth.RevokeAllOtherDevices))
+			protected.Delete("/auth/devices/{id}", httpio.ToHTTP(app.Handlers.Auth.RevokeDevice))
 
 			// Require verification routes
 			protected.Group(func(verified chi.Router) {
 				verified.Use(auth.RequireVerified())
 
-				verified.Post("/users/me/2fa/generate", httpio.ToHTTP(app.AuthHandler.GenerateTOTP))
-				verified.Post("/users/me/2fa/enable", httpio.ToHTTP(app.AuthHandler.EnableTOTP))
+				verified.Post("/users/me/2fa/generate", httpio.ToHTTP(app.Handlers.Auth.GenerateTOTP))
+				verified.Post("/users/me/2fa/enable", httpio.ToHTTP(app.Handlers.Auth.EnableTOTP))
 			})
 		})
 	})

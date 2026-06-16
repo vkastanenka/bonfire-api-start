@@ -18,12 +18,14 @@ import (
 
 // Application dependencies
 type Application struct {
-	Config        *config.Config
-	DB            *pgxpool.Pool
-	Redis         *redis.Client
-	RateLimiter   *redis_rate.Limiter
-	AuthHandler   *auth.AuthHandler
-	HealthHandler *health.Handler
+	Config      *config.Config
+	DB          *pgxpool.Pool
+	Redis       *redis.Client
+	RateLimiter *redis_rate.Limiter
+	Handlers    struct {
+		Auth   *auth.AuthHandler
+		Health *health.Handler
+	}
 }
 
 // Serve configures the HTTP server and manages graceful shutdown.

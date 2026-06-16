@@ -113,12 +113,17 @@ func run() error {
 
 	// Setup application container
 	app := &Application{
-		Config:        cfg,
-		DB:            pdbPool,
-		Redis:         rdb,
-		RateLimiter:   rateLimiter,
-		AuthHandler:   authHandler,
-		HealthHandler: healthHandler,
+		Config:      cfg,
+		DB:          pdbPool,
+		Redis:       rdb,
+		RateLimiter: rateLimiter,
+		Handlers: struct {
+			Auth   *auth.AuthHandler
+			Health *health.Handler
+		}{
+			Auth:   authHandler,
+			Health: healthHandler,
+		},
 	}
 
 	// Serve application safely
