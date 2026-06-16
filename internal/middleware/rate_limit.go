@@ -1,8 +1,10 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,15 +16,36 @@ func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, key
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := getIP(r)
+			ctx := r.Context()
 
-			res, err := limiter.Allow(r.Context(), keyPrefix+":"+ip, redis_rate.PerMinute(limit))
+			// Init config
+			rateLimitConfig := redis_rate.Limit{
+				Rate:   limit,
+				Period: window,
+				Burst:  limit,
+			}
+
+			res, err := limiter.Allow(ctx, keyPrefix+":"+ip, rateLimitConfig)
 			if err != nil {
-				log.Printf("Rate limit error: %v", err)
+				slog.ErrorContext(ctx, "rate limit evaluation failed", "error", err, "client_ip", ip)
+
+				// Fail open: prioritize availability over strict blocking if Redis stumbles
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// Inject headers
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(res.Remaining))
+
 			if res.Allowed == 0 {
+				// Inject Retry-After header
+				retrySecs := int(res.RetryAfter.Seconds())
+				if retrySecs <= 0 {
+					retrySecs = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(retrySecs))
+
 				http.Error(w, "Too many requests. Please try again later.", http.StatusTooManyRequests)
 				return
 			}
@@ -33,14 +56,15 @@ func RateLimit(limiter *redis_rate.Limiter, limit int, window time.Duration, key
 }
 
 func getIP(r *http.Request) string {
-	// 1. Try X-Forwarded-For (standard proxy header)
 	xForwardedFor := r.Header.Get("X-Forwarded-For")
 	if xForwardedFor != "" {
-		// The first IP is the actual client
-		return strings.Split(xForwardedFor, ",")[0]
+		return strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
 	}
 
-	// 2. Fallback to RemoteAddr, but strip the port
-	ip := strings.Split(r.RemoteAddr, ":")[0]
+	// Handles both IPv4 and IPv6 formatting
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
 	return ip
 }
