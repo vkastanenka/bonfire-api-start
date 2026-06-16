@@ -108,7 +108,7 @@ func run() error {
 	defer outboxWorker.Stop()
 
 	// Setup presentation layer
-	authHandler := auth.NewAuthHandler(authService, val)
+	authHandler := auth.NewHandler(authService, val)
 	healthHandler := health.NewHandler(pdbPool, rdb)
 
 	// Setup application container
