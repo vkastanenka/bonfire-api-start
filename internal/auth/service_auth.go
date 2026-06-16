@@ -152,17 +152,15 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 	userID := uuid.UUID(userAuth.ID.Bytes)
 
 	// 3. Generate Access Token (15 minutes)
-	accessDuration := 15 * time.Minute
-	accessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
+	accessToken, err := s.generateAccessToken(userID)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to generate access token.", apperr.WithErr(err))
+		return nil, err
 	}
 
 	// 4. Generate Refresh Token (7 days)
-	refreshDuration := 7 * 24 * time.Hour
-	refreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
+	refreshToken, err := s.generateRefreshToken(userID)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to generate refresh token.", apperr.WithErr(err))
+		return nil, err
 	}
 
 	// 5. Store the session in the database
@@ -173,7 +171,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 		ClientIp:     clientIP,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
-			Time:  time.Now().Add(refreshDuration),
+			Time:  time.Now().Add(7 * 24 * time.Hour),
 			Valid: true,
 		},
 	})

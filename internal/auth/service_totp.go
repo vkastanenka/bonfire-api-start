@@ -129,8 +129,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 }
 
 func (s *AuthService) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
-	// Replace "MFATokenSecret" with your actual secret key used during the initial login step
-	claims, err := token.VerifyJWT(tokenStr, "YOUR_MFA_TOKEN_SECRET_HERE")
+	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
 	if err != nil {
 		return uuid.Nil, err
 	}

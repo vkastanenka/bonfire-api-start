@@ -39,6 +39,7 @@ type TokenConfig struct {
 	RefreshSecret       string
 	VerificationSecret  string
 	PasswordResetSecret string
+	PasswordMFASecret   string
 }
 
 type AuthService struct {
