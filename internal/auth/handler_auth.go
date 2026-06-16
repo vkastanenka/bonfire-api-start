@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+type RegisterRequest struct {
+	Email       string  `json:"email" validate:"required,email,max=255"`
+	DisplayName *string `json:"displayName" validate:"omitempty,min=3,max=32"`
+	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
+	Password    string  `json:"password" validate:"required,min=8,max=100"`
+}
+
 // Register godoc
 // @Summary      Register a new user
 // @Description  Create a new account
@@ -18,7 +25,7 @@ import (
 // @Failure      400 {object} apperr.AppError
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	var data RegisterData
+	var data RegisterRequest
 
 	// Decode incoming JSON body into the struct
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
@@ -43,9 +50,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+type LoginRequest struct {
+	Email    string `json:"email" validate:"required,email,max=255"`
+	Password string `json:"password" validate:"required,min=8,max=100"`
+}
+
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	var data LoginData
+	var data LoginRequest
 
 	// Decode incoming JSON body into the struct
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {

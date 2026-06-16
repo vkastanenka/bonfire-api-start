@@ -5,9 +5,13 @@ import (
 	"net/http"
 )
 
+type VerifyEmailRequest struct {
+	Token string `json:"token" validate:"required"`
+}
+
 // VerifyEmail handles incoming verification tokens sent from the frontend client.
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	var req VerifyEmailData
+	var req VerifyEmailRequest
 
 	if err := httpio.DecodeJSON(w, r, &req); err != nil {
 		return err
@@ -29,8 +33,12 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
+type ResendVerificationEmailRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
 func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
-	var data ResendVerificationEmailData
+	var data ResendVerificationEmailRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
 		return err

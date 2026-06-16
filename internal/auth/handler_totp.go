@@ -15,31 +15,28 @@ func (h *AuthHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error
 		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
-	// 2. Fetch the user's details from the database using the ID
-	// Note: Ensure your AuthService has a method (e.g., GetUserByID) that wraps
-	// the GetUserByID query you defined in sqlc.
-	user, err := h.service.GetUserByID(r.Context(), userID)
-	if err != nil {
-		return apperr.New(apperr.CodeInternal, "Failed to retrieve user information.")
-	}
-
-	// 3. Generate the TOTP using the fetched email for the authenticator label
-	secret, url, err := h.service.GenerateTOTP(r.Context(), user.Email)
+	// 2. Delegate directly to the auth service passing the userID
+	secret, url, err := h.service.GenerateTOTP(r.Context(), userID)
 	if err != nil {
 		return err
 	}
 
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
 		"secret": secret,
-		"url":    url, // The React frontend will convert this URI into a QR code
+		"url":    url,
 	})
 
 	return nil
 }
 
+type EnableTOTPRequest struct {
+	Secret string `json:"secret" validate:"required"`
+	Code   string `json:"code" validate:"required,len=6,numeric"`
+}
+
 // EnableTOTP validates the user's first 6-digit code and permanently activates 2FA.
 func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
-	var data EnableTOTPData
+	var data EnableTOTPRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
 		return err
@@ -67,9 +64,14 @@ func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+type VerifyLogin2FARequest struct {
+	MFAToken string `json:"mfa_token" validate:"required"`
+	Code     string `json:"code" validate:"required,len=6,numeric"`
+}
+
 // VerifyLogin2FA handles the second step of the login flow if the user has 2FA enabled.
 func (h *AuthHandler) VerifyLogin2FA(w http.ResponseWriter, r *http.Request) error {
-	var data VerifyLogin2FAData
+	var data VerifyLogin2FARequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
 		return err

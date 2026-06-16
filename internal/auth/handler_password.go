@@ -5,9 +5,13 @@ import (
 	"net/http"
 )
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
 // ForgotPassword initiates the password reset flow
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
-	var data ForgotPasswordData
+	var data ForgotPasswordRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
 		return err
@@ -31,9 +35,14 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
+type ResetPasswordRequest struct {
+	Token       string `json:"token" validate:"required"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
+}
+
 // ResetPassword finalizes the password change
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
-	var data ResetPasswordData
+	var data ResetPasswordRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
 		return err
