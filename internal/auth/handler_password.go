@@ -37,7 +37,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 
 type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
-	NewPassword string `json:"new_password" validate:"required,min=8"`
+	NewPassword string `json:"newPassword" validate:"required,min=8"`
 }
 
 // ResetPassword finalizes the password change

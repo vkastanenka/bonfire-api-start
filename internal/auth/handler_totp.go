@@ -65,7 +65,7 @@ func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 }
 
 type VerifyLogin2FARequest struct {
-	MFAToken string `json:"mfa_token" validate:"required"`
+	MFAToken string `json:"mfaToken" validate:"required"`
 	Code     string `json:"code" validate:"required,len=6,numeric"`
 }
 

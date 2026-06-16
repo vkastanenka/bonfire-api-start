@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"net/http"
-	"time"
 )
 
 type RegisterRequest struct {
@@ -80,15 +79,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Set Refresh Token as an HttpOnly cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokens["refresh_token"],
-		Path:     "/",
-		Expires:  time.Now().Add(7 * 24 * time.Hour),
-		HttpOnly: true,
-		Secure:   true, // Ensure this is true in production (requires HTTPS)
-		SameSite: http.SameSiteStrictMode,
-	})
+	httpio.SetRefreshTokenCookie(w, tokens["refresh_token"])
 
 	// Respond
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
@@ -114,15 +105,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 	}
 
 	// 3. Set the NEW Refresh Token in the HttpOnly cookie (overwriting the old one)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokens["refresh_token"],
-		Path:     "/",
-		Expires:  time.Now().Add(7 * 24 * time.Hour), // Matches the service duration
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-	})
+	httpio.SetRefreshTokenCookie(w, tokens["refresh_token"])
 
 	// 4. Respond with the fresh access token
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
