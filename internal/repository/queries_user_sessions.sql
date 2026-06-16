@@ -1,6 +1,6 @@
--- name: CreateSession :one
+-- name: UserSessionCreate :one
 INSERT INTO
-    sessions (
+    user_sessions (
         user_id,
         refresh_token,
         user_agent,
@@ -9,65 +9,66 @@ INSERT INTO
         expires_at
     )
 VALUES
-    ($ 1, $ 2, $ 3, $ 4, $ 5, $ 6) RETURNING id,
-    user_id,
-    refresh_token,
-    user_agent,
-    client_ip,
-    is_blocked,
-    expires_at,
-    created_at;
+    ($ 1, $ 2, $ 3, $ 4, $ 5, $ 6) RETURNING *;
 
--- name: GetSession :one
+-- name: UserSessionGet :one
 SELECT
-    id,
-    user_id,
-    refresh_token,
-    user_agent,
-    client_ip,
-    is_blocked,
-    expires_at,
-    created_at
+    *
 FROM
-    sessions
+    user_sessions
 WHERE
     refresh_token = $ 1
 LIMIT
     1;
 
--- name: UpdateSessionRefreshToken :exec
+-- name: UserSessionListByUser :many
+SELECT
+    *
+FROM
+    user_sessions
+WHERE
+    user_id = $ 1
+    AND is_blocked = false
+ORDER BY
+    last_seen_at DESC;
+
+-- name: UserSessionUpdateRefreshToken :exec
 UPDATE
-    sessions
+    user_sessions
 SET
     refresh_token = $ 2,
-    expires_at = $ 3
+    expires_at = $ 3,
+    updated_at = CURRENT_TIMESTAMP
 WHERE
     id = $ 1;
 
--- name: GetUserSessions :many
-SELECT
-    id,
-    user_agent,
-    client_ip,
-    created_at,
-    last_seen_at,
-    refresh_token
-FROM
-    sessions
+-- name: UserSessionUpdateLastSeen :exec
+UPDATE
+    user_sessions
+SET
+    last_seen_at = CURRENT_TIMESTAMP
 WHERE
-    user_id = $ 1
-    AND is_blocked = false;
+    id = $ 1;
 
--- name: DeleteSession :exec
+-- name: UserSessionMarkBlocked :exec
+UPDATE
+    user_sessions
+SET
+    is_blocked = true,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    id = $ 1;
+
+-- name: UserSessionDelete :exec
 DELETE FROM
-    sessions
+    user_sessions
 WHERE
     id = $ 1
     AND user_id = $ 2;
 
--- name: DeleteAllSessionsExcept :exec
+-- name: UserSessionDeleteAllExcept :exec
 DELETE FROM
-    sessions
+    user_sessions
 WHERE
-    user_id = @user_id
-    AND id != @id;
+    user_id = $ 1
+    AND id != $ 2;
