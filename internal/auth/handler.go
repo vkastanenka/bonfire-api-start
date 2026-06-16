@@ -162,7 +162,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 	// 1. Extract the old refresh token from the HttpOnly cookie
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing refresh token. Please log in.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing refresh token. Please log in.")
 	}
 
 	// 2. Process the rotation request
@@ -286,7 +286,7 @@ func (h *AuthHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error
 	// 1. Pull the user ID out of the context
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing user identity in context.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
 	// 2. Fetch the user's details from the database using the ID
@@ -294,7 +294,7 @@ func (h *AuthHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error
 	// the GetUserByID query you defined in sqlc.
 	user, err := h.service.GetUserByID(r.Context(), userID)
 	if err != nil {
-		return apperr.NewInternal("Failed to retrieve user information.")
+		return apperr.New(apperr.CodeInternal, "Failed to retrieve user information.")
 	}
 
 	// 3. Generate the TOTP using the fetched email for the authenticator label
@@ -326,7 +326,7 @@ func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 	// 1. Pull the user ID out of the context (requires access token)
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing user identity in context.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
 	// 2. Pass to service for cryptographic verification and database update
@@ -345,12 +345,12 @@ func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 func (h *AuthHandler) GetDevices(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing user identity in context.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing refresh token.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing refresh token.")
 	}
 
 	devices, err := h.service.GetDevices(r.Context(), userID, cookie.Value)
@@ -368,14 +368,14 @@ func (h *AuthHandler) GetDevices(w http.ResponseWriter, r *http.Request) error {
 func (h *AuthHandler) RevokeDevice(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing user identity in context.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
 	// Extract session ID from URL (e.g., /auth/devices/{id})
 	sessionIDStr := chi.URLParam(r, "id")
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		return apperr.NewBadRequest("Invalid device ID format.")
+		return apperr.New(apperr.CodeInvalidInput, "Invalid device ID format.")
 	}
 
 	if err := h.service.RevokeDevice(r.Context(), userID, sessionID); err != nil {
@@ -392,12 +392,12 @@ func (h *AuthHandler) RevokeDevice(w http.ResponseWriter, r *http.Request) error
 func (h *AuthHandler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing user identity in context.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
 	}
 
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		return apperr.NewUnauthenticated("Missing refresh token.")
+		return apperr.New(apperr.CodeUnauthenticated, "Missing refresh token.")
 	}
 
 	if err := h.service.RevokeAllOtherDevices(r.Context(), userID, cookie.Value); err != nil {
@@ -425,7 +425,6 @@ func (h *AuthHandler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Reque
 //     // userProfile, err := h.service.GetUserProfileByID(r.Context(), userID)
 //     // ...
 // }
-
 
 // // RegisterRoutes groups all auth-related routes together
 // func (h *AuthHandler) RegisterRoutes(r chi.Router) {

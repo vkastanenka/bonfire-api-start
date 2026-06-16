@@ -66,7 +66,7 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 		Username: data.Username,
 	})
 	if err != nil {
-		return apperr.NewInternal(
+		return apperr.New(apperr.CodeInternal,
 			"An unexpected error occurred while verifying your account details.",
 			apperr.WithErr(err),
 		)
@@ -83,16 +83,16 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 
 	// 1c. If there are any violations, return a conflict error with structured details
 	if len(details) > 0 {
-		return apperr.NewConflict(
+		return apperr.New(apperr.CodeConflict,
 			"Registration failed due to unavailable credentials.",
-			apperr.WithDetails(details),
+			apperr.WithDetails("fields", details),
 		)
 	}
 
 	// Step 2: Password Hashing (Securely inside the Service layer!)
 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(data.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return apperr.NewInternal(
+		return apperr.New(apperr.CodeInvalidInput,
 			"An unexpected error occurred while securing your account password.",
 			apperr.WithErr(err),
 		)
@@ -152,7 +152,7 @@ func (s *AuthService) Register(ctx context.Context, data RegisterData) error {
 
 	// Handle transactional completion states
 	if txErr != nil {
-		return apperr.NewInternal(
+		return apperr.New(apperr.CodeInternal,
 			"An unexpected error occurred while creating your account. Please try again.",
 			apperr.WithErr(txErr),
 		)
@@ -165,7 +165,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// 1. Validate the stateless token structure
 	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.VerificationSecret)
 	if err != nil {
-		return apperr.NewUnauthenticated("The verification link is invalid or has expired.")
+		return apperr.New(apperr.CodeUnauthenticated, "The verification link is invalid or has expired.")
 	}
 
 	var pgUserID pgtype.UUID
@@ -178,7 +178,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 		Flags: int64(UserFlagVerified), // Merges bit value 1 via bitwise OR
 	})
 	if err != nil {
-		return apperr.NewInternal("Failed to update verification flags.", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to update verification flags.", apperr.WithErr(err))
 	}
 
 	return nil
@@ -192,17 +192,17 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
-		return apperr.NewInternal("System error", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "System error", apperr.WithErr(err))
 	}
 
 	// 2. Ensure they actually need verification
 	if user.VerifiedAt.Valid {
-		return apperr.NewConflict("This account is already verified.")
+		return apperr.New(apperr.CodeConflict, "This account is already verified.")
 	}
 
 	// 3. Enforce the Cooldown (e.g., 60 seconds)
 	if user.LastVerificationSentAt.Valid && time.Since(user.LastVerificationSentAt.Time) < 60*time.Second {
-		return apperr.NewTooManyRequests("Please wait a minute before requesting another verification email.")
+		return apperr.New(apperr.CodeTooManyRequests, "Please wait a minute before requesting another verification email.")
 	}
 
 	// 4. Generate a fresh verification token
@@ -243,12 +243,12 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 	userAuth, err := s.store.GetUserAuthCredentials(ctx, data.Email)
 	if err != nil {
 		// User not found
-		if errors.Is(err, pgx.ErrNoRows) { // TODO: Abstract sql implementation details
-			return nil, apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(unauthorizedErrDetails))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
 		}
 
 		// Internal server error
-		return nil, apperr.NewInternal(
+		return nil, apperr.New(apperr.CodeInternal,
 			"An unexpected error occurred while verifying your account details.",
 			apperr.WithErr(err),
 		)
@@ -257,7 +257,7 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 	// 2. Compare the provided password with the stored hash
 	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(data.Password))
 	if err != nil {
-		return nil, apperr.NewUnauthenticated("Invalid credentials.", apperr.WithDetails(unauthorizedErrDetails))
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
 	}
 
 	// Convert pgtype.UUID to uuid.UUID by passing the underlying 16-byte array
@@ -267,14 +267,14 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 	accessDuration := 15 * time.Minute
 	accessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to generate access token.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to generate access token.", apperr.WithErr(err))
 	}
 
 	// 4. Generate Refresh Token (7 days)
 	refreshDuration := 7 * 24 * time.Hour
 	refreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to generate refresh token.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to generate refresh token.", apperr.WithErr(err))
 	}
 
 	// 5. Store the session in the database
@@ -290,7 +290,7 @@ func (s *AuthService) Login(ctx context.Context, data LoginData, userAgent, clie
 		},
 	})
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to create user session.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to create user session.", apperr.WithErr(err))
 	}
 
 	// 6. Return the tokens
@@ -305,31 +305,29 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 	// 1. Cryptographically verify the old refresh token
 	claims, err := token.VerifyJWT(oldRefreshToken, s.tokenConfig.RefreshSecret)
 	if err != nil {
-		return nil, apperr.NewUnauthenticated("Invalid or expired refresh token.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired refresh token.")
 	}
 
 	// 2. Look up the session using the old token
 	session, err := s.store.GetSession(ctx, oldRefreshToken)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// REPLAY DETECTION: If the JWT is valid but not in the DB, it means
-			// the token was already used (rotated) or the user logged out.
-			return nil, apperr.NewUnauthenticated("Session not found or token already consumed.")
+			return nil, apperr.New(apperr.CodeUnauthenticated, "Session not found or token already consumed.")
 		}
-		return nil, apperr.NewInternal("An unexpected error occurred while validating your session.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "An unexpected error occurred while validating your session.", apperr.WithErr(err))
 	}
 
 	// 3. Validate the session state
 	if session.IsBlocked {
-		return nil, apperr.NewUnauthenticated("Your session has been blocked.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Your session has been blocked.")
 	}
 
 	if claims.UserID != uuid.UUID(session.UserID.Bytes) {
-		return nil, apperr.NewUnauthenticated("Session identity mismatch.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Session identity mismatch.")
 	}
 
 	if time.Now().After(session.ExpiresAt.Time) {
-		return nil, apperr.NewUnauthenticated("Session expired. Please log in again.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Session expired. Please log in again.")
 	}
 
 	// 4. Issue a fresh Access Token (15 minutes)
@@ -338,14 +336,14 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 
 	newAccessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to generate new access token.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new access token.", apperr.WithErr(err))
 	}
 
 	// 5. Issue a fresh Refresh Token (Reset the 7-day clock)
 	refreshDuration := 7 * 24 * time.Hour
 	newRefreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to generate new refresh token.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new refresh token.", apperr.WithErr(err))
 	}
 
 	// 6. ROTATION: Update the database with the new refresh token
@@ -358,7 +356,7 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 		},
 	})
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to rotate session tokens.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to rotate session tokens.", apperr.WithErr(err))
 	}
 
 	return map[string]string{
@@ -370,11 +368,10 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
-		// If not found, return nil (don't leak user existence)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
-		return apperr.NewInternal("System error", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "System error", apperr.WithErr(err))
 	}
 
 	// Generate a short-lived token (15 mins) specifically for resetting
@@ -397,13 +394,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPas
 	// Verify the token using the PasswordResetSecret
 	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
 	if err != nil {
-		return apperr.NewUnauthenticated("Invalid or expired reset token.")
+		return apperr.New(apperr.CodeUnauthenticated, "Invalid or expired reset token.")
 	}
 
 	// Hash the new password
 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return apperr.NewInternal("Failed to hash password", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to hash password", apperr.WithErr(err))
 	}
 
 	// Execute update
@@ -412,7 +409,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPas
 		PasswordHash: string(hashedPasswordBytes),
 	})
 	if err != nil {
-		return apperr.NewInternal("Failed to update password", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to update password", apperr.WithErr(err))
 	}
 
 	return nil
@@ -428,7 +425,7 @@ func (s *AuthService) GenerateTOTP(ctx context.Context, email string) (string, s
 		SecretSize:  20,
 	})
 	if err != nil {
-		return "", "", apperr.NewInternal("Failed to generate 2FA secret.", apperr.WithErr(err))
+		return "", "", apperr.New(apperr.CodeInternal, "Failed to generate 2FA secret.", apperr.WithErr(err))
 	}
 
 	// Return the secret (to pass back during confirmation) and the URL (for the QR code)
@@ -440,7 +437,7 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret s
 	// 1. Verify the provided 6-digit code against the pending secret
 	valid := totp.Validate(code, secret)
 	if !valid {
-		return apperr.NewUnauthenticated("Invalid authenticator code. Please try again.")
+		return apperr.New(apperr.CodeUnauthenticated, "Invalid authenticator code. Please try again.")
 	}
 
 	// 2. Convert standard UUID to pgtype.UUID for sqlc
@@ -459,7 +456,7 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret s
 		ID:         pgUserID,
 	})
 	if err != nil {
-		return apperr.NewInternal("Failed to enable 2FA on your account.", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to enable 2FA on your account.", apperr.WithErr(err))
 	}
 
 	return nil
@@ -472,7 +469,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 	// You need to extract the userID from the token claims here.
 	userID, err := s.ValidateMFAToken(mfaToken)
 	if err != nil {
-		return nil, apperr.NewUnauthenticated("Invalid or expired MFA token. Please log in again.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired MFA token. Please log in again.")
 	}
 
 	// Convert to pgtype.UUID for sqlc
@@ -483,13 +480,13 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 	// 2. Fetch the user's secret from the database
 	totpSecret, err := s.store.GetUserTOTPSecret(ctx, pgUserID)
 	if err != nil || !totpSecret.Valid {
-		return nil, apperr.NewInternal("Failed to retrieve 2FA configuration.")
+		return nil, apperr.New(apperr.CodeInternal, "Failed to retrieve 2FA configuration.")
 	}
 
 	// 3. Validate the 6-digit code mathematically against the secret
 	valid := totp.Validate(code, totpSecret.String)
 	if !valid {
-		return nil, apperr.NewUnauthenticated("Invalid 2FA code.")
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid 2FA code.")
 	}
 
 	// 4. Code is valid! Generate the real Access and Refresh tokens
@@ -515,7 +512,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 		ExpiresAt:    pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
 	})
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to create user session.")
+		return nil, apperr.New(apperr.CodeInternal, "Failed to create user session.")
 	}
 
 	// 6. Return the tokens to the handler
@@ -600,7 +597,7 @@ func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentR
 
 	sessions, err := s.store.GetUserSessions(ctx, pgUserID)
 	if err != nil {
-		return nil, apperr.NewInternal("Failed to fetch active devices.", apperr.WithErr(err))
+		return nil, apperr.New(apperr.CodeInternal, "Failed to fetch active devices.", apperr.WithErr(err))
 	}
 
 	var devices []DeviceResponse
@@ -632,7 +629,7 @@ func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessio
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewInternal("Failed to log out of device.", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to log out of device.", apperr.WithErr(err))
 	}
 	return nil
 }
@@ -642,7 +639,7 @@ func (s *AuthService) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUI
 	// 1. Fetch the current session to get its ID
 	currentSession, err := s.store.GetSession(ctx, currentRefreshToken)
 	if err != nil {
-		return apperr.NewUnauthenticated("Current session invalid or already logged out.")
+		return apperr.New(apperr.CodeUnauthenticated, "Current session invalid or already logged out.")
 	}
 
 	// 2. Delete everything else
@@ -651,7 +648,7 @@ func (s *AuthService) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUI
 		ID:     currentSession.ID,
 	})
 	if err != nil {
-		return apperr.NewInternal("Failed to log out of other devices.", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to log out of other devices.", apperr.WithErr(err))
 	}
 
 	return nil
