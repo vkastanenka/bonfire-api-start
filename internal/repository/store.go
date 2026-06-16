@@ -9,6 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// TODO: Implement after other refactor
+// type Store interface {
+// 	Querier // This includes all your generated sqlc methods
+// 	ExecTx(ctx context.Context, fn func(*Queries) error) error
+// }
+
 // SQLStore provides a repository implementation
 type SQLStore struct {
 	db *pgxpool.Pool
