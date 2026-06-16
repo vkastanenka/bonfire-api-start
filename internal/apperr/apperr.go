@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Code defines the category of application error.
+// Code defines the category of application error
 type Code string
 
 const (
@@ -20,15 +20,15 @@ const (
 	CodeBadRequest       Code = "BAD_REQUEST"
 )
 
-// Error represents a structured domain error.
+// Error represents a structured domain error
 type Error struct {
 	Code    Code
 	Message string
-	Details map[string]any // 'any' is generally more flexible for details than 'string'
-	Err     error          // The underlying wrapped error, if any
+	Details map[string]any
+	Err     error
 }
 
-// Ensure Error implements the standard error interface.
+// Error implements the standard error interface.
 var _ error = (*Error)(nil)
 
 // Error implements the error interface.
@@ -40,22 +40,22 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// Unwrap allows errors.Is and errors.As to work seamlessly.
+// Unwrap allows errors.Is and errors.As
 func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// Option defines a function signature for configuring an Error.
+// Option defines a function signature for configuring an Error
 type Option func(*Error)
 
-// WithErr wraps an underlying cause error.
+// WithErr wraps an underlying cause error
 func WithErr(err error) Option {
 	return func(e *Error) {
 		e.Err = err
 	}
 }
 
-// WithDetails attaches key-value metadata to the error.
+// WithDetails attaches key-value metadata to the error
 func WithDetails(key string, value any) Option {
 	return func(e *Error) {
 		if e.Details == nil {
@@ -65,8 +65,7 @@ func WithDetails(key string, value any) Option {
 	}
 }
 
-// New creates a new domain error.
-// CRITICAL FIX: It returns the 'error' interface, NOT '*Error'.
+// New creates a new domain error
 func New(code Code, msg string, opts ...Option) error {
 	err := &Error{
 		Code:    code,
@@ -78,8 +77,7 @@ func New(code Code, msg string, opts ...Option) error {
 	return err
 }
 
-// ErrorCode safely extracts the application code from any error.
-// It uses errors.As to unwrap layers of standard Go errors.
+// ErrorCode safely extracts the application code from any error
 func ErrorCode(err error) Code {
 	if err == nil {
 		return ""
