@@ -8,27 +8,40 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NewPostgresPool initializes a connection pool to the PostgreSQL database.
-// It accepts a connection string, handles the connection setup, and pings the DB to confirm it's ready.
-func NewPostgresPool(connStr string) (*pgxpool.Pool, error) {
+// NewPostgresPool parses the connection string, sets up pool configurations,
+// and verifies connection by pinging the database.
+func NewPostgresPool(ctx context.Context, connStr string) (*pgxpool.Pool, error) {
+	// Validate connStr
 	if connStr == "" {
 		return nil, fmt.Errorf("postgres connection string cannot be empty")
 	}
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Init db pool
-	dbPool, err := pgxpool.New(ctx, connStr)
+	// Parse connStr
+	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
-		return nil, fmt.Errorf("postgres pool init failed: %w", err)
+		return nil, fmt.Errorf("failed to parse postgres config: %w", err)
 	}
 
-	// Ping to verify connection
-	if err := dbPool.Ping(ctx); err != nil {
+	// Init pool settings
+	config.MaxConns = 25
+	config.MinConns = 2
+	config.MaxConnLifetime = 1 * time.Hour
+	config.MaxConnIdleTime = 30 * time.Minute
+
+	// Init timeout from ctx
+	initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Init pool
+	dbPool, err := pgxpool.NewWithConfig(initCtx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create postgres pool: %w", err)
+	}
+
+	// Verify connection with a ping
+	if err := dbPool.Ping(initCtx); err != nil {
 		dbPool.Close()
-		return nil, fmt.Errorf("postgres ping failed: %w", err)
+		return nil, fmt.Errorf("postgres connection verification failed: %w", err)
 	}
 
 	return dbPool, nil

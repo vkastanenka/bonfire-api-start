@@ -16,16 +16,9 @@ func InitPostgres(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	slog.Info("initializing postgres connection pool")
 
 	// Init new client
-	dbPool, err := database.NewPostgresPool(url)
+	dbPool, err := database.NewPostgresPool(ctx, url)
 	if err != nil {
 		slog.Error("postgres init failed", "error", err)
-		return nil, err
-	}
-
-	// Ping to verify connection
-	if err := dbPool.Ping(ctx); err != nil {
-		slog.Error("postgres connection verification failed", "error", err)
-		dbPool.Close()
 		return nil, err
 	}
 
