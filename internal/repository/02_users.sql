@@ -1,3 +1,6 @@
+-- Types
+CREATE TYPE user_role AS ENUM ('user', 'admin');
+
 CREATE TABLE users (
     -- Primary key
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -14,7 +17,7 @@ CREATE TABLE users (
     verified_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     last_verification_sent_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     -- App logic
-    flags BIGINT NOT NULL DEFAULT 0,
+    role user_role NOT NULL DEFAULT 'user',
     -- Constraints
     CONSTRAINT email_length CHECK (
         char_length(email) BETWEEN 3
@@ -32,19 +35,15 @@ CREATE TABLE users (
             'system',
             'moderator'
         )
-    );
-
+    )
 );
-
--- Comments
-COMMENT ON COLUMN users.flags IS 'Bitmask: 1=admin, 2=user';
 
 -- Indexes
 CREATE INDEX idx_users_unverified ON users(created_at)
 WHERE
     verified_at IS NULL;
 
-CREATE INDEX idx_users_flags ON users(flags);
+CREATE INDEX idx_users_role ON users(role);
 
 -- Triggers
 CREATE TRIGGER update_users_modtime BEFORE

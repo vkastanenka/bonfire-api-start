@@ -1,22 +1,12 @@
--- users
--- name: CreateUser :one
+-- name: UserCreate :one
 INSERT INTO
-    users (email, username, password_hash, flags)
+    users (email, username, password_hash, role)
 VALUES
-    ($ 1, $ 2, $ 3, $ 4) RETURNING id,
-    created_at,
-    email,
-    username,
-    flags;
+    ($ 1, $ 2, $ 3, $ 4) RETURNING *;
 
--- name: GetUserByID :one
+-- name: UserGet :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    verified_at,
-    email,
-    username
+    *
 FROM
     users
 WHERE
@@ -24,15 +14,9 @@ WHERE
 LIMIT
     1;
 
--- name: GetUserByEmail :one
+-- name: UserGetByEmail :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    verified_at,
-    last_verification_sent_at,
-    email,
-    username
+    *
 FROM
     users
 WHERE
@@ -40,14 +24,9 @@ WHERE
 LIMIT
     1;
 
--- name: GetUserByUsername :one
+-- name: UserGetByUsername :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    verified_at,
-    email,
-    username
+    *
 FROM
     users
 WHERE
@@ -55,7 +34,7 @@ WHERE
 LIMIT
     1;
 
--- name: GetUserAuthCredentials :one
+-- name: UserGetAuthCredentials :one
 SELECT
     id,
     password_hash,
@@ -67,13 +46,30 @@ WHERE
 LIMIT
     1;
 
--- name: DeleteUser :exec
-DELETE FROM
+-- name: UserGetTOTPSecret :one
+SELECT
+    totp_secret
+FROM
     users
 WHERE
-    id = $ 1;
+    id = $ 1
+LIMIT
+    1;
 
--- name: ValidateUserCredentialsAvailability :one
+-- name: UserListUnverified :many
+SELECT
+    id,
+    email,
+    username,
+    created_at
+FROM
+    users
+WHERE
+    verified_at IS NULL
+ORDER BY
+    created_at ASC;
+
+-- name: UserCheckAvailability :one
 SELECT
     NOT EXISTS (
         SELECT
@@ -92,18 +88,17 @@ SELECT
             username = $ 2
     ) AS username_available;
 
--- name: VerifyUserEmail :exec
+-- name: UserMarkVerified :exec
 UPDATE
     users
 SET
     verified_at = CURRENT_TIMESTAMP,
-    flags = flags | $ 2,
     updated_at = CURRENT_TIMESTAMP
 WHERE
     id = $ 1
     AND verified_at IS NULL;
 
--- name: UpdateUserPassword :exec
+-- name: UserUpdatePassword :exec
 UPDATE
     users
 SET
@@ -112,7 +107,7 @@ SET
 WHERE
     id = $ 1;
 
--- name: UpdateUserLastVerificationSent :exec
+-- name: UserUpdateLastVerificationSent :exec
 UPDATE
     users
 SET
@@ -120,30 +115,28 @@ SET
 WHERE
     id = $ 1;
 
--- name: EnableUserTOTP :exec
+-- name: UserEnableTOTP :exec
 UPDATE
     users
 SET
     totp_secret = $ 1,
-    is_totp_enabled = TRUE
+    is_totp_enabled = TRUE,
+    updated_at = CURRENT_TIMESTAMP
 WHERE
     id = $ 2;
 
--- name: DisableUserTOTP :exec
+-- name: UserDisableTOTP :exec
 UPDATE
     users
 SET
     totp_secret = NULL,
-    is_totp_enabled = FALSE
+    is_totp_enabled = FALSE,
+    updated_at = CURRENT_TIMESTAMP
 WHERE
     id = $ 1;
 
--- name: GetUserTOTPSecret :one
-SELECT
-    totp_secret
-FROM
+-- name: UserDelete :exec
+DELETE FROM
     users
 WHERE
-    id = $ 1
-LIMIT
-    1;
+    id = $ 1;
