@@ -6,7 +6,7 @@ sql:
       - "internal/repository/01_outbox.sql"
       - "internal/repository/02_users.sql"
       - "internal/repository/03_sessions.sql"
-    queries: "internal/repository/queries.sql"
+    queries: "internal/repository/queries_*.sql"
     gen:
       go:
         package: "repository"

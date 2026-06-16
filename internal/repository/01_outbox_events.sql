@@ -1,5 +1,3 @@
-----------------
--- outbox_events
 CREATE TABLE outbox_events (
     -- Primary key
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -20,7 +18,7 @@ CREATE TABLE outbox_events (
 );
 
 -- Indexes
-CREATE INDEX idx_outbox_unprocessed ON outbox_events(next_attempt_at)
+CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at)
 WHERE
     processed_at IS NULL;
 

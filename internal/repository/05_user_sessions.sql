@@ -1,5 +1,4 @@
--- sessions
-CREATE TABLE sessions (
+CREATE TABLE user_sessions (
     -- Identity
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -10,7 +9,7 @@ CREATE TABLE sessions (
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Security
-    refresh_token VARCHAR(512) NOT NULL,
+    refresh_token VARCHAR(512) NOT NULL UNIQUE,
     is_blocked BOOLEAN NOT NULL DEFAULT false,
     -- Client context
     client_ip INET NOT NULL,
@@ -18,11 +17,9 @@ CREATE TABLE sessions (
 );
 
 -- Indexes
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
 
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-
-CREATE UNIQUE INDEX idx_sessions_refresh_token ON sessions(refresh_token);
+CREATE INDEX idx_user_sessions_expires_at ON user_sessions(expires_at);
 
 -- Triggers
 CREATE TRIGGER update_sessions_modtime BEFORE
