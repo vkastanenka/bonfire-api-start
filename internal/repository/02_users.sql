@@ -1,46 +1,4 @@
--- Case-Insensitive Text extension
-CREATE EXTENSION IF NOT EXISTS citext;
-
--- Automatically update "updated_at" to CURRENT_TIMESTAMP
-CREATE
-OR REPLACE FUNCTION update_modified_column() RETURNS TRIGGER AS $ $ BEGIN NEW.updated_at = CURRENT_TIMESTAMP;
-
-RETURN NEW;
-
-END;
-
-$ $ LANGUAGE plpgsql;
-
--- outbox_events
-CREATE TABLE outbox_events (
-    -- Primary key
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    -- Audit metadata
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- Event payload
-    event_type VARCHAR(100) NOT NULL,
-    payload JSONB NOT NULL,
-    -- Queue state
-    processed_at TIMESTAMPTZ,
-    attempts INT NOT NULL DEFAULT 0,
-    max_attempts INT NOT NULL DEFAULT 5,
-    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_error TEXT,
-    -- Constraints
-    CONSTRAINT check_attempts_ceiling CHECK (attempts <= max_attempts)
-);
-
--- Indexes
-CREATE INDEX idx_outbox_unprocessed ON outbox_events(next_attempt_at)
-WHERE
-    processed_at IS NULL;
-
--- Trigger
-CREATE TRIGGER update_outbox_events_modtime BEFORE
-UPDATE
-    ON outbox_events FOR EACH ROW EXECUTE FUNCTION update_modified_column();
-
+--------
 -- users
 CREATE TABLE users (
     -- Primary key
@@ -95,6 +53,7 @@ CREATE TRIGGER update_users_modtime BEFORE
 UPDATE
     ON users FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
+-------------------------
 -- user_deletion_requests
 CREATE TABLE user_deletion_requests (
     -- Primary key
@@ -109,37 +68,7 @@ CREATE TABLE user_deletion_requests (
 -- Indexes
 CREATE INDEX idx_deletion_requests_scheduled_at ON user_deletion_requests(scheduled_at);
 
--- sessions
-CREATE TABLE sessions (
-    -- Identity
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    -- Audit
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    -- Lifecycle
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- Security
-    refresh_token VARCHAR(512) NOT NULL,
-    is_blocked BOOLEAN NOT NULL DEFAULT false,
-    -- Client context
-    client_ip INET NOT NULL,
-    user_agent TEXT NOT NULL
-);
-
--- Indexes
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-
-CREATE UNIQUE INDEX idx_sessions_refresh_token ON sessions(refresh_token);
-
--- Triggers
-CREATE TRIGGER update_sessions_modtime BEFORE
-UPDATE
-    ON sessions FOR EACH ROW EXECUTE FUNCTION update_modified_column();
-
+----------------
 -- user_profiles
 CREATE TABLE user_profiles (
     -- Primary key

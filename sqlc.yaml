@@ -1,7 +1,11 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: "internal/repository/schema.sql"
+    schema:
+      - "internal/repository/00_init.sql"
+      - "internal/repository/01_outbox.sql"
+      - "internal/repository/02_users.sql"
+      - "internal/repository/03_sessions.sql"
     queries: "internal/repository/queries.sql"
     gen:
       go:
