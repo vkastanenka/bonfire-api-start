@@ -15,7 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Application holds the application-wide dependencies.
+// Application dependencies
 type Application struct {
 	Config      *config.Config
 	DB          *pgxpool.Pool
@@ -26,32 +26,44 @@ type Application struct {
 
 // Serve configures the HTTP server and manages graceful shutdown.
 func (app *Application) Serve(ctx context.Context) error {
+	// Init server
 	srv := &http.Server{
-		Addr:         app.Config.Port,
-		Handler:      app.routes(),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              app.Config.Port,
+		Handler:           app.routes(),
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		MaxHeaderBytes:    1 * 1024 * 1024,
+		ErrorLog:          slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
 	}
 
-	// Create a channel to catch shutdown errors from our background goroutine
+	// Shutdown error channel
 	shutdownError := make(chan error)
 
-	// Run a background goroutine to listen for OS interrupt signals
+	// Listen to OS interrupt signals
 	go func() {
-		<-ctx.Done() // Blocks until SIGINT or SIGTERM is received
+		// Panic recovery
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("recovered from panic in shutdown goroutine", "panic", r)
+			}
+		}()
+
+		<-ctx.Done() // Block until context has been cancelled
 		slog.Info("shutting down core API server")
 
 		// Create a hard cutoff window for active connections to drain
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		// Set error
 		shutdownError <- srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("Core API Server starting", "port", app.Config.Port)
+	slog.Info("core API server starting", "port", app.Config.Port)
 
-	// This blocks until the server is shut down
+	// Start server
 	err := srv.ListenAndServe()
 	if !errors.Is(err, http.ErrServerClosed) {
 		return err // An unexpected error occurred while running
@@ -63,6 +75,7 @@ func (app *Application) Serve(ctx context.Context) error {
 		return err
 	}
 
+	// Finish
 	slog.Info("server stopped cleanly")
 	return nil
 }
