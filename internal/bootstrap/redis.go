@@ -16,7 +16,7 @@ func InitRedis(ctx context.Context, url string) (*redis.Client, error) {
 	slog.Info("initializing redis client")
 
 	// Init new client
-	rdb, err := cache.NewRedisClient(url)
+	rdb, err := cache.NewRedisClient(ctx, url)
 	if err != nil {
 		slog.Error("redis init failed", "error", err)
 		return nil, err
