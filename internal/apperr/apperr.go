@@ -1,41 +1,46 @@
 package apperr
 
 import (
+	"errors"
 	"fmt"
 )
 
-// Type defines the category of application error.
-type Type string
+// Code defines the category of application error.
+type Code string
 
 const (
-	TypeInternal         Type = "INTERNAL"
-	TypeInvalidInput     Type = "INVALID_INPUT"
-	TypePayloadTooLarge  Type = "PAYLOAD_TOO_LARGE"
-	TypeNotFound         Type = "NOT_FOUND"
-	TypeConflict         Type = "CONFLICT"
-	TypeUnauthenticated  Type = "UNAUTHENTICATED"
-	TypeMethodNotAllowed Type = "METHOD_NOT_ALLOWED"
-	TypeTooManyRequests  Type = "TOO_MANY_REQUESTS"
-	TypeBadRequest       Type = "BAD_REQUEST"
+	CodeInternal         Code = "INTERNAL"
+	CodeInvalidInput     Code = "INVALID_INPUT"
+	CodePayloadTooLarge  Code = "PAYLOAD_TOO_LARGE"
+	CodeNotFound         Code = "NOT_FOUND"
+	CodeConflict         Code = "CONFLICT"
+	CodeUnauthenticated  Code = "UNAUTHENTICATED"
+	CodeMethodNotAllowed Code = "METHOD_NOT_ALLOWED"
+	CodeTooManyRequests  Code = "TOO_MANY_REQUESTS"
+	CodeBadRequest       Code = "BAD_REQUEST"
 )
 
 // Error represents a structured domain error.
 type Error struct {
-	Type    Type              `json:"-"`
-	Message string            `json:"message"`
-	Details map[string]string `json:"-"`
-	Err     error             `json:"-"`
+	Code    Code
+	Message string
+	Details map[string]any // 'any' is generally more flexible for details than 'string'
+	Err     error          // The underlying wrapped error, if any
 }
 
-// Value receiver prevents typed nil pointer bugs
+// Ensure Error implements the standard error interface.
+var _ error = (*Error)(nil)
+
+// Error implements the error interface.
+// Using a pointer receiver is correct here, but we ensure safe creation via the New() function.
 func (e *Error) Error() string {
 	if e.Err != nil {
-		return fmt.Sprintf("%s: %v", e.Message, e.Err)
+		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Err)
 	}
-	return e.Message
+	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// Value receiver allows standard errors.Unwrap to function seamlessly
+// Unwrap allows errors.Is and errors.As to work seamlessly.
 func (e *Error) Unwrap() error {
 	return e.Err
 }
@@ -51,16 +56,20 @@ func WithErr(err error) Option {
 }
 
 // WithDetails attaches key-value metadata to the error.
-func WithDetails(details map[string]string) Option {
+func WithDetails(key string, value any) Option {
 	return func(e *Error) {
-		e.Details = details
+		if e.Details == nil {
+			e.Details = make(map[string]any)
+		}
+		e.Details[key] = value
 	}
 }
 
-// Generic factory to minimize boilerplate
-func newError(t Type, msg string, opts ...Option) *Error {
+// New creates a new domain error.
+// CRITICAL FIX: It returns the 'error' interface, NOT '*Error'.
+func New(code Code, msg string, opts ...Option) error {
 	err := &Error{
-		Type:    t,
+		Code:    code,
 		Message: msg,
 	}
 	for _, opt := range opts {
@@ -69,40 +78,18 @@ func newError(t Type, msg string, opts ...Option) *Error {
 	return err
 }
 
-// Public Factory Functions
-func NewInvalidInput(msg string, opts ...Option) *Error {
-	return newError(TypeInvalidInput, msg, opts...)
-}
+// ErrorCode safely extracts the application code from any error.
+// It uses errors.As to unwrap layers of standard Go errors.
+func ErrorCode(err error) Code {
+	if err == nil {
+		return ""
+	}
 
-func NewInternal(msg string, opts ...Option) *Error {
-	return newError(TypeInternal, msg, opts...)
-}
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr.Code
+	}
 
-func NewNotFound(msg string, opts ...Option) *Error {
-	return newError(TypeNotFound, msg, opts...)
-}
-
-func NewPayloadTooLarge(msg string, opts ...Option) *Error {
-	return newError(TypePayloadTooLarge, msg, opts...)
-}
-
-func NewConflict(msg string, opts ...Option) *Error {
-	return newError(TypeConflict, msg, opts...)
-}
-
-// TODO: Rename to NewUnauthorized
-func NewUnauthenticated(msg string, opts ...Option) *Error {
-	return newError(TypeUnauthenticated, msg, opts...)
-}
-
-func NewMethodNotAllowed(msg string, opts ...Option) *Error {
-	return newError(TypeMethodNotAllowed, msg, opts...)
-}
-
-func NewTooManyRequests(msg string, opts ...Option) *Error {
-	return newError(TypeTooManyRequests, msg, opts...)
-}
-
-func NewBadRequest(msg string, opts ...Option) *Error {
-	return newError(TypeBadRequest, msg, opts...)
+	// If it's a standard Go error not wrapped in apperr, default to Internal
+	return CodeInternal
 }

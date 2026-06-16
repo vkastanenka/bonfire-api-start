@@ -38,7 +38,7 @@ func New() *Validator {
 // ValidateStruct validates an arbitrary struct against its defined validation tags.
 // If validation fails, it returns a structured *apperr.Error containing field-level
 // details mapped to their exact JSON structural paths.
-func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
+func (v *Validator) ValidateStruct(s interface{}) error {
 	err := v.engine.Struct(s)
 	if err == nil {
 		return nil
@@ -46,7 +46,7 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return apperr.NewInternal("Invalid validation target provided", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "invalid validation target provided", apperr.WithErr(err))
 	}
 
 	var validationErrors goValidator.ValidationErrors
@@ -67,14 +67,15 @@ func (v *Validator) ValidateStruct(s interface{}) *apperr.Error {
 			errsMap[jsonPath] = msgForFieldError(fieldErr)
 		}
 
-		return apperr.NewInvalidInput(
-			"Validation failed for the request payload.",
-			apperr.WithDetails(errsMap),
+		return apperr.New(
+			apperr.CodeInvalidInput,
+			"validation failed for the request payload.",
+			apperr.WithDetails("fields", errsMap),
 			apperr.WithErr(err),
 		)
 	}
 
-	return apperr.NewInternal("An unknown error occurred during validation", apperr.WithErr(err))
+	return apperr.New(apperr.CodeInternal, "an unknown error occurred during validation", apperr.WithErr(err))
 }
 
 // msgForFieldError evaluates the field error and returns a contextual message.

@@ -17,22 +17,22 @@ import (
 )
 
 type ErrorResponse struct {
-	Error   string            `json:"error"`
-	Message string            `json:"message,omitempty"`
-	Details map[string]string `json:"details,omitempty"`
+	Error   string         `json:"error"`
+	Message string         `json:"message,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
-		return apperr.NewInvalidInput("Missing Content-Type header; must be application/json.")
+		return apperr.New(apperr.CodeInvalidInput, "Missing Content-Type header; must be application/json.")
 	}
 
 	ctLower := strings.ToLower(ct)
 	if !strings.HasPrefix(ctLower, "application/json") {
 		mediaType, _, err := mime.ParseMediaType(ct)
 		if err != nil || mediaType != "application/json" {
-			return apperr.NewInvalidInput("Content-Type header must be application/json.")
+			return apperr.New(apperr.CodeInvalidInput, "Content-Type header must be application/json.")
 		}
 	}
 
@@ -45,7 +45,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 
 	if err := dec.Decode(dst); err != nil {
 		if r.Context().Err() != nil {
-			return apperr.NewInvalidInput("Client closed connection mid-request.", apperr.WithErr(r.Context().Err()))
+			return apperr.New(apperr.CodeInvalidInput, "Client closed connection mid-request.", apperr.WithErr(r.Context().Err()))
 		}
 
 		var maxBytesErr *http.MaxBytesError
@@ -54,16 +54,16 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 
 		switch {
 		case errors.As(err, &maxBytesErr):
-			return apperr.NewPayloadTooLarge("Request body exceeds 1MB limit.", apperr.WithErr(err))
+			return apperr.New(apperr.CodePayloadTooLarge, "Request body exceeds 1MB limit.", apperr.WithErr(err))
 
 		case errors.Is(err, io.EOF):
-			return apperr.NewInvalidInput("Request body cannot be empty.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, "Request body cannot be empty.", apperr.WithErr(err))
 
 		case errors.As(err, &syntaxErr):
-			return apperr.NewInvalidInput("Malformed request body JSON syntax.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, "Malformed request body JSON syntax.", apperr.WithErr(err))
 
 		case errors.Is(err, io.ErrUnexpectedEOF):
-			return apperr.NewInvalidInput("Truncated or malformed JSON structure received.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, "Truncated or malformed JSON structure received.", apperr.WithErr(err))
 
 		case errors.As(err, &unmarshalTypeErr):
 			fieldName := unmarshalTypeErr.Field
@@ -74,12 +74,10 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 				fieldName = resolveUnmarshalPath(unmarshalTypeErr.Struct, fieldName)
 			}
 
-			details := map[string]string{
-				fieldName: fmt.Sprintf("Must be of type %s", unmarshalTypeErr.Type),
-			}
-			return apperr.NewInvalidInput(
+			return apperr.New(
+				apperr.CodeInvalidInput,
 				"Invalid data type provided for request body field(s).",
-				apperr.WithDetails(details),
+				apperr.WithDetails(fieldName, fmt.Sprintf("Must be of type %s", unmarshalTypeErr.Type)),
 				apperr.WithErr(err),
 			)
 
@@ -87,15 +85,15 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
 			fieldName = strings.Trim(fieldName, `"`)
-			return apperr.NewInvalidInput(fmt.Sprintf("Unknown field '%s' present in request body.", fieldName), apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, fmt.Sprintf("Unknown field '%s' present in request body.", fieldName), apperr.WithErr(err))
 
 		default:
-			return apperr.NewInvalidInput("Malformed or invalid request body JSON payload.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, "Malformed or invalid request body JSON payload.", apperr.WithErr(err))
 		}
 	}
 
 	if dec.More() {
-		return apperr.NewInvalidInput("Request body must contain only a single JSON value.")
+		return apperr.New(apperr.CodeInvalidInput, "Request body must contain only a single JSON value.")
 	}
 
 	return nil
@@ -132,29 +130,29 @@ func MapErrorToResponse(err error) (int, ErrorResponse) {
 
 	statusCode := http.StatusInternalServerError
 	resp := ErrorResponse{
-		Error:   string(apperr.TypeInternal),
+		Error:   string(apperr.CodeInternal),
 		Message: "An unexpected internal error occurred.",
 	}
 
 	if errors.As(err, &appErr) {
-		resp.Error = string(appErr.Type)
+		resp.Error = string(appErr.Code)
 		resp.Message = appErr.Message
 		resp.Details = appErr.Details
 
-		switch appErr.Type {
-		case apperr.TypeInvalidInput:
+		switch appErr.Code {
+		case apperr.CodeInvalidInput:
 			statusCode = http.StatusBadRequest
-		case apperr.TypeNotFound:
+		case apperr.CodeNotFound:
 			statusCode = http.StatusNotFound
-		case apperr.TypePayloadTooLarge:
+		case apperr.CodePayloadTooLarge:
 			statusCode = http.StatusRequestEntityTooLarge
-		case apperr.TypeConflict:
+		case apperr.CodeConflict:
 			statusCode = http.StatusConflict
-		case apperr.TypeUnauthenticated:
+		case apperr.CodeUnauthenticated:
 			statusCode = http.StatusUnauthorized
-		case apperr.TypeMethodNotAllowed:
+		case apperr.CodeMethodNotAllowed:
 			statusCode = http.StatusMethodNotAllowed
-		case apperr.TypeInternal:
+		case apperr.CodeInternal:
 			statusCode = http.StatusInternalServerError
 			resp.Message = "An unexpected internal error occurred."
 			resp.Details = nil
@@ -178,11 +176,11 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 
 			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
-				if appErr.Type == apperr.TypeInternal {
+				if appErr.Code == apperr.CodeInternal {
 					log.Printf("[CRITICAL] ReqID: %s | Msg: %s | Details: %v | InternalErr: %v",
 						reqID, appErr.Message, appErr.Details, appErr.Err)
 				} else {
-					log.Printf("[INFO] ReqID: %s | UserError: %s | Msg: %s", reqID, appErr.Type, appErr.Message)
+					log.Printf("[INFO] ReqID: %s | UserError: %s | Msg: %s", reqID, appErr.Code, appErr.Message)
 				}
 			} else {
 				log.Printf("[CRITICAL] ReqID: %s | Unhandled Error: %v", reqID, err)
