@@ -21,12 +21,12 @@ func (app *Application) routes() http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
-	r.Use(customMiddleware.NewCors(app.Config).Handler)
 	r.Use(middleware.RequestID)
 	r.Use(customMiddleware.LoggingMiddleware)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(customMiddleware.SecurityHeaders)
+	r.Use(customMiddleware.Cors(app.Config))
 	r.Use(middleware.Timeout(15 * time.Second))
 
 	// Swagger docs

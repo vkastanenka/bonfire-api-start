@@ -8,13 +8,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Handler holds the specific dependencies needed just for health checks.
+// Handler holds dependencies for health checks
 type Handler struct {
 	db    *pgxpool.Pool
 	redis *redis.Client
 }
 
-// NewHandler creates a new health handler.
+// NewHandler creates a new health handler
 func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
 	return &Handler{
 		db:    db,
@@ -22,7 +22,7 @@ func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
 	}
 }
 
-// Check performs the actual system health validation.
+// Check performs validation
 func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.Ping(r.Context()); err != nil {
 		httpio.RespondTextError(w, r, "db health check failed", err, http.StatusInternalServerError, "DATABASE_UNREACHABLE")
