@@ -30,6 +30,7 @@ import (
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/email"
+	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
@@ -108,14 +109,16 @@ func run() error {
 
 	// Setup presentation layer
 	authHandler := auth.NewAuthHandler(authService, val)
+	healthHandler := health.NewHandler(pdbPool, rdb)
 
 	// Setup application container
 	app := &Application{
-		Config:      cfg,
-		DB:          pdbPool,
-		Redis:       rdb,
-		RateLimiter: rateLimiter,
-		AuthHandler: authHandler,
+		Config:        cfg,
+		DB:            pdbPool,
+		Redis:         rdb,
+		RateLimiter:   rateLimiter,
+		AuthHandler:   authHandler,
+		HealthHandler: healthHandler,
 	}
 
 	// Serve application safely

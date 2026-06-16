@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bonfire-api/internal/config"
 	"context"
 	"log"
 	"log/slog"
@@ -10,9 +11,11 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-redis/redis_rate/v10"
+	"github.com/rs/cors"
 )
 
 type contextKey string
+
 const loggerKey contextKey = "logger"
 
 func SecurityHeaders(next http.Handler) http.Handler {
@@ -80,4 +83,18 @@ func getIP(r *http.Request) string {
 	// 2. Fallback to RemoteAddr, but strip the port
 	ip := strings.Split(r.RemoteAddr, ":")[0]
 	return ip
+}
+
+func NewCors(cfg *config.Config) *cors.Cors {
+	return cors.New(cors.Options{
+		AllowedOrigins: strings.Split(cfg.CORSAllowedOrigins, ","),
+		AllowedMethods: []string{
+			http.MethodGet, http.MethodPost, http.MethodPut,
+			http.MethodDelete, http.MethodOptions,
+		},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: cfg.CORSAllowCredentials,
+		MaxAge:           300,
+	})
 }

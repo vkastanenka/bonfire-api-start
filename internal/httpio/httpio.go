@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -112,6 +113,18 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(payload)
+}
+
+func RespondText(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
+}
+
+func RespondTextError(w http.ResponseWriter, r *http.Request, logMsg string, err error, status int, userMsg string) {
+	reqID := middleware.GetReqID(r.Context())
+	slog.ErrorContext(r.Context(), logMsg, "error", err, "reqID", reqID)
+	RespondText(w, status, userMsg)
 }
 
 func MapErrorToResponse(err error) (int, ErrorResponse) {
