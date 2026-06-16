@@ -1,15 +1,8 @@
 -- name: UserSessionCreate :one
-INSERT INTO
-    user_sessions (
-        user_id,
-        refresh_token,
-        user_agent,
-        client_ip,
-        is_blocked,
-        expires_at
-    )
-VALUES
-    ($ 1, $ 2, $ 3, $ 4, $ 5, $ 6) RETURNING *;
+INSERT INTO user_sessions(user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING
+    *;
 
 -- name: UserSessionGet :one
 SELECT
@@ -17,9 +10,8 @@ SELECT
 FROM
     user_sessions
 WHERE
-    refresh_token = $ 1
-LIMIT
-    1;
+    refresh_token = $1
+LIMIT 1;
 
 -- name: UserSessionListByUser :many
 SELECT
@@ -27,8 +19,8 @@ SELECT
 FROM
     user_sessions
 WHERE
-    user_id = $ 1
-    AND is_blocked = false
+    user_id = $1
+    AND is_blocked = FALSE
 ORDER BY
     last_seen_at DESC;
 
@@ -36,11 +28,11 @@ ORDER BY
 UPDATE
     user_sessions
 SET
-    refresh_token = $ 2,
-    expires_at = $ 3,
+    refresh_token = $2,
+    expires_at = $3,
     updated_at = CURRENT_TIMESTAMP
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: UserSessionUpdateLastSeen :exec
 UPDATE
@@ -48,27 +40,24 @@ UPDATE
 SET
     last_seen_at = CURRENT_TIMESTAMP
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: UserSessionMarkBlocked :exec
 UPDATE
     user_sessions
 SET
-    is_blocked = true,
+    is_blocked = TRUE,
     updated_at = CURRENT_TIMESTAMP
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: UserSessionDelete :exec
-DELETE FROM
-    user_sessions
-WHERE
-    id = $ 1
-    AND user_id = $ 2;
+DELETE FROM user_sessions
+WHERE id = $1
+    AND user_id = $2;
 
 -- name: UserSessionDeleteAllExcept :exec
-DELETE FROM
-    user_sessions
-WHERE
-    user_id = $ 1
-    AND id != $ 2;
+DELETE FROM user_sessions
+WHERE user_id = $1
+    AND id != $2;
+

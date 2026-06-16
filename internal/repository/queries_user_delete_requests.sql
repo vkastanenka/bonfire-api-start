@@ -1,8 +1,8 @@
 -- name: UserDeleteRequestCreate :one
-INSERT INTO
-    user_delete_requests (user_id, scheduled_at)
-VALUES
-    ($ 1, $ 2) RETURNING *;
+INSERT INTO user_delete_requests(user_id, scheduled_at)
+    VALUES ($1, $2)
+RETURNING
+    *;
 
 -- name: UserDeleteRequestGet :one
 SELECT
@@ -10,9 +10,8 @@ SELECT
 FROM
     user_delete_requests
 WHERE
-    user_id = $ 1
-LIMIT
-    1;
+    user_id = $1
+LIMIT 1;
 
 -- name: UserDeleteRequestListDue :many
 SELECT
@@ -25,7 +24,6 @@ ORDER BY
     scheduled_at ASC;
 
 -- name: UserDeleteRequestDelete :exec
-DELETE FROM
-    user_delete_requests
-WHERE
-    user_id = $ 1;
+DELETE FROM user_delete_requests
+WHERE user_id = $1;
+

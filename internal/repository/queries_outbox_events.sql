@@ -1,8 +1,8 @@
 -- name: OutboxEventCreate :one
-INSERT INTO
-    outbox_events (event_type, payload)
-VALUES
-    ($ 1, $ 2) RETURNING *;
+INSERT INTO outbox_events(event_type, payload)
+    VALUES ($1, $2)
+RETURNING
+    *;
 
 -- name: OutboxEventGet :one
 SELECT
@@ -10,7 +10,7 @@ SELECT
 FROM
     outbox_events
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: OutboxEventListUnprocessed :many
 SELECT
@@ -26,9 +26,8 @@ WHERE
     AND next_attempt_at <= CURRENT_TIMESTAMP
 ORDER BY
     created_at ASC
-LIMIT
-    $ 1 FOR
-UPDATE
+LIMIT $1
+FOR UPDATE
     SKIP LOCKED;
 
 -- name: OutboxEventMarkProcessed :exec
@@ -37,18 +36,18 @@ UPDATE
 SET
     processed_at = CURRENT_TIMESTAMP
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: OutboxEventRecordFailure :exec
 UPDATE
     outbox_events
 SET
     attempts = attempts + 1,
-    last_error = $ 2,
+    last_error = $2,
     -- Exponential backoff: 2^attempts minutes
-    next_attempt_at = CURRENT_TIMESTAMP + (INTERVAL '1 minute' * POWER(2, attempts + 1))
+    next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1))
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: OutboxEventResetAttempts :exec
 UPDATE
@@ -57,13 +56,11 @@ SET
     attempts = 0,
     next_attempt_at = CURRENT_TIMESTAMP
 WHERE
-    id = $ 1;
+    id = $1;
 
 -- name: OutboxEventDeleteOld :exec
-DELETE FROM
-    outbox_events
-WHERE
-    processed_at < (CURRENT_TIMESTAMP - INTERVAL '7 days');
+DELETE FROM outbox_events
+WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
 
 -- name: OutboxEventCountPending :one
 SELECT
@@ -72,3 +69,4 @@ FROM
     outbox_events
 WHERE
     processed_at IS NULL;
+

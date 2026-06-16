@@ -5,53 +5,104 @@
 package repository
 
 import (
+	"database/sql/driver"
+	"fmt"
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type OutboxEvent struct {
-	ID            pgtype.UUID
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	ProcessedAt   pgtype.Timestamptz
-	EventType     string
-	Payload       []byte
-	LastError     pgtype.Text
-	Attempts      int32
-	MaxAttempts   int32
-	NextAttemptAt pgtype.Timestamptz
+type UserRole string
+
+const (
+	UserRoleUser  UserRole = "user"
+	UserRoleAdmin UserRole = "admin"
+)
+
+func (e *UserRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UserRole(s)
+	case string:
+		*e = UserRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UserRole: %T", src)
+	}
+	return nil
 }
 
-type Session struct {
-	ID           pgtype.UUID
-	UserID       pgtype.UUID
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ExpiresAt    pgtype.Timestamptz
-	LastSeenAt   pgtype.Timestamptz
-	RefreshToken string
-	UserAgent    string
-	ClientIp     string
-	IsBlocked    bool
+type NullUserRole struct {
+	UserRole UserRole `json:"user_role"`
+	Valid    bool     `json:"valid"` // Valid is true if UserRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUserRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.UserRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UserRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUserRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UserRole), nil
+}
+
+type OutboxEvent struct {
+	ID            pgtype.UUID        `json:"id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	EventType     string             `json:"event_type"`
+	Payload       []byte             `json:"payload"`
+	ProcessedAt   pgtype.Timestamptz `json:"processed_at"`
+	Attempts      int32              `json:"attempts"`
+	MaxAttempts   int32              `json:"max_attempts"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     pgtype.Text        `json:"last_error"`
 }
 
 type User struct {
-	ID                     pgtype.UUID
-	CreatedAt              pgtype.Timestamptz
-	UpdatedAt              pgtype.Timestamptz
-	DeletedAt              pgtype.Timestamptz
-	LastVerificationSentAt pgtype.Timestamptz
-	VerifiedAt             pgtype.Timestamptz
-	Email                  string
-	Username               string
-	PasswordHash           string
-	TotpSecret             pgtype.Text
-	IsTotpEnabled          bool
-	Flags                  int64
+	ID                     pgtype.UUID        `json:"id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	Email                  string             `json:"email"`
+	Username               string             `json:"username"`
+	PasswordHash           string             `json:"password_hash"`
+	IsTotpEnabled          bool               `json:"is_totp_enabled"`
+	TotpSecret             pgtype.Text        `json:"totp_secret"`
+	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
+	LastVerificationSentAt pgtype.Timestamptz `json:"last_verification_sent_at"`
+	Role                   UserRole           `json:"role"`
+}
+
+type UserDeleteRequest struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
 }
 
 type UserProfile struct {
-	UserID      pgtype.UUID
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	DisplayName pgtype.Text
+	UserID      pgtype.UUID        `json:"user_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DisplayName pgtype.Text        `json:"display_name"`
+}
+
+type UserSession struct {
+	ID           pgtype.UUID        `json:"id"`
+	UserID       pgtype.UUID        `json:"user_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
+	RefreshToken string             `json:"refresh_token"`
+	IsBlocked    bool               `json:"is_blocked"`
+	ClientIp     netip.Addr         `json:"client_ip"`
+	UserAgent    string             `json:"user_agent"`
 }
