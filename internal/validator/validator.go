@@ -10,16 +10,12 @@ import (
 	goValidator "github.com/go-playground/validator/v10"
 )
 
-// Validator wraps the core third-party validation engine and exposes
-// high-level methods to validate incoming HTTP request payloads.
+// Validator wraps the core third-party validation engine
 type Validator struct {
 	engine *goValidator.Validate
 }
 
 // New initializes and returns a pre-configured Validator instance.
-//
-// It overrides the default error formatting behavior to extract and prefer
-// JSON tag names over Go struct field names when generating validation reports.
 func New() *Validator {
 	v := goValidator.New()
 
@@ -36,8 +32,6 @@ func New() *Validator {
 }
 
 // ValidateStruct validates an arbitrary struct against its defined validation tags.
-// If validation fails, it returns a structured *apperr.Error containing field-level
-// details mapped to their exact JSON structural paths.
 func (v *Validator) ValidateStruct(s interface{}) error {
 	err := v.engine.Struct(s)
 	if err == nil {

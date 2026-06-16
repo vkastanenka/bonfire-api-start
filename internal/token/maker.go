@@ -22,7 +22,7 @@ func GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration) (st
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        uuid.NewString(), // Unique token ID
+			ID:        uuid.NewString(),
 		},
 	}
 
