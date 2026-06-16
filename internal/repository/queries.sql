@@ -50,6 +50,13 @@ SET
 WHERE
     id = $ 1;
 
+-- name: DeleteOldProcessedEvents :exec
+-- Maintenance: Prune the outbox to keep it performant
+DELETE FROM
+    outbox_events
+WHERE
+    processed_at < (CURRENT_TIMESTAMP - INTERVAL '7 days');
+
 -- sessions
 -- name: CreateSession :one
 INSERT INTO
