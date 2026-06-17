@@ -15,36 +15,38 @@ func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 			return
 		}
 
-		// Identify error type
+		// Identify/Normalize error
 		var appErr *apperr.Error
 		if !errors.As(err, &appErr) {
-			// If it's a generic error, wrap it as an internal one first
 			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Message(), apperr.WithErr(err))
 			errors.As(err, &appErr)
 		}
 
-		// Add metadata
+		// Enrich and Prepare
 		appErr.Enrich(r)
-
-		// Extract Response
 		status, resp := appErr.HTTPResponse()
 
-		// Set log level
-		logLevel := slog.LevelInfo
-		if appErr.IsCode(apperr.CodeInternal) {
-			logLevel = slog.LevelError
-		}
-
-		slog.Log(r.Context(), logLevel, HTTPReqFailedMsg,
-			"path", r.URL.Path,
-			"code", appErr.Code,
-			"status", status,
-			"request_id", appErr.RequestID,
-			"trace_id", appErr.TraceID,
-			"error", err,
-		)
+		// Log
+		logError(r, appErr, err, status)
 
 		// Respond
 		RespondJSON(w, status, resp)
 	}
+}
+
+// logError logs app errors
+func logError(r *http.Request, appErr *apperr.Error, originalErr error, status int) {
+	level := slog.LevelInfo
+	if appErr.IsCode(apperr.CodeInternal) {
+		level = slog.LevelError
+	}
+
+	slog.Log(r.Context(), level, HTTPReqFailedMsg,
+		"path", r.URL.Path,
+		"code", appErr.Code,
+		"status", status,
+		"request_id", appErr.RequestID,
+		"trace_id", appErr.TraceID,
+		"error", originalErr,
+	)
 }

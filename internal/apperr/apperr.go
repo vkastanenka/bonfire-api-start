@@ -27,17 +27,6 @@ type Error struct {
 	Err              error             `json:"-"` // Explicitly ignore the internal error during JSON serialization
 }
 
-// ErrorResponse is the source of truth for the JSON API contract
-type ErrorResponse struct {
-	Code             string            `json:"code"`
-	Message          string            `json:"message,omitempty"`
-	Details          map[string]any    `json:"details,omitempty"`
-	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
-	Timestamp        string            `json:"timestamp,omitempty"`
-	RequestID        string            `json:"request_id,omitempty"`
-	TraceID          string            `json:"trace_id,omitempty"`
-}
-
 // Error implements the standard error interface.
 var _ error = (*Error)(nil)
 
@@ -106,16 +95,10 @@ func WithValidationErrors(errs []ValidationError) Option {
 
 // ErrorCode safely extracts the application code from any error
 func ErrorCode(err error) Code {
-	if err == nil {
-		return ""
-	}
-
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr.Code
 	}
-
-	// If it's a standard Go error not wrapped in apperr, default to Internal
 	return CodeInternal
 }
 
@@ -125,27 +108,18 @@ func (e *Error) IsCode(c Code) bool {
 }
 
 // ToResponse formats into response JSON
-func (e *Error) ToResponse() ErrorResponse {
+func (e *Error) ToResponse() *Error {
 	if e.Code == CodeInternal {
-		return ErrorResponse{
-			Code:    string(CodeInternal),
-			Message: e.Code.Message(),
+		return &Error{
+			Code:    CodeInternal,
+			Message: CodeInternal.Message(),
 		}
 	}
-
-	return ErrorResponse{
-		Code:             string(e.Code),
-		Message:          e.Message,
-		Details:          e.Details,
-		ValidationErrors: e.ValidationErrors,
-		Timestamp:        e.Timestamp,
-		RequestID:        e.RequestID,
-		TraceID:          e.TraceID,
-	}
+	return e
 }
 
 // HTTPResponse formats all fields
-func (e *Error) HTTPResponse() (int, ErrorResponse) {
+func (e *Error) HTTPResponse() (int, *Error) {
 	return e.Code.HTTPStatus(), e.ToResponse()
 }
 
