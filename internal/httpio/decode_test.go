@@ -16,7 +16,7 @@ import (
 	"bonfire-api/internal/httpio"
 )
 
-// TestPayload is a dummy struct strictly for testing the decoder
+// TestPayload is a dummy struct for testing the decoder
 type TestPayload struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
@@ -38,7 +38,6 @@ func TestDecodeJSON(t *testing.T) {
 
 	t.Run("Failure - Missing Content-Type", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name":"test"}`)))
-		// Intentionally omitting Content-Type header
 		recorder := httptest.NewRecorder()
 
 		var dst TestPayload
@@ -47,7 +46,7 @@ func TestDecodeJSON(t *testing.T) {
 		require.Error(t, err)
 		var appErr *apperr.Error
 		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, apperr.CodeInvalidInput, appErr.Code)
+		assert.Equal(t, apperr.CodeUnsupportedMediaType, appErr.Code)
 		assert.Contains(t, appErr.Message, "Missing Content-Type header")
 	})
 

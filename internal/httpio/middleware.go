@@ -36,6 +36,8 @@ func MapErrorToResponse(err error) (int, ErrorResponse) {
 			statusCode = http.StatusUnauthorized
 		case apperr.CodeMethodNotAllowed:
 			statusCode = http.StatusMethodNotAllowed
+		case apperr.CodeUnsupportedMediaType:
+			statusCode = http.StatusUnsupportedMediaType
 		case apperr.CodeInternal:
 			statusCode = http.StatusInternalServerError
 			resp.Message = "An unexpected internal error occurred."

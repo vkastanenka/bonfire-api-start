@@ -9,15 +9,16 @@ import (
 type Code string
 
 const (
-	CodeInternal         Code = "INTERNAL"
-	CodeInvalidInput     Code = "INVALID_INPUT"
-	CodePayloadTooLarge  Code = "PAYLOAD_TOO_LARGE"
-	CodeNotFound         Code = "NOT_FOUND"
-	CodeConflict         Code = "CONFLICT"
-	CodeUnauthenticated  Code = "UNAUTHENTICATED"
-	CodeMethodNotAllowed Code = "METHOD_NOT_ALLOWED"
-	CodeTooManyRequests  Code = "TOO_MANY_REQUESTS"
-	CodeBadRequest       Code = "BAD_REQUEST"
+	CodeInternal             Code = "INTERNAL"
+	CodeInvalidInput         Code = "INVALID_INPUT"
+	CodePayloadTooLarge      Code = "PAYLOAD_TOO_LARGE"
+	CodeNotFound             Code = "NOT_FOUND"
+	CodeConflict             Code = "CONFLICT"
+	CodeUnauthenticated      Code = "UNAUTHENTICATED"
+	CodeMethodNotAllowed     Code = "METHOD_NOT_ALLOWED"
+	CodeTooManyRequests      Code = "TOO_MANY_REQUESTS"
+	CodeBadRequest           Code = "BAD_REQUEST"
+	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
 )
 
 // Error represents a structured domain error

@@ -14,14 +14,14 @@ import (
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
-		return apperr.New(apperr.CodeInvalidInput, "Missing Content-Type header; must be application/json.")
+		return apperr.New(apperr.CodeUnsupportedMediaType, UnsupportedMediaTypeMsg)
 	}
 
 	ctLower := strings.ToLower(ct)
 	if !strings.HasPrefix(ctLower, "application/json") {
 		mediaType, _, err := mime.ParseMediaType(ct)
 		if err != nil || mediaType != "application/json" {
-			return apperr.New(apperr.CodeInvalidInput, "Content-Type header must be application/json.")
+			return apperr.New(apperr.CodeUnsupportedMediaType, UnsupportedMediaTypeMsg)
 		}
 	}
 
@@ -34,7 +34,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 
 	if err := dec.Decode(dst); err != nil {
 		if r.Context().Err() != nil {
-			return apperr.New(apperr.CodeInvalidInput, "Client closed connection mid-request.", apperr.WithErr(r.Context().Err()))
+			return apperr.New(apperr.CodeInvalidInput, ClientClosedConnectionMsg, apperr.WithErr(r.Context().Err()))
 		}
 
 		var maxBytesErr *http.MaxBytesError
@@ -43,16 +43,16 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 
 		switch {
 		case errors.As(err, &maxBytesErr):
-			return apperr.New(apperr.CodePayloadTooLarge, "Request body exceeds 1MB limit.", apperr.WithErr(err))
+			return apperr.New(apperr.CodePayloadTooLarge, PayloadTooLargeMsg, apperr.WithErr(err))
 
 		case errors.Is(err, io.EOF):
-			return apperr.New(apperr.CodeInvalidInput, "Request body cannot be empty.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, EmptyBodyMsg, apperr.WithErr(err))
 
 		case errors.As(err, &syntaxErr):
-			return apperr.New(apperr.CodeInvalidInput, "Malformed request body JSON syntax.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, MalformedJSONMsg, apperr.WithErr(err))
 
 		case errors.Is(err, io.ErrUnexpectedEOF):
-			return apperr.New(apperr.CodeInvalidInput, "Truncated or malformed JSON structure received.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, TruncatedJSONMsg, apperr.WithErr(err))
 
 		case errors.As(err, &unmarshalTypeErr):
 			fieldName := unmarshalTypeErr.Field
@@ -65,8 +65,8 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 
 			return apperr.New(
 				apperr.CodeInvalidInput,
-				"Invalid data type provided for request body field(s).",
-				apperr.WithDetails(fieldName, fmt.Sprintf("Must be of type %s", unmarshalTypeErr.Type)),
+				InvalidFieldTypeMsg,
+				apperr.WithDetails(fieldName, fmt.Sprintf(FieldTypeExpectationFmt, unmarshalTypeErr.Type)),
 				apperr.WithErr(err),
 			)
 
@@ -74,15 +74,15 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
 			fieldName = strings.Trim(fieldName, `"`)
-			return apperr.New(apperr.CodeInvalidInput, fmt.Sprintf("Unknown field '%s' present in request body.", fieldName), apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, fmt.Sprintf(UnknownFieldFmt, fieldName), apperr.WithErr(err))
 
 		default:
-			return apperr.New(apperr.CodeInvalidInput, "Malformed or invalid request body JSON payload.", apperr.WithErr(err))
+			return apperr.New(apperr.CodeInvalidInput, InvalidPayloadMsg, apperr.WithErr(err))
 		}
 	}
 
 	if dec.More() {
-		return apperr.New(apperr.CodeInvalidInput, "Request body must contain only a single JSON value.")
+		return apperr.New(apperr.CodeInvalidInput, SingleValueRequiredMsg)
 	}
 
 	return nil
