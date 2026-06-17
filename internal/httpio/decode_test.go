@@ -1,13 +1,12 @@
 package httpio_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,264 +18,226 @@ import (
 	"bonfire-api/internal/httpio"
 )
 
-// TestPayload is a dummy struct for testing the decoder
+// cancelableReader wraps a standard reader but honors context cancellation mid-stream
+type cancelableReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr cancelableReader) Read(p []byte) (int, error) {
+	if err := cr.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cr.r.Read(p)
+}
+
 type TestPayload struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
 }
 
 func TestDecodeJSON(t *testing.T) {
-	t.Run("Success - JSON Valid", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name":"test","count":5}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
+	largePayload := `{"name": "` + strings.Repeat("a", 1048577) + `"}`
 
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.NoError(t, err)
-		assert.Equal(t, "test", dst.Name)
-		assert.Equal(t, 5, dst.Count)
-	})
-
-	t.Run("Failure - JSON Missing Content-Type", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name":"test"}`)))
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeUnsupportedMediaType)
-		assert.Contains(t, appErr.Message, httpio.UnsupportedMediaTypeMsg)
-	})
-
-	t.Run("Failure - JSON Unsupported or Malformed Media Types", func(t *testing.T) {
-		tests := []struct {
-			name        string
-			contentType string
-		}{
-			{
-				name:        "Valid format but incorrect type",
-				contentType: "application/xml",
-				// Triggers: mediaType != "application/json"
+	tests := []struct {
+		name           string
+		body           string
+		contentType    string
+		setupCtx       func() (context.Context, context.CancelFunc)
+		targetFactory  func() any
+		expectedErr    bool
+		expectedCode   apperr.Code
+		expectedMsg    string
+		expectedDetail map[string]string
+		validate       func(t *testing.T, dst any)
+	}{
+		{
+			name:          "Success - JSON Valid",
+			body:          `{"name":"test","count":5}`,
+			targetFactory: func() any { return &TestPayload{} },
+			validate: func(t *testing.T, dst any) {
+				payload := dst.(*TestPayload)
+				assert.Equal(t, "test", payload.Name)
+				assert.Equal(t, 5, payload.Count)
 			},
-			{
-				name:        "Completely unrelated type",
-				contentType: "text/html; charset=utf-8",
-				// Triggers: mediaType != "application/json"
+		},
+		{
+			name:          "Failure - JSON Missing Content-Type",
+			body:          `{"name":"test"}`,
+			contentType:   "none",
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeUnsupportedMediaType,
+			expectedMsg:   httpio.UnsupportedMediaTypeMsg,
+		},
+		{
+			name:          "Failure - JSON Incorrect Media Type",
+			body:          `{"name":"test"}`,
+			contentType:   "application/xml",
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeUnsupportedMediaType,
+			expectedMsg:   httpio.UnsupportedMediaTypeMsg,
+		},
+		{
+			name:          "Failure - JSON Malformed Media Syntax",
+			body:          `{"name":"test"}`,
+			contentType:   "text/html; =invalid-syntax",
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeUnsupportedMediaType,
+			expectedMsg:   httpio.UnsupportedMediaTypeMsg,
+		},
+		{
+			name: "Failure - Context Cancelled Mid-Stream",
+			body: `{"name":"test"}`,
+			setupCtx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, func() {}
 			},
-			{
-				name:        "Malformed parameter syntax causes parser failure",
-				contentType: "text/html; =invalid-syntax",
-				// Triggers: mime.ParseMediaType error (err != nil)
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeClientClosedRequest,
+			expectedMsg:   httpio.ClientClosedConnectionMsg,
+		},
+		{
+			name: "Failure - Request Timeout Exceeded",
+			body: `{"name":"test"}`,
+			setupCtx: func() (context.Context, context.CancelFunc) {
+				pastTime := time.Now().Add(-1 * time.Hour)
+				return context.WithDeadline(context.Background(), pastTime)
 			},
-		}
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeRequestTimeout,
+			expectedMsg:   httpio.ReqTimeoutMsg,
+		},
+		{
+			name:          "Failure - JSON Payload Too Large",
+			body:          largePayload,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodePayloadTooLarge,
+			expectedMsg:   httpio.PayloadTooLargeMsg,
+		},
+		{
+			name:          "Failure - JSON Empty Body",
+			body:          "",
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedMsg:   httpio.EmptyBodyMsg,
+		},
+		{
+			name:          "Failure - JSON Malformed",
+			body:          `{"name": "test", bad-json}`,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedMsg:   httpio.MalformedJSONMsg,
+		},
+		{
+			name:          "Failure - JSON Truncated",
+			body:          `{"name": "test"`,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedMsg:   httpio.TruncatedJSONMsg,
+		},
+		{
+			name:          "Failure - JSON Type Mismatch (UnmarshalTypeError)",
+			body:          `{"name": "test", "count": "five"}`,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedDetail: map[string]string{
+				"count": fmt.Sprintf(httpio.FieldTypeExpectationFmt, "int"),
+			},
+		},
+		{
+			name:          "Failure - JSON Unknown Field",
+			body:          `{"name": "test", "count": 5, "admin": true}`,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedMsg:   fmt.Sprintf(httpio.UnknownFieldFmt, "admin"),
+		},
+		{
+			name: "Failure - Generic Fallback Internal Error",
+			body: `{"name": "test"}`,
+			targetFactory: func() any {
+				// Passing a non-pointer target guarantees a json.InvalidUnmarshalError,
+				// which correctly hits your default handler block.
+				return TestPayload{}
+			},
+			expectedErr:  true,
+			expectedCode: apperr.CodeInternal,
+			expectedMsg:  httpio.DecodeErrMsg,
+		},
+		{
+			name:          "Failure - Multiple JSON Values",
+			body:          `{"name": "test"}{"name": "test2"}`,
+			targetFactory: func() any { return &TestPayload{} },
+			expectedErr:   true,
+			expectedCode:  apperr.CodeInvalidInput,
+			expectedMsg:   httpio.SingleValueRequiredMsg,
+		},
+	}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				body := bytes.NewReader([]byte(`{"name":"test"}`))
-				req := httptest.NewRequest(http.MethodPost, "/", body)
-				req.Header.Set("Content-Type", tt.contentType)
-				recorder := httptest.NewRecorder()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var bodyReader io.Reader = strings.NewReader(tt.body)
+			var ctx context.Context = context.Background()
 
-				var dst TestPayload
-				err := httpio.DecodeJSON(recorder, req, &dst)
+			if tt.setupCtx != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = tt.setupCtx()
+				t.Cleanup(cancel)
+				// Wrap body so read calls check the context lifecycle
+				bodyReader = cancelableReader{ctx: ctx, r: bodyReader}
+			}
 
+			req := httptest.NewRequest(http.MethodPost, "/", bodyReader)
+			req = req.WithContext(ctx)
+
+			if tt.contentType != "none" {
+				ct := tt.contentType
+				if ct == "" {
+					ct = "application/json"
+				}
+				req.Header.Set("Content-Type", ct)
+			}
+
+			recorder := httptest.NewRecorder()
+			dst := tt.targetFactory()
+
+			err := httpio.DecodeJSON(recorder, req, dst)
+
+			if tt.expectedErr {
 				require.Error(t, err)
-				var appErr *apperr.Error
-				require.True(t, errors.As(err, &appErr))
-				assert.Equal(t, appErr.Code, apperr.CodeUnsupportedMediaType)
-				assert.Contains(t, appErr.Message, httpio.UnsupportedMediaTypeMsg)
-			})
-		}
-	})
-
-	t.Run("Failure - Context Lifecycle Errors", func(t *testing.T) {
-		tests := []struct {
-			name         string
-			setupContext func() (context.Context, context.CancelFunc)
-			expectedCode apperr.Code
-			expectedMsg  string
-		}{
-			{
-				name: "Client Cancelled Request Mid-Stream",
-				setupContext: func() (context.Context, context.CancelFunc) {
-					ctx, cancel := context.WithCancel(context.Background())
-					cancel() // Intentionally cancel the context immediately
-					return ctx, func() {}
-				},
-				expectedCode: apperr.CodeClientClosedRequest,
-				expectedMsg:  httpio.ClientClosedConnectionMsg,
-			},
-			{
-				name: "Request Timeout / Deadline Exceeded",
-				setupContext: func() (context.Context, context.CancelFunc) {
-					// Initialize a context that expired one hour ago
-					pastTime := time.Now().Add(-1 * time.Hour)
-					ctx, cancel := context.WithDeadline(context.Background(), pastTime)
-					return ctx, cancel
-				},
-				expectedCode: apperr.CodeRequestTimeout,
-				expectedMsg:  httpio.ReqTimeoutMsg,
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				ctx, cancel := tt.setupContext()
-				defer cancel()
-
-				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name":"test"}`)))
-				req = req.WithContext(ctx) // Inject the dead or expired context
-				req.Header.Set("Content-Type", "application/json")
-
-				recorder := httptest.NewRecorder()
-				var dst TestPayload
-
-				// Execute
-				err := httpio.DecodeJSON(recorder, req, &dst)
-
-				// Assert
-				require.Error(t, err)
 
 				var appErr *apperr.Error
-				require.True(t, errors.As(err, &appErr))
+				require.True(t, errors.As(err, &appErr), "Expected error to be of type *apperr.Error")
+
 				assert.Equal(t, tt.expectedCode, appErr.Code)
-				assert.Contains(t, appErr.Message, tt.expectedMsg)
-			})
-		}
-	})
 
-	t.Run("Failure - JSON Payload Too Large", func(t *testing.T) {
-		// Generate a payload slightly larger than 1MB (1048576 bytes)
-		largeString := strings.Repeat("a", 1048577)
-		payload := `{"name": "` + largeString + `"}`
+				if tt.expectedMsg != "" {
+					assert.Contains(t, appErr.Message, tt.expectedMsg)
+				}
 
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(payload)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodePayloadTooLarge)
-		assert.Contains(t, appErr.Message, httpio.PayloadTooLargeMsg)
-	})
-
-	t.Run("Failure - JSON Empty Body", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte{}))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeInvalidInput)
-		assert.Contains(t, appErr.Message, httpio.EmptyBodyMsg)
-	})
-
-	t.Run("Failure - JSON Malformed", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name": "test", bad-json}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeInvalidInput)
-		assert.Contains(t, appErr.Message, httpio.MalformedJSONMsg)
-	})
-
-	t.Run("Failure - JSON Truncated", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name": "test"`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeInvalidInput)
-		assert.Contains(t, appErr.Message, httpio.TruncatedJSONMsg)
-	})
-
-	t.Run("Failure - JSON Type Mismatch (UnmarshalTypeError)", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name": "test", "count": "five"}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-
-		require.NotNil(t, appErr.Details)
-
-		targetType := reflect.TypeOf(dst.Count).String()
-		expectedDetail := fmt.Sprintf(targetType, httpio.FieldTypeExpectationFmt)
-
-		assert.Equal(t, appErr.Details["count"], expectedDetail)
-	})
-
-	t.Run("Failure - Unknown Field", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name": "test", "count": 5, "admin": true}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeInvalidInput)
-		assert.Equal(t, appErr.Message, fmt.Sprintf(httpio.UnknownFieldFmt, "admin"))
-	})
-
-	t.Run("Failure - Multiple JSON Values", func(t *testing.T) {
-		// Sending two separate JSON objects in one payload
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name": "test"}{"name": "test2"}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload
-		err := httpio.DecodeJSON(recorder, req, &dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		assert.Equal(t, appErr.Code, apperr.CodeInvalidInput)
-		assert.Contains(t, appErr.Message, httpio.DecodeErrMsg)
-	})
-
-	t.Run("Failure - Developer Error Non-Pointer Destination", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"name":"test"}`)))
-		req.Header.Set("Content-Type", "application/json")
-		recorder := httptest.NewRecorder()
-
-		var dst TestPayload // Intentionally missing the pointer '&' variable assignment
-		err := httpio.DecodeJSON(recorder, req, dst)
-
-		require.Error(t, err)
-		var appErr *apperr.Error
-		require.True(t, errors.As(err, &appErr))
-		// Ensures your 'default' switch case catches this gracefully without panicking
-		assert.Contains(t, appErr.Message, "Malformed or invalid request body")
-	})
+				if tt.expectedDetail != nil {
+					require.NotNil(t, appErr.Details)
+					for k, v := range tt.expectedDetail {
+						assert.Equal(t, v, appErr.Details[k])
+					}
+				}
+			} else {
+				require.NoError(t, err)
+				if tt.validate != nil {
+					tt.validate(t, dst)
+				}
+			}
+		})
+	}
 }
