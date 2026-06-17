@@ -24,6 +24,9 @@ const (
 	CodeConflict Code = "CONFLICT"
 	CodeGone     Code = "GONE" // Useful for deleted resources
 
+	// 422: Unprocessable entity
+	CodeUnprocessableEntity Code = "UNPROCESSABLE_ENTITY"
+
 	// 429: Rate Limiting
 	CodeTooManyRequests Code = "TOO_MANY_REQUESTS"
 
@@ -67,6 +70,10 @@ func (c Code) HTTPStatus() int {
 	case CodeGone:
 		return http.StatusGone
 
+	// 422: Unprocessable entity
+	case CodeUnprocessableEntity:
+		return http.StatusUnprocessableEntity
+
 	// 429
 	case CodeTooManyRequests:
 		return http.StatusTooManyRequests
@@ -90,5 +97,46 @@ func (c Code) HTTPStatus() int {
 	// Default fallback
 	default:
 		return http.StatusInternalServerError
+	}
+}
+
+func (c Code) Message() string {
+	switch c {
+	case CodeBadRequest:
+		return "The request was invalid."
+	case CodeInvalidInput:
+		return "The provided input is invalid."
+	case CodePayloadTooLarge:
+		return "The request payload is too large."
+	case CodeUnsupportedMediaType:
+		return "The media type is not supported."
+	case CodeUnauthenticated:
+		return "Authentication is required to access this resource."
+	case CodeUnauthorized:
+		return "You do not have permission to perform this action."
+	case CodeMethodNotAllowed:
+		return "The HTTP method is not allowed for this endpoint."
+	case CodeNotFound:
+		return "The requested resource could not be found."
+	case CodeConflict:
+		return "The request could not be completed due to a conflict."
+	case CodeGone:
+		return "The requested resource is no longer available."
+	case CodeTooManyRequests:
+		return "Rate limit exceeded. Please try again later."
+	case CodeInternal:
+		return "An internal server error occurred."
+	case CodeNotImplemented:
+		return "This feature is not yet implemented."
+	case CodeServiceUnavailable:
+		return "The service is temporarily unavailable."
+	case CodeRequestTimeout:
+		return "The request timed out."
+	case CodeClientClosedRequest:
+		return "The client closed the connection."
+	case CodeUnprocessableEntity:
+		return "The request was well-formed but contains semantic errors."
+	default:
+		return "An unexpected error occurred."
 	}
 }

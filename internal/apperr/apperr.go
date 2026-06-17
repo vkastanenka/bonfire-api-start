@@ -37,6 +37,18 @@ type ErrorResponse struct {
 // Error implements the standard error interface.
 var _ error = (*Error)(nil)
 
+// New creates a new domain error
+func New(code Code, msg string, opts ...Option) error {
+	err := &Error{
+		Code:    code,
+		Message: msg,
+	}
+	for _, opt := range opts {
+		opt(err)
+	}
+	return err
+}
+
 // Error implements the error interface.
 // Using a pointer receiver is correct here, but we ensure safe creation via the New() function.
 func (e *Error) Error() string {
@@ -86,18 +98,6 @@ func WithValidationErrors(errs []ValidationError) Option {
 	return func(e *Error) {
 		e.ValidationErrors = append(e.ValidationErrors, errs...)
 	}
-}
-
-// New creates a new domain error
-func New(code Code, msg string, opts ...Option) error {
-	err := &Error{
-		Code:    code,
-		Message: msg,
-	}
-	for _, opt := range opts {
-		opt(err)
-	}
-	return err
 }
 
 // ErrorCode safely extracts the application code from any error
