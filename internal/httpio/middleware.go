@@ -26,6 +26,8 @@ func MapErrorToResponse(err error) (int, ErrorResponse) {
 		switch appErr.Code {
 		case apperr.CodeInvalidInput:
 			statusCode = http.StatusBadRequest
+		case apperr.CodeBadRequest:
+			statusCode = http.StatusBadRequest
 		case apperr.CodeNotFound:
 			statusCode = http.StatusNotFound
 		case apperr.CodePayloadTooLarge:
@@ -38,10 +40,16 @@ func MapErrorToResponse(err error) (int, ErrorResponse) {
 			statusCode = http.StatusMethodNotAllowed
 		case apperr.CodeUnsupportedMediaType:
 			statusCode = http.StatusUnsupportedMediaType
+		case apperr.CodeClientClosedRequest:
+			statusCode = 499
+		case apperr.CodeRequestTimeout:
+			statusCode = http.StatusRequestTimeout
 		case apperr.CodeInternal:
 			statusCode = http.StatusInternalServerError
 			resp.Message = "An unexpected internal error occurred."
 			resp.Details = nil
+		default:
+			statusCode = http.StatusInternalServerError
 		}
 	}
 

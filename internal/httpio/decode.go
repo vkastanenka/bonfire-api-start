@@ -2,6 +2,7 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,11 +25,10 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	}
 
 	// Check for "application/json" header prefix, otherwise attempt parse
-	ctLower := strings.ToLower(ct)
-	if !strings.HasPrefix(ctLower, "application/json") {
+	if !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		mediaType, _, err := mime.ParseMediaType(ct)
 		if err != nil || mediaType != "application/json" {
-			return apperr.New(apperr.CodeUnsupportedMediaType, UnsupportedMediaTypeMsg)
+			return apperr.New(apperr.CodeUnsupportedMediaType, UnsupportedMediaTypeMsg, apperr.WithErr(err))
 		}
 	}
 
@@ -44,7 +44,14 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		// Check if context is closed
 		if r.Context().Err() != nil {
-			return apperr.New(apperr.CodeInvalidInput, ClientClosedConnectionMsg, apperr.WithErr(r.Context().Err()))
+			switch {
+			case errors.Is(r.Context().Err(), context.Canceled):
+				return apperr.New(apperr.CodeClientClosedRequest, ClientClosedConnectionMsg, apperr.WithErr(r.Context().Err()))
+			case errors.Is(r.Context().Err(), context.DeadlineExceeded):
+				return apperr.New(apperr.CodeRequestTimeout, ReqTimeoutMsg, apperr.WithErr(r.Context().Err()))
+			default:
+				return apperr.New(apperr.CodeClientClosedRequest, ClientClosedConnectionMsg, apperr.WithErr(r.Context().Err()))
+			}
 		}
 
 		var maxBytesErr *http.MaxBytesError

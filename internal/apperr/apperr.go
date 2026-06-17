@@ -19,6 +19,8 @@ const (
 	CodeTooManyRequests      Code = "TOO_MANY_REQUESTS"
 	CodeBadRequest           Code = "BAD_REQUEST"
 	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
+	CodeClientClosedRequest  Code = "CLIENT_CLOSED_REQUEST"
+	CodeRequestTimeout       Code = "CODE_REQUEST_TIMEOUT"
 )
 
 // Error represents a structured domain error
