@@ -5,28 +5,39 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// bufferPool reuses buffers to reduce memory allocations
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
 func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
-	// 1. Prepare the payload buffer
-	// Using a buffer prevents us from calling WriteHeader() before we know
-	// the encoding succeeded.
-	buf := new(bytes.Buffer)
-	enc := json.NewEncoder(buf)
-	if err := enc.Encode(data); err != nil {
+	// Always set JSON header
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get a buffer from the pool
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufferPool.Put(buf)
+
+	// Encode
+	if err := json.NewEncoder(buf).Encode(data); err != nil {
 		slog.Error("failed to encode json response", "error", err)
-		// If we can't even encode, we must fallback to a hardcoded error
-		http.Error(w, `{"error":"INTERNAL","message":"Internal server error"}`, http.StatusInternalServerError)
+
+		// Fallback: Manual 500 status to ensure we stay JSON
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"INTERNAL","message":"An unexpected error occurred."}`))
 		return
 	}
 
-	// 2. Set headers and status only after successful encoding
-	w.Header().Set("Content-Type", "application/json")
+	// Success: Commit status and write
 	w.WriteHeader(status)
-
-	// 3. Write the buffered payload
 	_, _ = w.Write(buf.Bytes())
 }
 

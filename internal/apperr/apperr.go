@@ -111,8 +111,11 @@ func (e *Error) IsCode(c Code) bool {
 func (e *Error) ToResponse() *Error {
 	if e.Code == CodeInternal {
 		return &Error{
-			Code:    CodeInternal,
-			Message: CodeInternal.Message(),
+			Code:      CodeInternal,
+			Message:   CodeInternal.Message(),
+			RequestID: e.RequestID,
+			TraceID:   e.TraceID,
+			Timestamp: e.Timestamp,
 		}
 	}
 	return e
