@@ -20,58 +20,62 @@ import (
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
-	// Step 1. Credentials availability validation
-
-	// 1a. Execute fast-path availability pre-check
+	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    req.Email,
 		Username: req.Username,
 	})
 	if err != nil {
 		return apperr.New(apperr.CodeInternal,
-			"An unexpected error occurred while verifying your account details.",
+			apperr.CodeInternal.Message(),
 			apperr.WithErr(err),
 		)
 	}
 
-	// 1b. Gather explicit field violations
-	details := make(map[string]string)
+	// Gather explicit field violations
+	var validationErrors []apperr.ValidationError
+
 	if !availability.EmailAvailable {
-		details["email"] = "This email address is already registered."
+		validationErrors = append(validationErrors, apperr.ValidationError{
+			Field:   "email",
+			Message: ErrEmailTaken,
+		})
 	}
 	if !availability.UsernameAvailable {
-		details["username"] = "This username is already taken."
+		validationErrors = append(validationErrors, apperr.ValidationError{
+			Field:   "username",
+			Message: ErrUsernameTaken,
+		})
 	}
 
-	// 1c. If there are any violations, return a conflict error with structured details
-	if len(details) > 0 {
+	//  If there are any violations, return a conflict error
+	if len(validationErrors) > 0 {
 		return apperr.New(apperr.CodeConflict,
-			"Registration failed due to unavailable credentials.",
-			apperr.WithDetails("fields", details),
+			ErrRegFailed,
+			apperr.WithValidationErrors(validationErrors),
 		)
 	}
 
-	// Step 2: Password Hashing (Securely inside the Service layer!)
+	// Password Hashing (Securely inside the Service layer!)
 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return apperr.New(apperr.CodeInvalidInput,
-			"An unexpected error occurred while securing your account password.",
+			ErrPasswordHashing,
 			apperr.WithErr(err),
 		)
 	}
 	passwordHash := string(hashedPasswordBytes)
 
-	// Step 3: Execute DB transaction (CreateUser + CreateUserProfile)
-	// We pass the transaction block callback. Notice it uses the decoupled `qtx` (*repository.Queries) instance.
+	// Execute DB transaction (CreateUser + CreateUserProfile)
 	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
-		// 3a. Insert the core user record
+		// Insert the core user record
 		userRow, err := qtx.UserCreate(ctx, repository.UserCreateParams{
 			Email:        req.Email,
 			Username:     req.Username,
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return err // Bubbles back to ExecTx to trigger an automatic Rollback
+			return err
 		}
 
 		// Determine a fallback display name if none was provided in the request payload
@@ -80,7 +84,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 			displayName = *req.DisplayName
 		}
 
-		// 3b. Insert the accompanying profile record, linking it via the new user's ID
+		// Insert the accompanying profile record, linking it via the new user's ID
 		_, err = qtx.UserProfileCreate(ctx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: pgtype.Text{String: displayName, Valid: true},
@@ -89,7 +93,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 			return err // Bubbles back to ExecTx to trigger an automatic Rollback
 		}
 
-		// 3c. Marshal the specialized payload map into a dynamic JSON byte slice
+		// Marshal the specialized payload map into a dynamic JSON byte slice
 		eventPayload := map[string]string{
 			"email":    req.Email,
 			"username": req.Username,
@@ -99,22 +103,22 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 			return err
 		}
 
-		// 3d. Append the operational notification intent directly inside the transaction log
+		// Append the operational notification intent directly inside the transaction log
 		_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
-			EventType: "user.registered",
+			EventType: EventUserRegistered,
 			Payload:   jsonBytes,
 		})
 		if err != nil {
 			return err
 		}
 
-		return nil // Everything succeeded, ExecTx will attempt a Commit
+		return nil
 	})
 
 	// Handle transactional completion states
 	if txErr != nil {
 		return apperr.New(apperr.CodeInternal,
-			"An unexpected error occurred while creating your account. Please try again.",
+			apperr.CodeInternal.Message(),
 			apperr.WithErr(txErr),
 		)
 	}
