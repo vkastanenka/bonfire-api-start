@@ -45,26 +45,28 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		errsMap := make(map[string]string, len(validationErrors))
+		var errs []apperr.ValidationError
 		for _, fieldErr := range validationErrors {
-			// Namespace() preserves the custom JSON tag names registered via RegisterTagNameFunc
-			// e.g., "RegisterData.profile_info.biography" or just "RegisterData.displayName"
-			ns := fieldErr.Namespace()
-
-			// Strips out the top-level struct name dynamically (e.g., "RegisterData.")
-			_, jsonPath, found := strings.Cut(ns, ".")
-			if !found {
-				// Fallback safely to Field if no structural dot separator exists
+			// Using StructNamespace provides the full path (e.g., "User.Address.City")
+			// You can use a more robust path cleaner than strings.Cut
+			ns := fieldErr.StructNamespace()
+			// Drop the first part (the struct name)
+			parts := strings.Split(ns, ".")
+			jsonPath := strings.Join(parts[1:], ".")
+			if jsonPath == "" {
 				jsonPath = fieldErr.Field()
 			}
 
-			errsMap[jsonPath] = msgForFieldError(fieldErr)
+			errs = append(errs, apperr.ValidationError{
+				Field:   jsonPath,
+				Message: msgForFieldError(fieldErr),
+			})
 		}
 
 		return apperr.New(
 			apperr.CodeInvalidInput,
 			"validation failed for the request payload.",
-			apperr.WithDetails("fields", errsMap),
+			apperr.WithValidationErrors(errs), 
 			apperr.WithErr(err),
 		)
 	}
