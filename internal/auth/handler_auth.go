@@ -15,13 +15,15 @@ type RegisterRequest struct {
 
 // Register godoc
 // @Summary      Register a new user
-// @Description  Create a new account
+// @Description  Creates a new account in the system. Sends a verification email if configured.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
 // @Param        request body auth.RegisterRequest true "User Registration"
-// @Success      201 {object} httpio.Response
-// @Failure      400 {object} apperr.AppError
+// @Success      201 {object} httpio.Response{data=string} "User created successfully"
+// @Failure      400 {object} apperr.AppError "Invalid request payload or validation failed"
+// @Failure      409 {object} apperr.AppError "Username or Email already exists"
+// @Failure      500 {object} apperr.AppError "Internal server error"
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var req RegisterRequest
@@ -43,7 +45,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 
 	// Respond
 	httpio.RespondJSON(w, http.StatusCreated, map[string]string{
-		"message": "User registered successfully!",
+		"message": RegisterOkMsg,
 	})
 
 	return nil
@@ -51,7 +53,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 
 type LoginRequest struct {
 	Email    string `json:"email" validate:"required,email,max=255"`
-	Password string `json:"password" validate:"required,min=8,max=100"`
+	Password string `json:"password" validate:"required,min=12,max=128"`
 }
 
 // Login handles user login
@@ -83,7 +85,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Respond
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"message":      "User login successful!",
+		"message":      LoginOkMsg,
 		"access_token": tokens["access_token"],
 	})
 
@@ -95,7 +97,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 	// 1. Extract the old refresh token from the HttpOnly cookie
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, "Missing refresh token. Please log in.")
+		return apperr.New(apperr.CodeUnauthenticated, RefreshTokenMissingMsg)
 	}
 
 	// 2. Process the rotation request
@@ -109,6 +111,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error
 
 	// 4. Respond with the fresh access token
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"message":      RefreshTokenOkMsg,
 		"access_token": tokens["access_token"],
 	})
 

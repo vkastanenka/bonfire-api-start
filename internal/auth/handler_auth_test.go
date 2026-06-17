@@ -59,7 +59,7 @@ func TestAuthHandler_Register(t *testing.T) {
 		var response map[string]string
 		err = json.NewDecoder(recorder.Body).Decode(&response)
 		require.NoError(t, err)
-		assert.Equal(t, "User registered successfully!", response["message"])
+		assert.Equal(t, auth.RegisterOkMsg, response["message"])
 	})
 
 	t.Run("Failure - Invalid JSON Payload", func(t *testing.T) {
