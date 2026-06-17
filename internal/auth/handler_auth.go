@@ -13,22 +13,10 @@ type RegisterRequest struct {
 	Password    string  `json:"password" validate:"required,min=12,max=128"`
 }
 
-// Register godoc
-// @Summary      Register a new user
-// @Description  Creates a new account in the system. Sends a verification email if configured.
-// @Tags         auth
-// @Accept       json
-// @Produce      json
-// @Param        request body auth.RegisterRequest true "User Registration"
-// @Success      201 {object} httpio.Response{data=string} "User created successfully"
-// @Failure      400 {object} apperr.AppError "Invalid request payload or validation failed"
-// @Failure      409 {object} apperr.AppError "Username or Email already exists"
-// @Failure      500 {object} apperr.AppError "Internal server error"
-// @Router       /auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var req RegisterRequest
 
-	// Decode incoming JSON body into the struct
+	// Decode request body
 	if err := httpio.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
