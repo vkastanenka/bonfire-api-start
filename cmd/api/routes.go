@@ -56,7 +56,7 @@ func (app *Application) routes() http.Handler {
 		// Protected routes
 		api.Group(func(protected chi.Router) {
 			protected.Use(customMiddleware.RateLimit(app.RateLimiter, 100, time.Minute, "api"))
-			protected.Use(auth.RequireAuth(app.Config.AccessSecret))
+			protected.Use(auth.RequireAuth(app.TokenManager, app.Config.AccessSecret))
 
 			protected.Get("/auth/devices", httpio.ToHTTP(app.Handlers.Auth.GetDevices))
 			protected.Delete("/auth/devices", httpio.ToHTTP(app.Handlers.Auth.RevokeAllOtherDevices))

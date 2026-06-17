@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
 )
 
 func NewTestTokenConfig() auth.TokenConfig {
@@ -33,9 +35,9 @@ func TestAuthService_Register(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := repository.NewMockStore(ctrl)
-
-	// Assuming you have a constructor like NewAuthService
-	authService := auth.NewAuthService(mockStore, NewTestTokenConfig())
+	mockTokenManager := token.NewMockManager(ctrl)
+	config := NewTestTokenConfig()
+	authService := auth.NewAuthService(mockStore, mockTokenManager, config)
 
 	ctx := context.Background()
 	displayName := "TestUser"
@@ -143,7 +145,9 @@ func TestAuthService_Login(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := repository.NewMockStore(ctrl)
-	authService := auth.NewAuthService(mockStore, NewTestTokenConfig())
+	mockTokenManager := token.NewMockManager(ctrl)
+	config := NewTestTokenConfig()
+	authService := auth.NewAuthService(mockStore, mockTokenManager, config)
 
 	ctx := context.Background()
 	req := auth.LoginRequest{
@@ -169,6 +173,14 @@ func TestAuthService_Login(t *testing.T) {
 		mockStore.EXPECT().
 			UserSessionCreate(ctx, gomock.Any()).
 			Return(repository.UserSession{}, nil)
+
+		mockTokenManager.EXPECT().
+			GenerateJWT(gomock.Any(), config.AccessSecret, gomock.Any()).
+			Return("mock-access-token", nil)
+
+		mockTokenManager.EXPECT().
+			GenerateJWT(gomock.Any(), config.RefreshSecret, gomock.Any()).
+			Return("mock-refresh-token", nil)
 
 		tokens, err := authService.Login(ctx, req, userAgent, clientIP)
 
@@ -215,19 +227,24 @@ func TestAuthService_RefreshAccessToken(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := repository.NewMockStore(ctrl)
+	mockTokenManager := token.NewMockManager(ctrl)
 	config := NewTestTokenConfig()
-	authService := auth.NewAuthService(mockStore, config)
+	authService := auth.NewAuthService(mockStore, mockTokenManager, config)
 
 	ctx := context.Background()
-	userID := [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-
-	// NOTE: In a real test, use your token package to generate a signed string
-	// that matches config.RefreshSecret. If you use a random string, VerifyJWT will fail.
-	validToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." // Replace with a real signed JWT
+	userID := uuid.New() // Ensure you use the correct UUID type
+	dummyToken := "test-token"
 
 	t.Run("Success - Token Rotated", func(t *testing.T) {
+		mockTokenManager.EXPECT().
+			VerifyJWT(dummyToken, config.RefreshSecret).
+			Return(&token.Claims{UserID: userID}, nil)
+
+		mockTokenManager.EXPECT().GenerateJWT(userID, config.AccessSecret, gomock.Any()).Return("new-access", nil)
+		mockTokenManager.EXPECT().GenerateJWT(userID, config.RefreshSecret, gomock.Any()).Return("new-refresh", nil)
+
 		mockStore.EXPECT().
-			UserSessionGet(ctx, validToken).
+			UserSessionGet(ctx, dummyToken).
 			Return(repository.UserSession{
 				ID:        pgtype.UUID{Bytes: userID, Valid: true},
 				UserID:    pgtype.UUID{Bytes: userID, Valid: true},
@@ -239,21 +256,26 @@ func TestAuthService_RefreshAccessToken(t *testing.T) {
 			UserSessionUpdateRefreshToken(ctx, gomock.Any()).
 			Return(nil)
 
-		tokens, err := authService.RefreshAccessToken(ctx, validToken)
+		tokens, err := authService.RefreshAccessToken(ctx, dummyToken)
 
 		require.NoError(t, err)
-		assert.NotEmpty(t, tokens["access_token"])
-		assert.NotEmpty(t, tokens["refresh_token"])
+
+		assert.Equal(t, "new-access", tokens["access_token"])
+		assert.Equal(t, "new-refresh", tokens["refresh_token"])
 	})
 
 	t.Run("Failure - Session Blocked", func(t *testing.T) {
+		mockTokenManager.EXPECT().
+			VerifyJWT(dummyToken, config.RefreshSecret).
+			Return(&token.Claims{UserID: userID}, nil)
+
 		mockStore.EXPECT().
-			UserSessionGet(ctx, validToken).
+			UserSessionGet(ctx, dummyToken).
 			Return(repository.UserSession{
 				IsBlocked: true,
 			}, nil)
 
-		_, err := authService.RefreshAccessToken(ctx, validToken)
+		_, err := authService.RefreshAccessToken(ctx, dummyToken)
 
 		require.Error(t, err)
 		var appErr *apperr.Error
@@ -262,13 +284,17 @@ func TestAuthService_RefreshAccessToken(t *testing.T) {
 	})
 
 	t.Run("Failure - Session Expired", func(t *testing.T) {
+		mockTokenManager.EXPECT().
+			VerifyJWT(dummyToken, config.RefreshSecret).
+			Return(&token.Claims{UserID: userID}, nil)
+
 		mockStore.EXPECT().
-			UserSessionGet(ctx, validToken).
+			UserSessionGet(ctx, dummyToken).
 			Return(repository.UserSession{
 				ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(-1 * time.Hour), Valid: true},
 			}, nil)
 
-		_, err := authService.RefreshAccessToken(ctx, validToken)
+		_, err := authService.RefreshAccessToken(ctx, dummyToken)
 
 		// 1. Verify that an error occurred
 		require.Error(t, err)
@@ -280,5 +306,20 @@ func TestAuthService_RefreshAccessToken(t *testing.T) {
 		// 3. Assert that it IS the correct type, THEN inspect the fields
 		require.True(t, isAppErr, "expected error to be of type *apperr.Error")
 		assert.Equal(t, apperr.CodeUnauthenticated, appErr.Code)
+	})
+
+	t.Run("Failure - Identity Mismatch", func(t *testing.T) {
+		wrongUserID := uuid.New()
+		mockTokenManager.EXPECT().
+			VerifyJWT(dummyToken, config.RefreshSecret).
+			Return(&token.Claims{UserID: wrongUserID}, nil) // Different user ID
+
+		mockStore.EXPECT().
+			UserSessionGet(ctx, dummyToken).
+			Return(repository.UserSession{UserID: pgtype.UUID{Bytes: userID, Valid: true}}, nil)
+
+		_, err := authService.RefreshAccessToken(ctx, dummyToken)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "identity mismatch")
 	})
 }

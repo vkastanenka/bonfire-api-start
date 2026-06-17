@@ -33,6 +33,7 @@ import (
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
 	"bonfire-api/internal/validator"
 	"bonfire-api/internal/worker"
 
@@ -92,10 +93,11 @@ func run() error {
 	// Setup middleware services
 	rateLimiter := redis_rate.NewLimiter(rdb)
 	val := validator.New()
+	tokenManager := token.NewJWTManager()
 
 	// Setup domain services
 	mailer := email.NewMailer(cfg)
-	authService := auth.NewAuthService(store, auth.TokenConfig{
+	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,
@@ -117,6 +119,7 @@ func run() error {
 		DB:          pdbPool,
 		Redis:       rdb,
 		RateLimiter: rateLimiter,
+		TokenManager: tokenManager,
 		Handlers: struct {
 			Auth   *auth.AuthHandler
 			Health *health.Handler

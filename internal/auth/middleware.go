@@ -19,7 +19,7 @@ const (
 )
 
 // RequireAuth validates the Access Token and injects claims into the context.
-func RequireAuth(accessSecret string) func(http.Handler) http.Handler {
+func RequireAuth(manager token.Manager, accessSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -36,7 +36,7 @@ func RequireAuth(accessSecret string) func(http.Handler) http.Handler {
 
 			accessToken := parts[1]
 
-			claims, err := token.VerifyJWT(accessToken, accessSecret)
+			claims, err := manager.VerifyJWT(accessToken, accessSecret)
 			if err != nil {
 				httpio.RespondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired access token."})
 				return

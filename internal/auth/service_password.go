@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/token"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,7 +25,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 
 	// Generate a short-lived token (15 mins) specifically for resetting
 	userID := uuid.UUID(user.ID.Bytes)
-	resetToken, err := token.GenerateJWT(userID, s.tokenConfig.PasswordResetSecret, 15*time.Minute)
+	resetToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.PasswordResetSecret, 15*time.Minute)
 	if err != nil {
 		return err
 	}
@@ -42,7 +41,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 
 func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPassword string) error {
 	// Verify the token using the PasswordResetSecret
-	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
+	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "Invalid or expired reset token.")
 	}

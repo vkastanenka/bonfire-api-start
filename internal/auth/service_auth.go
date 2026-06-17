@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/token"
 	"context"
 	"encoding/json"
 	"errors"
@@ -194,7 +193,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 // RefreshAccessToken validates the refresh token, rotates it, and issues fresh tokens.
 func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken string) (map[string]string, error) {
 	// 1. Cryptographically verify the old refresh token
-	claims, err := token.VerifyJWT(oldRefreshToken, s.tokenConfig.RefreshSecret)
+	claims, err := s.tokenManager.VerifyJWT(oldRefreshToken, s.tokenConfig.RefreshSecret)
 	if err != nil {
 		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired refresh token.")
 	}
@@ -225,14 +224,14 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 	accessDuration := 15 * time.Minute
 	userID := uuid.UUID(session.UserID.Bytes)
 
-	newAccessToken, err := token.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
+	newAccessToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
 	if err != nil {
 		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new access token.", apperr.WithErr(err))
 	}
 
 	// 5. Issue a fresh Refresh Token (Reset the 7-day clock)
 	refreshDuration := 7 * 24 * time.Hour
-	newRefreshToken, err := token.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
+	newRefreshToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
 	if err != nil {
 		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new refresh token.", apperr.WithErr(err))
 	}

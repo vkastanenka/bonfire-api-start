@@ -10,6 +10,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/health"
+	"bonfire-api/internal/token"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,11 +19,12 @@ import (
 
 // Application dependencies
 type Application struct {
-	Config      *config.Config
-	DB          *pgxpool.Pool
-	Redis       *redis.Client
-	RateLimiter *redis_rate.Limiter
-	Handlers    struct {
+	Config       *config.Config
+	DB           *pgxpool.Pool
+	Redis        *redis.Client
+	RateLimiter  *redis_rate.Limiter
+	TokenManager token.Manager
+	Handlers     struct {
 		Auth   *auth.AuthHandler
 		Health *health.Handler
 	}

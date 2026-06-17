@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/token"
 	"context"
 	"net/netip"
 	"time"
@@ -137,7 +136,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 }
 
 func (s *AuthService) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
-	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
+	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
 	if err != nil {
 		return uuid.Nil, err
 	}

@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/token"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,7 +15,7 @@ import (
 
 func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// 1. Validate the stateless token structure
-	claims, err := token.VerifyJWT(tokenStr, s.tokenConfig.VerificationSecret)
+	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.RefreshSecret)
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "The verification link is invalid or has expired.")
 	}
@@ -53,7 +52,7 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 
 	// 4. Generate a fresh verification token
 	userID := uuid.UUID(user.ID.Bytes)
-	tokenStr, err := token.GenerateJWT(userID, s.tokenConfig.VerificationSecret, 24*time.Hour)
+	tokenStr, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.VerificationSecret, 24*time.Hour)
 	if err != nil {
 		return err
 	}

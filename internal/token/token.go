@@ -9,14 +9,29 @@ import (
 	"github.com/google/uuid"
 )
 
+// Manager defines the contract for token operations
+type Manager interface {
+	VerifyJWT(tokenString string, secret string) (*Claims, error)
+	GenerateJWT(userID uuid.UUID, secret string, duration time.Duration) (string, error)
+}
+
+// Claims defines the JWT payload structure
 type Claims struct {
 	jwt.RegisteredClaims
 	UserID uuid.UUID `json:"user_id"`
 	Flags  int64     `json:"flags"`
 }
 
+// JWTManager implements the Manager interface
+type JWTManager struct{}
+
+// NewJWTManager creates a new instance of JWTManager
+func NewJWTManager() *JWTManager {
+	return &JWTManager{}
+}
+
 // GenerateJWT creates a new token for a given user and duration
-func GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration) (string, error) {
+func (m *JWTManager) GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration) (string, error) {
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -31,7 +46,7 @@ func GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration) (st
 }
 
 // VerifyJWT parses and validates a JWT string, returning its claims if successful.
-func VerifyJWT(tokenString string, secretKey string) (*Claims, error) {
+func (m *JWTManager) VerifyJWT(tokenString string, secretKey string) (*Claims, error) {
 	keyFunc := func(token *jwt.Token) (interface{}, error) {
 		// Ensure the signing method is what we expect (HMAC)
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
