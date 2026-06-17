@@ -64,7 +64,7 @@ func (w *OutboxWorker) Stop() {
 
 func (w *OutboxWorker) processBatch(ctx context.Context) {
 	// 1. Fetch an isolated, concurrency-locked slice of pending work using the live context
-	events, err := w.store.GetUnprocessedOutboxEvents(ctx, w.batchSize)
+	events, err := w.store.OutboxEventListUnprocessed(ctx, w.batchSize)
 	if err != nil {
 		// Avoid logging errors if the query failed purely because the system is shutting down
 		if !errors.Is(err, context.Canceled) {
@@ -83,7 +83,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context) {
 	}
 }
 
-func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.GetUnprocessedOutboxEventsRow) {
+func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.OutboxEventListUnprocessedRow) {
 	var executionErr error
 
 	// 2. Evaluate the event type signature
@@ -125,33 +125,25 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.GetUnp
 		return
 	}
 
-	if err := w.store.MarkOutboxEventProcessed(ctx, event.ID); err != nil {
+	if err := w.store.OutboxEventMarkProcessed(ctx, event.ID); err != nil {
 		log.Printf("[WORKER ERROR] Failed to finalize successful event %s: %v", event.ID, err)
 	}
 }
 
-func (w *OutboxWorker) handleFailure(ctx context.Context, event repository.GetUnprocessedOutboxEventsRow, err error, isFatal bool) {
-	log.Printf("[WORKER EXECUTION FAILURE] Event ID: %s, Error: %v", event.ID, err)
-
-	var nextAttempt time.Time
-	currentAttempts := event.Attempts + 1
+func (w *OutboxWorker) handleFailure(ctx context.Context, event repository.OutboxEventListUnprocessedRow, err error, isFatal bool) {
 	const maxAttempts = 5
 
-	if isFatal || currentAttempts >= maxAttempts {
-		nextAttempt = time.Now().Add(100 * 365 * 24 * time.Hour)
-		log.Printf("[WORKER DEAD LETTER] Event %s completely exhausted retries. Moved to dead letter state.", event.ID)
+	// Only handle the "Fatal" or "Max Exceeded" case in Go
+	if isFatal || (event.Attempts+1) >= maxAttempts {
+		// Option A: Use a special "dead letter" SQL query
+		// Option B: Set next_attempt_at to a distant future year (e.g., 9999)
+		log.Printf("[WORKER DEAD LETTER] Event %s exhausted.", event.ID)
+		// ... call dedicated DeadLetterUpdate query ...
 	} else {
-		backoffDuration := time.Duration(1<<uint(currentAttempts)) * time.Minute
-		nextAttempt = time.Now().Add(backoffDuration)
-		log.Printf("[WORKER RETRY SCHEDULED] Event %s scheduled for retry in %v", event.ID, backoffDuration)
+		// Let the SQL query handle the exponential math automatically
+		err = w.store.OutboxEventRecordFailure(ctx, repository.OutboxEventRecordFailureParams{
+			ID:        event.ID,
+			LastError: pgtype.Text{String: err.Error(), Valid: true},
+		})
 	}
-
-	_ = w.store.RecordOutboxEventFailure(ctx, repository.RecordOutboxEventFailureParams{
-		ID:        event.ID,
-		LastError: pgtype.Text{String: err.Error(), Valid: true},
-		NextAttemptAt: pgtype.Timestamptz{
-			Time:  nextAttempt,
-			Valid: true,
-		},
-	})
 }

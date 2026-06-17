@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/token"
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,8 +16,10 @@ import (
 // GenerateTOTP creates a temporary 2FA secret for the user by looking up their profile.
 // It returns the raw secret string and an otpauth:// URL for QR code generation.
 func (s *AuthService) GenerateTOTP(ctx context.Context, userID uuid.UUID) (string, string, error) {
+	pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
+
 	// 1. Look up the user record using the injected cross-domain provider
-	user, err := s.userProvider.GetUserByID(ctx, userID)
+	user, err := s.store.UserGet(ctx, pgUserID)
 	if err != nil {
 		return "", "", apperr.New(apperr.CodeInternal,
 			"Failed to retrieve user information for 2FA configuration.",
@@ -57,7 +60,7 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret s
 	pgSecret.Valid = true
 
 	// 4. Save the secret and flip is_totp_enabled to TRUE in the database
-	err := s.store.EnableUserTOTP(ctx, repository.EnableUserTOTPParams{
+	err := s.store.UserEnableTOTP(ctx, repository.UserEnableTOTPParams{
 		TotpSecret: pgSecret,
 		ID:         pgUserID,
 	})
@@ -84,7 +87,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 	pgUserID.Valid = true
 
 	// 2. Fetch the user's secret from the database
-	totpSecret, err := s.store.GetUserTOTPSecret(ctx, pgUserID)
+	totpSecret, err := s.store.UserGetTOTPSecret(ctx, pgUserID)
 	if err != nil || !totpSecret.Valid {
 		return nil, apperr.New(apperr.CodeInternal, "Failed to retrieve 2FA configuration.")
 	}
@@ -107,13 +110,18 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 		return nil, err
 	}
 
+	ipAddr, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return nil, apperr.New(apperr.CodeInvalidInput, "Invalid IP address format.", apperr.WithErr(err))
+	}
+
 	// 5. Create the database session
 	// NOTE: Adjust expires_at based on your refresh token lifespan (e.g., 7 days)
-	_, err = s.store.CreateSession(ctx, repository.CreateSessionParams{
+	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
 		UserID:       pgUserID,
 		RefreshToken: refreshToken,
 		UserAgent:    userAgent,
-		ClientIp:     clientIP,
+		ClientIp:     ipAddr,
 		IsBlocked:    false,
 		ExpiresAt:    pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
 	})

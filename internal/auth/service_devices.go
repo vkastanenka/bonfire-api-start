@@ -13,7 +13,7 @@ import (
 
 func (s *AuthService) RevokeAllOtherSessions(ctx context.Context, userID uuid.UUID, currentSessionID uuid.UUID) error {
 	// You'll need to add DeleteAllSessionsExcept to your interface
-	return s.store.DeleteAllSessionsExcept(ctx, repository.DeleteAllSessionsExceptParams{
+	return s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 		ID:     pgtype.UUID{Bytes: currentSessionID, Valid: true},
 	})
@@ -30,19 +30,22 @@ type DeviceResponse struct {
 
 // GetDevices retrieves all active sessions and flags the current one based on the refresh token.
 func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) ([]DeviceResponse, error) {
+	// 1. Convert uuid.UUID to pgtype.UUID
 	pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
 
-	sessions, err := s.store.GetUserSessions(ctx, pgUserID)
+	// 2. Fetch sessions using the generated sqlc method
+	sessions, err := s.store.UserSessionListByUser(ctx, pgUserID)
 	if err != nil {
 		return nil, apperr.New(apperr.CodeInternal, "Failed to fetch active devices.", apperr.WithErr(err))
 	}
 
 	var devices []DeviceResponse
 	for _, sess := range sessions {
-		// IMPORTANT: To get "City, Province", you would map sess.ClientIp
-		// against a GeoIP database like MaxMind here.
+		// 3. Convert netip.Addr to string for display
+		ipStr := sess.ClientIp.String()
+
 		location := "Unknown Location"
-		if sess.ClientIp == "127.0.0.1" || sess.ClientIp == "::1" {
+		if sess.ClientIp.IsLoopback() {
 			location = "Localhost"
 		}
 
@@ -50,9 +53,9 @@ func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentR
 			ID:        uuid.UUID(sess.ID.Bytes).String(),
 			Name:      parseDeviceName(sess.UserAgent),
 			Location:  location,
-			IPAddress: sess.ClientIp,
+			IPAddress: ipStr,
 			IsCurrent: sess.RefreshToken == currentRefreshToken,
-			LastSeen:  sess.LastSeenAt.Time, // Defaults to creation time unless updated on refresh
+			LastSeen:  sess.LastSeenAt.Time,
 		})
 	}
 
@@ -61,7 +64,7 @@ func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentR
 
 // RevokeDevice deletes a specific session, ensuring it belongs to the authenticated user.
 func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
-	err := s.store.DeleteSession(ctx, repository.DeleteSessionParams{
+	err := s.store.UserSessionDelete(ctx, repository.UserSessionDeleteParams{
 		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 	})
@@ -74,13 +77,13 @@ func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessio
 // RevokeAllOtherDevices deletes all sessions except the one associated with the provided refresh token.
 func (s *AuthService) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) error {
 	// 1. Fetch the current session to get its ID
-	currentSession, err := s.store.GetSession(ctx, currentRefreshToken)
+	currentSession, err := s.store.UserSessionGet(ctx, currentRefreshToken)
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "Current session invalid or already logged out.")
 	}
 
 	// 2. Delete everything else
-	err = s.store.DeleteAllSessionsExcept(ctx, repository.DeleteAllSessionsExceptParams{
+	err = s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 		ID:     currentSession.ID,
 	})

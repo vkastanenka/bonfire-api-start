@@ -11,10 +11,7 @@ import (
 // Store defines the database actions owned by the User domain.
 // Generated sqlc methods fit here perfectly.
 type Store interface {
-	GetUserByID(ctx context.Context, id pgtype.UUID) (repository.GetUserByIDRow, error)
-	GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error)
-	CreateUserProfile(ctx context.Context, arg repository.CreateUserProfileParams) (repository.CreateUserProfileRow, error)
-	ValidateUserCredentialsAvailability(ctx context.Context, arg repository.ValidateUserCredentialsAvailabilityParams) (repository.ValidateUserCredentialsAvailabilityRow, error)
+	repository.Querier
 }
 
 type UserService struct {
@@ -27,15 +24,15 @@ func NewUserService(store Store) *UserService {
 
 // GetUserByID safely transforms the incoming application UUID into the
 // database-friendly pgtype.UUID and fetches the record.
-func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (repository.GetUserByIDRow, error) {
+func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (repository.User, error) {
 	var pgUserID pgtype.UUID
 	pgUserID.Bytes = userID
 	pgUserID.Valid = true
 
-	return s.store.GetUserByID(ctx, pgUserID)
+	return s.store.UserGet(ctx, pgUserID)
 }
 
 // GetUserByEmail searches for a user record using their unique email address.
-func (s *UserService) GetUserByEmail(ctx context.Context, email string) (repository.GetUserByEmailRow, error) {
-	return s.store.GetUserByEmail(ctx, email)
+func (s *UserService) GetUserByEmail(ctx context.Context, email string) (repository.User, error) {
+	return s.store.UserGetByEmail(ctx, email)
 }

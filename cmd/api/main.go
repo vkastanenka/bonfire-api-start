@@ -33,7 +33,6 @@ import (
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/user"
 	"bonfire-api/internal/validator"
 	"bonfire-api/internal/worker"
 
@@ -96,8 +95,7 @@ func run() error {
 
 	// Setup domain services
 	mailer := email.NewMailer(cfg)
-	userService := user.NewUserService(queries)
-	authService := auth.NewAuthService(store, userService, auth.TokenConfig{
+	authService := auth.NewAuthService(store, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,

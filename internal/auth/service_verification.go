@@ -21,17 +21,10 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 		return apperr.New(apperr.CodeUnauthenticated, "The verification link is invalid or has expired.")
 	}
 
-	var pgUserID pgtype.UUID
-	pgUserID.Bytes = claims.UserID
-	pgUserID.Valid = true
-
 	// 2. Perform safe, atomic bitwise alteration
-	err = s.store.VerifyUserEmail(ctx, repository.VerifyUserEmailParams{
-		ID:    pgUserID,
-		Flags: int64(UserFlagVerified), // Merges bit value 1 via bitwise OR
-	})
+	err = s.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: claims.UserID, Valid: true})
 	if err != nil {
-		return apperr.New(apperr.CodeInternal, "Failed to update verification flags.", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, "Failed to mark user as verified.", apperr.WithErr(err))
 	}
 
 	return nil
@@ -39,7 +32,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 
 func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string) error {
 	// 1. Fetch the user
-	user, err := s.store.GetUserByEmail(ctx, email)
+	user, err := s.store.UserGetByEmail(ctx, email)
 	if err != nil {
 		// Security: If the user doesn't exist, return nil to prevent email enumeration
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -67,7 +60,7 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 
 	// 5. Execute Transaction: Update throttle timestamp AND queue the outbox event
 	return s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
-		if err := qtx.UpdateUserLastVerificationSent(ctx, user.ID); err != nil {
+		if err := qtx.UserUpdateLastVerificationSent(ctx, user.ID); err != nil {
 			return err
 		}
 
@@ -77,7 +70,7 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string)
 			"token":    tokenStr,
 		})
 
-		_, err = qtx.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+		_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
 			EventType: "user.verify_email", // New event type
 			Payload:   jsonBytes,
 		})

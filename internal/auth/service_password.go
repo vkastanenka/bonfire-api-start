@@ -16,7 +16,7 @@ import (
 )
 
 func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
-	user, err := s.store.GetUserByEmail(ctx, email)
+	user, err := s.store.UserGetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -33,7 +33,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 
 	// Create Outbox Event
 	jsonBytes, _ := json.Marshal(map[string]string{"email": email, "token": resetToken})
-	_, err = s.store.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+	_, err = s.store.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
 		EventType: "user.forgot_password",
 		Payload:   jsonBytes,
 	})
@@ -54,7 +54,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPas
 	}
 
 	// Execute update
-	err = s.store.UpdateUserPassword(ctx, repository.UpdateUserPasswordParams{
+	err = s.store.UserUpdatePassword(ctx, repository.UserUpdatePasswordParams{
 		ID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
 		PasswordHash: string(hashedPasswordBytes),
 	})

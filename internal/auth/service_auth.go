@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,7 +21,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 	// Step 1. Credentials availability validation
 
 	// 1a. Execute fast-path availability pre-check
-	availability, err := s.store.ValidateUserCredentialsAvailability(ctx, repository.ValidateUserCredentialsAvailabilityParams{
+	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    req.Email,
 		Username: req.Username,
 	})
@@ -62,11 +63,10 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 	// We pass the transaction block callback. Notice it uses the decoupled `qtx` (*repository.Queries) instance.
 	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
 		// 3a. Insert the core user record
-		userRow, err := qtx.CreateUser(ctx, repository.CreateUserParams{
+		userRow, err := qtx.UserCreate(ctx, repository.UserCreateParams{
 			Email:        req.Email,
 			Username:     req.Username,
 			PasswordHash: passwordHash,
-			Flags:        int64(UserFlagNone),
 		})
 		if err != nil {
 			return err // Bubbles back to ExecTx to trigger an automatic Rollback
@@ -79,7 +79,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 		}
 
 		// 3b. Insert the accompanying profile record, linking it via the new user's ID
-		_, err = qtx.CreateUserProfile(ctx, repository.CreateUserProfileParams{
+		_, err = qtx.UserProfileCreate(ctx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: pgtype.Text{String: displayName, Valid: true},
 		})
@@ -98,7 +98,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 		}
 
 		// 3d. Append the operational notification intent directly inside the transaction log
-		_, err = qtx.CreateOutboxEvent(ctx, repository.CreateOutboxEventParams{
+		_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
 			EventType: "user.registered",
 			Payload:   jsonBytes,
 		})
@@ -128,7 +128,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 	}
 
 	// 1. Fetch user credentials
-	userAuth, err := s.store.GetUserAuthCredentials(ctx, req.Email)
+	userAuth, err := s.store.UserGetAuthCredentials(ctx, req.Email)
 	if err != nil {
 		// User not found
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -163,12 +163,17 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 		return nil, err
 	}
 
+	ipAddr, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return nil, apperr.New(apperr.CodeInvalidInput, "Invalid IP address format.", apperr.WithErr(err))
+	}
+
 	// 5. Store the session in the database
-	_, err = s.store.CreateSession(ctx, repository.CreateSessionParams{
+	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
 		UserID:       userAuth.ID,
 		RefreshToken: refreshToken,
 		UserAgent:    userAgent,
-		ClientIp:     clientIP,
+		ClientIp:     ipAddr,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),
@@ -195,7 +200,7 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 	}
 
 	// 2. Look up the session using the old token
-	session, err := s.store.GetSession(ctx, oldRefreshToken)
+	session, err := s.store.UserSessionGet(ctx, oldRefreshToken)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.New(apperr.CodeUnauthenticated, "Session not found or token already consumed.")
@@ -233,7 +238,7 @@ func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken st
 	}
 
 	// 6. ROTATION: Update the database with the new refresh token
-	err = s.store.UpdateSessionRefreshToken(ctx, repository.UpdateSessionRefreshTokenParams{
+	err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
 		ID:           session.ID,
 		RefreshToken: newRefreshToken,
 		ExpiresAt: pgtype.Timestamptz{
