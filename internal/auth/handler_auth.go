@@ -8,9 +8,9 @@ import (
 
 type RegisterRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
-	DisplayName *string `json:"displayName" validate:"omitempty,min=3,max=32"`
-	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
-	Password    string  `json:"password" validate:"required,min=8,max=100"`
+	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
+	Username    string  `json:"username" validate:"required,min=8,max=32,regexp=^[a-zA-Z0-9._]+$"`
+	Password    string  `json:"password" validate:"required,min=12,max=128"`
 }
 
 // Register godoc
@@ -24,20 +24,20 @@ type RegisterRequest struct {
 // @Failure      400 {object} apperr.AppError
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	var data RegisterRequest
+	var req RegisterRequest
 
 	// Decode incoming JSON body into the struct
-	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+	if err := httpio.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
 
 	// Validate request body
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.val.ValidateStruct(&req); err != nil {
 		return err
 	}
 
 	// Register user
-	if err := h.service.Register(r.Context(), data); err != nil {
+	if err := h.service.Register(r.Context(), req); err != nil {
 		return err
 	}
 

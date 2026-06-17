@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,8 @@ import (
 
 // Register runs the business logic for creating a new user account.
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	// Step 1. Credentials availability validation
 
 	// 1a. Execute fast-path availability pre-check
