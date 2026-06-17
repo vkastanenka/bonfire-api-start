@@ -3,6 +3,10 @@ package apperr
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // ValidationError represents specific field-level validation issues
@@ -122,6 +126,13 @@ func (e *Error) IsCode(c Code) bool {
 
 // ToResponse formats into response JSON
 func (e *Error) ToResponse() ErrorResponse {
+	if e.Code == CodeInternal {
+		return ErrorResponse{
+			Code:    string(CodeInternal),
+			Message: e.Code.Message(),
+		}
+	}
+
 	return ErrorResponse{
 		Code:             string(e.Code),
 		Message:          e.Message,
@@ -131,4 +142,30 @@ func (e *Error) ToResponse() ErrorResponse {
 		RequestID:        e.RequestID,
 		TraceID:          e.TraceID,
 	}
+}
+
+// HTTPResponse formats all fields
+func (e *Error) HTTPResponse() (int, ErrorResponse) {
+	return e.Code.HTTPStatus(), e.ToResponse()
+}
+
+// Enrich adds metadata to error
+func (e *Error) Enrich(r *http.Request) {
+	reqID := middleware.GetReqID(r.Context())
+	if reqID == "" {
+		reqID = "unknown"
+	}
+
+	// Set RequestID as the local identifier
+	e.RequestID = reqID
+
+	// Determine TraceID (Priority: Incoming Header > Local RequestID)
+	traceID := r.Header.Get("X-Trace-ID")
+	if traceID == "" {
+		// If no trace header, the RequestID is the TraceID
+		traceID = reqID
+	}
+	e.TraceID = traceID
+
+	e.Timestamp = time.Now().UTC().Format(time.RFC3339)
 }

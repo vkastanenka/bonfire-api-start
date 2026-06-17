@@ -23,4 +23,5 @@ const (
 	// Internal Errors
 	DecodeErrMsg  = "An unexpected parsing error occurred."
 	ReqTimeoutMsg = "Request timed out."
+	HTTPReqFailedMsg = "http request failed"
 )
