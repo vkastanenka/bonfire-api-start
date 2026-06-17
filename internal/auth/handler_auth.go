@@ -9,7 +9,7 @@ import (
 type RegisterRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
-	Username    string  `json:"username" validate:"required,min=8,max=32,regexp=^[a-zA-Z0-9._]+$"`
+	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
 	Password    string  `json:"password" validate:"required,min=12,max=128"`
 }
 
