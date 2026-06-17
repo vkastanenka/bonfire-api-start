@@ -19,4 +19,7 @@ const (
 	InvalidFieldTypeMsg     = "Invalid data type provided for request body field(s)."
 	FieldTypeExpectationFmt = "Must be of type %s"
 	UnknownFieldFmt         = "Unknown field '%s' present in request body."
+
+	// Internal Errors
+	DecodeErrMsg = "An unexpected parsing error occurred"
 )

@@ -3,7 +3,7 @@ package httpio
 import (
 	"bonfire-api/internal/apperr"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -54,6 +54,7 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := h(w, r); err != nil {
 			status, resp := MapErrorToResponse(err)
+			ctx := r.Context()
 
 			reqID := middleware.GetReqID(r.Context())
 			if reqID == "" {
@@ -63,13 +64,21 @@ func ToHTTP(h HandlerFunc) http.HandlerFunc {
 			var appErr *apperr.Error
 			if errors.As(err, &appErr) {
 				if appErr.Code == apperr.CodeInternal {
-					log.Printf("[CRITICAL] ReqID: %s | Msg: %s | Details: %v | InternalErr: %v",
-						reqID, appErr.Message, appErr.Details, appErr.Err)
+					slog.ErrorContext(ctx, "internal server error encountered",
+						"code", appErr.Code,
+						"message", appErr.Message,
+						"details", appErr.Details,
+						"error", appErr.Err,
+					)
 				} else {
-					log.Printf("[INFO] ReqID: %s | UserError: %s | Msg: %s", reqID, appErr.Code, appErr.Message)
+					slog.InfoContext(ctx, "client request validation failed",
+						"code", appErr.Code,
+						"message", appErr.Message,
+						"details", appErr.Details,
+					)
 				}
 			} else {
-				log.Printf("[CRITICAL] ReqID: %s | Unhandled Error: %v", reqID, err)
+				slog.ErrorContext(ctx, "unhandled application error", "error", err)
 			}
 
 			RespondJSON(w, status, resp)

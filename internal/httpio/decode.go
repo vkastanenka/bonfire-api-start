@@ -40,7 +40,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	dec := json.NewDecoder(limitedBody)
 	dec.DisallowUnknownFields()
 
-	// Parse JSON into struct
+	// Decode JSON into struct
 	if err := dec.Decode(dst); err != nil {
 		// Check if context is closed
 		if r.Context().Err() != nil {
@@ -73,9 +73,6 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			fieldName := unmarshalTypeErr.Field
 			if fieldName == "" { // Client sends a raw string
 				fieldName = "field"
-			} else {
-				// Handle nested structures
-				fieldName = resolveUnmarshalPath(unmarshalTypeErr.Struct, fieldName)
 			}
 
 			return apperr.New(
@@ -93,7 +90,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 
 		// Handle other errors
 		default:
-			return apperr.New(apperr.CodeInvalidInput, InvalidPayloadMsg, apperr.WithErr(err))
+			return apperr.New(apperr.CodeInternal, DecodeErrMsg, apperr.WithErr(err))
 		}
 	}
 
