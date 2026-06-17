@@ -8,12 +8,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-type ErrorResponse struct {
-	Error   string         `json:"error"`
-	Message string         `json:"message,omitempty"`
-	Details map[string]any `json:"details,omitempty"`
-}
-
 func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 	payload, err := json.Marshal(data)
 	if err != nil {

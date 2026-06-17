@@ -5,30 +5,33 @@ import (
 	"fmt"
 )
 
-// Code defines the category of application error
-type Code string
-
-const (
-	CodeInternal             Code = "INTERNAL"
-	CodeInvalidInput         Code = "INVALID_INPUT"
-	CodePayloadTooLarge      Code = "PAYLOAD_TOO_LARGE"
-	CodeNotFound             Code = "NOT_FOUND"
-	CodeConflict             Code = "CONFLICT"
-	CodeUnauthenticated      Code = "UNAUTHENTICATED"
-	CodeMethodNotAllowed     Code = "METHOD_NOT_ALLOWED"
-	CodeTooManyRequests      Code = "TOO_MANY_REQUESTS"
-	CodeBadRequest           Code = "BAD_REQUEST"
-	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
-	CodeClientClosedRequest  Code = "CLIENT_CLOSED_REQUEST"
-	CodeRequestTimeout       Code = "CODE_REQUEST_TIMEOUT"
-)
+// ValidationError represents specific field-level validation issues
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
 
 // Error represents a structured domain error
 type Error struct {
-	Code    Code
-	Message string
-	Details map[string]any
-	Err     error
+	Code             Code              `json:"code"`
+	Message          string            `json:"message"`
+	Details          map[string]any    `json:"details,omitempty"`
+	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
+	Timestamp        string            `json:"timestamp,omitempty"`
+	RequestID        string            `json:"request_id,omitempty"`
+	TraceID          string            `json:"trace_id,omitempty"`
+	Err              error             `json:"-"` // Explicitly ignore the internal error during JSON serialization
+}
+
+// ErrorResponse is the source of truth for the JSON API contract
+type ErrorResponse struct {
+	Code             string            `json:"code"`
+	Message          string            `json:"message,omitempty"`
+	Details          map[string]any    `json:"details,omitempty"`
+	ValidationErrors []ValidationError `json:"validation_errors,omitempty"`
+	Timestamp        string            `json:"timestamp,omitempty"`
+	RequestID        string            `json:"request_id,omitempty"`
+	TraceID          string            `json:"trace_id,omitempty"`
 }
 
 // Error implements the standard error interface.
@@ -68,6 +71,23 @@ func WithDetails(key string, value any) Option {
 	}
 }
 
+// WithValidationErr appends a single field validation error
+func WithValidationErr(field, message string) Option {
+	return func(e *Error) {
+		e.ValidationErrors = append(e.ValidationErrors, ValidationError{
+			Field:   field,
+			Message: message,
+		})
+	}
+}
+
+// WithValidationErrors appends a slice of validation errors
+func WithValidationErrors(errs []ValidationError) Option {
+	return func(e *Error) {
+		e.ValidationErrors = append(e.ValidationErrors, errs...)
+	}
+}
+
 // New creates a new domain error
 func New(code Code, msg string, opts ...Option) error {
 	err := &Error{
@@ -93,4 +113,22 @@ func ErrorCode(err error) Code {
 
 	// If it's a standard Go error not wrapped in apperr, default to Internal
 	return CodeInternal
+}
+
+// IsCode allows for quick comparisons
+func (e *Error) IsCode(c Code) bool {
+	return e.Code == c
+}
+
+// ToResponse formats into response JSON
+func (e *Error) ToResponse() ErrorResponse {
+	return ErrorResponse{
+		Code:             string(e.Code),
+		Message:          e.Message,
+		Details:          e.Details,
+		ValidationErrors: e.ValidationErrors,
+		Timestamp:        e.Timestamp,
+		RequestID:        e.RequestID,
+		TraceID:          e.TraceID,
+	}
 }
