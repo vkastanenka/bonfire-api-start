@@ -1,14 +1,6 @@
 package auth
 
-import (
-	"bonfire-api/internal/repository"
-	"context"
-)
-
-type Store interface {
-	repository.Querier
-	ExecTx(ctx context.Context, fn func(*repository.Queries) error) error
-}
+import "bonfire-api/internal/repository"
 
 type TokenConfig struct {
 	AccessSecret        string
@@ -19,11 +11,11 @@ type TokenConfig struct {
 }
 
 type AuthService struct {
-	store       Store
+	store       repository.Store
 	tokenConfig TokenConfig
 }
 
-func NewAuthService(store Store, tokenConfig TokenConfig) *AuthService {
+func NewAuthService(store repository.Store, tokenConfig TokenConfig) *AuthService {
 	return &AuthService{
 		store:       store,
 		tokenConfig: tokenConfig,

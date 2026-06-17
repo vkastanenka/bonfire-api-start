@@ -9,11 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TODO: Implement after other refactor
-// type Store interface {
-// 	Querier // This includes all your generated sqlc methods
-// 	ExecTx(ctx context.Context, fn func(*Queries) error) error
-// }
+// Store defines the interface for all database operations
+type Store interface {
+	Querier
+	ExecTx(ctx context.Context, fn func(*Queries) error) error
+}
 
 // SQLStore provides a repository implementation
 type SQLStore struct {
@@ -21,7 +21,7 @@ type SQLStore struct {
 	*Queries
 }
 
-// NewStore initializes a new SQLStore with a database connection pool and query interface
+// NewStore initializes a new SQLStore
 func NewStore(db *pgxpool.Pool) *SQLStore {
 	return &SQLStore{
 		db:      db,
