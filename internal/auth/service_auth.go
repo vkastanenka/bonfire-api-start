@@ -41,7 +41,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		)
 	}
 
-	var availabilityErrors []apperr.Option
+	var availabilityErrors []apperr.ErrorOption
 
 	if !availability.EmailAvailable {
 		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("email", ErrEmailTaken))

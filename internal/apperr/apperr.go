@@ -39,7 +39,7 @@ type Error struct {
 var _ error = (*Error)(nil)
 
 // New initializes an application domain error model
-func New(code Code, detail string, opts ...Option) error {
+func New(code Code, detail string, opts ...ErrorOption) error {
 	e := &Error{
 		Code:   code,
 		Detail: detail,
@@ -66,17 +66,17 @@ func (e *Error) Unwrap() error {
 }
 
 // Option configures targeted attributes on an instantiated Error object instance
-type Option func(*Error)
+type ErrorOption func(*Error)
 
 // WithErr couples lower-level execution context or database failures cleanly
-func WithErr(err error) Option {
+func WithErr(err error) ErrorOption {
 	return func(e *Error) {
 		e.Err = err
 	}
 }
 
 // WithInvalidParam appends a single distinct input parameters error to the parameter slice tracking validation bugs
-func WithInvalidParam(name, reason string) Option {
+func WithInvalidParam(name, reason string) ErrorOption {
 	return func(e *Error) {
 		e.InvalidParams = append(e.InvalidParams, InvalidParam{
 			Name:  name,
@@ -86,7 +86,7 @@ func WithInvalidParam(name, reason string) Option {
 }
 
 // WithInvalidParams chains whole structural groups of batch evaluation results directly
-func WithInvalidParams(params []InvalidParam) Option {
+func WithInvalidParams(params []InvalidParam) ErrorOption {
 	return func(e *Error) {
 		e.InvalidParams = append(e.InvalidParams, params...)
 	}
