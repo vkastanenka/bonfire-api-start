@@ -24,7 +24,7 @@ CREATE TABLE users(
     -- Constraints
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
-    CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator'))
+    CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire'))
 );
 
 -- Indexes

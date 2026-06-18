@@ -3,15 +3,28 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/sanitize"
 	"net/http"
+	"strings"
 )
 
-// TODO: Better validation for display_name and username
+// Register request body
 type RegisterRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
-	Username    string  `json:"username" validate:"required,alphanum,min=8,max=32"`
+	Username    string  `json:"username" validate:"required,min=4,max=32,valid_username"`
 	Password    string  `json:"password" validate:"required,min=12,max=128"`
+}
+
+func (r *RegisterRequest) SanitizeRegisterRequest() {
+	// Clean the Email
+	r.Email = strings.ToLower(strings.TrimSpace(r.Email))
+
+	// Clean the Display Name
+	if r.DisplayName != nil {
+		cleaned := sanitize.SanitizeText(*r.DisplayName)
+		r.DisplayName = &cleaned
+	}
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
@@ -22,7 +35,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// TODO: Sanitize inputs
+	// Sanitize request body
+	req.SanitizeRegisterRequest()
 
 	// Validate request body
 	if err := h.val.ValidateStruct(&req); err != nil {

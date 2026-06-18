@@ -5,10 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	goValidator "github.com/go-playground/validator/v10"
 )
+
+// Pre-compile the regex
+// No consecutive periods/underscores, cannot start or end with a period/underscore
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
 
 // Validator wraps the core third-party validation engine
 type Validator struct {
@@ -26,6 +31,11 @@ func New() *Validator {
 			return ""
 		}
 		return name
+	})
+
+	// Register the custom validation tag handler
+	v.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
+		return usernameRegex.MatchString(fl.Field().String())
 	})
 
 	return &Validator{engine: v}
@@ -66,7 +76,7 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 		return apperr.New(
 			apperr.CodeInvalidInput,
 			"validation failed for the request payload.",
-			apperr.WithValidationErrors(errs), 
+			apperr.WithValidationErrors(errs),
 			apperr.WithErr(err),
 		)
 	}
@@ -101,6 +111,8 @@ func msgForFieldError(err goValidator.FieldError) string {
 		return "Invalid email format."
 	case "alphanum":
 		return "Must contain only letters and numbers."
+	case "valid_username":
+		return "Must contain only lowercase letters, numbers, underscores, or periods."
 	case "min":
 		return formatRangeMessage(err, "Must be at least %s characters long.", "Must be %s or greater.", "Must contain at least %s items.")
 	case "max":
