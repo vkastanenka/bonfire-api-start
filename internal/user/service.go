@@ -1,15 +1,16 @@
 package user
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Store defines the database actions owned by the User domain.
-// Generated sqlc methods fit here perfectly.
 type Store interface {
 	repository.Querier
 }
@@ -22,17 +23,40 @@ func NewUserService(store Store) *UserService {
 	return &UserService{store: store}
 }
 
-// GetUserByID safely transforms the incoming application UUID into the
-// database-friendly pgtype.UUID and fetches the record.
 func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (repository.User, error) {
 	var pgUserID pgtype.UUID
 	pgUserID.Bytes = userID
 	pgUserID.Valid = true
 
-	return s.store.UserGet(ctx, pgUserID)
+	user, err := s.store.UserGet(ctx, pgUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return user, apperr.New(apperr.CodeNotFound, "User not found")
+		}
+		return user, apperr.New(apperr.CodeInternal, "Database error", apperr.WithErr(err))
+	}
+
+	return user, nil
 }
 
-// GetUserByEmail searches for a user record using their unique email address.
 func (s *UserService) GetUserByEmail(ctx context.Context, email string) (repository.User, error) {
-	return s.store.UserGetByEmail(ctx, email)
+	user, err := s.store.UserGetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return user, apperr.New(apperr.CodeNotFound, "User with this email not found")
+		}
+		return user, apperr.New(apperr.CodeInternal, "Database error", apperr.WithErr(err))
+	}
+	return user, nil
+}
+
+func (s *UserService) DeleteUserByEmail(ctx context.Context, email string) (repository.User, error) {
+	user, err := s.store.UserDeleteByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return user, apperr.New(apperr.CodeNotFound, "User not found, nothing to delete")
+		}
+		return user, apperr.New(apperr.CodeInternal, "Failed to delete user", apperr.WithErr(err))
+	}
+	return user, nil
 }

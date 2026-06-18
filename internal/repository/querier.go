@@ -22,6 +22,7 @@ type Querier interface {
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserDelete(ctx context.Context, id pgtype.UUID) error
+	UserDeleteByEmail(ctx context.Context, email string) (User, error)
 	UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error)
 	UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error
 	UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error)

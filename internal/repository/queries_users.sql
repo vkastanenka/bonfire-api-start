@@ -132,3 +132,9 @@ WHERE
 DELETE FROM users
 WHERE id = $1;
 
+-- name: UserDeleteByEmail :one
+DELETE FROM users
+WHERE email = $1
+RETURNING
+    *;
+

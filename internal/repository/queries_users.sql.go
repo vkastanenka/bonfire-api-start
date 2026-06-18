@@ -94,6 +94,32 @@ func (q *Queries) UserDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const userDeleteByEmail = `-- name: UserDeleteByEmail :one
+DELETE FROM users
+WHERE email = $1
+RETURNING
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+`
+
+func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, userDeleteByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.IsTotpEnabled,
+		&i.TotpSecret,
+		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
+		&i.Role,
+	)
+	return i, err
+}
+
 const userDisableTOTP = `-- name: UserDisableTOTP :exec
 UPDATE
     users
