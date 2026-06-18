@@ -122,19 +122,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		}
 
 		// Set DTO
-		var verifiedAt *time.Time
-		if userRow.VerifiedAt.Valid {
-			verifiedAt = &userRow.VerifiedAt.Time
-		}
-
-		userResponse = user.UserResponse{
-			ID:         uuid.UUID(userRow.ID.Bytes),
-			Email:      userRow.Email,
-			Username:   userRow.Username,
-			VerifiedAt: verifiedAt,
-			CreatedAt:  userRow.CreatedAt.Time,
-			UpdatedAt:  userRow.UpdatedAt.Time,
-		}
+		userResponse = user.CreateUserResponse(userRow)
 
 		return nil
 	})
