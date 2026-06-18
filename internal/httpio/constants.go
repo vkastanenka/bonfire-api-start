@@ -21,7 +21,29 @@ const (
 	UnknownFieldFmt         = "Unknown field '%s' present in request body."
 
 	// Internal Errors
-	DecodeErrMsg  = "An unexpected parsing error occurred."
-	ReqTimeoutMsg = "Request timed out."
+	DecodeErrMsg     = "An unexpected parsing error occurred."
+	ReqTimeoutMsg    = "Request timed out."
 	HTTPReqFailedMsg = "http request failed"
 )
+
+// SuccessResponse defines the standard envelope for all successful API responses.
+type SuccessResponse[T any] struct {
+	Message string `json:"message,omitempty"` // Optional human-readable message
+	Data    T      `json:"data"`              // The actual payload
+	Meta    any    `json:"meta,omitempty"`    // Pagination, cursors, or extra context
+}
+
+// OffsetPagination defines the meta payload for page-based lists.
+type OffsetPagination struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	TotalItems int `json:"total_items"`
+	TotalPages int `json:"total_pages"`
+}
+
+// CursorPagination defines the meta payload for infinite-scroll lists.
+type CursorPagination struct {
+	NextCursor *string `json:"next_cursor"` // Omit or set to null if there are no more pages
+	HasMore    bool    `json:"has_more"`
+	Limit      int     `json:"limit"`
+}

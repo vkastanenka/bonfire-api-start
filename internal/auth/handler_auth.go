@@ -4,6 +4,8 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/user"
+	"bonfire-api/internal/user_profile"
 	"net/http"
 )
 
@@ -12,6 +14,11 @@ type RegisterRequest struct {
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
 	Username    string  `json:"username" validate:"required,min=4,max=32,valid_username"`
 	Password    string  `json:"password" validate:"required,min=12,max=128"`
+}
+
+type RegisterResponse struct {
+	User        user.UserResponse                `json:"user"`
+	UserProfile user_profile.UserProfileResponse `json:"user_profile"`
 }
 
 func (r *RegisterRequest) SanitizeRegisterRequest() {
@@ -40,7 +47,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Register user
-	userResponse, userProfileResponse, err := h.service.Register(r.Context(), RegisterInput{
+	user, profile, err := h.service.Register(r.Context(), RegisterInput{
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
@@ -50,12 +57,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Respond (TODO: Standardize responses)
-	httpio.RespondJSON(w, http.StatusCreated, map[string]any{
-		"message": RegisterOkMsg,
-		"user":    userResponse,
-		"user_profile": userProfileResponse,
-	})
+	// Format response data
+	data := RegisterResponse{
+		User:        user,
+		UserProfile: profile,
+	}
+
+	// Respond
+	httpio.RespondCreated(w, data, "User successfully registered.")
 
 	return nil
 }

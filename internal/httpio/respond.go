@@ -41,6 +41,37 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 	_, _ = w.Write(buf.Bytes())
 }
 
+// RespondOK sends a standard 200 OK response with the wrapped data.
+func RespondOK[T any](w http.ResponseWriter, data T) {
+	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
+		Data: data,
+	})
+}
+
+// RespondCreated sends a standard 201 Created response, allowing for an optional message.
+func RespondCreated[T any](w http.ResponseWriter, data T, message string) {
+	RespondJSON(w, http.StatusCreated, SuccessResponse[T]{
+		Message: message,
+		Data:    data,
+	})
+}
+
+// RespondOffsetList sends a 200 OK with offset pagination metadata.
+func RespondOffsetList[T any](w http.ResponseWriter, data T, meta OffsetPagination) {
+	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
+		Data: data,
+		Meta: meta,
+	})
+}
+
+// RespondCursorList sends a 200 OK with cursor pagination metadata.
+func RespondCursorList[T any](w http.ResponseWriter, data T, meta CursorPagination) {
+	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
+		Data: data,
+		Meta: meta,
+	})
+}
+
 // TODO: Deprecate
 func RespondText(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

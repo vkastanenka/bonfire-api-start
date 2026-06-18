@@ -95,7 +95,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 			return err
 		}
 
-		// Marshal the specialized payload map into a dynamic JSON byte slice
+		// Format event payload
 		eventPayload := map[string]string{
 			"email":    req.Email,
 			"username": req.Username,
@@ -105,7 +105,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 			return err
 		}
 
-		// Append the operational notification intent directly inside the transaction log
+		// Create event
 		_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
 			EventType: EventUserRegistered,
 			Payload:   jsonBytes,
@@ -114,7 +114,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 			return err
 		}
 
-		// Set DTO
+		// Set response DTOs
 		userResponse = user.CreateUserResponse(userRow)
 		userProfileResponse = user_profile.CreateUserProfileResponse(userProfileRow)
 
@@ -126,6 +126,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.NewDBError(txErr)
 	}
 
+	// Return created resources
 	return userResponse, userProfileResponse, nil
 }
 

@@ -24,10 +24,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
@@ -35,6 +37,7 @@ import (
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/user_profile"
 	"bonfire-api/internal/validator"
+	"bonfire-api/internal/worker"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -87,7 +90,7 @@ func run() error {
 
 	// Setup data layer
 	store := repository.NewStore(pdbPool)
-	// queries := repository.New(pdbPool)
+	queries := repository.New(pdbPool)
 
 	// Setup middleware services
 	rateLimiter := redis_rate.NewLimiter(rdb)
@@ -95,7 +98,7 @@ func run() error {
 	tokenManager := token.NewJWTManager()
 
 	// Setup domain services
-	// mailer := email.NewMailer(cfg)
+	mailer := email.NewMailer(cfg)
 	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
@@ -106,9 +109,9 @@ func run() error {
 	userProfileService := user_profile.NewService(store)
 
 	// Setup background workers
-	// outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
-	// outboxWorker.Start(ctx)
-	// defer outboxWorker.Stop()
+	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
+	outboxWorker.Start(ctx)
+	defer outboxWorker.Stop()
 
 	// Setup presentation layer
 	authHandler := auth.NewHandler(authService, val)
