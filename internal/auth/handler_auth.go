@@ -57,6 +57,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// TODO: Sanitize inputs
+
 	// Validate request body
 	if err := h.val.ValidateStruct(&data); err != nil {
 		return err
