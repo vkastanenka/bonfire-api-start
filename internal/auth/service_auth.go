@@ -11,12 +11,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// RegisterInput contains the plain domain data required to register a user.
+type RegisterInput struct {
+	Email       string
+	Username    string
+	DisplayName *string
+	Password    string
+}
+
 // Register runs the business logic for creating a new user account.
-func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
+func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
 	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    req.Email,
@@ -114,6 +123,16 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) error {
 
 	// Handle transactional completion states
 	if txErr != nil {
+		// Check if it's a PostgreSQL database error (e.g., jackc/pgx)
+		var pgErr *pgconn.PgError
+		if errors.As(txErr, &pgErr) && pgErr.Code == "23505" { // 23505 = unique_violation
+			return apperr.New(apperr.CodeConflict,
+				"Registration conflict occurred. Please try again.",
+				apperr.WithErr(txErr),
+			)
+		}
+
+		// Default fallback to 500 Internal Server Error
 		return apperr.New(apperr.CodeInternal,
 			apperr.CodeInternal.Message(),
 			apperr.WithErr(txErr),

@@ -112,7 +112,7 @@ func msgForFieldError(err goValidator.FieldError) string {
 	case "alphanum":
 		return "Must contain only letters and numbers."
 	case "valid_username":
-		return "Must contain only lowercase letters, numbers, underscores, or periods."
+		return "Must contain only letters, numbers, underscores, or periods."
 	case "min":
 		return formatRangeMessage(err, "Must be at least %s characters long.", "Must be %s or greater.", "Must contain at least %s items.")
 	case "max":

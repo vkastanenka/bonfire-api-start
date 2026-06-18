@@ -5,6 +5,11 @@ import (
 	"unicode"
 )
 
+// SanitizeEmail trims spaces and makes emails lowercase
+func SanitizeEmail(input string) string {
+	return strings.ToLower(strings.TrimSpace(input))
+}
+
 // SanitizeText strips out harmful control characters and normalizes spaces
 func SanitizeText(input string) string {
 	// Trim leading and trailing whitespace first

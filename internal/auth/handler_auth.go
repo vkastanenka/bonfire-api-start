@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"net/http"
-	"strings"
 )
 
 // Register request body
@@ -18,7 +17,7 @@ type RegisterRequest struct {
 
 func (r *RegisterRequest) SanitizeRegisterRequest() {
 	// Clean the Email
-	r.Email = strings.ToLower(strings.TrimSpace(r.Email))
+	r.Email = sanitize.SanitizeEmail(r.Email)
 
 	// Clean the Display Name
 	if r.DisplayName != nil {
@@ -44,7 +43,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Register user
-	if err := h.service.Register(r.Context(), req); err != nil {
+	if err := h.service.Register(r.Context(), RegisterInput{
+		Email:       req.Email,
+		Username:    req.Username,
+		DisplayName: req.DisplayName,
+		Password:    req.Password,
+	}); err != nil {
 		return err
 	}
 
