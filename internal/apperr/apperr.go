@@ -16,7 +16,7 @@ var BaseDocURL = "https://api.bonfire.com/errors"
 
 // InvalidParam represents precise parameter-level validation failures compliant with RFC extensions
 type InvalidParam struct {
-	Field  string `json:"field"`
+	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
 
@@ -40,10 +40,16 @@ var _ error = (*Error)(nil)
 
 // New initializes an application domain error model
 func New(code Code, detail string, opts ...Option) error {
-	return &Error{
+	e := &Error{
 		Code:   code,
 		Detail: detail,
 	}
+
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	return e
 }
 
 // Error converts the internal model values to an explicit debugging line string for console logs
@@ -70,10 +76,10 @@ func WithErr(err error) Option {
 }
 
 // WithInvalidParam appends a single distinct input parameters error to the parameter slice tracking validation bugs
-func WithInvalidParam(field, reason string) Option {
+func WithInvalidParam(name, reason string) Option {
 	return func(e *Error) {
 		e.InvalidParams = append(e.InvalidParams, InvalidParam{
-			Field:  field,
+			Name:  name,
 			Reason: reason,
 		})
 	}

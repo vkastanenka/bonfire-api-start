@@ -85,7 +85,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			return apperr.New(
 				apperr.CodeInvalidInput,
 				InvalidFieldTypeMsg,
-				apperr.WithDetails(fieldName, fmt.Sprintf(FieldTypeExpectationFmt, unmarshalTypeErr.Type)),
+				// apperr.WithDetails(fieldName, fmt.Sprintf(FieldTypeExpectationFmt, unmarshalTypeErr.Type)),
 				apperr.WithErr(err),
 			)
 

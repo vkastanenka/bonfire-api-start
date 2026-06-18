@@ -68,7 +68,7 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 			}
 
 			invalidParams = append(invalidParams, apperr.InvalidParam{
-				Field:  jsonPath,
+				Name:  jsonPath,
 				Reason: msgForFieldError(fieldErr),
 			})
 		}

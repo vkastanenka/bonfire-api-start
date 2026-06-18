@@ -3,7 +3,6 @@ package httpio
 import (
 	"bonfire-api/internal/apperr"
 	"errors"
-	"log/slog"
 	"net/http"
 )
 
@@ -18,7 +17,7 @@ func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		// Identify/Normalize error
 		var appErr *apperr.Error
 		if !errors.As(err, &appErr) {
-			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Message(), apperr.WithErr(err))
+			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 			errors.As(err, &appErr)
 		}
 
@@ -36,29 +35,29 @@ func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 
 // logError logs app errors
 func logError(r *http.Request, appErr *apperr.Error, originalErr error, status int) {
-	level := slog.LevelInfo
-	if appErr.IsCode(apperr.CodeInternal) {
-		level = slog.LevelError
-	}
+	// level := slog.LevelInfo
+	// if appErr.IsCode(apperr.CodeInternal) {
+	// 	level = slog.LevelError
+	// }
 
-	args := []any{
-		"path", r.URL.Path,
-		"method", r.Method,
-		"status", status,
-		slog.Group("error_context",
-			"code", appErr.Code,
-			"request_id", appErr.RequestID,
-			"trace_id", appErr.TraceID,
-			"error", originalErr,
-		),
-	}
+	// args := []any{
+	// 	"path", r.URL.Path,
+	// 	"method", r.Method,
+	// 	"status", status,
+	// 	slog.Group("error_context",
+	// 		"code", appErr.Code,
+	// 		"request_id", appErr.RequestID,
+	// 		"trace_id", appErr.TraceID,
+	// 		"error", originalErr,
+	// 	),
+	// }
 
-	if len(appErr.Details) > 0 {
-		args = append(args, "details", appErr.Details)
-	}
-	if len(appErr.ValidationErrors) > 0 {
-		args = append(args, "validation_errors", appErr.ValidationErrors)
-	}
+	// if len(appErr.Details) > 0 {
+	// 	args = append(args, "details", appErr.Details)
+	// }
+	// if len(appErr.ValidationErrors) > 0 {
+	// 	args = append(args, "validation_errors", appErr.ValidationErrors)
+	// }
 
-	slog.Log(r.Context(), level, HTTPReqFailedMsg, args...)
+	// slog.Log(r.Context(), level, HTTPReqFailedMsg, args...)
 }
