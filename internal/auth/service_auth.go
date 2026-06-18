@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/user"
+	"bonfire-api/internal/user_profile"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,12 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// RegisterInput contains the plain domain data required to register a user.
+// RegisterInput
 type RegisterInput struct {
 	Email       string
 	Username    string
@@ -25,9 +25,11 @@ type RegisterInput struct {
 	Password    string
 }
 
-// Register runs the business logic for creating a new user account.
-func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.UserResponse, error) {
+// RegisterService
+func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.UserResponse, user_profile.UserProfileResponse, error) {
+	// Define user DTO
 	var userResponse user.UserResponse
+	var userProfileResponse user_profile.UserProfileResponse
 
 	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
@@ -35,14 +37,11 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		Username: req.Username,
 	})
 	if err != nil {
-		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
-			apperr.CodeInternal.Title(),
-			apperr.WithErr(err),
-		)
+		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.NewDBError(err)
 	}
 
+	// Append errors if credential conflict
 	var availabilityErrors []apperr.ErrorOption
-
 	if !availability.EmailAvailable {
 		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("email", ErrEmailTaken))
 	}
@@ -50,28 +49,28 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("username", ErrUsernameTaken))
 	}
 
-	// If there are any violations, return a conflict error
+	// If credential conflicts, respond with error
 	if len(availabilityErrors) > 0 {
-		return user.UserResponse{}, apperr.New(
+		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.New(
 			apperr.CodeConflict,
 			ErrRegFailed,
 			availabilityErrors...,
 		)
 	}
 
-	// Password Hashing (Securely inside the Service layer!)
+	// Hash password
 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return user.UserResponse{}, apperr.New(apperr.CodeInvalidInput,
+		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.New(apperr.CodeInternal,
 			ErrPasswordHashing,
 			apperr.WithErr(err),
 		)
 	}
 	passwordHash := string(hashedPasswordBytes)
 
-	// Execute DB transaction (CreateUser + CreateUserProfile)
+	// Execute DB tx
 	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
-		// Insert the core user record
+		// Create user
 		userRow, err := qtx.UserCreate(ctx, repository.UserCreateParams{
 			Email:        req.Email,
 			Username:     req.Username,
@@ -81,19 +80,19 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 			return err
 		}
 
-		// Determine a fallback display name if none was provided in the request payload
+		// Set display name
 		displayName := req.Username
 		if req.DisplayName != nil && *req.DisplayName != "" {
 			displayName = *req.DisplayName
 		}
 
-		// Insert the accompanying profile record, linking it via the new user's ID
-		_, err = qtx.UserProfileCreate(ctx, repository.UserProfileCreateParams{
+		// Create user profile
+		userProfileRow, err := qtx.UserProfileCreate(ctx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
-			DisplayName: pgtype.Text{String: displayName, Valid: true},
+			DisplayName: displayName,
 		})
 		if err != nil {
-			return err // Bubbles back to ExecTx to trigger an automatic Rollback
+			return err
 		}
 
 		// Marshal the specialized payload map into a dynamic JSON byte slice
@@ -117,29 +116,17 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 
 		// Set DTO
 		userResponse = user.CreateUserResponse(userRow)
+		userProfileResponse = user_profile.CreateUserProfileResponse(userProfileRow)
 
 		return nil
 	})
 
-	// Handle transactional completion states
+	// Handle tx errors
 	if txErr != nil {
-		// Check if it's a PostgreSQL database error (e.g., jackc/pgx)
-		var pgErr *pgconn.PgError
-		if errors.As(txErr, &pgErr) && pgErr.Code == "23505" { // 23505 = unique_violation
-			return user.UserResponse{}, apperr.New(apperr.CodeConflict,
-				"Registration conflict occurred. Please try again.",
-				apperr.WithErr(txErr),
-			)
-		}
-
-		// Default fallback to 500 Internal Server Error
-		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
-			apperr.CodeInternal.Title(),
-			apperr.WithErr(txErr),
-		)
+		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.NewDBError(txErr)
 	}
 
-	return userResponse, nil
+	return userResponse, userProfileResponse, nil
 }
 
 // Login

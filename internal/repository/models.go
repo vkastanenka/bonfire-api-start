@@ -90,7 +90,7 @@ type UserProfile struct {
 	UserID      pgtype.UUID        `json:"user_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DisplayName pgtype.Text        `json:"display_name"`
+	DisplayName string             `json:"display_name"`
 }
 
 type UserSession struct {

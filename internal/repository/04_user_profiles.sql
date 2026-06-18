@@ -5,7 +5,7 @@ CREATE TABLE user_profiles(
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     -- App logic
-    display_name varchar(32),
+    display_name varchar(32) NOT NULL,
     -- Constraints
     CONSTRAINT display_name_length CHECK (char_length(display_name) >= 3)
 );

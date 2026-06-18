@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // BaseDocURL defines the namespace hosting documentation detailing specific errors
@@ -52,6 +53,51 @@ func New(code Code, detail string, opts ...ErrorOption) error {
 	return e
 }
 
+// FromDB translates raw database errors into standard domain app errors.
+func NewDBError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Inspect PostgreSQL-specific errors
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+
+		// --- Integrity & Relationship Violations ---
+		case "23505": // unique_violation
+			return New(CodeConflict, "A conflict occurred with existing records. Please try again.", WithErr(err))
+		case "23503": // foreign_key_violation
+			return New(CodeInvalidInput, "A referenced record does not exist.", WithErr(err))
+		case "23502": // not_null_violation
+			return New(CodeInvalidInput, "A required field is missing.", WithErr(err))
+		case "23514": // check_violation
+			return New(CodeInvalidInput, "The provided data failed validation rules.", WithErr(err))
+
+		// --- Data Formatting Exceptions ---
+		case "22001": // string_data_right_truncation
+			return New(CodeInvalidInput, "A provided text field exceeds the maximum allowed length.", WithErr(err))
+		case "22003": // numeric_value_out_of_range
+			return New(CodeInvalidInput, "A provided number is out of the acceptable range.", WithErr(err))
+		case "22P02": // invalid_text_representation (e.g., bad UUIDs)
+			return New(CodeInvalidInput, "The data format is invalid or malformed.", WithErr(err))
+
+		// --- Concurrency & Locks ---
+		case "40001": // serialization_failure
+			return New(CodeConflict, "The system is busy. Please retry your request.", WithErr(err))
+		case "40P01": // deadlock_detected
+			return New(CodeConflict, "A resource conflict occurred. Please retry your request.", WithErr(err))
+
+		// --- Timeouts ---
+		case "57014": // query_canceled
+			return New(CodeRequestTimeout, "The database operation timed out or was canceled.", WithErr(err))
+		}
+	}
+
+	// Default fallback for unknown database or connection errors
+	return New(CodeInternal, CodeInternal.Title(), WithErr(err))
+}
+
 // Error converts the internal model values to an explicit debugging line string for console logs
 func (e *Error) Error() string {
 	if e.Err != nil {
@@ -79,7 +125,7 @@ func WithErr(err error) ErrorOption {
 func WithInvalidParam(name, reason string) ErrorOption {
 	return func(e *Error) {
 		e.InvalidParams = append(e.InvalidParams, InvalidParam{
-			Name:  name,
+			Name:   name,
 			Reason: reason,
 		})
 	}

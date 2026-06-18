@@ -38,7 +38,7 @@ RETURNING
 
 type UserProfileCreateParams struct {
 	UserID      pgtype.UUID `json:"user_id"`
-	DisplayName pgtype.Text `json:"display_name"`
+	DisplayName string      `json:"display_name"`
 }
 
 func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error) {
@@ -119,7 +119,7 @@ WHERE
 
 type UserProfileUpdateDisplayNameParams struct {
 	UserID      pgtype.UUID `json:"user_id"`
-	DisplayName pgtype.Text `json:"display_name"`
+	DisplayName string      `json:"display_name"`
 }
 
 func (q *Queries) UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) error {

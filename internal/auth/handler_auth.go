@@ -7,7 +7,6 @@ import (
 	"net/http"
 )
 
-// Register request body
 type RegisterRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
@@ -16,10 +15,8 @@ type RegisterRequest struct {
 }
 
 func (r *RegisterRequest) SanitizeRegisterRequest() {
-	// Clean the Email
 	r.Email = sanitize.SanitizeEmail(r.Email)
 
-	// Clean the Display Name
 	if r.DisplayName != nil {
 		cleaned := sanitize.SanitizeText(*r.DisplayName)
 		r.DisplayName = &cleaned
@@ -43,7 +40,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Register user
-	userResponse, err := h.service.Register(r.Context(), RegisterInput{
+	userResponse, userProfileResponse, err := h.service.Register(r.Context(), RegisterInput{
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
@@ -53,10 +50,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Respond
+	// Respond (TODO: Standardize responses)
 	httpio.RespondJSON(w, http.StatusCreated, map[string]any{
 		"message": RegisterOkMsg,
 		"user":    userResponse,
+		"user_profile": userProfileResponse,
 	})
 
 	return nil
