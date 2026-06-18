@@ -43,19 +43,20 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Register user
-	if err := h.service.Register(r.Context(), RegisterInput{
+	userResponse, err := h.service.Register(r.Context(), RegisterInput{
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
 		Password:    req.Password,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	// Respond
-	httpio.RespondJSON(w, http.StatusCreated, map[string]string{
+	httpio.RespondJSON(w, http.StatusCreated, map[string]any{
 		"message": RegisterOkMsg,
-		// TODO: Return User DTO
+		"user":    userResponse,
 	})
 
 	return nil

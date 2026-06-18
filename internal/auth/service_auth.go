@@ -3,6 +3,7 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,14 +26,16 @@ type RegisterInput struct {
 }
 
 // Register runs the business logic for creating a new user account.
-func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
+func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.UserResponse, error) {
+	var userResponse user.UserResponse
+
 	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    req.Email,
 		Username: req.Username,
 	})
 	if err != nil {
-		return apperr.New(apperr.CodeInternal,
+		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
 			apperr.CodeInternal.Message(),
 			apperr.WithErr(err),
 		)
@@ -56,7 +59,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
 
 	//  If there are any violations, return a conflict error
 	if len(validationErrors) > 0 {
-		return apperr.New(apperr.CodeConflict,
+		return user.UserResponse{}, apperr.New(apperr.CodeConflict,
 			ErrRegFailed,
 			apperr.WithValidationErrors(validationErrors),
 		)
@@ -65,7 +68,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
 	// Password Hashing (Securely inside the Service layer!)
 	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return apperr.New(apperr.CodeInvalidInput,
+		return user.UserResponse{}, apperr.New(apperr.CodeInvalidInput,
 			ErrPasswordHashing,
 			apperr.WithErr(err),
 		)
@@ -118,6 +121,21 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
 			return err
 		}
 
+		// Set DTO
+		var verifiedAt *time.Time
+		if userRow.VerifiedAt.Valid {
+			verifiedAt = &userRow.VerifiedAt.Time
+		}
+
+		userResponse = user.UserResponse{
+			ID:         uuid.UUID(userRow.ID.Bytes),
+			Email:      userRow.Email,
+			Username:   userRow.Username,
+			VerifiedAt: verifiedAt,
+			CreatedAt:  userRow.CreatedAt.Time,
+			UpdatedAt:  userRow.UpdatedAt.Time,
+		}
+
 		return nil
 	})
 
@@ -126,20 +144,20 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) error {
 		// Check if it's a PostgreSQL database error (e.g., jackc/pgx)
 		var pgErr *pgconn.PgError
 		if errors.As(txErr, &pgErr) && pgErr.Code == "23505" { // 23505 = unique_violation
-			return apperr.New(apperr.CodeConflict,
+			return user.UserResponse{}, apperr.New(apperr.CodeConflict,
 				"Registration conflict occurred. Please try again.",
 				apperr.WithErr(txErr),
 			)
 		}
 
 		// Default fallback to 500 Internal Server Error
-		return apperr.New(apperr.CodeInternal,
+		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
 			apperr.CodeInternal.Message(),
 			apperr.WithErr(txErr),
 		)
 	}
 
-	return nil
+	return userResponse, nil
 }
 
 // Login
