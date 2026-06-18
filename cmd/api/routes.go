@@ -42,6 +42,12 @@ func (app *Application) routes() http.Handler {
 		api.Group(func(publicAuth chi.Router) {
 			publicAuth.Use(customMiddleware.RateLimit(app.RateLimiter, 5, time.Minute, "auth"))
 
+			// Testing
+			publicAuth.Get("/user/ping", httpio.ToHTTP(app.Handlers.User.Ping))
+			publicAuth.Get("/user/{id}", httpio.ToHTTP(app.Handlers.User.GetByID))
+			publicAuth.Get("/user", httpio.ToHTTP(app.Handlers.User.GetByEmail))
+			publicAuth.Delete("/user", httpio.ToHTTP(app.Handlers.User.DeleteByEmail))
+
 			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))
 			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.Handlers.Auth.VerifyEmail))

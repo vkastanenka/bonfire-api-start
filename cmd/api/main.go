@@ -24,18 +24,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/email"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 	"bonfire-api/internal/validator"
-	"bonfire-api/internal/worker"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -88,7 +86,7 @@ func run() error {
 
 	// Setup data layer
 	store := repository.NewStore(pdbPool)
-	queries := repository.New(pdbPool)
+	// queries := repository.New(pdbPool)
 
 	// Setup middleware services
 	rateLimiter := redis_rate.NewLimiter(rdb)
@@ -96,36 +94,40 @@ func run() error {
 	tokenManager := token.NewJWTManager()
 
 	// Setup domain services
-	mailer := email.NewMailer(cfg)
+	// mailer := email.NewMailer(cfg)
 	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,
 		PasswordResetSecret: cfg.PasswordResetSecret,
 	})
+	userService := user.NewUserService(store)
 
 	// Setup background workers
-	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
-	outboxWorker.Start(ctx)
-	defer outboxWorker.Stop()
+	// outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
+	// outboxWorker.Start(ctx)
+	// defer outboxWorker.Stop()
 
 	// Setup presentation layer
 	authHandler := auth.NewHandler(authService, val)
 	healthHandler := health.NewHandler(pdbPool, rdb)
+	userHandler := user.NewHandler(userService, val)
 
 	// Setup application container
 	app := &Application{
-		Config:      cfg,
-		DB:          pdbPool,
-		Redis:       rdb,
-		RateLimiter: rateLimiter,
+		Config:       cfg,
+		DB:           pdbPool,
+		Redis:        rdb,
+		RateLimiter:  rateLimiter,
 		TokenManager: tokenManager,
 		Handlers: struct {
 			Auth   *auth.AuthHandler
 			Health *health.Handler
+			User   *user.Handler
 		}{
 			Auth:   authHandler,
 			Health: healthHandler,
+			User:   userHandler,
 		},
 	}
 

@@ -78,7 +78,6 @@ type User struct {
 	TotpSecret             pgtype.Text        `json:"totp_secret"`
 	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
 	LastVerificationSentAt pgtype.Timestamptz `json:"last_verification_sent_at"`
-	Role                   UserRole           `json:"role"`
 }
 
 type UserDeleteRequest struct {

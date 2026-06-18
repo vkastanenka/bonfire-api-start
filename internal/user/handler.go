@@ -10,13 +10,22 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserHandler struct {
+type Handler struct {
 	service *UserService
 	val     *validator.Validator
 }
 
-func NewHandler(service *UserService, val *validator.Validator) *UserHandler {
-	return &UserHandler{service: service, val: val}
+func NewHandler(service *UserService, val *validator.Validator) *Handler {
+	return &Handler{service: service, val: val}
+}
+
+// Ping confirms the auth routes are available
+func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
+	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+		"status": "healthy",
+	})
+
+	return nil
 }
 
 // Request structs for validation
@@ -25,7 +34,7 @@ type EmailRequest struct {
 }
 
 // GetByID handles GET /users/{userID}
-func (h *UserHandler) GetByID(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := chi.URLParam(r, "userID")
 	userID, err := uuid.Parse(idStr)
 	if err != nil {
@@ -43,7 +52,7 @@ func (h *UserHandler) GetByID(w http.ResponseWriter, r *http.Request) error {
 }
 
 // GetByEmail handles GET /users?email=...
-func (h *UserHandler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
 	email := r.URL.Query().Get("email")
 	req := EmailRequest{Email: email}
 
@@ -62,7 +71,7 @@ func (h *UserHandler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
 }
 
 // DeleteByEmail handles DELETE /users?email=...
-func (h *UserHandler) DeleteByEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) DeleteByEmail(w http.ResponseWriter, r *http.Request) error {
 	email := r.URL.Query().Get("email")
 	req := EmailRequest{Email: email}
 

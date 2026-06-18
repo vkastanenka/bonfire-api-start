@@ -47,26 +47,20 @@ func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvaila
 }
 
 const userCreate = `-- name: UserCreate :one
-INSERT INTO users(email, username, password_hash, role)
-    VALUES ($1, $2, $3, $4)
+INSERT INTO users(email, username, password_hash)
+    VALUES ($1, $2, $3)
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at
 `
 
 type UserCreateParams struct {
-	Email        string   `json:"email"`
-	Username     string   `json:"username"`
-	PasswordHash string   `json:"password_hash"`
-	Role         UserRole `json:"role"`
+	Email        string `json:"email"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
 }
 
 func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
-	row := q.db.QueryRow(ctx, userCreate,
-		arg.Email,
-		arg.Username,
-		arg.PasswordHash,
-		arg.Role,
-	)
+	row := q.db.QueryRow(ctx, userCreate, arg.Email, arg.Username, arg.PasswordHash)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -79,7 +73,6 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
-		&i.Role,
 	)
 	return i, err
 }
@@ -98,7 +91,7 @@ const userDeleteByEmail = `-- name: UserDeleteByEmail :one
 DELETE FROM users
 WHERE email = $1
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at
 `
 
 func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) (User, error) {
@@ -115,7 +108,6 @@ func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) (User, er
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
-		&i.Role,
 	)
 	return i, err
 }
@@ -159,7 +151,7 @@ func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) 
 
 const userGet = `-- name: UserGet :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at
 FROM
     users
 WHERE
@@ -181,7 +173,6 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
-		&i.Role,
 	)
 	return i, err
 }
@@ -213,7 +204,7 @@ func (q *Queries) UserGetAuthCredentials(ctx context.Context, email string) (Use
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at
 FROM
     users
 WHERE
@@ -235,14 +226,13 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
-		&i.Role,
 	)
 	return i, err
 }
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at
 FROM
     users
 WHERE
@@ -264,7 +254,6 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
-		&i.Role,
 	)
 	return i, err
 }

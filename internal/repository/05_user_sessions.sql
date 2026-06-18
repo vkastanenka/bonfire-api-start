@@ -23,7 +23,7 @@ CREATE INDEX idx_user_sessions_expires_at ON user_sessions(expires_at);
 
 -- Triggers
 CREATE TRIGGER update_sessions_modtime
-    BEFORE UPDATE ON sessions
+    BEFORE UPDATE ON user_sessions
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 

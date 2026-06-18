@@ -11,6 +11,7 @@ import (
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +28,7 @@ type Application struct {
 	Handlers     struct {
 		Auth   *auth.AuthHandler
 		Health *health.Handler
+		User   *user.Handler
 	}
 }
 
