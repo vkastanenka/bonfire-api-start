@@ -36,32 +36,26 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 	})
 	if err != nil {
 		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
-			apperr.CodeInternal.Message(),
+			apperr.CodeInternal.Title(),
 			apperr.WithErr(err),
 		)
 	}
 
-	// Gather explicit field violations
-	var validationErrors []apperr.ValidationError
+	var availabilityErrors []apperr.Option
 
 	if !availability.EmailAvailable {
-		validationErrors = append(validationErrors, apperr.ValidationError{
-			Field:   "email",
-			Message: ErrEmailTaken,
-		})
+		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("email", ErrEmailTaken))
 	}
 	if !availability.UsernameAvailable {
-		validationErrors = append(validationErrors, apperr.ValidationError{
-			Field:   "username",
-			Message: ErrUsernameTaken,
-		})
+		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("username", ErrUsernameTaken))
 	}
 
-	//  If there are any violations, return a conflict error
-	if len(validationErrors) > 0 {
-		return user.UserResponse{}, apperr.New(apperr.CodeConflict,
+	// If there are any violations, return a conflict error
+	if len(availabilityErrors) > 0 {
+		return user.UserResponse{}, apperr.New(
+			apperr.CodeConflict,
 			ErrRegFailed,
-			apperr.WithValidationErrors(validationErrors),
+			availabilityErrors...,
 		)
 	}
 
@@ -140,7 +134,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 
 		// Default fallback to 500 Internal Server Error
 		return user.UserResponse{}, apperr.New(apperr.CodeInternal,
-			apperr.CodeInternal.Message(),
+			apperr.CodeInternal.Title(),
 			apperr.WithErr(txErr),
 		)
 	}
@@ -150,17 +144,18 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 
 // Login
 func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, clientIP string) (map[string]string, error) {
-	unauthorizedErrDetails := map[string]string{
-		"email":    "Invalid credentials.",
-		"password": "Invalid credentials.",
-	}
+	// unauthorizedErrDetails := map[string]string{
+	// 	"email":    "Invalid credentials.",
+	// 	"password": "Invalid credentials.",
+	// }
 
 	// 1. Fetch user credentials
 	userAuth, err := s.store.UserGetAuthCredentials(ctx, req.Email)
 	if err != nil {
 		// User not found
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
+			return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.")
+			// return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
 		}
 
 		// Internal server error
@@ -173,7 +168,8 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 	// 2. Compare the provided password with the stored hash
 	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(req.Password))
 	if err != nil {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
+		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.")
+		// return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
 	}
 
 	// Convert pgtype.UUID to uuid.UUID by passing the underlying 16-byte array

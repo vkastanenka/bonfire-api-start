@@ -55,28 +55,28 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		var errs []apperr.ValidationError
+		// Pre-allocate slice capacity for better performance
+		invalidParams := make([]apperr.InvalidParam, 0, len(validationErrors))
+
 		for _, fieldErr := range validationErrors {
 			// Using StructNamespace provides the full path (e.g., "User.Address.City")
-			// You can use a more robust path cleaner than strings.Cut
 			ns := fieldErr.StructNamespace()
-			// Drop the first part (the struct name)
 			parts := strings.Split(ns, ".")
 			jsonPath := strings.Join(parts[1:], ".")
 			if jsonPath == "" {
 				jsonPath = fieldErr.Field()
 			}
 
-			errs = append(errs, apperr.ValidationError{
-				Field:   jsonPath,
-				Message: msgForFieldError(fieldErr),
+			invalidParams = append(invalidParams, apperr.InvalidParam{
+				Field:  jsonPath,
+				Reason: msgForFieldError(fieldErr),
 			})
 		}
 
 		return apperr.New(
 			apperr.CodeInvalidInput,
 			"validation failed for the request payload.",
-			apperr.WithValidationErrors(errs),
+			apperr.WithInvalidParams(invalidParams),
 			apperr.WithErr(err),
 		)
 	}
