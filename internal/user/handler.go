@@ -35,7 +35,7 @@ type EmailRequest struct {
 
 // GetByID handles GET /users/{userID}
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "userID")
+	idStr := chi.URLParam(r, "id")
 	userID, err := uuid.Parse(idStr)
 	if err != nil {
 		return apperr.New(apperr.CodeInvalidInput, "Invalid UUID format")

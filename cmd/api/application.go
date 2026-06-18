@@ -12,6 +12,7 @@ import (
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
+	"bonfire-api/internal/user_profile"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,9 +27,10 @@ type Application struct {
 	RateLimiter  *redis_rate.Limiter
 	TokenManager token.Manager
 	Handlers     struct {
-		Auth   *auth.AuthHandler
-		Health *health.Handler
-		User   *user.Handler
+		Auth        *auth.AuthHandler
+		Health      *health.Handler
+		User        *user.Handler
+		UserProfile *user_profile.Handler
 	}
 }
 

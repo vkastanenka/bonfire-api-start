@@ -33,6 +33,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
+	"bonfire-api/internal/user_profile"
 	"bonfire-api/internal/validator"
 
 	"github.com/go-redis/redis_rate/v10"
@@ -102,6 +103,7 @@ func run() error {
 		PasswordResetSecret: cfg.PasswordResetSecret,
 	})
 	userService := user.NewUserService(store)
+	userProfileService := user_profile.NewService(store)
 
 	// Setup background workers
 	// outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
@@ -112,6 +114,7 @@ func run() error {
 	authHandler := auth.NewHandler(authService, val)
 	healthHandler := health.NewHandler(pdbPool, rdb)
 	userHandler := user.NewHandler(userService, val)
+	userProfileHandler := user_profile.NewHandler(userProfileService)
 
 	// Setup application container
 	app := &Application{
@@ -121,13 +124,15 @@ func run() error {
 		RateLimiter:  rateLimiter,
 		TokenManager: tokenManager,
 		Handlers: struct {
-			Auth   *auth.AuthHandler
-			Health *health.Handler
-			User   *user.Handler
+			Auth        *auth.AuthHandler
+			Health      *health.Handler
+			User        *user.Handler
+			UserProfile *user_profile.Handler
 		}{
-			Auth:   authHandler,
-			Health: healthHandler,
-			User:   userHandler,
+			Auth:        authHandler,
+			Health:      healthHandler,
+			User:        userHandler,
+			UserProfile: userProfileHandler,
 		},
 	}
 

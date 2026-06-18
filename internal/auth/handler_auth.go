@@ -6,6 +6,7 @@ import (
 	"net/http"
 )
 
+// TODO: Better validation for display_name and username
 type RegisterRequest struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
@@ -21,6 +22,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// TODO: Sanitize inputs
+
 	// Validate request body
 	if err := h.val.ValidateStruct(&req); err != nil {
 		return err
@@ -34,6 +37,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Respond
 	httpio.RespondJSON(w, http.StatusCreated, map[string]string{
 		"message": RegisterOkMsg,
+		// TODO: Return User DTO
 	})
 
 	return nil
