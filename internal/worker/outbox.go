@@ -97,10 +97,6 @@ func (w *OutboxWorker) processBatch(ctx context.Context) {
 	}
 }
 
-type AuthRegisterEventPayload struct {
-	UserID pgtype.UUID `json:"user_id"`
-}
-
 // executeEvent routes an individual event payload depending on its type signature.
 func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.OutboxEvent) {
 	var executionErr error

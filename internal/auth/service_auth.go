@@ -8,7 +8,6 @@ import (
 	"bonfire-api/internal/user_profile"
 	"bonfire-api/internal/worker"
 	"context"
-	"encoding/json"
 	"net/netip"
 	"time"
 
@@ -94,20 +93,9 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 			return err
 		}
 
-		// Format event payload
-		eventPayload := worker.AuthRegisterEventPayload{
+		// Create register event
+		err = worker.EmitEvent(ctx, qtx, worker.EventUserRegistered, worker.AuthRegisterEventPayload{
 			UserID: userRow.ID,
-		}
-
-		jsonBytes, err := json.Marshal(eventPayload)
-		if err != nil {
-			return err
-		}
-
-		// Create event
-		_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
-			EventType: EventUserRegistered,
-			Payload:   jsonBytes,
 		})
 		if err != nil {
 			return err
