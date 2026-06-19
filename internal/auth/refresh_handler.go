@@ -15,15 +15,15 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Rotate access token
-	tokens, err := h.service.RotateTokens(r.Context(), RefreshParams{RefreshToken: cookie.Value})
+	tokens, err := h.service.RotateTokens(r.Context(), RefreshParams{
+		RefreshToken: cookie.Value,
+	})
 	if err != nil {
 		return err
 	}
 
-	// Set new refresh token in header
+	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-
-	// Respond with access token
 	httpio.RespondOK(w, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOk)
 
 	return nil

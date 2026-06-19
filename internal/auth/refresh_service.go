@@ -64,17 +64,11 @@ func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (Refres
 		return RefreshResult{}, apperr.NewDBError(err)
 	}
 
-	userIsVerified := userRow.VerifiedAt.Valid
+	// Issue new token bundle
 	userRole := string(userRow.Role)
+	userIsVerified := userRow.VerifiedAt.Valid
 
-	// Generate new access token
-	newAccessToken, err := s.generateAccessToken(userID, userRole, userIsVerified)
-	if err != nil {
-		return RefreshResult{}, err
-	}
-
-	// Generate new refresh token
-	newRefreshToken, err := s.generateRefreshToken(userID, sessionUUID)
+	bundle, err := s.tokenManager.IssueNewBundle(userID, userRole, userIsVerified)
 	if err != nil {
 		return RefreshResult{}, err
 	}
@@ -82,7 +76,7 @@ func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (Refres
 	// Update refresh token
 	err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
 		ID:           session.ID,
-		RefreshToken: newRefreshToken,
+		RefreshToken: bundle.RefreshToken,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),
 			Valid: true,
@@ -94,7 +88,7 @@ func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (Refres
 
 	// Return new tokens
 	return RefreshResult{
-		AccessToken:  newAccessToken,
-		RefreshToken: newRefreshToken,
+		AccessToken:  bundle.AccessToken,
+		RefreshToken: bundle.RefreshToken,
 	}, nil
 }
