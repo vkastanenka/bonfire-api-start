@@ -26,13 +26,13 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 
 	// Cleanly handle conflict
 	if !availability.EmailAvailable || !availability.UsernameAvailable {
-		return RegisterResult{}, NewRegisterConflictErr(availability.EmailAvailable, availability.UsernameAvailable)
+		return RegisterResult{}, NewRegisterConflictError(availability.EmailAvailable, availability.UsernameAvailable)
 	}
 
 	// Hash password
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
-		return RegisterResult{}, NewHashPasswordErr(err)
+		return RegisterResult{}, NewHashPasswordError(err)
 	}
 	passwordHash := string(hashedPasswordBytes)
 

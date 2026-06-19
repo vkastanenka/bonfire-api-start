@@ -4,7 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 )
 
-func NewInvalidCredentialsErr() error {
+func NewLoginCredentialsError() error {
 	return apperr.New(
 		apperr.CodeUnauthenticated,
 		ErrCredentialsInvalid,
@@ -15,14 +15,14 @@ func NewInvalidCredentialsErr() error {
 	)
 }
 
-func NewHashPasswordErr(err error) error {
+func NewHashPasswordError(err error) error {
 	return apperr.New(apperr.CodeInternal,
 		ErrHashPassword,
 		apperr.WithErr(err),
 	)
 }
 
-func NewRegisterConflictErr(emailAvailable, usernameAvailable bool) error {
+func NewRegisterConflictError(emailAvailable, usernameAvailable bool) error {
     var params []apperr.InvalidParam
     
     if !emailAvailable {

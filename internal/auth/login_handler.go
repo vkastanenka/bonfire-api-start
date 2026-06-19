@@ -18,16 +18,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Login user, get tokens
 	tokens, err := h.service.Login(r.Context(), LoginParams{
-		Email:     req.Email,
-		Password:  req.Password,
-		UserAgent: clientMeta.UserAgent,
-		ClientIP:  clientMeta.IP,
+		Email:    req.Email,
+		Password: req.Password,
+		Meta:     clientMeta,
 	})
 	if err != nil {
 		return err
 	}
 
-	// Use tokens
+	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
 

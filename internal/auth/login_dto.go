@@ -1,8 +1,8 @@
 package auth
 
 import (
+	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
-	"net/netip"
 )
 
 type LoginReq struct {
@@ -15,10 +15,9 @@ func (r *LoginReq) Sanitize() {
 }
 
 type LoginParams struct {
-	Email     string
-	Password  string
-	UserAgent string     `json:"user_agent"`
-	ClientIP  netip.Addr `json:"client_ip"`
+	Email    string
+	Password string
+	Meta     httpio.ClientMeta
 }
 
 type LoginResult struct {

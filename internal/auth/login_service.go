@@ -16,50 +16,32 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	// Fetch user credentials
 	userAuth, err := s.store.UserGetAuthCredentials(ctx, r.Email)
 	if err != nil {
-		// User not found
-		if repository.IsNotFoundError(err) {
-			return LoginResult{}, NewInvalidCredentialsErr()
-		}
-
-		return LoginResult{}, apperr.NewDBError(err)
+		return LoginResult{}, apperr.NewRepositoryError(err, NewLoginCredentialsError())
 	}
 
 	// Check password
 	err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password)
 	if err != nil {
-		return LoginResult{}, NewInvalidCredentialsErr()
+		return LoginResult{}, NewLoginCredentialsError()
 	}
 
-	// Convert pgtype.UUID to uuid.UUID
+	// Issue new token bundle
 	userID := uuid.UUID(userAuth.ID.Bytes)
-	userIsVerified := userAuth.VerifiedAt.Valid
 	userRole := string(userAuth.Role)
+	userIsVerified := userAuth.VerifiedAt.Valid
 
-	// Generate Access Token (15 minutes)
-	accessToken, err := s.generateAccessToken(userID, userRole, userIsVerified)
-	if err != nil {
-		return LoginResult{}, err
-	}
-
-	// Generate session ID
-	sessionID, err := uuid.NewV7()
-	if err != nil {
-		return LoginResult{}, err
-	}
-
-	// Generate Refresh Token (7 days)
-	refreshToken, err := s.generateRefreshToken(userID, sessionID)
+	bundle, err := s.tokenManager.IssueNewBundle(userID, userRole, userIsVerified)
 	if err != nil {
 		return LoginResult{}, err
 	}
 
 	// Create user session
 	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
-		ID:           pgtype.UUID{Bytes: sessionID, Valid: true},
+		ID:           pgtype.UUID{Bytes: bundle.SessionID, Valid: true},
 		UserID:       userAuth.ID,
-		RefreshToken: refreshToken,
-		UserAgent:    r.UserAgent,
-		ClientIp:     r.ClientIP,
+		RefreshToken: bundle.RefreshToken,
+		UserAgent:    r.Meta.UserAgent,
+		ClientIp:     r.Meta.IP,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),
@@ -72,7 +54,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 
 	// Return the tokens
 	return LoginResult{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:  bundle.AccessToken,
+		RefreshToken: bundle.RefreshToken,
 	}, nil
 }

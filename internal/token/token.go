@@ -13,6 +13,7 @@ import (
 type Manager interface {
 	VerifyJWT(tokenString string, secret string) (*Claims, error)
 	GenerateJWT(userID uuid.UUID, secret string, duration time.Duration, customClaims map[string]any) (string, error)
+	IssueNewBundle(userID uuid.UUID, role string, isVerified bool) (TokenBundle, error)
 }
 
 // Claims defines the JWT payload structure.

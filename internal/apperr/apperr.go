@@ -1,6 +1,7 @@
 package apperr
 
 import (
+	"bonfire-api/internal/repository"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -210,4 +211,16 @@ func generateW3CTraceID() string {
 		return "00000000000000000000000000000000" // Fallback trace zero boundary indicator if entropy fails
 	}
 	return hex.EncodeToString(b)
+}
+
+func NewRepositoryError(err error, notFoundErr error) error {
+	if err == nil {
+		return nil
+	}
+
+	if repository.IsNotFoundError(err) {
+		return notFoundErr
+	}
+
+	return NewDBError(err)
 }
