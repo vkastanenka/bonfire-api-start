@@ -9,630 +9,630 @@
 // Package repository is a generated GoMock package.
 package repository
 
-import (
-	context "context"
-	reflect "reflect"
-
-	pgtype "github.com/jackc/pgx/v5/pgtype"
-	gomock "go.uber.org/mock/gomock"
-)
-
-// MockStore is a mock of Store interface.
-type MockStore struct {
-	ctrl     *gomock.Controller
-	recorder *MockStoreMockRecorder
-	isgomock struct{}
-}
-
-// MockStoreMockRecorder is the mock recorder for MockStore.
-type MockStoreMockRecorder struct {
-	mock *MockStore
-}
-
-// NewMockStore creates a new mock instance.
-func NewMockStore(ctrl *gomock.Controller) *MockStore {
-	mock := &MockStore{ctrl: ctrl}
-	mock.recorder = &MockStoreMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockStore) EXPECT() *MockStoreMockRecorder {
-	return m.recorder
-}
-
-// ExecTx mocks base method.
-func (m *MockStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExecTx", ctx, fn)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ExecTx indicates an expected call of ExecTx.
-func (mr *MockStoreMockRecorder) ExecTx(ctx, fn any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecTx", reflect.TypeOf((*MockStore)(nil).ExecTx), ctx, fn)
-}
-
-// OutboxEventCountPending mocks base method.
-func (m *MockStore) OutboxEventCountPending(ctx context.Context) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventCountPending", ctx)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// OutboxEventCountPending indicates an expected call of OutboxEventCountPending.
-func (mr *MockStoreMockRecorder) OutboxEventCountPending(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventCountPending", reflect.TypeOf((*MockStore)(nil).OutboxEventCountPending), ctx)
-}
-
-// OutboxEventCreate mocks base method.
-func (m *MockStore) OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventCreate", ctx, arg)
-	ret0, _ := ret[0].(OutboxEvent)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// OutboxEventCreate indicates an expected call of OutboxEventCreate.
-func (mr *MockStoreMockRecorder) OutboxEventCreate(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventCreate", reflect.TypeOf((*MockStore)(nil).OutboxEventCreate), ctx, arg)
-}
-
-// OutboxEventDeleteOld mocks base method.
-func (m *MockStore) OutboxEventDeleteOld(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventDeleteOld", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// OutboxEventDeleteOld indicates an expected call of OutboxEventDeleteOld.
-func (mr *MockStoreMockRecorder) OutboxEventDeleteOld(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventDeleteOld", reflect.TypeOf((*MockStore)(nil).OutboxEventDeleteOld), ctx)
-}
-
-// OutboxEventGet mocks base method.
-func (m *MockStore) OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventGet", ctx, id)
-	ret0, _ := ret[0].(OutboxEvent)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// OutboxEventGet indicates an expected call of OutboxEventGet.
-func (mr *MockStoreMockRecorder) OutboxEventGet(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventGet", reflect.TypeOf((*MockStore)(nil).OutboxEventGet), ctx, id)
-}
-
-// OutboxEventListUnprocessed mocks base method.
-func (m *MockStore) OutboxEventListUnprocessed(ctx context.Context, limit int32) ([]OutboxEventListUnprocessedRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventListUnprocessed", ctx, limit)
-	ret0, _ := ret[0].([]OutboxEventListUnprocessedRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// OutboxEventListUnprocessed indicates an expected call of OutboxEventListUnprocessed.
-func (mr *MockStoreMockRecorder) OutboxEventListUnprocessed(ctx, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventListUnprocessed", reflect.TypeOf((*MockStore)(nil).OutboxEventListUnprocessed), ctx, limit)
-}
-
-// OutboxEventMarkProcessed mocks base method.
-func (m *MockStore) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventMarkProcessed", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// OutboxEventMarkProcessed indicates an expected call of OutboxEventMarkProcessed.
-func (mr *MockStoreMockRecorder) OutboxEventMarkProcessed(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventMarkProcessed", reflect.TypeOf((*MockStore)(nil).OutboxEventMarkProcessed), ctx, id)
-}
-
-// OutboxEventRecordFailure mocks base method.
-func (m *MockStore) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventRecordFailure", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// OutboxEventRecordFailure indicates an expected call of OutboxEventRecordFailure.
-func (mr *MockStoreMockRecorder) OutboxEventRecordFailure(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventRecordFailure", reflect.TypeOf((*MockStore)(nil).OutboxEventRecordFailure), ctx, arg)
-}
-
-// OutboxEventResetAttempts mocks base method.
-func (m *MockStore) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OutboxEventResetAttempts", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// OutboxEventResetAttempts indicates an expected call of OutboxEventResetAttempts.
-func (mr *MockStoreMockRecorder) OutboxEventResetAttempts(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventResetAttempts", reflect.TypeOf((*MockStore)(nil).OutboxEventResetAttempts), ctx, id)
-}
-
-// UserCheckAvailability mocks base method.
-func (m *MockStore) UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserCheckAvailability", ctx, arg)
-	ret0, _ := ret[0].(UserCheckAvailabilityRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserCheckAvailability indicates an expected call of UserCheckAvailability.
-func (mr *MockStoreMockRecorder) UserCheckAvailability(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserCheckAvailability", reflect.TypeOf((*MockStore)(nil).UserCheckAvailability), ctx, arg)
-}
-
-// UserCreate mocks base method.
-func (m *MockStore) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserCreate", ctx, arg)
-	ret0, _ := ret[0].(User)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserCreate indicates an expected call of UserCreate.
-func (mr *MockStoreMockRecorder) UserCreate(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserCreate", reflect.TypeOf((*MockStore)(nil).UserCreate), ctx, arg)
-}
-
-// UserDelete mocks base method.
-func (m *MockStore) UserDelete(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDelete", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserDelete indicates an expected call of UserDelete.
-func (mr *MockStoreMockRecorder) UserDelete(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDelete", reflect.TypeOf((*MockStore)(nil).UserDelete), ctx, id)
-}
-
-// UserDeleteRequestCreate mocks base method.
-func (m *MockStore) UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDeleteRequestCreate", ctx, arg)
-	ret0, _ := ret[0].(UserDeleteRequest)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserDeleteRequestCreate indicates an expected call of UserDeleteRequestCreate.
-func (mr *MockStoreMockRecorder) UserDeleteRequestCreate(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestCreate", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestCreate), ctx, arg)
-}
-
-// UserDeleteRequestDelete mocks base method.
-func (m *MockStore) UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDeleteRequestDelete", ctx, userID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserDeleteRequestDelete indicates an expected call of UserDeleteRequestDelete.
-func (mr *MockStoreMockRecorder) UserDeleteRequestDelete(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestDelete", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestDelete), ctx, userID)
-}
-
-// UserDeleteRequestGet mocks base method.
-func (m *MockStore) UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDeleteRequestGet", ctx, userID)
-	ret0, _ := ret[0].(UserDeleteRequest)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserDeleteRequestGet indicates an expected call of UserDeleteRequestGet.
-func (mr *MockStoreMockRecorder) UserDeleteRequestGet(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestGet", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestGet), ctx, userID)
-}
-
-// UserDeleteRequestListDue mocks base method.
-func (m *MockStore) UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDeleteRequestListDue", ctx)
-	ret0, _ := ret[0].([]pgtype.UUID)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserDeleteRequestListDue indicates an expected call of UserDeleteRequestListDue.
-func (mr *MockStoreMockRecorder) UserDeleteRequestListDue(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestListDue", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestListDue), ctx)
-}
-
-// UserDisableTOTP mocks base method.
-func (m *MockStore) UserDisableTOTP(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserDisableTOTP", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserDisableTOTP indicates an expected call of UserDisableTOTP.
-func (mr *MockStoreMockRecorder) UserDisableTOTP(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDisableTOTP", reflect.TypeOf((*MockStore)(nil).UserDisableTOTP), ctx, id)
-}
-
-// UserEnableTOTP mocks base method.
-func (m *MockStore) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserEnableTOTP", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserEnableTOTP indicates an expected call of UserEnableTOTP.
-func (mr *MockStoreMockRecorder) UserEnableTOTP(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserEnableTOTP", reflect.TypeOf((*MockStore)(nil).UserEnableTOTP), ctx, arg)
-}
-
-// UserGet mocks base method.
-func (m *MockStore) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGet", ctx, id)
-	ret0, _ := ret[0].(User)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGet indicates an expected call of UserGet.
-func (mr *MockStoreMockRecorder) UserGet(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGet", reflect.TypeOf((*MockStore)(nil).UserGet), ctx, id)
-}
-
-// UserGetAuthCredentials mocks base method.
-func (m *MockStore) UserGetAuthCredentials(ctx context.Context, email string) (UserGetAuthCredentialsRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGetAuthCredentials", ctx, email)
-	ret0, _ := ret[0].(UserGetAuthCredentialsRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGetAuthCredentials indicates an expected call of UserGetAuthCredentials.
-func (mr *MockStoreMockRecorder) UserGetAuthCredentials(ctx, email any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetAuthCredentials", reflect.TypeOf((*MockStore)(nil).UserGetAuthCredentials), ctx, email)
-}
-
-// UserGetByEmail mocks base method.
-func (m *MockStore) UserGetByEmail(ctx context.Context, email string) (User, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGetByEmail", ctx, email)
-	ret0, _ := ret[0].(User)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGetByEmail indicates an expected call of UserGetByEmail.
-func (mr *MockStoreMockRecorder) UserGetByEmail(ctx, email any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetByEmail", reflect.TypeOf((*MockStore)(nil).UserGetByEmail), ctx, email)
-}
-
-// UserGetByUsername mocks base method.
-func (m *MockStore) UserGetByUsername(ctx context.Context, username string) (User, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGetByUsername", ctx, username)
-	ret0, _ := ret[0].(User)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGetByUsername indicates an expected call of UserGetByUsername.
-func (mr *MockStoreMockRecorder) UserGetByUsername(ctx, username any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetByUsername", reflect.TypeOf((*MockStore)(nil).UserGetByUsername), ctx, username)
-}
-
-// UserGetTOTPSecret mocks base method.
-func (m *MockStore) UserGetTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserGetTOTPSecret", ctx, id)
-	ret0, _ := ret[0].(pgtype.Text)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserGetTOTPSecret indicates an expected call of UserGetTOTPSecret.
-func (mr *MockStoreMockRecorder) UserGetTOTPSecret(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetTOTPSecret", reflect.TypeOf((*MockStore)(nil).UserGetTOTPSecret), ctx, id)
-}
-
-// UserListUnverified mocks base method.
-func (m *MockStore) UserListUnverified(ctx context.Context) ([]UserListUnverifiedRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserListUnverified", ctx)
-	ret0, _ := ret[0].([]UserListUnverifiedRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserListUnverified indicates an expected call of UserListUnverified.
-func (mr *MockStoreMockRecorder) UserListUnverified(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserListUnverified", reflect.TypeOf((*MockStore)(nil).UserListUnverified), ctx)
-}
-
-// UserMarkVerified mocks base method.
-func (m *MockStore) UserMarkVerified(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserMarkVerified", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserMarkVerified indicates an expected call of UserMarkVerified.
-func (mr *MockStoreMockRecorder) UserMarkVerified(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserMarkVerified", reflect.TypeOf((*MockStore)(nil).UserMarkVerified), ctx, id)
-}
-
-// UserProfileCheckDisplayNameAvailability mocks base method.
-func (m *MockStore) UserProfileCheckDisplayNameAvailability(ctx context.Context, lower string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileCheckDisplayNameAvailability", ctx, lower)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserProfileCheckDisplayNameAvailability indicates an expected call of UserProfileCheckDisplayNameAvailability.
-func (mr *MockStoreMockRecorder) UserProfileCheckDisplayNameAvailability(ctx, lower any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileCheckDisplayNameAvailability", reflect.TypeOf((*MockStore)(nil).UserProfileCheckDisplayNameAvailability), ctx, lower)
-}
-
-// UserProfileCreate mocks base method.
-func (m *MockStore) UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileCreate", ctx, arg)
-	ret0, _ := ret[0].(UserProfile)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserProfileCreate indicates an expected call of UserProfileCreate.
-func (mr *MockStoreMockRecorder) UserProfileCreate(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileCreate", reflect.TypeOf((*MockStore)(nil).UserProfileCreate), ctx, arg)
-}
-
-// UserProfileDelete mocks base method.
-func (m *MockStore) UserProfileDelete(ctx context.Context, userID pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileDelete", ctx, userID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserProfileDelete indicates an expected call of UserProfileDelete.
-func (mr *MockStoreMockRecorder) UserProfileDelete(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileDelete", reflect.TypeOf((*MockStore)(nil).UserProfileDelete), ctx, userID)
-}
-
-// UserProfileGet mocks base method.
-func (m *MockStore) UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileGet", ctx, userID)
-	ret0, _ := ret[0].(UserProfile)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserProfileGet indicates an expected call of UserProfileGet.
-func (mr *MockStoreMockRecorder) UserProfileGet(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileGet", reflect.TypeOf((*MockStore)(nil).UserProfileGet), ctx, userID)
-}
-
-// UserProfileGetByDisplayName mocks base method.
-func (m *MockStore) UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileGetByDisplayName", ctx, lower)
-	ret0, _ := ret[0].(UserProfile)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserProfileGetByDisplayName indicates an expected call of UserProfileGetByDisplayName.
-func (mr *MockStoreMockRecorder) UserProfileGetByDisplayName(ctx, lower any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileGetByDisplayName", reflect.TypeOf((*MockStore)(nil).UserProfileGetByDisplayName), ctx, lower)
-}
-
-// UserProfileUpdateDisplayName mocks base method.
-func (m *MockStore) UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserProfileUpdateDisplayName", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserProfileUpdateDisplayName indicates an expected call of UserProfileUpdateDisplayName.
-func (mr *MockStoreMockRecorder) UserProfileUpdateDisplayName(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileUpdateDisplayName", reflect.TypeOf((*MockStore)(nil).UserProfileUpdateDisplayName), ctx, arg)
-}
-
-// UserSessionCreate mocks base method.
-func (m *MockStore) UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionCreate", ctx, arg)
-	ret0, _ := ret[0].(UserSession)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserSessionCreate indicates an expected call of UserSessionCreate.
-func (mr *MockStoreMockRecorder) UserSessionCreate(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionCreate", reflect.TypeOf((*MockStore)(nil).UserSessionCreate), ctx, arg)
-}
-
-// UserSessionDelete mocks base method.
-func (m *MockStore) UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionDelete", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserSessionDelete indicates an expected call of UserSessionDelete.
-func (mr *MockStoreMockRecorder) UserSessionDelete(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionDelete", reflect.TypeOf((*MockStore)(nil).UserSessionDelete), ctx, arg)
-}
-
-// UserSessionDeleteAllExcept mocks base method.
-func (m *MockStore) UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionDeleteAllExcept", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserSessionDeleteAllExcept indicates an expected call of UserSessionDeleteAllExcept.
-func (mr *MockStoreMockRecorder) UserSessionDeleteAllExcept(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionDeleteAllExcept", reflect.TypeOf((*MockStore)(nil).UserSessionDeleteAllExcept), ctx, arg)
-}
-
-// UserSessionGet mocks base method.
-func (m *MockStore) UserSessionGet(ctx context.Context, refreshToken string) (UserSession, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionGet", ctx, refreshToken)
-	ret0, _ := ret[0].(UserSession)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserSessionGet indicates an expected call of UserSessionGet.
-func (mr *MockStoreMockRecorder) UserSessionGet(ctx, refreshToken any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionGet", reflect.TypeOf((*MockStore)(nil).UserSessionGet), ctx, refreshToken)
-}
-
-// UserSessionListByUser mocks base method.
-func (m *MockStore) UserSessionListByUser(ctx context.Context, userID pgtype.UUID) ([]UserSession, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionListByUser", ctx, userID)
-	ret0, _ := ret[0].([]UserSession)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UserSessionListByUser indicates an expected call of UserSessionListByUser.
-func (mr *MockStoreMockRecorder) UserSessionListByUser(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionListByUser", reflect.TypeOf((*MockStore)(nil).UserSessionListByUser), ctx, userID)
-}
-
-// UserSessionMarkBlocked mocks base method.
-func (m *MockStore) UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionMarkBlocked", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserSessionMarkBlocked indicates an expected call of UserSessionMarkBlocked.
-func (mr *MockStoreMockRecorder) UserSessionMarkBlocked(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionMarkBlocked", reflect.TypeOf((*MockStore)(nil).UserSessionMarkBlocked), ctx, id)
-}
-
-// UserSessionUpdateLastSeen mocks base method.
-func (m *MockStore) UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionUpdateLastSeen", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserSessionUpdateLastSeen indicates an expected call of UserSessionUpdateLastSeen.
-func (mr *MockStoreMockRecorder) UserSessionUpdateLastSeen(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionUpdateLastSeen", reflect.TypeOf((*MockStore)(nil).UserSessionUpdateLastSeen), ctx, id)
-}
-
-// UserSessionUpdateRefreshToken mocks base method.
-func (m *MockStore) UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserSessionUpdateRefreshToken", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserSessionUpdateRefreshToken indicates an expected call of UserSessionUpdateRefreshToken.
-func (mr *MockStoreMockRecorder) UserSessionUpdateRefreshToken(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionUpdateRefreshToken", reflect.TypeOf((*MockStore)(nil).UserSessionUpdateRefreshToken), ctx, arg)
-}
-
-// UserUpdateLastVerificationSent mocks base method.
-func (m *MockStore) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserUpdateLastVerificationSent", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserUpdateLastVerificationSent indicates an expected call of UserUpdateLastVerificationSent.
-func (mr *MockStoreMockRecorder) UserUpdateLastVerificationSent(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserUpdateLastVerificationSent", reflect.TypeOf((*MockStore)(nil).UserUpdateLastVerificationSent), ctx, id)
-}
-
-// UserUpdatePassword mocks base method.
-func (m *MockStore) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UserUpdatePassword", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UserUpdatePassword indicates an expected call of UserUpdatePassword.
-func (mr *MockStoreMockRecorder) UserUpdatePassword(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserUpdatePassword", reflect.TypeOf((*MockStore)(nil).UserUpdatePassword), ctx, arg)
-}
+// import (
+// 	context "context"
+// 	reflect "reflect"
+
+// 	pgtype "github.com/jackc/pgx/v5/pgtype"
+// 	gomock "go.uber.org/mock/gomock"
+// )
+
+// // MockStore is a mock of Store interface.
+// type MockStore struct {
+// 	ctrl     *gomock.Controller
+// 	recorder *MockStoreMockRecorder
+// 	isgomock struct{}
+// }
+
+// // MockStoreMockRecorder is the mock recorder for MockStore.
+// type MockStoreMockRecorder struct {
+// 	mock *MockStore
+// }
+
+// // NewMockStore creates a new mock instance.
+// func NewMockStore(ctrl *gomock.Controller) *MockStore {
+// 	mock := &MockStore{ctrl: ctrl}
+// 	mock.recorder = &MockStoreMockRecorder{mock}
+// 	return mock
+// }
+
+// // EXPECT returns an object that allows the caller to indicate expected use.
+// func (m *MockStore) EXPECT() *MockStoreMockRecorder {
+// 	return m.recorder
+// }
+
+// // ExecTx mocks base method.
+// func (m *MockStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "ExecTx", ctx, fn)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // ExecTx indicates an expected call of ExecTx.
+// func (mr *MockStoreMockRecorder) ExecTx(ctx, fn any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecTx", reflect.TypeOf((*MockStore)(nil).ExecTx), ctx, fn)
+// }
+
+// // OutboxEventCountPending mocks base method.
+// func (m *MockStore) OutboxEventCountPending(ctx context.Context) (int64, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventCountPending", ctx)
+// 	ret0, _ := ret[0].(int64)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // OutboxEventCountPending indicates an expected call of OutboxEventCountPending.
+// func (mr *MockStoreMockRecorder) OutboxEventCountPending(ctx any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventCountPending", reflect.TypeOf((*MockStore)(nil).OutboxEventCountPending), ctx)
+// }
+
+// // OutboxEventCreate mocks base method.
+// func (m *MockStore) OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventCreate", ctx, arg)
+// 	ret0, _ := ret[0].(OutboxEvent)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // OutboxEventCreate indicates an expected call of OutboxEventCreate.
+// func (mr *MockStoreMockRecorder) OutboxEventCreate(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventCreate", reflect.TypeOf((*MockStore)(nil).OutboxEventCreate), ctx, arg)
+// }
+
+// // OutboxEventDeleteOld mocks base method.
+// func (m *MockStore) OutboxEventDeleteOld(ctx context.Context) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventDeleteOld", ctx)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // OutboxEventDeleteOld indicates an expected call of OutboxEventDeleteOld.
+// func (mr *MockStoreMockRecorder) OutboxEventDeleteOld(ctx any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventDeleteOld", reflect.TypeOf((*MockStore)(nil).OutboxEventDeleteOld), ctx)
+// }
+
+// // OutboxEventGet mocks base method.
+// func (m *MockStore) OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventGet", ctx, id)
+// 	ret0, _ := ret[0].(OutboxEvent)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // OutboxEventGet indicates an expected call of OutboxEventGet.
+// func (mr *MockStoreMockRecorder) OutboxEventGet(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventGet", reflect.TypeOf((*MockStore)(nil).OutboxEventGet), ctx, id)
+// }
+
+// // OutboxEventListUnprocessed mocks base method.
+// func (m *MockStore) OutboxEventListUnprocessed(ctx context.Context, limit int32) ([]OutboxEventListUnprocessedRow, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventListUnprocessed", ctx, limit)
+// 	ret0, _ := ret[0].([]OutboxEventListUnprocessedRow)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // OutboxEventListUnprocessed indicates an expected call of OutboxEventListUnprocessed.
+// func (mr *MockStoreMockRecorder) OutboxEventListUnprocessed(ctx, limit any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventListUnprocessed", reflect.TypeOf((*MockStore)(nil).OutboxEventListUnprocessed), ctx, limit)
+// }
+
+// // OutboxEventMarkProcessed mocks base method.
+// func (m *MockStore) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventMarkProcessed", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // OutboxEventMarkProcessed indicates an expected call of OutboxEventMarkProcessed.
+// func (mr *MockStoreMockRecorder) OutboxEventMarkProcessed(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventMarkProcessed", reflect.TypeOf((*MockStore)(nil).OutboxEventMarkProcessed), ctx, id)
+// }
+
+// // OutboxEventRecordFailure mocks base method.
+// func (m *MockStore) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventRecordFailure", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // OutboxEventRecordFailure indicates an expected call of OutboxEventRecordFailure.
+// func (mr *MockStoreMockRecorder) OutboxEventRecordFailure(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventRecordFailure", reflect.TypeOf((*MockStore)(nil).OutboxEventRecordFailure), ctx, arg)
+// }
+
+// // OutboxEventResetAttempts mocks base method.
+// func (m *MockStore) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "OutboxEventResetAttempts", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // OutboxEventResetAttempts indicates an expected call of OutboxEventResetAttempts.
+// func (mr *MockStoreMockRecorder) OutboxEventResetAttempts(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxEventResetAttempts", reflect.TypeOf((*MockStore)(nil).OutboxEventResetAttempts), ctx, id)
+// }
+
+// // UserCheckAvailability mocks base method.
+// func (m *MockStore) UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserCheckAvailability", ctx, arg)
+// 	ret0, _ := ret[0].(UserCheckAvailabilityRow)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserCheckAvailability indicates an expected call of UserCheckAvailability.
+// func (mr *MockStoreMockRecorder) UserCheckAvailability(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserCheckAvailability", reflect.TypeOf((*MockStore)(nil).UserCheckAvailability), ctx, arg)
+// }
+
+// // UserCreate mocks base method.
+// func (m *MockStore) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserCreate", ctx, arg)
+// 	ret0, _ := ret[0].(User)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserCreate indicates an expected call of UserCreate.
+// func (mr *MockStoreMockRecorder) UserCreate(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserCreate", reflect.TypeOf((*MockStore)(nil).UserCreate), ctx, arg)
+// }
+
+// // UserDelete mocks base method.
+// func (m *MockStore) UserDelete(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDelete", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserDelete indicates an expected call of UserDelete.
+// func (mr *MockStoreMockRecorder) UserDelete(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDelete", reflect.TypeOf((*MockStore)(nil).UserDelete), ctx, id)
+// }
+
+// // UserDeleteRequestCreate mocks base method.
+// func (m *MockStore) UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDeleteRequestCreate", ctx, arg)
+// 	ret0, _ := ret[0].(UserDeleteRequest)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserDeleteRequestCreate indicates an expected call of UserDeleteRequestCreate.
+// func (mr *MockStoreMockRecorder) UserDeleteRequestCreate(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestCreate", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestCreate), ctx, arg)
+// }
+
+// // UserDeleteRequestDelete mocks base method.
+// func (m *MockStore) UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDeleteRequestDelete", ctx, userID)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserDeleteRequestDelete indicates an expected call of UserDeleteRequestDelete.
+// func (mr *MockStoreMockRecorder) UserDeleteRequestDelete(ctx, userID any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestDelete", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestDelete), ctx, userID)
+// }
+
+// // UserDeleteRequestGet mocks base method.
+// func (m *MockStore) UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDeleteRequestGet", ctx, userID)
+// 	ret0, _ := ret[0].(UserDeleteRequest)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserDeleteRequestGet indicates an expected call of UserDeleteRequestGet.
+// func (mr *MockStoreMockRecorder) UserDeleteRequestGet(ctx, userID any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestGet", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestGet), ctx, userID)
+// }
+
+// // UserDeleteRequestListDue mocks base method.
+// func (m *MockStore) UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDeleteRequestListDue", ctx)
+// 	ret0, _ := ret[0].([]pgtype.UUID)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserDeleteRequestListDue indicates an expected call of UserDeleteRequestListDue.
+// func (mr *MockStoreMockRecorder) UserDeleteRequestListDue(ctx any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDeleteRequestListDue", reflect.TypeOf((*MockStore)(nil).UserDeleteRequestListDue), ctx)
+// }
+
+// // UserDisableTOTP mocks base method.
+// func (m *MockStore) UserDisableTOTP(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserDisableTOTP", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserDisableTOTP indicates an expected call of UserDisableTOTP.
+// func (mr *MockStoreMockRecorder) UserDisableTOTP(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserDisableTOTP", reflect.TypeOf((*MockStore)(nil).UserDisableTOTP), ctx, id)
+// }
+
+// // UserEnableTOTP mocks base method.
+// func (m *MockStore) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserEnableTOTP", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserEnableTOTP indicates an expected call of UserEnableTOTP.
+// func (mr *MockStoreMockRecorder) UserEnableTOTP(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserEnableTOTP", reflect.TypeOf((*MockStore)(nil).UserEnableTOTP), ctx, arg)
+// }
+
+// // UserGet mocks base method.
+// func (m *MockStore) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserGet", ctx, id)
+// 	ret0, _ := ret[0].(User)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserGet indicates an expected call of UserGet.
+// func (mr *MockStoreMockRecorder) UserGet(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGet", reflect.TypeOf((*MockStore)(nil).UserGet), ctx, id)
+// }
+
+// // UserGetAuthCredentials mocks base method.
+// func (m *MockStore) UserGetAuthCredentials(ctx context.Context, email string) (UserGetAuthCredentialsRow, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserGetAuthCredentials", ctx, email)
+// 	ret0, _ := ret[0].(UserGetAuthCredentialsRow)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserGetAuthCredentials indicates an expected call of UserGetAuthCredentials.
+// func (mr *MockStoreMockRecorder) UserGetAuthCredentials(ctx, email any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetAuthCredentials", reflect.TypeOf((*MockStore)(nil).UserGetAuthCredentials), ctx, email)
+// }
+
+// // UserGetByEmail mocks base method.
+// func (m *MockStore) UserGetByEmail(ctx context.Context, email string) (User, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserGetByEmail", ctx, email)
+// 	ret0, _ := ret[0].(User)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserGetByEmail indicates an expected call of UserGetByEmail.
+// func (mr *MockStoreMockRecorder) UserGetByEmail(ctx, email any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetByEmail", reflect.TypeOf((*MockStore)(nil).UserGetByEmail), ctx, email)
+// }
+
+// // UserGetByUsername mocks base method.
+// func (m *MockStore) UserGetByUsername(ctx context.Context, username string) (User, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserGetByUsername", ctx, username)
+// 	ret0, _ := ret[0].(User)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserGetByUsername indicates an expected call of UserGetByUsername.
+// func (mr *MockStoreMockRecorder) UserGetByUsername(ctx, username any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetByUsername", reflect.TypeOf((*MockStore)(nil).UserGetByUsername), ctx, username)
+// }
+
+// // UserGetTOTPSecret mocks base method.
+// func (m *MockStore) UserGetTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserGetTOTPSecret", ctx, id)
+// 	ret0, _ := ret[0].(pgtype.Text)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserGetTOTPSecret indicates an expected call of UserGetTOTPSecret.
+// func (mr *MockStoreMockRecorder) UserGetTOTPSecret(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserGetTOTPSecret", reflect.TypeOf((*MockStore)(nil).UserGetTOTPSecret), ctx, id)
+// }
+
+// // UserListUnverified mocks base method.
+// func (m *MockStore) UserListUnverified(ctx context.Context) ([]UserListUnverifiedRow, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserListUnverified", ctx)
+// 	ret0, _ := ret[0].([]UserListUnverifiedRow)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserListUnverified indicates an expected call of UserListUnverified.
+// func (mr *MockStoreMockRecorder) UserListUnverified(ctx any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserListUnverified", reflect.TypeOf((*MockStore)(nil).UserListUnverified), ctx)
+// }
+
+// // UserMarkVerified mocks base method.
+// func (m *MockStore) UserMarkVerified(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserMarkVerified", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserMarkVerified indicates an expected call of UserMarkVerified.
+// func (mr *MockStoreMockRecorder) UserMarkVerified(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserMarkVerified", reflect.TypeOf((*MockStore)(nil).UserMarkVerified), ctx, id)
+// }
+
+// // UserProfileCheckDisplayNameAvailability mocks base method.
+// func (m *MockStore) UserProfileCheckDisplayNameAvailability(ctx context.Context, lower string) (bool, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileCheckDisplayNameAvailability", ctx, lower)
+// 	ret0, _ := ret[0].(bool)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserProfileCheckDisplayNameAvailability indicates an expected call of UserProfileCheckDisplayNameAvailability.
+// func (mr *MockStoreMockRecorder) UserProfileCheckDisplayNameAvailability(ctx, lower any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileCheckDisplayNameAvailability", reflect.TypeOf((*MockStore)(nil).UserProfileCheckDisplayNameAvailability), ctx, lower)
+// }
+
+// // UserProfileCreate mocks base method.
+// func (m *MockStore) UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileCreate", ctx, arg)
+// 	ret0, _ := ret[0].(UserProfile)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserProfileCreate indicates an expected call of UserProfileCreate.
+// func (mr *MockStoreMockRecorder) UserProfileCreate(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileCreate", reflect.TypeOf((*MockStore)(nil).UserProfileCreate), ctx, arg)
+// }
+
+// // UserProfileDelete mocks base method.
+// func (m *MockStore) UserProfileDelete(ctx context.Context, userID pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileDelete", ctx, userID)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserProfileDelete indicates an expected call of UserProfileDelete.
+// func (mr *MockStoreMockRecorder) UserProfileDelete(ctx, userID any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileDelete", reflect.TypeOf((*MockStore)(nil).UserProfileDelete), ctx, userID)
+// }
+
+// // UserProfileGet mocks base method.
+// func (m *MockStore) UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileGet", ctx, userID)
+// 	ret0, _ := ret[0].(UserProfile)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserProfileGet indicates an expected call of UserProfileGet.
+// func (mr *MockStoreMockRecorder) UserProfileGet(ctx, userID any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileGet", reflect.TypeOf((*MockStore)(nil).UserProfileGet), ctx, userID)
+// }
+
+// // UserProfileGetByDisplayName mocks base method.
+// func (m *MockStore) UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileGetByDisplayName", ctx, lower)
+// 	ret0, _ := ret[0].(UserProfile)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserProfileGetByDisplayName indicates an expected call of UserProfileGetByDisplayName.
+// func (mr *MockStoreMockRecorder) UserProfileGetByDisplayName(ctx, lower any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileGetByDisplayName", reflect.TypeOf((*MockStore)(nil).UserProfileGetByDisplayName), ctx, lower)
+// }
+
+// // UserProfileUpdateDisplayName mocks base method.
+// func (m *MockStore) UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserProfileUpdateDisplayName", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserProfileUpdateDisplayName indicates an expected call of UserProfileUpdateDisplayName.
+// func (mr *MockStoreMockRecorder) UserProfileUpdateDisplayName(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserProfileUpdateDisplayName", reflect.TypeOf((*MockStore)(nil).UserProfileUpdateDisplayName), ctx, arg)
+// }
+
+// // UserSessionCreate mocks base method.
+// func (m *MockStore) UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionCreate", ctx, arg)
+// 	ret0, _ := ret[0].(UserSession)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserSessionCreate indicates an expected call of UserSessionCreate.
+// func (mr *MockStoreMockRecorder) UserSessionCreate(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionCreate", reflect.TypeOf((*MockStore)(nil).UserSessionCreate), ctx, arg)
+// }
+
+// // UserSessionDelete mocks base method.
+// func (m *MockStore) UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionDelete", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserSessionDelete indicates an expected call of UserSessionDelete.
+// func (mr *MockStoreMockRecorder) UserSessionDelete(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionDelete", reflect.TypeOf((*MockStore)(nil).UserSessionDelete), ctx, arg)
+// }
+
+// // UserSessionDeleteAllExcept mocks base method.
+// func (m *MockStore) UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionDeleteAllExcept", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserSessionDeleteAllExcept indicates an expected call of UserSessionDeleteAllExcept.
+// func (mr *MockStoreMockRecorder) UserSessionDeleteAllExcept(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionDeleteAllExcept", reflect.TypeOf((*MockStore)(nil).UserSessionDeleteAllExcept), ctx, arg)
+// }
+
+// // UserSessionGet mocks base method.
+// func (m *MockStore) UserSessionGet(ctx context.Context, refreshToken string) (UserSession, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionGet", ctx, refreshToken)
+// 	ret0, _ := ret[0].(UserSession)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserSessionGet indicates an expected call of UserSessionGet.
+// func (mr *MockStoreMockRecorder) UserSessionGet(ctx, refreshToken any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionGet", reflect.TypeOf((*MockStore)(nil).UserSessionGet), ctx, refreshToken)
+// }
+
+// // UserSessionListByUser mocks base method.
+// func (m *MockStore) UserSessionListByUser(ctx context.Context, userID pgtype.UUID) ([]UserSession, error) {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionListByUser", ctx, userID)
+// 	ret0, _ := ret[0].([]UserSession)
+// 	ret1, _ := ret[1].(error)
+// 	return ret0, ret1
+// }
+
+// // UserSessionListByUser indicates an expected call of UserSessionListByUser.
+// func (mr *MockStoreMockRecorder) UserSessionListByUser(ctx, userID any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionListByUser", reflect.TypeOf((*MockStore)(nil).UserSessionListByUser), ctx, userID)
+// }
+
+// // UserSessionMarkBlocked mocks base method.
+// func (m *MockStore) UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionMarkBlocked", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserSessionMarkBlocked indicates an expected call of UserSessionMarkBlocked.
+// func (mr *MockStoreMockRecorder) UserSessionMarkBlocked(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionMarkBlocked", reflect.TypeOf((*MockStore)(nil).UserSessionMarkBlocked), ctx, id)
+// }
+
+// // UserSessionUpdateLastSeen mocks base method.
+// func (m *MockStore) UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionUpdateLastSeen", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserSessionUpdateLastSeen indicates an expected call of UserSessionUpdateLastSeen.
+// func (mr *MockStoreMockRecorder) UserSessionUpdateLastSeen(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionUpdateLastSeen", reflect.TypeOf((*MockStore)(nil).UserSessionUpdateLastSeen), ctx, id)
+// }
+
+// // UserSessionUpdateRefreshToken mocks base method.
+// func (m *MockStore) UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserSessionUpdateRefreshToken", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserSessionUpdateRefreshToken indicates an expected call of UserSessionUpdateRefreshToken.
+// func (mr *MockStoreMockRecorder) UserSessionUpdateRefreshToken(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserSessionUpdateRefreshToken", reflect.TypeOf((*MockStore)(nil).UserSessionUpdateRefreshToken), ctx, arg)
+// }
+
+// // UserUpdateLastVerificationSent mocks base method.
+// func (m *MockStore) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserUpdateLastVerificationSent", ctx, id)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserUpdateLastVerificationSent indicates an expected call of UserUpdateLastVerificationSent.
+// func (mr *MockStoreMockRecorder) UserUpdateLastVerificationSent(ctx, id any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserUpdateLastVerificationSent", reflect.TypeOf((*MockStore)(nil).UserUpdateLastVerificationSent), ctx, id)
+// }
+
+// // UserUpdatePassword mocks base method.
+// func (m *MockStore) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) error {
+// 	m.ctrl.T.Helper()
+// 	ret := m.ctrl.Call(m, "UserUpdatePassword", ctx, arg)
+// 	ret0, _ := ret[0].(error)
+// 	return ret0
+// }
+
+// // UserUpdatePassword indicates an expected call of UserUpdatePassword.
+// func (mr *MockStoreMockRecorder) UserUpdatePassword(ctx, arg any) *gomock.Call {
+// 	mr.mock.ctrl.T.Helper()
+// 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserUpdatePassword", reflect.TypeOf((*MockStore)(nil).UserUpdatePassword), ctx, arg)
+// }

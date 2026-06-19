@@ -11,11 +11,15 @@ import (
 )
 
 type Querier interface {
+	// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
+	// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
+	OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	OutboxEventCountPending(ctx context.Context) (int64, error)
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)
 	OutboxEventDeleteOld(ctx context.Context) error
 	OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
-	OutboxEventListUnprocessed(ctx context.Context, limit int32) ([]OutboxEventListUnprocessedRow, error)
+	// Permanently ignores an event that cannot be processed.
+	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
 	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) error
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) error
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) error

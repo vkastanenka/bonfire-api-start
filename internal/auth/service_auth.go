@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/user_profile"
+	"bonfire-api/internal/worker"
 	"context"
 	"encoding/json"
 	"errors"
@@ -96,10 +97,10 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		}
 
 		// Format event payload
-		eventPayload := map[string]string{
-			"email":    req.Email,
-			"username": req.Username,
+		eventPayload := worker.AuthRegisterEventPayload{
+			UserID: userRow.ID,
 		}
+
 		jsonBytes, err := json.Marshal(eventPayload)
 		if err != nil {
 			return err

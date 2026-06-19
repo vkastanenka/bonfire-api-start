@@ -1,21 +1,3 @@
-/*
-Package main provides the entry point for the Bonfire API.
-
-This file acts as the centralized dependency injection container and
-application orchestrator. It executes a strict, bottom-up bootstrapping
-sequence:
-
- 1. Configuring global telemetry and logging.
- 2. Loading environment configurations.
- 3. Establishing resilient infrastructure connections (Postgres, Redis).
- 4. Wiring data layers, domain services, and HTTP handlers.
- 5. Spooling up background system workers.
- 6. Initializing OS-signal listeners for graceful degradation.
-
-By utilizing a "hollow main" pattern, this file guarantees that all
-resources, background threads, and connection pools are safely closed
-via deferred functions prior to the application exiting.
-*/
 package main
 
 import (
@@ -29,7 +11,6 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/email"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/repository"
@@ -62,10 +43,7 @@ func main() {
 	}
 }
 
-// run orchestrates the bootstrapping sequence of the application. It loads
-// configurations, initializes infrastructure connections, wires dependencies,
-// starts background workers, and launches the HTTP server with graceful
-// shutdown capabilities.
+// run
 func run() error {
 	// Init config
 	cfg, err := config.Load()
@@ -98,7 +76,6 @@ func run() error {
 	tokenManager := token.NewJWTManager()
 
 	// Setup domain services
-	mailer := email.NewMailer(cfg)
 	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
@@ -109,7 +86,7 @@ func run() error {
 	userProfileService := user_profile.NewService(store)
 
 	// Setup background workers
-	outboxWorker := worker.NewOutboxWorker(queries, mailer, 1*time.Second, 10)
+	outboxWorker := worker.NewOutboxWorker(queries, 5*time.Second, 10)
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop()
 

@@ -11,6 +11,68 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const outboxEventAcquireBatch = `-- name: OutboxEventAcquireBatch :many
+WITH batch AS (
+    SELECT
+        id
+    FROM
+        outbox_events
+    WHERE
+        processed_at IS NULL
+        AND attempts < max_attempts
+        AND next_attempt_at <= CURRENT_TIMESTAMP
+    ORDER BY
+        created_at ASC
+    LIMIT $1
+    FOR UPDATE
+        SKIP LOCKED)
+UPDATE
+    outbox_events
+SET
+    next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+WHERE
+    id IN (
+        SELECT
+            id
+        FROM
+            batch)
+RETURNING
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
+`
+
+// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
+// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
+func (q *Queries) OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error) {
+	rows, err := q.db.Query(ctx, outboxEventAcquireBatch, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutboxEvent
+	for rows.Next() {
+		var i OutboxEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EventType,
+			&i.Payload,
+			&i.ProcessedAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.NextAttemptAt,
+			&i.LastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const outboxEventCountPending = `-- name: OutboxEventCountPending :one
 SELECT
     COUNT(*)
@@ -94,55 +156,26 @@ func (q *Queries) OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEve
 	return i, err
 }
 
-const outboxEventListUnprocessed = `-- name: OutboxEventListUnprocessed :many
-SELECT
-    id,
-    event_type,
-    payload,
-    attempts
-FROM
+const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :exec
+UPDATE
     outbox_events
+SET
+    processed_at = CURRENT_TIMESTAMP,
+    last_error = $2,
+    attempts = max_attempts
 WHERE
-    processed_at IS NULL
-    AND attempts < max_attempts
-    AND next_attempt_at <= CURRENT_TIMESTAMP
-ORDER BY
-    created_at ASC
-LIMIT $1
-FOR UPDATE
-    SKIP LOCKED
+    id = $1
 `
 
-type OutboxEventListUnprocessedRow struct {
+type OutboxEventMarkDeadLetterParams struct {
 	ID        pgtype.UUID `json:"id"`
-	EventType string      `json:"event_type"`
-	Payload   []byte      `json:"payload"`
-	Attempts  int32       `json:"attempts"`
+	LastError pgtype.Text `json:"last_error"`
 }
 
-func (q *Queries) OutboxEventListUnprocessed(ctx context.Context, limit int32) ([]OutboxEventListUnprocessedRow, error) {
-	rows, err := q.db.Query(ctx, outboxEventListUnprocessed, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []OutboxEventListUnprocessedRow
-	for rows.Next() {
-		var i OutboxEventListUnprocessedRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.EventType,
-			&i.Payload,
-			&i.Attempts,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// Permanently ignores an event that cannot be processed.
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
+	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter, arg.ID, arg.LastError)
+	return err
 }
 
 const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :exec

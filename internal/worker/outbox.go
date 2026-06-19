@@ -1,81 +1,95 @@
 package worker
 
 import (
-	"bonfire-api/internal/repository"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
+	"sync"
 	"time"
+
+	"bonfire-api/internal/repository"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Mailer abstracts our email delivery engine (e.g., SendGrid, MockMailer, AWS SES)
-type Mailer interface {
-	SendWelcomeEmail(ctx context.Context, email string, username string, token string) error
-	SendPasswordResetEmail(ctx context.Context, email string, resetToken string) error
-}
-
+// OutboxWorker handles transactional outbox background operations.
 type OutboxWorker struct {
-	store     *repository.Queries
-	mailer    Mailer
-	ticker    *time.Ticker
-	stopChan  chan struct{}
-	batchSize int32
+	store        *repository.Queries
+	pollInterval time.Duration
+	batchSize    int32
+	wg           sync.WaitGroup
+	cancel       context.CancelFunc
 }
 
-func NewOutboxWorker(store *repository.Queries, mailer Mailer, pollInterval time.Duration, batchSize int32) *OutboxWorker {
+// NewOutboxWorker initializes a new outbox processor instance.
+func NewOutboxWorker(store *repository.Queries, pollInterval time.Duration, batchSize int32) *OutboxWorker {
 	return &OutboxWorker{
-		store:     store,
-		mailer:    mailer,
-		ticker:    time.NewTicker(pollInterval),
-		stopChan:  make(chan struct{}),
-		batchSize: batchSize,
+		store:        store,
+		pollInterval: pollInterval,
+		batchSize:    batchSize,
 	}
 }
 
-// Start now accepts the global context to orchestrate lifecycle shutdown.
+// Start spawns the background event processing loop.
 func (w *OutboxWorker) Start(ctx context.Context) {
-	log.Println("[WORKER] Initializing background outbox processor...")
+	// Create a dedicated context for the worker loop
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+
+	w.wg.Add(1)
 	go func() {
+		defer w.wg.Done()
+
+		// Panic recovery for background worker robustness
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("recovered from panic in outbox worker goroutine", "panic", r)
+			}
+		}()
+
+		slog.Info("initializing background outbox processor")
+
+		// Use a dynamic timer rather than a ticker to prevent overlap
+		timer := time.NewTimer(w.pollInterval)
+		defer timer.Stop()
+
 		for {
 			select {
-			case <-w.ticker.C:
-				w.processBatch(ctx)
-			case <-ctx.Done():
-				w.ticker.Stop()
-				log.Println("[WORKER] System cancellation detected. Stopping outbox worker loop...")
-				return
-			case <-w.stopChan:
-				w.ticker.Stop()
-				log.Println("[WORKER] Explicit stop signaled. Stopping outbox worker loop...")
+			case <-timer.C:
+				w.processBatch(workerCtx)
+				// Reset the timer only after the batch has finished processing
+				timer.Reset(w.pollInterval)
+			case <-workerCtx.Done():
+				slog.Info("system cancellation detected; stopping outbox worker loop")
 				return
 			}
 		}
 	}()
 }
 
-// Stop safely cuts off the ticker loop during graceful container shutdowns.
+// Stop gracefully shuts down the worker, waiting for the current batch to finish.
 func (w *OutboxWorker) Stop() {
-	close(w.stopChan)
-	log.Println("[WORKER] Outbox background processor gracefully stopped.")
+	if w.cancel != nil {
+		w.cancel()
+		w.wg.Wait() // Block until the active batch completes
+		slog.Info("outbox background processor gracefully stopped")
+	}
 }
 
+// processBatch fetches and processes a single window of events.
 func (w *OutboxWorker) processBatch(ctx context.Context) {
-	// 1. Fetch an isolated, concurrency-locked slice of pending work using the live context
-	events, err := w.store.OutboxEventListUnprocessed(ctx, w.batchSize)
+	// Using AcquireBatch safely leases the items by updating their next_attempt_at
+	events, err := w.store.OutboxEventAcquireBatch(ctx, w.batchSize)
 	if err != nil {
-		// Avoid logging errors if the query failed purely because the system is shutting down
 		if !errors.Is(err, context.Canceled) {
-			log.Printf("[WORKER ERROR] Failed to fetch outbox events: %v", err)
+			slog.Error("failed to acquire outbox events", "error", err)
 		}
 		return
 	}
 
 	for _, event := range events {
-		// Fail-fast check: If the application context cancelled mid-batch loop,
-		// don't bother wasting execution cycles starting the next event.
+		// Stop processing remaining items if shutting down
 		if ctx.Err() != nil {
 			return
 		}
@@ -83,67 +97,98 @@ func (w *OutboxWorker) processBatch(ctx context.Context) {
 	}
 }
 
-func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.OutboxEventListUnprocessedRow) {
-	var executionErr error
-
-	// 2. Evaluate the event type signature
-	switch event.EventType {
-	case "user.registered":
-		var payload struct {
-			Email    string `json:"email"`
-			Username string `json:"username"`
-			Token    string `json:"token"`
-		}
-
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			w.handleFailure(ctx, event, err, true)
-			return
-		}
-
-		executionErr = w.mailer.SendWelcomeEmail(ctx, payload.Email, payload.Username, payload.Token)
-
-	case "user.forgot_password":
-		var payload struct {
-			Email string `json:"email"`
-			Token string `json:"token"`
-		}
-
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			w.handleFailure(ctx, event, err, true)
-			return
-		}
-
-		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
-
-	default:
-		log.Printf("[WORKER WARN] Unhandled event type dropped: %s", event.EventType)
-		return
-	}
-
-	if executionErr != nil {
-		w.handleFailure(ctx, event, executionErr, false)
-		return
-	}
-
-	if err := w.store.OutboxEventMarkProcessed(ctx, event.ID); err != nil {
-		log.Printf("[WORKER ERROR] Failed to finalize successful event %s: %v", event.ID, err)
-	}
+type AuthRegisterEventPayload struct {
+	UserID pgtype.UUID `json:"user_id"`
 }
 
-func (w *OutboxWorker) handleFailure(ctx context.Context, event repository.OutboxEventListUnprocessedRow, err error, isFatal bool) {
-	const maxAttempts = 5
+// executeEvent routes an individual event payload depending on its type signature.
+func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.OutboxEvent) {
+	var executionErr error
+	var isFatal bool
 
-	// Only handle the "Fatal" or "Max Exceeded" case in Go
-	if isFatal || (event.Attempts+1) >= maxAttempts {
-		// Option A: Use a special "dead letter" SQL query
-		// Option B: Set next_attempt_at to a distant future year (e.g., 9999)
-		log.Printf("[WORKER DEAD LETTER] Event %s exhausted.", event.ID)
-		// ... call dedicated DeadLetterUpdate query ...
-	} else {
-		// Let the SQL query handle the exponential math automatically
-		err = w.store.OutboxEventRecordFailure(ctx, repository.OutboxEventRecordFailureParams{
+	switch event.EventType {
+	case "user.registered":
+		var payload AuthRegisterEventPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			executionErr, isFatal = err, true
+			break
+		}
+
+		if !payload.UserID.Valid {
+			executionErr, isFatal = errors.New("invalid or missing user_id in payload"), true
+			break
+		}
+
+		executionErr = w.store.UserMarkVerified(ctx, payload.UserID)
+
+	// Add other cases here...
+
+	default:
+		slog.Warn("unhandled event type dropped", "event_type", event.EventType, "event_id", event.ID)
+		// Mark as dead letter to avoid reprocessing unhandled events
+		executionErr, isFatal = errors.New("unhandled event type"), true
+	}
+
+	// Handle routing based on success/failure
+	if executionErr != nil {
+		if errors.Is(executionErr, context.Canceled) {
+			slog.Info("execution aborted due to shutdown; relying on lease expiration", "event_id", event.ID)
+			return
+		}
+
+		w.handleFailure(event, executionErr, isFatal)
+		return
+	}
+
+	// Use a background context with a short timeout to ensure the success
+	// state is saved even if the worker context was canceled right at this exact line.
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := w.store.OutboxEventMarkProcessed(finalizeCtx, event.ID); err != nil {
+		slog.Error("failed to finalize successful outbox event", "event_id", event.ID, "error", err)
+	}
+
+	slog.Info("successfully processed outbox event",
+		"event_id", event.ID,
+		"event_type", event.EventType,
+	)
+}
+
+// handleFailure logs processing errors and updates the database state accordingly.
+func (w *OutboxWorker) handleFailure(event repository.OutboxEvent, err error, isFatal bool) {
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Rely on the database struct for max attempts rather than a hardcoded constant
+	if isFatal || (event.Attempts+1) >= event.MaxAttempts {
+		slog.Error("outbox event processing exhausted; routing to dead letter",
+			"event_id", event.ID,
+			"event_type", event.EventType,
+			"error", err,
+		)
+
+		// Actually update the database so it stops fetching this event
+		dbErr := w.store.OutboxEventMarkDeadLetter(finalizeCtx, repository.OutboxEventMarkDeadLetterParams{
 			ID:        event.ID,
 			LastError: pgtype.Text{String: err.Error(), Valid: true},
 		})
+		if dbErr != nil {
+			slog.Error("failed to mark outbox event as dead letter", "event_id", event.ID, "error", dbErr)
+		}
+	} else {
+		slog.Warn("outbox event retry registered",
+			"event_id", event.ID,
+			"attempt", event.Attempts+1,
+			"error", err,
+		)
+
+		dbErr := w.store.OutboxEventRecordFailure(finalizeCtx, repository.OutboxEventRecordFailureParams{
+			ID:        event.ID,
+			LastError: pgtype.Text{String: err.Error(), Valid: true},
+		})
+		if dbErr != nil {
+			slog.Error("failed to record outbox failure state to database", "event_id", event.ID, "error", dbErr)
+		}
 	}
 }
