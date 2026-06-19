@@ -131,34 +131,35 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 	return userResponse, userProfileResponse, nil
 }
 
-// Login
-func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, clientIP string) (map[string]string, error) {
-	// unauthorizedErrDetails := map[string]string{
-	// 	"email":    "Invalid credentials.",
-	// 	"password": "Invalid credentials.",
-	// }
+// LoginInput
+type LoginInput struct {
+	Email    string
+	Password string
+}
 
-	// 1. Fetch user credentials
+// Login
+func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent, clientIP string) (LoginResponse, error) {
+	// Set up invalid params for error handling
+	invalidParams := apperr.WithInvalidParams([]apperr.InvalidParam{
+		{Name: "email", Reason: "Invalid credentials."},
+		{Name: "password", Reason: "Invalid credentials."},
+	})
+
+	// Fetch user credentials
 	userAuth, err := s.store.UserGetAuthCredentials(ctx, req.Email)
 	if err != nil {
 		// User not found
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.")
-			// return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
+		if repository.IsNotFoundError(err) {
+			return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
 		}
 
-		// Internal server error
-		return nil, apperr.New(apperr.CodeInternal,
-			"An unexpected error occurred while verifying your account details.",
-			apperr.WithErr(err),
-		)
+		return LoginResponse{}, apperr.NewDBError(err)
 	}
 
 	// 2. Compare the provided password with the stored hash
 	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(req.Password))
 	if err != nil {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.")
-		// return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", apperr.WithDetails("fields", unauthorizedErrDetails))
+		return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
 	}
 
 	// Convert pgtype.UUID to uuid.UUID by passing the underlying 16-byte array
@@ -167,18 +168,18 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 	// 3. Generate Access Token (15 minutes)
 	accessToken, err := s.generateAccessToken(userID)
 	if err != nil {
-		return nil, err
+		return LoginResponse{}, err
 	}
 
 	// 4. Generate Refresh Token (7 days)
 	refreshToken, err := s.generateRefreshToken(userID)
 	if err != nil {
-		return nil, err
+		return LoginResponse{}, err
 	}
 
 	ipAddr, err := netip.ParseAddr(clientIP)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInvalidInput, "Invalid IP address format.", apperr.WithErr(err))
+		return LoginResponse{}, apperr.New(apperr.CodeInvalidInput, "Invalid IP address format.", apperr.WithErr(err))
 	}
 
 	// 5. Store the session in the database
@@ -194,13 +195,13 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest, userAgent, cl
 		},
 	})
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to create user session.", apperr.WithErr(err))
+		return LoginResponse{}, apperr.NewDBError(err)
 	}
 
 	// 6. Return the tokens
-	return map[string]string{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
+	return LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 

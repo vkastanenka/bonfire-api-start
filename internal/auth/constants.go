@@ -10,10 +10,10 @@ const (
 
 // Validation / Error messages
 const (
-	ErrEmailTaken         = "This email address is already registered."
-	ErrUsernameTaken      = "This username is already taken."
-	ErrRegFailed          = "Registration failed due to unavailable credentials."
-	ErrPasswordHashing    = "An unexpected error occurred while securing your account password."
+	ErrEmailTaken      = "This email address is already registered."
+	ErrUsernameTaken   = "This username is already taken."
+	ErrRegFailed       = "Registration failed due to unavailable credentials."
+	ErrPasswordHashing = "An unexpected error occurred while securing your account password."
 )
 
 // Event types

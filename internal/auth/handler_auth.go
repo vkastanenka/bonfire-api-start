@@ -74,39 +74,52 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required,min=12,max=128"`
 }
 
+type LoginResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+func (r *LoginRequest) SanitizeLoginRequest() {
+	r.Email = sanitize.SanitizeEmail(r.Email)
+}
+
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	var data LoginRequest
+	var req LoginRequest
 
-	// Decode incoming JSON body into the struct
-	if err := httpio.DecodeJSON(w, r, &data); err != nil {
+	// Decode request body
+	if err := httpio.DecodeJSON(w, r, &req); err != nil {
 		return err
 	}
 
-	// TODO: Sanitize inputs
+	// Sanitize request body
+	req.SanitizeLoginRequest()
 
 	// Validate request body
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.val.ValidateStruct(&req); err != nil {
 		return err
 	}
 
-	// Extract client IP and User-Agent for session tracking
-	clientIP := r.RemoteAddr // Note: Consider a helper to parse X-Forwarded-For if behind a proxy
+	// Extract client IP and User-Agent
+	clientIP := r.RemoteAddr
 	userAgent := r.UserAgent()
 
 	// Login user, get tokens
-	tokens, err := h.service.Login(r.Context(), data, userAgent, clientIP)
+	tokens, err := h.service.Login(r.Context(), LoginInput{
+		Email:    req.Email,
+		Password: req.Password,
+	}, userAgent, clientIP)
 	if err != nil {
 		return err
 	}
 
 	// Set Refresh Token as an HttpOnly cookie
-	httpio.SetRefreshTokenCookie(w, tokens["refresh_token"])
+	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond
 	httpio.RespondJSON(w, http.StatusOK, map[string]string{
 		"message":      LoginOkMsg,
-		"access_token": tokens["access_token"],
+		"access_token": tokens.AccessToken,
 	})
 
 	return nil
