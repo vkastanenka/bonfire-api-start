@@ -15,26 +15,26 @@ func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (Refres
 	// Check old token
 	claims, err := s.tokenManager.VerifyJWT(r.RefreshToken, s.tokenConfig.RefreshSecret)
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired session.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 	}
 
 	// Check session
 	sessionIDStr := claims.GetString("sid")
 	if sessionIDStr == "" {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Malformed session payload.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionMalformed)
 	}
 
 	// Parse session id
 	sessionUUID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Invalid session identifier.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 	}
 
 	// Get user session
 	session, err := s.store.UserSessionGetByID(ctx, pgtype.UUID{Bytes: sessionUUID, Valid: true})
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Session no longer exists.")
+			return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionNotFound)
 		}
 		return RefreshResult{}, apperr.NewDBError(err)
 	}
@@ -42,17 +42,17 @@ func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (Refres
 	// Check for an un-rotated token
 	if session.RefreshToken != r.RefreshToken {
 		_ = s.store.UserSessionMarkBlocked(ctx, session.ID)
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Security breach detected. Session revoked.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 	}
 
 	// Check if session blocked
 	if session.IsBlocked {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Access denied. Session is blocked.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionBlocked)
 	}
 
 	// Check if session expired
 	if time.Now().After(session.ExpiresAt.Time) {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, "Session expired. Please log in again.")
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionExpired)
 	}
 
 	// Format userID

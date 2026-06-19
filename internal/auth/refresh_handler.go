@@ -11,7 +11,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, RefreshTokenMissingMsg)
+		return apperr.New(apperr.CodeUnauthenticated, ErrMissingRefreshToken)
 	}
 
 	// Rotate access token

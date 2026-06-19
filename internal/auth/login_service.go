@@ -15,8 +15,8 @@ import (
 func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	// Set up invalid params for error handling
 	invalidParams := apperr.WithInvalidParams([]apperr.InvalidParam{
-		{Name: "email", Reason: "Invalid credentials."},
-		{Name: "password", Reason: "Invalid credentials."},
+		{Name: "email", Reason: ErrCredentialsInvalid},
+		{Name: "password", Reason: ErrCredentialsInvalid},
 	})
 
 	// Fetch user credentials
@@ -24,7 +24,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	if err != nil {
 		// User not found
 		if repository.IsNotFoundError(err) {
-			return LoginResult{}, apperr.New(apperr.CodeNotFound, "Invalid credentials.", invalidParams)
+			return LoginResult{}, apperr.New(apperr.CodeNotFound, ErrCredentialsInvalid, invalidParams)
 		}
 
 		return LoginResult{}, apperr.NewDBError(err)
@@ -33,7 +33,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	// Check password
 	err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password)
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
+		return LoginResult{}, apperr.New(apperr.CodeUnauthenticated, ErrCredentialsInvalid, invalidParams)
 	}
 
 	// Convert pgtype.UUID to uuid.UUID
