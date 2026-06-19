@@ -15,7 +15,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Rotate access token
-	tokens, err := h.service.RotateTokens(r.Context(), cookie.Value)
+	tokens, err := h.service.RotateTokens(r.Context(), RefreshParams{RefreshToken: cookie.Value})
 	if err != nil {
 		return err
 	}
@@ -24,9 +24,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond with access token
-	httpio.RespondOK(w, map[string]string{
-		"access_token": tokens.AccessToken,
-	}, RefreshTokenOkMsg)
+	httpio.RespondOK(w, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOkMsg)
 
 	return nil
 }
