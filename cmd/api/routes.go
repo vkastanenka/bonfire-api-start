@@ -56,7 +56,7 @@ func (app *Application) routes() http.Handler {
 			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.Handlers.Auth.VerifyEmail))
 			publicAuth.Post("/auth/resend-verification-email", httpio.ToHTTP(app.Handlers.Auth.ResendVerificationEmail))
 			publicAuth.Post("/auth/login", httpio.ToHTTP(app.Handlers.Auth.Login))
-			publicAuth.Post("/auth/refresh", httpio.ToHTTP(app.Handlers.Auth.RotateTokens))
+			publicAuth.Post("/auth/refresh", httpio.ToHTTP(app.Handlers.Auth.Refresh))
 			publicAuth.Post("/auth/forgot-password", httpio.ToHTTP(app.Handlers.Auth.ForgotPassword))
 			publicAuth.Post("/auth/reset-password", httpio.ToHTTP(app.Handlers.Auth.ResetPassword))
 			publicAuth.Post("/auth/login/2fa", httpio.ToHTTP(app.Handlers.Auth.VerifyLogin2FA))

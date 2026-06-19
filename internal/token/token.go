@@ -88,3 +88,27 @@ func (m *JWTManager) VerifyJWT(tokenString string, secretKey string) (*Claims, e
 
 	return claims, nil
 }
+
+// Define constants here so only the token package knows the internal claim keys
+const (
+	ClaimRole = "role"
+	ClaimVer  = "ver"
+	ClaimSID  = "sid"
+)
+
+// GenerateAccessToken abstracts the claim mapping away from Auth
+func (m *JWTManager) GenerateAccessToken(userID uuid.UUID, secret string, role string, isVerified bool) (string, error) {
+	claims := map[string]any{
+		ClaimRole: role,
+		ClaimVer:  isVerified,
+	}
+	return m.GenerateJWT(userID, secret, 15*time.Minute, claims)
+}
+
+// GenerateRefreshToken abstracts the session ID mapping
+func (m *JWTManager) GenerateRefreshToken(userID uuid.UUID, secret string, sessionID uuid.UUID) (string, error) {
+	claims := map[string]any{
+		ClaimSID: sessionID.String(),
+	}
+	return m.GenerateJWT(userID, secret, 7*24*time.Hour, claims)
+}
