@@ -31,18 +31,8 @@ func (r *RegisterRequest) SanitizeRegisterRequest() {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	var req RegisterRequest
-
-	// Decode request body
-	if err := httpio.DecodeJSON(w, r, &req); err != nil {
-		return err
-	}
-
-	// Sanitize request body
-	req.SanitizeRegisterRequest()
-
-	// Validate request body
-	if err := h.val.ValidateStruct(&req); err != nil {
+	req, err := httpio.BindJSON[RegisterRequest](w, r, h.val)
+	if err != nil {
 		return err
 	}
 
@@ -85,18 +75,8 @@ func (r *LoginRequest) SanitizeLoginRequest() {
 
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	var req LoginRequest
-
-	// Decode request body
-	if err := httpio.DecodeJSON(w, r, &req); err != nil {
-		return err
-	}
-
-	// Sanitize request body
-	req.SanitizeLoginRequest()
-
-	// Validate request body
-	if err := h.val.ValidateStruct(&req); err != nil {
+	req, err := httpio.BindJSON[LoginRequest](w, r, h.val)
+	if err != nil {
 		return err
 	}
 

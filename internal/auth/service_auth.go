@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/user_profile"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterInput
@@ -58,7 +58,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 	}
 
 	// Hash password
-	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashedPasswordBytes, err := crypto.HashPassword(req.Password)
 	if err != nil {
 		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.New(apperr.CodeInternal,
 			ErrPasswordHashing,
@@ -155,7 +155,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 	}
 
 	// Check password
-	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(req.Password))
+	err = crypto.VerifyPassword(userAuth.PasswordHash, req.Password)
 	if err != nil {
 		return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
 	}
