@@ -11,18 +11,21 @@ import (
 )
 
 // RegisterService
-func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.UserResponse, user_profile.UserProfileResponse, error) {
+func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
 	// Define user DTO
 	var userResponse user.UserResponse
 	var userProfileResponse user_profile.UserProfileResponse
 
 	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
-		Email:    req.Email,
-		Username: req.Username,
+		Email:    r.Email,
+		Username: r.Username,
 	})
 	if err != nil {
-		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.NewDBError(err)
+		return RegisterResult{
+			User:        user.UserResponse{},
+			UserProfile: user_profile.UserProfileResponse{},
+		}, apperr.NewDBError(err)
 	}
 
 	// Append errors if credential conflict
@@ -36,20 +39,26 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 
 	// If credential conflicts, respond with error
 	if len(availabilityErrors) > 0 {
-		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.New(
-			apperr.CodeConflict,
-			ErrRegFailed,
-			availabilityErrors...,
-		)
+		return RegisterResult{
+				User:        user.UserResponse{},
+				UserProfile: user_profile.UserProfileResponse{},
+			}, apperr.New(
+				apperr.CodeConflict,
+				ErrRegFailed,
+				availabilityErrors...,
+			)
 	}
 
 	// Hash password
-	hashedPasswordBytes, err := crypto.HashPassword(req.Password)
+	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
-		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.New(apperr.CodeInternal,
-			ErrPasswordHashing,
-			apperr.WithErr(err),
-		)
+		return RegisterResult{
+				User:        user.UserResponse{},
+				UserProfile: user_profile.UserProfileResponse{},
+			}, apperr.New(apperr.CodeInternal,
+				ErrPasswordHashing,
+				apperr.WithErr(err),
+			)
 	}
 	passwordHash := string(hashedPasswordBytes)
 
@@ -57,8 +66,8 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
 		// Create user
 		userRow, err := qtx.UserCreate(ctx, repository.UserCreateParams{
-			Email:        req.Email,
-			Username:     req.Username,
+			Email:        r.Email,
+			Username:     r.Username,
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
@@ -66,9 +75,9 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 		}
 
 		// Set display name
-		displayName := req.Username
-		if req.DisplayName != nil && *req.DisplayName != "" {
-			displayName = *req.DisplayName
+		displayName := r.Username
+		if r.DisplayName != nil && *r.DisplayName != "" {
+			displayName = *r.DisplayName
 		}
 
 		// Create user profile
@@ -97,9 +106,15 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (user.Use
 
 	// Handle tx errors
 	if txErr != nil {
-		return user.UserResponse{}, user_profile.UserProfileResponse{}, apperr.NewDBError(txErr)
+		return RegisterResult{
+			User:        user.UserResponse{},
+			UserProfile: user_profile.UserProfileResponse{},
+		}, apperr.NewDBError(txErr)
 	}
 
 	// Return created resources
-	return userResponse, userProfileResponse, nil
+	return RegisterResult{
+		User:        userResponse,
+		UserProfile: userProfileResponse,
+	}, nil
 }

@@ -6,26 +6,21 @@ import (
 )
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterRequest](w, r, h.val)
+	// Bind JSON
+	reqData, err := httpio.BindJSON[RegisterReqData](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
 	// Register user
-	user, profile, err := h.service.Register(r.Context(), RegisterInput{
-		Email:       req.Email,
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
+	data, err := h.service.Register(r.Context(), RegisterParams{
+		Email:       reqData.Email,
+		Username:    reqData.Username,
+		DisplayName: reqData.DisplayName,
+		Password:    reqData.Password,
 	})
 	if err != nil {
 		return err
-	}
-
-	// Format response data
-	data := RegisterResponse{
-		User:        user,
-		UserProfile: profile,
 	}
 
 	// Respond
