@@ -6,14 +6,14 @@ import (
 	"bonfire-api/internal/user_profile"
 )
 
-type RegisterReqData struct {
+type RegisterReq struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
 	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
 	Username    string  `json:"username" validate:"required,min=4,max=32,valid_username"`
 	Password    string  `json:"password" validate:"required,min=12,max=128"`
 }
 
-func (r *RegisterReqData) SanitizeRegisterReqData() {
+func (r *RegisterReq) Sanitize() {
 	r.Email = sanitize.SanitizeEmail(r.Email)
 
 	if r.DisplayName != nil {

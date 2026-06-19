@@ -7,7 +7,7 @@ import (
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
-	reqData, err := httpio.BindJSON[RegisterReqData](w, r, h.val)
+	reqData, err := httpio.BindJSON[RegisterReq](w, r, h.val)
 	if err != nil {
 		return err
 	}

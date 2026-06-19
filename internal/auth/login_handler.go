@@ -7,7 +7,7 @@ import (
 
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[LoginRequest](w, r, h.val)
+	req, err := httpio.BindJSON[LoginReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
@@ -17,10 +17,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	userAgent := r.UserAgent()
 
 	// Login user, get tokens
-	tokens, err := h.service.Login(r.Context(), LoginInput{
-		Email:    req.Email,
-		Password: req.Password,
-	}, userAgent, clientIP)
+	tokens, err := h.service.Login(r.Context(), LoginParams{
+		Email:     req.Email,
+		Password:  req.Password,
+		UserAgent: userAgent,
+		ClientIP:  clientIP,
+	})
 	if err != nil {
 		return err
 	}
@@ -29,9 +31,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond
-	httpio.RespondOK(w, map[string]string{
-		"access_token": tokens.AccessToken,
-	}, LoginOkMsg)
+	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOkMsg)
 
 	return nil
 }

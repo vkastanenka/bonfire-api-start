@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/repository"
 	"context"
-	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +12,7 @@ import (
 )
 
 // Login
-func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent string, clientIP netip.Addr) (LoginResponse, error) {
+func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	// Set up invalid params for error handling
 	invalidParams := apperr.WithInvalidParams([]apperr.InvalidParam{
 		{Name: "email", Reason: "Invalid credentials."},
@@ -21,20 +20,20 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 	})
 
 	// Fetch user credentials
-	userAuth, err := s.store.UserGetAuthCredentials(ctx, req.Email)
+	userAuth, err := s.store.UserGetAuthCredentials(ctx, r.Email)
 	if err != nil {
 		// User not found
 		if repository.IsNotFoundError(err) {
-			return LoginResponse{}, apperr.New(apperr.CodeNotFound, "Invalid credentials.", invalidParams)
+			return LoginResult{}, apperr.New(apperr.CodeNotFound, "Invalid credentials.", invalidParams)
 		}
 
-		return LoginResponse{}, apperr.NewDBError(err)
+		return LoginResult{}, apperr.NewDBError(err)
 	}
 
 	// Check password
-	err = crypto.VerifyPassword(userAuth.PasswordHash, req.Password)
+	err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password)
 	if err != nil {
-		return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
+		return LoginResult{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
 	}
 
 	// Convert pgtype.UUID to uuid.UUID
@@ -45,19 +44,19 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 	// Generate Access Token (15 minutes)
 	accessToken, err := s.generateAccessToken(userID, userRole, userIsVerified)
 	if err != nil {
-		return LoginResponse{}, err
+		return LoginResult{}, err
 	}
 
 	// Generate session ID
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResponse{}, err
+		return LoginResult{}, err
 	}
 
 	// Generate Refresh Token (7 days)
 	refreshToken, err := s.generateRefreshToken(userID, sessionID)
 	if err != nil {
-		return LoginResponse{}, err
+		return LoginResult{}, err
 	}
 
 	// Create user session
@@ -65,8 +64,8 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 		ID:           pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID:       userAuth.ID,
 		RefreshToken: refreshToken,
-		UserAgent:    userAgent,
-		ClientIp:     clientIP,
+		UserAgent:    r.UserAgent,
+		ClientIp:     r.ClientIP,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),
@@ -74,11 +73,11 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 		},
 	})
 	if err != nil {
-		return LoginResponse{}, apperr.NewDBError(err)
+		return LoginResult{}, apperr.NewDBError(err)
 	}
 
 	// Return the tokens
-	return LoginResponse{
+	return LoginResult{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
