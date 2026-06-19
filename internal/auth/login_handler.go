@@ -7,31 +7,28 @@ import (
 
 // Login handles user login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	// Bind JSON
+	// Get JSON
 	req, err := httpio.BindJSON[LoginReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	// Extract client IP and User-Agent
-	clientIP := httpio.GetClientIP(r, false)
-	userAgent := r.UserAgent()
+	// Get client meta
+	clientMeta := httpio.GetClientMeta(r)
 
 	// Login user, get tokens
 	tokens, err := h.service.Login(r.Context(), LoginParams{
 		Email:     req.Email,
 		Password:  req.Password,
-		UserAgent: userAgent,
-		ClientIP:  clientIP,
+		UserAgent: clientMeta.UserAgent,
+		ClientIP:  clientMeta.IP,
 	})
 	if err != nil {
 		return err
 	}
 
-	// Set Refresh Token as an HttpOnly cookie
+	// Use tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-
-	// Respond
 	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
 
 	return nil
