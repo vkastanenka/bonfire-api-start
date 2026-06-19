@@ -13,18 +13,12 @@ import (
 
 // Login
 func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
-	// Set up invalid params for error handling
-	invalidParams := apperr.WithInvalidParams([]apperr.InvalidParam{
-		{Name: "email", Reason: ErrCredentialsInvalid},
-		{Name: "password", Reason: ErrCredentialsInvalid},
-	})
-
 	// Fetch user credentials
 	userAuth, err := s.store.UserGetAuthCredentials(ctx, r.Email)
 	if err != nil {
 		// User not found
 		if repository.IsNotFoundError(err) {
-			return LoginResult{}, apperr.New(apperr.CodeNotFound, ErrCredentialsInvalid, invalidParams)
+			return LoginResult{}, NewInvalidCredentialsErr()
 		}
 
 		return LoginResult{}, apperr.NewDBError(err)
@@ -33,7 +27,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	// Check password
 	err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password)
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeUnauthenticated, ErrCredentialsInvalid, invalidParams)
+		return LoginResult{}, NewInvalidCredentialsErr()
 	}
 
 	// Convert pgtype.UUID to uuid.UUID

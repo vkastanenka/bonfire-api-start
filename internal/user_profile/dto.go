@@ -7,16 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserProfileResponse struct {
+type UserProfileView struct {
 	UserID      uuid.UUID `json:"user_id"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	DisplayName string    `json:"display_name"`
 }
 
-// CreateUserProfileResponse
-func CreateUserProfileResponse(row repository.UserProfile) UserProfileResponse {
-	return UserProfileResponse{
+func NewUserProfileView(row repository.UserProfile) UserProfileView {
+	return UserProfileView{
 		UserID:      uuid.UUID(row.UserID.Bytes),
 		CreatedAt:   row.CreatedAt.Time,
 		UpdatedAt:   row.UpdatedAt.Time,

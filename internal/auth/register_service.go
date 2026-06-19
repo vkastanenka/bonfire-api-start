@@ -12,9 +12,8 @@ import (
 
 // RegisterService
 func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
-	// Define user DTO
-	var userResponse user.UserResponse
-	var userProfileResponse user_profile.UserProfileResponse
+	// Define result
+	var result RegisterResult
 
 	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
@@ -22,43 +21,18 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 		Username: r.Username,
 	})
 	if err != nil {
-		return RegisterResult{
-			User:        user.UserResponse{},
-			UserProfile: user_profile.UserProfileResponse{},
-		}, apperr.NewDBError(err)
+		return RegisterResult{}, apperr.NewDBError(err)
 	}
 
-	// Append errors if credential conflict
-	var availabilityErrors []apperr.ErrorOption
-	if !availability.EmailAvailable {
-		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("email", ErrEmailTaken))
-	}
-	if !availability.UsernameAvailable {
-		availabilityErrors = append(availabilityErrors, apperr.WithInvalidParam("username", ErrUsernameTaken))
-	}
-
-	// If credential conflicts, respond with error
-	if len(availabilityErrors) > 0 {
-		return RegisterResult{
-				User:        user.UserResponse{},
-				UserProfile: user_profile.UserProfileResponse{},
-			}, apperr.New(
-				apperr.CodeConflict,
-				ErrRegFailed,
-				availabilityErrors...,
-			)
+	// Cleanly handle conflict
+	if !availability.EmailAvailable || !availability.UsernameAvailable {
+		return RegisterResult{}, NewRegisterConflictErr(availability.EmailAvailable, availability.UsernameAvailable)
 	}
 
 	// Hash password
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
-		return RegisterResult{
-				User:        user.UserResponse{},
-				UserProfile: user_profile.UserProfileResponse{},
-			}, apperr.New(apperr.CodeInternal,
-				ErrHashPassword,
-				apperr.WithErr(err),
-			)
+		return RegisterResult{}, NewHashPasswordErr(err)
 	}
 	passwordHash := string(hashedPasswordBytes)
 
@@ -97,24 +71,19 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 			return err
 		}
 
-		// Set response DTOs
-		userResponse = user.CreateUserResponse(userRow)
-		userProfileResponse = user_profile.CreateUserProfileResponse(userProfileRow)
+		result = RegisterResult{
+			User:        user.NewUserView(userRow),
+			UserProfile: user_profile.NewUserProfileView(userProfileRow),
+		}
 
 		return nil
 	})
 
 	// Handle tx errors
 	if txErr != nil {
-		return RegisterResult{
-			User:        user.UserResponse{},
-			UserProfile: user_profile.UserProfileResponse{},
-		}, apperr.NewDBError(txErr)
+		return RegisterResult{}, apperr.NewDBError(txErr)
 	}
 
-	// Return created resources
-	return RegisterResult{
-		User:        userResponse,
-		UserProfile: userProfileResponse,
-	}, nil
+	// Return result
+	return result, nil
 }

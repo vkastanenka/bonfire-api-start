@@ -30,6 +30,6 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User        user.UserResponse                `json:"user"`
-	UserProfile user_profile.UserProfileResponse `json:"user_profile"`
+	User        user.UserView                `json:"user"`
+	UserProfile user_profile.UserProfileView `json:"user_profile"`
 }

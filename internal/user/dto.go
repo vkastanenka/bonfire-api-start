@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserResponse struct {
+type UserView struct {
 	ID         uuid.UUID  `json:"id"`
 	Email      string     `json:"email"`
 	Username   string     `json:"username"`
@@ -16,15 +16,14 @@ type UserResponse struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
-// CreateUserResponse translates a raw sqlc DB user row into a public UserResponse DTO.
-func CreateUserResponse(row repository.User) UserResponse {
+func NewUserView(row repository.User) UserView {
 	var verifiedAt *time.Time
 	if row.VerifiedAt.Valid {
 		t := row.VerifiedAt.Time
 		verifiedAt = &t
 	}
 
-	return UserResponse{
+	return UserView{
 		ID:         uuid.UUID(row.ID.Bytes),
 		Email:      row.Email,
 		Username:   row.Username,
