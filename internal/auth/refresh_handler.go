@@ -15,7 +15,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Rotate access token
-	tokens, err := h.service.RotateTokens(r.Context(), RefreshParams{
+	tokens, err := h.service.Refresh(r.Context(), RefreshParams{
 		RefreshToken: cookie.Value,
 	})
 	if err != nil {

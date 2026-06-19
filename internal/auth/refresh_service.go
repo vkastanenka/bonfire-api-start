@@ -11,7 +11,7 @@ import (
 )
 
 // RotateTokens
-func (s *AuthService) RotateTokens(ctx context.Context, r RefreshParams) (RefreshResult, error) {
+func (s *AuthService) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
 	// Check old token
 	claims, err := s.tokenManager.VerifyJWT(r.RefreshToken, s.tokenConfig.RefreshSecret)
 	if err != nil {
