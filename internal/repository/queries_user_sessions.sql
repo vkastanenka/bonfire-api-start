@@ -13,6 +13,16 @@ WHERE
     refresh_token = $1
 LIMIT 1;
 
+-- name: UserSessionGetByID :one
+SELECT
+    *
+FROM
+    user_sessions
+WHERE
+    id = $1
+LIMIT 1;
+
+
 -- name: UserSessionListByUser :many
 SELECT
     *
@@ -46,8 +56,7 @@ WHERE
 UPDATE
     user_sessions
 SET
-    is_blocked = TRUE,
-    updated_at = CURRENT_TIMESTAMP
+    is_blocked = TRUE
 WHERE
     id = $1;
 

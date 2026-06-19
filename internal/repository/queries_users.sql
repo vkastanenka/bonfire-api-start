@@ -4,7 +4,7 @@ INSERT INTO users(email, username, password_hash)
 RETURNING
     *;
 
--- name: UserGet :one
+-- name: UserGetByID :one
 SELECT
     *
 FROM

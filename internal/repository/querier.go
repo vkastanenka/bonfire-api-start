@@ -33,9 +33,9 @@ type Querier interface {
 	UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error)
 	UserDisableTOTP(ctx context.Context, id pgtype.UUID) error
 	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) error
-	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetAuthCredentials(ctx context.Context, email string) (UserGetAuthCredentialsRow, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
+	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByUsername(ctx context.Context, username string) (User, error)
 	UserGetTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error)
 	UserListUnverified(ctx context.Context) ([]UserListUnverifiedRow, error)
@@ -50,6 +50,7 @@ type Querier interface {
 	UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error
 	UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error
 	UserSessionGet(ctx context.Context, refreshToken string) (UserSession, error)
+	UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserSession, error)
 	UserSessionListByUser(ctx context.Context, userID pgtype.UUID) ([]UserSession, error)
 	UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error
 	UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error

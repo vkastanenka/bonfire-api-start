@@ -124,28 +124,32 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// RefreshToken handles requests to issue rotated access and refresh tokens
-func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) error {
-	// 1. Extract the old refresh token from the HttpOnly cookie
+type RotateTokensResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RotateTokens rotates access and refresh tokens
+func (h *AuthHandler) RotateTokens(w http.ResponseWriter, r *http.Request) error {
+	// Check refresh token
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, RefreshTokenMissingMsg)
 	}
 
-	// 2. Process the rotation request
-	tokens, err := h.service.RefreshAccessToken(r.Context(), cookie.Value)
+	// Rotate access token
+	tokens, err := h.service.RotateTokens(r.Context(), cookie.Value)
 	if err != nil {
 		return err
 	}
 
-	// 3. Set the NEW Refresh Token in the HttpOnly cookie (overwriting the old one)
-	httpio.SetRefreshTokenCookie(w, tokens["refresh_token"])
+	// Set new refresh token in header
+	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
-	// 4. Respond with the fresh access token
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"message":      RefreshTokenOkMsg,
-		"access_token": tokens["access_token"],
-	})
+	// Respond with access token
+	httpio.RespondOK(w, map[string]string{
+		"access_token": tokens.AccessToken,
+	}, RefreshTokenOkMsg)
 
 	return nil
 }

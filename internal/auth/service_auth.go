@@ -8,12 +8,10 @@ import (
 	"bonfire-api/internal/worker"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -173,19 +171,19 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 		return LoginResponse{}, err
 	}
 
-	// Pre-generate the Session ID (UUIDv7) to break the dependency cycle
+	// Generate session ID
 	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResponse{}, err
 	}
 
-	// 4. Generate Refresh Token (7 days) embedding the pre-generated sessionID
+	// Generate Refresh Token (7 days)
 	refreshToken, err := s.generateRefreshToken(userID, sessionID)
 	if err != nil {
 		return LoginResponse{}, err
 	}
 
-	// 5. Store the session in the database using the explicit sessionID
+	// Create user session
 	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
 		ID:           pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID:       userAuth.ID,
@@ -202,74 +200,98 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent strin
 		return LoginResponse{}, apperr.NewDBError(err)
 	}
 
-	// 6. Return the tokens
+	// Return the tokens
 	return LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
 }
 
-// RefreshAccessToken validates the refresh token, rotates it, and issues fresh tokens.
-func (s *AuthService) RefreshAccessToken(ctx context.Context, oldRefreshToken string) (map[string]string, error) {
-	// 1. Cryptographically verify the old refresh token
-	claims, err := s.tokenManager.VerifyJWT(oldRefreshToken, s.tokenConfig.RefreshSecret)
+// RotateTokens
+func (s *AuthService) RotateTokens(ctx context.Context, oldTokenString string) (RotateTokensResponse, error) {
+	// Check old token
+	claims, err := s.tokenManager.VerifyJWT(oldTokenString, s.tokenConfig.RefreshSecret)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired refresh token.")
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired session.")
 	}
 
-	// 2. Look up the session using the old token
-	session, err := s.store.UserSessionGet(ctx, oldRefreshToken)
+	// Check session
+	sessionIDStr := claims.GetString("sid")
+	if sessionIDStr == "" {
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Malformed session payload.")
+	}
+
+	// Parse session id
+	sessionUUID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.New(apperr.CodeUnauthenticated, "Session not found or token already consumed.")
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid session identifier.")
+	}
+
+	// Get user session
+	session, err := s.store.UserSessionGetByID(ctx, pgtype.UUID{Bytes: sessionUUID, Valid: true})
+	if err != nil {
+		if repository.IsNotFoundError(err) {
+			return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Session no longer exists.")
 		}
-		return nil, apperr.New(apperr.CodeInternal, "An unexpected error occurred while validating your session.", apperr.WithErr(err))
+		return RotateTokensResponse{}, apperr.NewDBError(err)
 	}
 
-	// 3. Validate the session state
+	// Check for an un-rotated token
+	if session.RefreshToken != oldTokenString {
+		_ = s.store.UserSessionMarkBlocked(ctx, session.ID)
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Security breach detected. Session revoked.")
+	}
+
+	// Check if session blocked
 	if session.IsBlocked {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Your session has been blocked.")
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Access denied. Session is blocked.")
 	}
 
-	if claims.UserID != uuid.UUID(session.UserID.Bytes) {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Session identity mismatch.")
-	}
-
+	// Check if session expired
 	if time.Now().After(session.ExpiresAt.Time) {
-		return nil, apperr.New(apperr.CodeUnauthenticated, "Session expired. Please log in again.")
+		return RotateTokensResponse{}, apperr.New(apperr.CodeUnauthenticated, "Session expired. Please log in again.")
 	}
 
-	// 4. Issue a fresh Access Token (15 minutes)
-	accessDuration := 15 * time.Minute
+	// Format userID
 	userID := uuid.UUID(session.UserID.Bytes)
 
-	newAccessToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.AccessSecret, accessDuration)
+	// Get userRow
+	userRow, err := s.store.UserGetByID(ctx, session.UserID)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new access token.", apperr.WithErr(err))
+		return RotateTokensResponse{}, apperr.NewDBError(err)
 	}
 
-	// 5. Issue a fresh Refresh Token (Reset the 7-day clock)
-	refreshDuration := 7 * 24 * time.Hour
-	newRefreshToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.RefreshSecret, refreshDuration)
+	userIsVerified := userRow.VerifiedAt.Valid
+	userRole := string(userRow.Role)
+
+	// Generate new access token
+	newAccessToken, err := s.generateAccessToken(userID, userRole, userIsVerified)
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to generate new refresh token.", apperr.WithErr(err))
+		return RotateTokensResponse{}, err
 	}
 
-	// 6. ROTATION: Update the database with the new refresh token
+	// Generate new refresh token
+	newRefreshToken, err := s.generateRefreshToken(userID, sessionUUID)
+	if err != nil {
+		return RotateTokensResponse{}, err
+	}
+
+	// Update refresh token
 	err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
 		ID:           session.ID,
 		RefreshToken: newRefreshToken,
 		ExpiresAt: pgtype.Timestamptz{
-			Time:  time.Now().Add(refreshDuration),
+			Time:  time.Now().Add(7 * 24 * time.Hour),
 			Valid: true,
 		},
 	})
 	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to rotate session tokens.", apperr.WithErr(err))
+		return RotateTokensResponse{}, apperr.NewDBError(err)
 	}
 
-	return map[string]string{
-		"access_token":  newAccessToken,
-		"refresh_token": newRefreshToken,
+	// Return new tokens
+	return RotateTokensResponse{
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshToken,
 	}, nil
 }

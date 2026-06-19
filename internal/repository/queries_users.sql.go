@@ -151,35 +151,6 @@ func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) 
 	return err
 }
 
-const userGet = `-- name: UserGet :one
-SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
-FROM
-    users
-WHERE
-    id = $1
-LIMIT 1
-`
-
-func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, userGet, id)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Email,
-		&i.Username,
-		&i.PasswordHash,
-		&i.IsTotpEnabled,
-		&i.TotpSecret,
-		&i.VerifiedAt,
-		&i.LastVerificationSentAt,
-		&i.Role,
-	)
-	return i, err
-}
-
 const userGetAuthCredentials = `-- name: UserGetAuthCredentials :one
 SELECT
     id,
@@ -228,6 +199,35 @@ LIMIT 1
 
 func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, userGetByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.IsTotpEnabled,
+		&i.TotpSecret,
+		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
+		&i.Role,
+	)
+	return i, err
+}
+
+const userGetByID = `-- name: UserGetByID :one
+SELECT
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+FROM
+    users
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userGetByID, id)
 	var i User
 	err := row.Scan(
 		&i.ID,

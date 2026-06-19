@@ -115,6 +115,34 @@ func (q *Queries) UserSessionGet(ctx context.Context, refreshToken string) (User
 	return i, err
 }
 
+const userSessionGetByID = `-- name: UserSessionGetByID :one
+SELECT
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
+FROM
+    user_sessions
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserSession, error) {
+	row := q.db.QueryRow(ctx, userSessionGetByID, id)
+	var i UserSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.LastSeenAt,
+		&i.RefreshToken,
+		&i.IsBlocked,
+		&i.ClientIp,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
 const userSessionListByUser = `-- name: UserSessionListByUser :many
 SELECT
     id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
@@ -162,8 +190,7 @@ const userSessionMarkBlocked = `-- name: UserSessionMarkBlocked :exec
 UPDATE
     user_sessions
 SET
-    is_blocked = TRUE,
-    updated_at = CURRENT_TIMESTAMP
+    is_blocked = TRUE
 WHERE
     id = $1
 `
