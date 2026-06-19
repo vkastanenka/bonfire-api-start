@@ -42,8 +42,9 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 // RespondOK sends a standard 200 OK response with the wrapped data.
-func RespondOK[T any](w http.ResponseWriter, data T) {
+func RespondOK[T any](w http.ResponseWriter, data T, message string) {
 	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
+		Message: message,
 		Data: data,
 	})
 }

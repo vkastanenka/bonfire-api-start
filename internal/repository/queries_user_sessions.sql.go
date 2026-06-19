@@ -13,13 +13,14 @@ import (
 )
 
 const userSessionCreate = `-- name: UserSessionCreate :one
-INSERT INTO user_sessions(user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO user_sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING
     id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
 `
 
 type UserSessionCreateParams struct {
+	ID           pgtype.UUID        `json:"id"`
 	UserID       pgtype.UUID        `json:"user_id"`
 	RefreshToken string             `json:"refresh_token"`
 	UserAgent    string             `json:"user_agent"`
@@ -30,6 +31,7 @@ type UserSessionCreateParams struct {
 
 func (q *Queries) UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error) {
 	row := q.db.QueryRow(ctx, userSessionCreate,
+		arg.ID,
 		arg.UserID,
 		arg.RefreshToken,
 		arg.UserAgent,

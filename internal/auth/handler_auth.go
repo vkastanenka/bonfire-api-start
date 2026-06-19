@@ -101,7 +101,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Extract client IP and User-Agent
-	clientIP := r.RemoteAddr
+	clientIP := httpio.GetClientIP(r, false)
 	userAgent := r.UserAgent()
 
 	// Login user, get tokens
@@ -117,10 +117,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"message":      LoginOkMsg,
+	httpio.RespondOK(w, map[string]string{
 		"access_token": tokens.AccessToken,
-	})
+	}, LoginOkMsg)
 
 	return nil
 }

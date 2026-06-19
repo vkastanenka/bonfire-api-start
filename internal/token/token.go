@@ -9,31 +9,54 @@ import (
 	"github.com/google/uuid"
 )
 
-// Manager defines the contract for token operations
+// Manager defines the contract for token operations, accepting arbitrary custom claims
 type Manager interface {
 	VerifyJWT(tokenString string, secret string) (*Claims, error)
-	GenerateJWT(userID uuid.UUID, secret string, duration time.Duration) (string, error)
+	GenerateJWT(userID uuid.UUID, secret string, duration time.Duration, customClaims map[string]any) (string, error)
 }
 
-// Claims defines the JWT payload structure
+// Claims defines the JWT payload structure.
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID uuid.UUID `json:"user_id"`
-	Flags  int64     `json:"flags"`
+	UserID uuid.UUID      `json:"user_id"`
+	Flags  int64          `json:"flags,omitempty"`
+	Extra  map[string]any `json:"extra,omitempty"` // Allows adding any fields dynamically
 }
 
-// JWTManager implements the Manager interface
+// Helper methods to make grabbing custom data out of validated claims effortless
+func (c *Claims) GetString(key string) string {
+	if c.Extra == nil {
+		return ""
+	}
+	val, ok := c.Extra[key].(string)
+	if !ok {
+		return ""
+	}
+	return val
+}
+
+func (c *Claims) GetBool(key string) bool {
+	if c.Extra == nil {
+		return false
+	}
+	val, ok := c.Extra[key].(bool)
+	if !ok {
+		return false
+	}
+	return val
+}
+
 type JWTManager struct{}
 
-// NewJWTManager creates a new instance of JWTManager
 func NewJWTManager() *JWTManager {
 	return &JWTManager{}
 }
 
-// GenerateJWT creates a new token for a given user and duration
-func (m *JWTManager) GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration) (string, error) {
+// GenerateJWT creates a new token accepting a flexible customClaims map
+func (m *JWTManager) GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration, customClaims map[string]any) (string, error) {
 	claims := Claims{
 		UserID: userID,
+		Extra:  customClaims, // Pass your scalable map directly here
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -45,10 +68,8 @@ func (m *JWTManager) GenerateJWT(userID uuid.UUID, secretKey string, duration ti
 	return token.SignedString([]byte(secretKey))
 }
 
-// VerifyJWT parses and validates a JWT string, returning its claims if successful.
 func (m *JWTManager) VerifyJWT(tokenString string, secretKey string) (*Claims, error) {
 	keyFunc := func(token *jwt.Token) (interface{}, error) {
-		// Ensure the signing method is what we expect (HMAC)
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}

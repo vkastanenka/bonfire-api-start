@@ -138,7 +138,7 @@ type LoginInput struct {
 }
 
 // Login
-func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent, clientIP string) (LoginResponse, error) {
+func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent string, clientIP netip.Addr) (LoginResponse, error) {
 	// Set up invalid params for error handling
 	invalidParams := apperr.WithInvalidParams([]apperr.InvalidParam{
 		{Name: "email", Reason: "Invalid credentials."},
@@ -150,44 +150,48 @@ func (s *AuthService) Login(ctx context.Context, req LoginInput, userAgent, clie
 	if err != nil {
 		// User not found
 		if repository.IsNotFoundError(err) {
-			return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
+			return LoginResponse{}, apperr.New(apperr.CodeNotFound, "Invalid credentials.", invalidParams)
 		}
 
 		return LoginResponse{}, apperr.NewDBError(err)
 	}
 
-	// 2. Compare the provided password with the stored hash
+	// Check password
 	err = bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(req.Password))
 	if err != nil {
 		return LoginResponse{}, apperr.New(apperr.CodeUnauthenticated, "Invalid credentials.", invalidParams)
 	}
 
-	// Convert pgtype.UUID to uuid.UUID by passing the underlying 16-byte array
+	// Convert pgtype.UUID to uuid.UUID
 	userID := uuid.UUID(userAuth.ID.Bytes)
+	userIsVerified := userAuth.VerifiedAt.Valid
+	userRole := string(userAuth.Role)
 
-	// 3. Generate Access Token (15 minutes)
-	accessToken, err := s.generateAccessToken(userID)
+	// Generate Access Token (15 minutes)
+	accessToken, err := s.generateAccessToken(userID, userRole, userIsVerified)
 	if err != nil {
 		return LoginResponse{}, err
 	}
 
-	// 4. Generate Refresh Token (7 days)
-	refreshToken, err := s.generateRefreshToken(userID)
+	// Pre-generate the Session ID (UUIDv7) to break the dependency cycle
+	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResponse{}, err
 	}
 
-	ipAddr, err := netip.ParseAddr(clientIP)
+	// 4. Generate Refresh Token (7 days) embedding the pre-generated sessionID
+	refreshToken, err := s.generateRefreshToken(userID, sessionID)
 	if err != nil {
-		return LoginResponse{}, apperr.New(apperr.CodeInvalidInput, "Invalid IP address format.", apperr.WithErr(err))
+		return LoginResponse{}, err
 	}
 
-	// 5. Store the session in the database
+	// 5. Store the session in the database using the explicit sessionID
 	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
+		ID:           pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID:       userAuth.ID,
 		RefreshToken: refreshToken,
 		UserAgent:    userAgent,
-		ClientIp:     ipAddr,
+		ClientIp:     clientIP,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),

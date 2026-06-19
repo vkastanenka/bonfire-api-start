@@ -35,7 +35,10 @@ LIMIT 1;
 SELECT
     id,
     password_hash,
-    is_totp_enabled
+    is_totp_enabled,
+    verified_at,
+    role
+
 FROM
     users
 WHERE
