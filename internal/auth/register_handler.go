@@ -24,7 +24,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Respond
-	httpio.RespondCreated(w, data, RegisterOkMsg)
+	httpio.RespondCreated(w, data, RegisterOk)
 
 	return nil
 }

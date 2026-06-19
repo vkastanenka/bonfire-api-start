@@ -24,7 +24,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond with access token
-	httpio.RespondOK(w, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOkMsg)
+	httpio.RespondOK(w, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOk)
 
 	return nil
 }

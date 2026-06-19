@@ -32,7 +32,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 
 	// Respond
-	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOkMsg)
+	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
 
 	return nil
 }

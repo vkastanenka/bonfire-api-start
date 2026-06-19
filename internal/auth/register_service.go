@@ -56,7 +56,7 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 				User:        user.UserResponse{},
 				UserProfile: user_profile.UserProfileResponse{},
 			}, apperr.New(apperr.CodeInternal,
-				ErrPasswordHashing,
+				ErrHashPassword,
 				apperr.WithErr(err),
 			)
 	}
