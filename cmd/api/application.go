@@ -10,6 +10,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/health"
+	"bonfire-api/internal/outbox_events"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/user_profile"
@@ -27,10 +28,11 @@ type Application struct {
 	RateLimiter  *redis_rate.Limiter
 	TokenManager token.Manager
 	Handlers     struct {
-		Auth        *auth.AuthHandler
-		Health      *health.Handler
-		User        *user.Handler
-		UserProfile *user_profile.Handler
+		Auth         *auth.AuthHandler
+		Health       *health.Handler
+		OutboxEvents *outbox_events.Handler
+		User         *user.Handler
+		UserProfile  *user_profile.Handler
 	}
 }
 

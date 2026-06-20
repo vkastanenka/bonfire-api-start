@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 )
@@ -56,19 +57,25 @@ type ListReq struct {
 
 // List
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ListReq](w, r, h.val)
-	if err != nil {
-		return err
-	}
+	// Parse Query Parameters
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
 
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 20
+	// Default values
+	var limit int32 = 20
+	var offset int32 = 0
+
+	// Safely parse strings to int32
+	if l, err := strconv.ParseInt(limitStr, 10, 32); err == nil && l > 0 {
+		limit = int32(l)
+	}
+	if o, err := strconv.ParseInt(offsetStr, 10, 32); err == nil && o >= 0 {
+		offset = int32(o)
 	}
 
 	params := repository.OutboxEventListParams{
 		Limit:  limit,
-		Offset: req.Offset,
+		Offset: offset,
 	}
 
 	events, err := h.service.List(r.Context(), params)
@@ -97,12 +104,15 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 
 // GetByID
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[GetByIDReq](w, r, h.val)
+	// 1. Extract ID from URL
+	idStr := r.PathValue("id")
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return err
+		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
 	}
 
-	row, err := h.service.GetByID(r.Context(), req.ID)
+	// 2. Call service directly, no JSON binding needed!
+	row, err := h.service.GetByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
@@ -111,15 +121,23 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// UpdateReq (Removed ID field)
 type UpdateReq struct {
-	ID          uuid.UUID `json:"id" validate:"required"`
-	EventType   string    `json:"event_type" validate:"required"`
-	Payload     []byte    `json:"payload" validate:"required"`
-	MaxAttempts int32     `json:"max_attempts"`
+	EventType   string `json:"event_type" validate:"required"`
+	Payload     []byte `json:"payload" validate:"required"`
+	MaxAttempts int32  `json:"max_attempts"`
 }
 
 // UpdateByID
 func (h *Handler) UpdateByID(w http.ResponseWriter, r *http.Request) error {
+	// 1. Extract ID from URL
+	idStr := r.PathValue("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+	}
+
+	// 2. Bind the rest of the payload from the JSON body
 	req, err := httpio.BindJSON[UpdateReq](w, r, h.val)
 	if err != nil {
 		return err
@@ -131,7 +149,8 @@ func (h *Handler) UpdateByID(w http.ResponseWriter, r *http.Request) error {
 		MaxAttempts: req.MaxAttempts,
 	}
 
-	row, err := h.service.UpdateByID(r.Context(), req.ID, params)
+	// 3. Pass the parsed URL ID and the JSON params to the service
+	row, err := h.service.UpdateByID(r.Context(), id, params)
 	if err != nil {
 		return err
 	}
@@ -142,12 +161,15 @@ func (h *Handler) UpdateByID(w http.ResponseWriter, r *http.Request) error {
 
 // DeleteByID
 func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[GetByIDReq](w, r, h.val)
+	// 1. Extract ID from URL
+	idStr := r.PathValue("id")
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return err
+		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
 	}
 
-	err = h.service.DeleteByID(r.Context(), req.ID)
+	// 2. Call service
+	err = h.service.DeleteByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
