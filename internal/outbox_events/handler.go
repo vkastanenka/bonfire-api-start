@@ -30,12 +30,17 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
 
 // Create
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[repository.OutboxEventCreateParams](w, r, h.val)
+	req, err := httpio.BindJSON[CreateReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	row, err := h.service.Create(r.Context(), req)
+	params := repository.OutboxEventCreateParams{
+		EventType: req.EventType,
+		Payload:   req.Payload,
+	}
+
+	row, err := h.service.Create(r.Context(), params)
 	if err != nil {
 		return err
 	}
@@ -106,24 +111,32 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+type UpdateReq struct {
+	ID          uuid.UUID `json:"id" validate:"required"`
+	EventType   string    `json:"event_type" validate:"required"`
+	Payload     []byte    `json:"payload" validate:"required"`
+	MaxAttempts int32     `json:"max_attempts"`
+}
+
 // UpdateByID
 func (h *Handler) UpdateByID(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[repository.OutboxEventUpdateByIDParams](w, r, h.val)
+	req, err := httpio.BindJSON[UpdateReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	standardUUID, err := uuid.FromBytes(req.ID.Bytes[:])
-	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+	params := repository.OutboxEventUpdateByIDParams{
+		EventType:   req.EventType,
+		Payload:     req.Payload,
+		MaxAttempts: req.MaxAttempts,
 	}
 
-	row, err := h.service.UpdateByID(r.Context(), standardUUID, req)
+	row, err := h.service.UpdateByID(r.Context(), req.ID, params)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, row, "Created outbox event.")
+	httpio.RespondOK(w, row, "Updated outbox event.")
 	return nil
 }
 
@@ -139,8 +152,6 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	w.WriteHeader(http.StatusNoContent)
-
-	httpio.RespondOK(w, struct{}{}, "Get by id ok.")
+	httpio.RespondOK(w, struct{}{}, "Delete by id ok.")
 	return nil
 }
