@@ -1,8 +1,7 @@
--- name: OutboxEventCreate :one
-INSERT INTO outbox_events(created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error)
-    VALUES (COALESCE(sqlc.narg('created_at')::timestamptz, CURRENT_TIMESTAMP), COALESCE(sqlc.narg('updated_at')::timestamptz, CURRENT_TIMESTAMP), sqlc.arg('event_type')::varchar, sqlc.arg('payload')::jsonb, sqlc.narg('processed_at')::timestamptz, COALESCE(sqlc.narg('attempts')::int, 0), COALESCE(sqlc.narg('max_attempts')::int, 5), COALESCE(sqlc.narg('next_attempt_at')::timestamptz, CURRENT_TIMESTAMP), sqlc.narg('last_error')::text)
-RETURNING
-    *;
+-- name: OutboxEventCreate :one (TODO: Narrow implementation)
+INSERT INTO outbox_events(event_type, payload)
+VALUES ($1, $2)
+RETURNING *;
 
 -- name: OutboxEventList :many
 SELECT
