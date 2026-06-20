@@ -52,7 +52,7 @@ func (s *Service) Count(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// GetById
+// GetByID
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (repository.OutboxEvent, error) {
 	var pgID pgtype.UUID
 	pgID.Bytes = id

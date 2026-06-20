@@ -1,10 +1,13 @@
 package outbox_events
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/validator"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -25,7 +28,7 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// List retrieves a batch of events
+// Create
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	req, err := httpio.BindJSON[repository.OutboxEventCreateParams](w, r, h.val)
 	if err != nil {
@@ -41,114 +44,103 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *Handler) CreateBatch(w http.ResponseWriter, r *http.Request) error {
-	// 1. Bind slice of events
-	req, err := httpio.BindJSON[[]repository.OutboxEventCreateParams](w, r, h.val)
-	if err != nil {
-		return err
-	}
-
-	// 2. Call the service
-	rows, err := h.service.CreateBatch(r.Context(), req)
-	if err != nil {
-		return err
-	}
-
-	// 3. Respond with the created slice
-	httpio.RespondOK(w, rows, "Created outbox events.")
-	return nil
+type ListReq struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
 }
 
-// List retrieves a batch of events
+// List
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	req, err := httpio.BindJSON[ListReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	views, err := h.service.List(r.Context(), ListParams{Limit: req.Limit, Offset: req.Offset})
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	params := repository.OutboxEventListParams{
+		Limit:  limit,
+		Offset: req.Offset,
+	}
+
+	events, err := h.service.List(r.Context(), params)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, views, "Events retrieved.")
+	httpio.RespondOK(w, events, "Events retrieved.")
 	return nil
 }
 
+type CountRes struct {
+	Count int64 `json:"count"`
+}
+
+// Count
+func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
+	count, err := h.service.Count(r.Context())
+	if err != nil {
+		return apperr.NewDBError(err)
+	}
+
+	httpio.RespondOK(w, CountRes{Count: count}, "Count retrieved.")
+	return nil
+}
+
+// GetByID
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	// 1. Bind and Validate
 	req, err := httpio.BindJSON[GetByIDReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	// 2. Call Service
-	view, err := h.service.GetByID(r.Context(), GetByIDParams{ID: req.ID})
+	row, err := h.service.GetByID(r.Context(), req.ID)
 	if err != nil {
 		return err
 	}
 
-	// 3. Respond with the DTO
-	httpio.RespondOK(w, view, "Get by id ok.")
+	httpio.RespondOK(w, row, "Get by id ok.")
 	return nil
 }
 
-// MarkProcessed updates the event status
-func (h *Handler) MarkProcessed(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[IDReq](w, r, h.val)
+// UpdateByID
+func (h *Handler) UpdateByID(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpio.BindJSON[repository.OutboxEventUpdateByIDParams](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	if err := h.service.MarkProcessed(r.Context(), req.ID); err != nil {
+	standardUUID, err := uuid.FromBytes(req.ID.Bytes[:])
+	if err != nil {
+		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+	}
+
+	row, err := h.service.UpdateByID(r.Context(), standardUUID, req)
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, nil, "Event marked as processed.")
+	httpio.RespondOK(w, row, "Created outbox event.")
 	return nil
 }
 
-// RecordFailure updates status after a failed attempt
-func (h *Handler) RecordFailure(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RecordFailureReq](w, r, h.val)
+// DeleteByID
+func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpio.BindJSON[GetByIDReq](w, r, h.val)
 	if err != nil {
 		return err
 	}
 
-	err = h.service.RecordFailure(r.Context(), RecordFailureParams{
-		ID:    req.ID,
-		Error: req.Error,
-	})
+	err = h.service.DeleteByID(r.Context(), req.ID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, nil, "Failure recorded.")
-	return nil
-}
+	w.WriteHeader(http.StatusNoContent)
 
-// MarkDeadLetter manually moves to dead letter queue
-func (h *Handler) MarkDeadLetter(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RecordFailureReq](w, r, h.val)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.MarkDeadLetter(r.Context(), req.ID, req.Error); err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, nil, "Event moved to dead letter.")
-	return nil
-}
-
-// CountPending provides current queue health
-func (h *Handler) CountPending(w http.ResponseWriter, r *http.Request) error {
-	count, err := h.service.CountPending(r.Context())
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, map[string]int64{"count": count}, "Count retrieved.")
+	httpio.RespondOK(w, struct{}{}, "Get by id ok.")
 	return nil
 }
