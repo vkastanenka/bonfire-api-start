@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const userDeleteRequestCount = `-- name: UserDeleteRequestCount :one
+SELECT
+    COUNT(*)
+FROM
+    users
+`
+
+// ==========================================
+// META
+// ==========================================
+func (q *Queries) UserDeleteRequestCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, userDeleteRequestCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const userDeleteRequestCreate = `-- name: UserDeleteRequestCreate :one
 INSERT INTO user_delete_requests(user_id, scheduled_at)
     VALUES ($1, $2)
@@ -23,6 +40,9 @@ type UserDeleteRequestCreateParams struct {
 	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
 }
 
+// ==========================================
+// CREATE
+// ==========================================
 func (q *Queries) UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error) {
 	row := q.db.QueryRow(ctx, userDeleteRequestCreate, arg.UserID, arg.ScheduledAt)
 	var i UserDeleteRequest
@@ -30,17 +50,20 @@ func (q *Queries) UserDeleteRequestCreate(ctx context.Context, arg UserDeleteReq
 	return i, err
 }
 
-const userDeleteRequestDelete = `-- name: UserDeleteRequestDelete :exec
+const userDeleteRequestDeleteByUserID = `-- name: UserDeleteRequestDeleteByUserID :exec
 DELETE FROM user_delete_requests
 WHERE user_id = $1
 `
 
-func (q *Queries) UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userDeleteRequestDelete, userID)
+// ==========================================
+// DELETE
+// ==========================================
+func (q *Queries) UserDeleteRequestDeleteByUserID(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, userDeleteRequestDeleteByUserID, userID)
 	return err
 }
 
-const userDeleteRequestGet = `-- name: UserDeleteRequestGet :one
+const userDeleteRequestGetByUserID = `-- name: UserDeleteRequestGetByUserID :one
 SELECT
     user_id, created_at, scheduled_at
 FROM
@@ -50,8 +73,11 @@ WHERE
 LIMIT 1
 `
 
-func (q *Queries) UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error) {
-	row := q.db.QueryRow(ctx, userDeleteRequestGet, userID)
+// ==========================================
+// GET
+// ==========================================
+func (q *Queries) UserDeleteRequestGetByUserID(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error) {
+	row := q.db.QueryRow(ctx, userDeleteRequestGetByUserID, userID)
 	var i UserDeleteRequest
 	err := row.Scan(&i.UserID, &i.CreatedAt, &i.ScheduledAt)
 	return i, err
@@ -68,6 +94,9 @@ ORDER BY
     scheduled_at ASC
 `
 
+// ==========================================
+// LIST
+// ==========================================
 func (q *Queries) UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, userDeleteRequestListDue)
 	if err != nil {

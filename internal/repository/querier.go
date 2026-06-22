@@ -57,9 +57,25 @@ type Querier interface {
 	// DELETE
 	// ==========================================
 	UserDeleteByID(ctx context.Context, id pgtype.UUID) error
+	// ==========================================
+	// META
+	// ==========================================
+	UserDeleteRequestCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
 	UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error)
-	UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error
-	UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	UserDeleteRequestDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
+	// ==========================================
+	// GET
+	// ==========================================
+	UserDeleteRequestGetByUserID(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error)
+	// ==========================================
+	// LIST
+	// ==========================================
 	UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error)
 	UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error)
 	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) (User, error)
