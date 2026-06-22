@@ -23,8 +23,8 @@ func NewHandler(service *Service) *Handler {
 
 // Ping GET
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
-		"status": "healthy",
+	httpio.RespondJSON(w, http.StatusOK, PingRes{
+		Status: "healthy",
 	})
 
 	return nil

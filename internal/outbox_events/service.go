@@ -145,10 +145,10 @@ func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) error {
 }
 
 // MarkDeadLetter
-func (s *Service) MarkDeadLetter(ctx context.Context, id uuid.UUID, errMsg string) error {
+func (s *Service) MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) error {
 	err := s.store.OutboxEventMarkDeadLetter(ctx, repository.OutboxEventMarkDeadLetterParams{
-		ID:        pgtype.UUID{Bytes: id, Valid: true},
-		LastError: pgtype.Text{String: errMsg, Valid: true},
+		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
+		LastError: pgtype.Text{String: p.Error, Valid: true},
 	})
 	if err != nil {
 		return apperr.NewDBError(err)

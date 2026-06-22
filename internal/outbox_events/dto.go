@@ -9,24 +9,29 @@ import (
 )
 
 // ==========================================
-// REQUEST / PARAMS DTOs
+// HANDLERS
 // ==========================================
 
-// Create (TODO: Create struct for EventType)
-type CreateReq struct {
-	EventType string          `json:"event_type" validate:"required,max=100"`
-	Payload   json.RawMessage `json:"payload" validate:"required"`
+type PingRes struct {
+	Status string `json:"status"`
 }
+
+type CountRes struct {
+	Count int64 `json:"count"`
+}
+
+// ==========================================
+// SERVICES
+// ==========================================
 
 type CreateParams struct {
 	EventType string          `json:"event_type" validate:"required,max=100"`
 	Payload   json.RawMessage `json:"payload" validate:"required"`
 }
 
-// TODO: Refactor into its own file
 type ListParams struct {
 	Limit  int32      `json:"limit"`
-	Cursor *uuid.UUID `json:"cursor"` // Replaced Offset with Cursor for keyset pagination
+	Cursor *uuid.UUID `json:"cursor"`
 }
 
 type RecordFailureParams struct {
@@ -34,13 +39,14 @@ type RecordFailureParams struct {
 	Error string
 }
 
-// ==========================================
-// RESPONSE / VIEW DTOs
-// ==========================================
-
-type CountRes struct {
-	Count int64 `json:"count"`
+type MarkDeadLetterParams struct {
+	ID    uuid.UUID
+	Error string
 }
+
+// ==========================================
+// VIEW
+// ==========================================
 
 type View struct {
 	ID            uuid.UUID       `json:"id"`
@@ -55,10 +61,6 @@ type View struct {
 	ProcessedAt   *time.Time      `json:"processed_at,omitempty"`
 	NextAttemptAt time.Time       `json:"next_attempt_at"`
 }
-
-// ==========================================
-// MAPPERS
-// ==========================================
 
 func NewView(row repository.OutboxEvent) View {
 	status := "pending"
@@ -87,24 +89,4 @@ func NewView(row repository.OutboxEvent) View {
 		ProcessedAt:   processedAt,
 		NextAttemptAt: row.NextAttemptAt.Time,
 	}
-}
-
-type CreateResult struct {
-	View View `json:"view"`
-}
-
-type CreateRes struct {
-	OutboxEvent View `json:"outbox_event"`
-}
-
-type GetByIDReq struct {
-	ID uuid.UUID `json:"id"`
-}
-
-type GetByIDParams struct {
-	ID uuid.UUID `json:"id"`
-}
-
-type GetByIDRes struct {
-	Data uuid.UUID `json:"id"`
 }
