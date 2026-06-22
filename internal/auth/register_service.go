@@ -72,7 +72,7 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 		}
 
 		result = RegisterResult{
-			User:        user.NewUserView(userRow),
+			User:        user.NewView(userRow),
 			UserProfile: user_profile.NewUserProfileView(userProfileRow),
 		}
 

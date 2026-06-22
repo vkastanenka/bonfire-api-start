@@ -31,8 +31,8 @@ type Application struct {
 		Auth         *auth.AuthHandler
 		Health       *health.Handler
 		OutboxEvents *outbox.Handler
-		User         *user.Handler
-		UserProfile  *user_profile.Handler
+		Users        *user.Handler
+		UserProfiles *user_profile.Handler
 	}
 }
 

@@ -84,7 +84,7 @@ func run() error {
 		PasswordResetSecret: cfg.PasswordResetSecret,
 	})
 	outboxEventsService := outbox.NewService(store)
-	userService := user.NewUserService(store)
+	userService := user.NewService(store)
 	userProfileService := user_profile.NewService(store)
 
 	// Setup background workers
@@ -110,14 +110,14 @@ func run() error {
 			Auth         *auth.AuthHandler
 			Health       *health.Handler
 			OutboxEvents *outbox.Handler
-			User         *user.Handler
-			UserProfile  *user_profile.Handler
+			Users        *user.Handler
+			UserProfiles *user_profile.Handler
 		}{
 			Auth:         authHandler,
 			Health:       healthHandler,
 			OutboxEvents: outboxEventsHandler,
-			User:         userHandler,
-			UserProfile:  userProfileHandler,
+			Users:        userHandler,
+			UserProfiles: userProfileHandler,
 		},
 	}
 

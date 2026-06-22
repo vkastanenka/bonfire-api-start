@@ -115,7 +115,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 			break
 		}
 
-		executionErr = w.store.UserMarkVerified(ctx, payload.UserID)
+		_, executionErr = w.store.UserMarkVerified(ctx, payload.UserID)
 
 	// Add other cases here...
 

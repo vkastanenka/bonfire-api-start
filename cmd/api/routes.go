@@ -51,15 +51,22 @@ func (app *Application) routes() http.Handler {
 			publicAuth.Delete("/outbox-events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.DeleteByID))
 			publicAuth.Post("/outbox-events/{id}/reset", httpio.ToHTTP(app.Handlers.OutboxEvents.ResetAttempts))
 
-			// Testing
-			publicAuth.Get("/user/ping", httpio.ToHTTP(app.Handlers.User.Ping))
-			publicAuth.Get("/user/{id}", httpio.ToHTTP(app.Handlers.User.GetByID))
-			publicAuth.Get("/user", httpio.ToHTTP(app.Handlers.User.GetByEmail))
-			publicAuth.Delete("/user", httpio.ToHTTP(app.Handlers.User.DeleteByEmail))
+			// User routes
+			publicAuth.Get("/users/ping", httpio.ToHTTP(app.Handlers.Users.Ping))
+			publicAuth.Get("/users/count", httpio.ToHTTP(app.Handlers.Users.Count))
+			publicAuth.Get("/users/availability", httpio.ToHTTP(app.Handlers.Users.CheckAvailability))
+			publicAuth.Get("/users", httpio.ToHTTP(app.Handlers.Users.List))
+			publicAuth.Get("/users/unverified", httpio.ToHTTP(app.Handlers.Users.ListUnverified))
+			publicAuth.Get("/users/{id}", httpio.ToHTTP(app.Handlers.Users.GetByID))
+			publicAuth.Delete("/users/{id}", httpio.ToHTTP(app.Handlers.Users.DeleteByID))
+			publicAuth.Get("/users/email/{email}", httpio.ToHTTP(app.Handlers.Users.GetByEmail))
+			publicAuth.Delete("/users/email/{email}", httpio.ToHTTP(app.Handlers.Users.DeleteByEmail))
+			publicAuth.Get("/users/username/{username}", httpio.ToHTTP(app.Handlers.Users.GetByUsername))
 
-			publicAuth.Get("/user_profile/ping", httpio.ToHTTP(app.Handlers.UserProfile.Ping))
-			publicAuth.Get("/user_profile/{id}", httpio.ToHTTP(app.Handlers.UserProfile.GetByUserID))
+			publicAuth.Get("/user_profile/ping", httpio.ToHTTP(app.Handlers.UserProfiles.Ping))
+			publicAuth.Get("/user_profile/{id}", httpio.ToHTTP(app.Handlers.UserProfiles.GetByUserID))
 
+			// Auth
 			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))
 			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.Handlers.Auth.VerifyEmail))

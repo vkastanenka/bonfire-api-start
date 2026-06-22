@@ -14,7 +14,7 @@ import (
 // Login
 func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	// Fetch user credentials
-	userAuth, err := s.store.UserGetAuthCredentials(ctx, r.Email)
+	userAuth, err := s.store.UserGetByEmail(ctx, r.Email)
 	if err != nil {
 		return LoginResult{}, apperr.NewDBError(err)
 	}
