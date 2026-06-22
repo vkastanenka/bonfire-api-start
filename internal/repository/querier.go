@@ -35,14 +35,14 @@ type Querier interface {
 	// ==========================================
 	OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error)
 	// Permanently ignores an event that cannot be processed.
-	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
+	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error)
 	// ==========================================
 	// UPDATE
 	// ==========================================
-	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) error
+	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	OutboxEventPurgeProcessed(ctx context.Context) error
-	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) error
-	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) error
+	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
+	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserDelete(ctx context.Context, id pgtype.UUID) error

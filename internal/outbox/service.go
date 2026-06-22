@@ -71,7 +71,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 
 	views := make([]View, len(rows))
 	for i, row := range rows {
-		views[i] = NewView(repository.OutboxEvent(row))
+		views[i] = NewView(row)
 	}
 	return views, nil
 }
@@ -103,8 +103,7 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
 
-	// Assuming sqlc generated a matching struct or reused OutboxEvent
-	return NewView(repository.OutboxEvent(row)), nil
+	return NewView(row), nil
 }
 
 // ==========================================
@@ -112,45 +111,53 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 // ==========================================
 
 // MarkProcessed
-func (s *Service) MarkProcessed(ctx context.Context, id uuid.UUID) error {
+func (s *Service) MarkProcessed(ctx context.Context, id uuid.UUID) (View, error) {
 	pgID := pgtype.UUID{Bytes: id, Valid: true}
-	if err := s.store.OutboxEventMarkProcessed(ctx, pgID); err != nil {
-		return apperr.NewDBError(err, OutboxEvent)
+
+	row, err := s.store.OutboxEventMarkProcessed(ctx, pgID)
+	if err != nil {
+		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-	return nil
+
+	return NewView(row), nil
 }
 
 // RecordFailure
-func (s *Service) RecordFailure(ctx context.Context, p RecordFailureParams) error {
-	err := s.store.OutboxEventRecordFailure(ctx, repository.OutboxEventRecordFailureParams{
+func (s *Service) RecordFailure(ctx context.Context, p RecordFailureParams) (View, error) {
+	row, err := s.store.OutboxEventRecordFailure(ctx, repository.OutboxEventRecordFailureParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.Error, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewDBError(err, OutboxEvent)
+		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-	return nil
+
+	return NewView(row), nil
 }
 
 // ResetAttempts
-func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) error {
+func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) (View, error) {
 	pgID := pgtype.UUID{Bytes: id, Valid: true}
-	if err := s.store.OutboxEventResetAttempts(ctx, pgID); err != nil {
-		return apperr.NewDBError(err, OutboxEvent)
+
+	row, err := s.store.OutboxEventResetAttempts(ctx, pgID)
+	if err != nil {
+		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-	return nil
+
+	return NewView(row), nil
 }
 
 // MarkDeadLetter
-func (s *Service) MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) error {
-	err := s.store.OutboxEventMarkDeadLetter(ctx, repository.OutboxEventMarkDeadLetterParams{
+func (s *Service) MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) (View, error) {
+	row, err := s.store.OutboxEventMarkDeadLetter(ctx, repository.OutboxEventMarkDeadLetterParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.Error, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewDBError(err, OutboxEvent)
+		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-	return nil
+
+	return NewView(row), nil
 }
 
 // ==========================================

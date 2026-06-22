@@ -12,8 +12,6 @@ const (
 	ListOK           = "List OK."
 	GetByIDOK        = "Get by ID OK."
 	ResetAttemptsOK  = "Reset attempts OK."
-	DeleteByIDOK     = "Delete by ID OK."
-	PurgeProcessedOK = "Delete by ID OK."
 )
 
 // Error messages

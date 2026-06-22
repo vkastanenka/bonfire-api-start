@@ -77,7 +77,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 		nextCursor = &strCursor
 	}
 
-	httpio.RespondCursorList(w, r, events, httpio.CursorPagination{
+	httpio.RespondCursorList(w, r, events, ListOK, httpio.CursorPagination{
 		NextCursor: nextCursor,
 		PageSize:   int32(len(events)),
 	})
@@ -96,12 +96,12 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	event, err := h.service.GetByID(r.Context(), id)
+	row, err := h.service.GetByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, event, GetByIDOK)
+	httpio.RespondOK(w, r, row, GetByIDOK)
 	return nil
 }
 
@@ -117,11 +117,12 @@ func (h *Handler) ResetAttempts(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	if err := h.service.ResetAttempts(r.Context(), id); err != nil {
+	row, err := h.service.ResetAttempts(r.Context(), id)
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, struct{}{}, ResetAttemptsOK)
+	httpio.RespondOK(w, r, row, ResetAttemptsOK)
 	return nil
 }
 
@@ -141,7 +142,7 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, struct{}{}, DeleteByIDOK)
+	httpio.RespondNoContent(w)
 	return nil
 }
 
@@ -150,6 +151,6 @@ func (h *Handler) PurgeProcessed(w http.ResponseWriter, r *http.Request) error {
 	if err := h.service.PurgeProcessed(r.Context()); err != nil {
 		return err
 	}
-	httpio.RespondOK(w, r, struct{}{}, PurgeProcessedOK)
+	httpio.RespondNoContent(w)
 	return nil
 }

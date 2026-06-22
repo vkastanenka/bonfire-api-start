@@ -141,7 +141,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if err := w.store.OutboxEventMarkProcessed(finalizeCtx, event.ID); err != nil {
+	if _, err := w.store.OutboxEventMarkProcessed(finalizeCtx, event.ID); err != nil {
 		slog.Error("failed to finalize successful outbox event", "event_id", event.ID, "error", err)
 	}
 
@@ -165,7 +165,7 @@ func (w *OutboxWorker) handleFailure(event repository.OutboxEvent, err error, is
 		)
 
 		// Actually update the database so it stops fetching this event
-		dbErr := w.store.OutboxEventMarkDeadLetter(finalizeCtx, repository.OutboxEventMarkDeadLetterParams{
+		_, dbErr := w.store.OutboxEventMarkDeadLetter(finalizeCtx, repository.OutboxEventMarkDeadLetterParams{
 			ID:        event.ID,
 			LastError: pgtype.Text{String: err.Error(), Valid: true},
 		})
@@ -179,7 +179,7 @@ func (w *OutboxWorker) handleFailure(event repository.OutboxEvent, err error, is
 			"error", err,
 		)
 
-		dbErr := w.store.OutboxEventRecordFailure(finalizeCtx, repository.OutboxEventRecordFailureParams{
+		_, dbErr := w.store.OutboxEventRecordFailure(finalizeCtx, repository.OutboxEventRecordFailureParams{
 			ID:        event.ID,
 			LastError: pgtype.Text{String: err.Error(), Valid: true},
 		})

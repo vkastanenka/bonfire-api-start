@@ -21,16 +21,7 @@ RETURNING
 -- ==========================================
 -- name: OutboxEventList :many
 SELECT
-    id,
-    created_at,
-    updated_at,
-    event_type,
-    payload,
-    processed_at,
-    attempts,
-    max_attempts,
-    next_attempt_at,
-    last_error
+    *
 FROM
     outbox_events
 WHERE ($1::uuid IS NULL
@@ -74,16 +65,7 @@ RETURNING
 -- ==========================================
 -- name: OutboxEventGetByID :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    event_type,
-    payload,
-    processed_at,
-    attempts,
-    max_attempts,
-    next_attempt_at,
-    last_error
+    *
 FROM
     outbox_events
 WHERE
@@ -92,15 +74,17 @@ WHERE
 -- ==========================================
 -- UPDATE
 -- ==========================================
--- name: OutboxEventMarkProcessed :exec
+-- name: OutboxEventMarkProcessed :one
 UPDATE
     outbox_events
 SET
     processed_at = CURRENT_TIMESTAMP
 WHERE
-    id = $1;
+    id = $1
+RETURNING
+    *;
 
--- name: OutboxEventRecordFailure :exec
+-- name: OutboxEventRecordFailure :one
 UPDATE
     outbox_events
 SET
@@ -108,9 +92,11 @@ SET
     last_error = $2,
     next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1)::int)
 WHERE
-    id = $1;
+    id = $1
+RETURNING
+    *;
 
--- name: OutboxEventResetAttempts :exec
+-- name: OutboxEventResetAttempts :one
 UPDATE
     outbox_events
 SET
@@ -118,9 +104,11 @@ SET
     next_attempt_at = CURRENT_TIMESTAMP,
     last_error = NULL
 WHERE
-    id = $1;
+    id = $1
+RETURNING
+    *;
 
--- name: OutboxEventMarkDeadLetter :exec
+-- name: OutboxEventMarkDeadLetter :one
 -- Permanently ignores an event that cannot be processed.
 UPDATE
     outbox_events
@@ -129,7 +117,9 @@ SET
     last_error = COALESCE($2, 'Manually marked dead letter by operator.'),
     attempts = max_attempts
 WHERE
-    id = $1;
+    id = $1
+RETURNING
+    *;
 
 -- ==========================================
 -- DELETE

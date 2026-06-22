@@ -68,11 +68,15 @@ func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T, messa
 	})
 }
 
-func RespondCursorList[T any](w http.ResponseWriter, r *http.Request, data T, meta CursorPagination) {
+func RespondCursorList[T any](w http.ResponseWriter, r *http.Request, data T, message string, meta CursorPagination) {
 	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
 		Data: data,
 		Meta: meta,
 	})
+}
+
+func RespondNoContent(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // TODO: Deprecate

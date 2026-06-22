@@ -138,16 +138,7 @@ func (q *Queries) OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) err
 
 const outboxEventGetByID = `-- name: OutboxEventGetByID :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    event_type,
-    payload,
-    processed_at,
-    attempts,
-    max_attempts,
-    next_attempt_at,
-    last_error
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 FROM
     outbox_events
 WHERE
@@ -177,16 +168,7 @@ func (q *Queries) OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (Outbo
 
 const outboxEventList = `-- name: OutboxEventList :many
 SELECT
-    id,
-    created_at,
-    updated_at,
-    event_type,
-    payload,
-    processed_at,
-    attempts,
-    max_attempts,
-    next_attempt_at,
-    last_error
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 FROM
     outbox_events
 WHERE ($1::uuid IS NULL
@@ -235,7 +217,7 @@ func (q *Queries) OutboxEventList(ctx context.Context, arg OutboxEventListParams
 	return items, nil
 }
 
-const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :exec
+const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :one
 UPDATE
     outbox_events
 SET
@@ -244,6 +226,8 @@ SET
     attempts = max_attempts
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 `
 
 type OutboxEventMarkDeadLetterParams struct {
@@ -252,26 +236,54 @@ type OutboxEventMarkDeadLetterParams struct {
 }
 
 // Permanently ignores an event that cannot be processed.
-func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter, arg.ID, arg.LastError)
-	return err
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventMarkDeadLetter, arg.ID, arg.LastError)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LastError,
+	)
+	return i, err
 }
 
-const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :exec
+const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :one
 UPDATE
     outbox_events
 SET
     processed_at = CURRENT_TIMESTAMP
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 `
 
 // ==========================================
 // UPDATE
 // ==========================================
-func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkProcessed, id)
-	return err
+func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventMarkProcessed, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LastError,
+	)
+	return i, err
 }
 
 const outboxEventPurgeProcessed = `-- name: OutboxEventPurgeProcessed :exec
@@ -284,7 +296,7 @@ func (q *Queries) OutboxEventPurgeProcessed(ctx context.Context) error {
 	return err
 }
 
-const outboxEventRecordFailure = `-- name: OutboxEventRecordFailure :exec
+const outboxEventRecordFailure = `-- name: OutboxEventRecordFailure :one
 UPDATE
     outbox_events
 SET
@@ -293,6 +305,8 @@ SET
     next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1)::int)
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 `
 
 type OutboxEventRecordFailureParams struct {
@@ -300,12 +314,25 @@ type OutboxEventRecordFailureParams struct {
 	LastError pgtype.Text `json:"last_error"`
 }
 
-func (q *Queries) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) error {
-	_, err := q.db.Exec(ctx, outboxEventRecordFailure, arg.ID, arg.LastError)
-	return err
+func (q *Queries) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventRecordFailure, arg.ID, arg.LastError)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LastError,
+	)
+	return i, err
 }
 
-const outboxEventResetAttempts = `-- name: OutboxEventResetAttempts :exec
+const outboxEventResetAttempts = `-- name: OutboxEventResetAttempts :one
 UPDATE
     outbox_events
 SET
@@ -314,9 +341,24 @@ SET
     last_error = NULL
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, last_error
 `
 
-func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, outboxEventResetAttempts, id)
-	return err
+func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventResetAttempts, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LastError,
+	)
+	return i, err
 }
