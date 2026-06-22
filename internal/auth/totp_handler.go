@@ -21,7 +21,7 @@ func (h *AuthHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"secret": secret,
 		"url":    url,
 	})
@@ -57,7 +57,7 @@ func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "Two-factor authentication has been successfully enabled.",
 	})
 
@@ -103,7 +103,7 @@ func (h *AuthHandler) VerifyLogin2FA(w http.ResponseWriter, r *http.Request) err
 	})
 
 	// Respond with the fresh access token
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message":      "2FA login successful!",
 		"access_token": tokens["access_token"],
 	})

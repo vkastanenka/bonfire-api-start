@@ -95,7 +95,7 @@ func run() error {
 	// Setup presentation layer
 	authHandler := auth.NewHandler(authService, val)
 	healthHandler := health.NewHandler(pdbPool, rdb)
-	outboxEventsHandler := outbox_events.NewHandler(outboxEventsService, val)
+	outboxEventsHandler := outbox_events.NewHandler(outboxEventsService)
 	userHandler := user.NewHandler(userService, val)
 	userProfileHandler := user_profile.NewHandler(userProfileService)
 

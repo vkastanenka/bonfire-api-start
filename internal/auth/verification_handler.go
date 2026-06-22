@@ -26,7 +26,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "Your email address has been successfully verified!",
 	})
 
@@ -54,7 +54,7 @@ func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Req
 	}
 
 	// Return a generic 200 OK regardless of whether the email was found or not
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "If an unverified account exists with that email, a verification link has been sent.",
 	})
 

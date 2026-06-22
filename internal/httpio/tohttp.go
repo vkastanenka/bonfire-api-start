@@ -29,7 +29,7 @@ func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		logError(r, appErr, err, status)
 
 		// Respond
-		RespondJSON(w, status, resp)
+		RespondJSON(w, r, status, resp)
 	}
 }
 

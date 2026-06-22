@@ -53,10 +53,8 @@ func (app *Application) routes() http.Handler {
 
 			publicAuth.Get("/outbox_events/ping", httpio.ToHTTP(app.Handlers.OutboxEvents.Ping))
 			publicAuth.Get("/outbox_events/count", httpio.ToHTTP(app.Handlers.OutboxEvents.Count))
-			publicAuth.Post("/outbox_events", httpio.ToHTTP(app.Handlers.OutboxEvents.Create))
 			publicAuth.Get("/outbox_events", httpio.ToHTTP(app.Handlers.OutboxEvents.List))
 			publicAuth.Get("/outbox_events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.GetByID))
-			publicAuth.Put("/outbox_events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.UpdateByID))
 			publicAuth.Delete("/outbox_events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.DeleteByID))
 
 			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))

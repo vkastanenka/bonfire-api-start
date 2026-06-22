@@ -24,13 +24,13 @@ func RequireAuth(manager token.Manager, accessSecret string) func(http.Handler) 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				httpio.RespondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Missing authorization header. Please log in."})
+				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Missing authorization header. Please log in."})
 				return
 			}
 
 			parts := strings.Split(authHeader, " ")
 			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				httpio.RespondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid authorization header format."})
+				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid authorization header format."})
 				return
 			}
 
@@ -38,7 +38,7 @@ func RequireAuth(manager token.Manager, accessSecret string) func(http.Handler) 
 
 			claims, err := manager.VerifyJWT(accessToken, accessSecret)
 			if err != nil {
-				httpio.RespondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired access token."})
+				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired access token."})
 				return
 			}
 
@@ -59,14 +59,14 @@ func RequireVerified() func(http.Handler) http.Handler {
 			// Read the full claims struct that RequireAuth injected
 			claims, ok := r.Context().Value(ClaimsKey).(*token.Claims)
 			if !ok {
-				httpio.RespondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized Access."})
+				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Unauthorized Access."})
 				return
 			}
 
 			// Perform an in-memory bitwise check
 			currentFlags := UserFlag(claims.Flags)
 			if !currentFlags.Has(UserFlagVerified) {
-				httpio.RespondJSON(w, http.StatusForbidden, map[string]string{
+				httpio.RespondJSON(w, r, http.StatusForbidden, map[string]string{
 					"error": "Unverified email. Please complete verification via your registration email.",
 				})
 				return

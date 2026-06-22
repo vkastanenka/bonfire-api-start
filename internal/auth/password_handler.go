@@ -28,7 +28,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 	}
 
 	// Success response is generic to prevent email enumeration
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "If an account exists with this email, a password reset link has been sent.",
 	})
 
@@ -56,7 +56,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "Your password has been reset successfully. You may now log in.",
 	})
 

@@ -21,9 +21,9 @@ func NewHandler(service *UserService, val *validator.Validator) *Handler {
 
 // Ping confirms the auth routes are available
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondOK(w, r, map[string]string{
 		"status": "healthy",
-	})
+	}, "Ping OK.")
 
 	return nil
 }
@@ -46,7 +46,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, user)
+	httpio.RespondJSON(w, r, http.StatusOK, user)
 
 	return nil
 }
@@ -65,7 +65,7 @@ func (h *Handler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, user)
+	httpio.RespondJSON(w, r, http.StatusOK, user)
 
 	return nil
 }
@@ -85,7 +85,7 @@ func (h *Handler) DeleteByEmail(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Returning the deleted user object is often useful for confirmation
-	httpio.RespondJSON(w, http.StatusOK, map[string]interface{}{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]interface{}{
 		"message": "User deleted successfully",
 		"user":    user,
 	})

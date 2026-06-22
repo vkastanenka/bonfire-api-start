@@ -28,7 +28,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-	httpio.RespondOK(w, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
+	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
 
 	return nil
 }

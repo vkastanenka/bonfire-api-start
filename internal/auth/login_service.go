@@ -16,7 +16,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	// Fetch user credentials
 	userAuth, err := s.store.UserGetAuthCredentials(ctx, r.Email)
 	if err != nil {
-		return LoginResult{}, apperr.NewRepositoryError(err, NewLoginCredentialsError())
+		return LoginResult{}, apperr.NewDBError(err)
 	}
 
 	// Check password

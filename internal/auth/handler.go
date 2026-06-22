@@ -17,7 +17,7 @@ func NewHandler(service *AuthService, val *validator.Validator) *AuthHandler {
 
 // Ping confirms the auth routes are available
 func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"status": "healthy",
 	})
 

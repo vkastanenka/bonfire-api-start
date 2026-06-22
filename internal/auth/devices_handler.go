@@ -26,7 +26,7 @@ func (h *AuthHandler) GetDevices(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]interface{}{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]interface{}{
 		"devices": devices,
 	})
 	return nil
@@ -50,7 +50,7 @@ func (h *AuthHandler) RevokeDevice(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "Successfully logged out of device.",
 	})
 	return nil
@@ -72,7 +72,7 @@ func (h *AuthHandler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Reque
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "Successfully logged out of all other known devices.",
 	})
 	return nil

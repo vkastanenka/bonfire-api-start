@@ -19,9 +19,9 @@ func NewHandler(service *Service) *Handler {
 
 // Ping confirms the auth routes are available
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, http.StatusOK, map[string]string{
+	httpio.RespondOK(w, r, map[string]string{
 		"status": "healthy",
-	})
+	}, "Ping OK.")
 
 	return nil
 }
@@ -39,7 +39,7 @@ func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondJSON(w, http.StatusOK, user_profile)
+	httpio.RespondJSON(w, r, http.StatusOK, user_profile)
 
 	return nil
 }
