@@ -2,22 +2,16 @@ package outbox_events
 
 // Success messages
 const (
-	RegisterOk     = "User register ok! 🥳🎉"
-	LoginOk        = "User login ok!"
-	RefreshTokenOk = "Refresh tokens ok!"
+	CountOK          = "Count OK."
+	ListOK           = "List OK."
+	GetByIDOK        = "Get by ID OK."
+	ResetAttemptsOK  = "Reset attempts OK."
+	DeleteByIDOK     = "Delete by ID OK."
+	PurgeProcessedOK = "Delete by ID OK."
 )
 
-// Validation / Error messages
+// Error messages
 const (
-	ErrEmailTaken          = "Email taken."
-	ErrUsernameTaken       = "Username taken."
-	ErrRegFailed           = "Registration failed."
-	ErrHashPassword        = "Hash password failed."
-	ErrMissingRefreshToken = "Missing refresh token, please log in."
-	ErrCredentialsInvalid  = "Invalid credentials."
-	ErrSessionInvalid      = "Invalid or expired session."
-	ErrSessionMalformed    = "Malformed session payload."
-	ErrSessionNotFound     = "Session not found."
-	ErrSessionBlocked      = "Access denied. Session is blocked."
-	ErrSessionExpired      = "Session expired. Please log in."
+	ErrInvalidCursor = "Invalid cursor; valid UUIDv7 format required."
+	ErrInvalidID     = "Invalid ID."
 )

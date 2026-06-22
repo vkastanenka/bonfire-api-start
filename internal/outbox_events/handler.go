@@ -37,7 +37,7 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, CountRes{Count: count}, "Count retrieved successfully.")
+	httpio.RespondOK(w, CountRes{Count: count}, CountOK)
 	return nil
 }
 
@@ -59,7 +59,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	if cursorStr != "" {
 		parsed, err := uuid.Parse(cursorStr)
 		if err != nil {
-			return apperr.New(apperr.CodeBadRequest, "Invalid cursor format; must be a valid UUIDv7")
+			return apperr.New(apperr.CodeBadRequest, ErrInvalidCursor)
 		}
 		cursor = &parsed
 	}
@@ -72,7 +72,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, events, "Outbox events listed successfully.")
+	httpio.RespondOK(w, events, ListOK)
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
 	event, err := h.service.GetByID(r.Context(), id)
@@ -93,7 +93,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, event, "Outbox event retrieved successfully.")
+	httpio.RespondOK(w, event, GetByIDOK)
 	return nil
 }
 
@@ -106,14 +106,14 @@ func (h *Handler) ResetAttempts(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
 	if err := h.service.ResetAttempts(r.Context(), id); err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, struct{}{}, "Outbox event queue attempts successfully reset.")
+	httpio.RespondOK(w, struct{}{}, ResetAttemptsOK)
 	return nil
 }
 
@@ -126,14 +126,14 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "Invalid ID format")
+		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
 	if err := h.service.DeleteByID(r.Context(), id); err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, struct{}{}, "Outbox event dropped successfully.")
+	httpio.RespondOK(w, struct{}{}, DeleteByIDOK)
 	return nil
 }
 
@@ -142,6 +142,6 @@ func (h *Handler) PurgeProcessed(w http.ResponseWriter, r *http.Request) error {
 	if err := h.service.PurgeProcessed(r.Context()); err != nil {
 		return err
 	}
-	httpio.RespondOK(w, struct{}{}, "Archived/Processed events purged successfully.")
+	httpio.RespondOK(w, struct{}{}, PurgeProcessedOK)
 	return nil
 }
