@@ -96,13 +96,10 @@ func (s *Service) AcquireBatch(ctx context.Context, limit int32) ([]View, error)
 
 // GetByID
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
-	pgID := pgtype.UUID{Bytes: id, Valid: true}
-
-	row, err := s.store.OutboxEventGetByID(ctx, pgID)
+	row, err := s.store.OutboxEventGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-
 	return NewView(row), nil
 }
 
@@ -112,13 +109,10 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 
 // MarkProcessed
 func (s *Service) MarkProcessed(ctx context.Context, id uuid.UUID) (View, error) {
-	pgID := pgtype.UUID{Bytes: id, Valid: true}
-
-	row, err := s.store.OutboxEventMarkProcessed(ctx, pgID)
+	row, err := s.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-
 	return NewView(row), nil
 }
 
@@ -131,19 +125,15 @@ func (s *Service) RecordFailure(ctx context.Context, p RecordFailureParams) (Vie
 	if err != nil {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-
 	return NewView(row), nil
 }
 
 // ResetAttempts
 func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) (View, error) {
-	pgID := pgtype.UUID{Bytes: id, Valid: true}
-
-	row, err := s.store.OutboxEventResetAttempts(ctx, pgID)
+	row, err := s.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-
 	return NewView(row), nil
 }
 
@@ -156,7 +146,6 @@ func (s *Service) MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) (V
 	if err != nil {
 		return View{}, apperr.NewDBError(err, OutboxEvent)
 	}
-
 	return NewView(row), nil
 }
 

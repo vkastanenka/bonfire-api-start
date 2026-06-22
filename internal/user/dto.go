@@ -7,7 +7,58 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserView struct {
+// ==========================================
+// HANDLERS
+// ==========================================
+
+type PingRes struct {
+	Status string `json:"status"`
+}
+
+type CountRes struct {
+	Count int64 `json:"count"`
+}
+
+// ==========================================
+// SERVICES
+// ==========================================
+
+type CheckAvailabilityParams struct {
+	Email    string `json:"email" validate:"required,email,max=255"`
+	Username string `json:"username" validate:"required,min=4,max=32,valid_username"`
+}
+
+type CheckAvailabilityResult struct {
+	Email    bool `json:"email"`
+	Username bool `json:"username"`
+}
+
+type CreateParams struct {
+	Email    string `json:"email" validate:"required,email,max=255"`
+	Username string `json:"username" validate:"required,min=4,max=32,valid_username"`
+	Password string `json:"password" validate:"required,min=12,max=128"`
+}
+
+type ListParams struct {
+	Limit  int32      `json:"limit"`
+	Cursor *uuid.UUID `json:"cursor"`
+}
+
+type UpdatePasswordParams struct {
+	ID   uuid.UUID `json:"id"`
+	Hash string    `json:"hash"`
+}
+
+type EnableTOTPParams struct {
+	ID     uuid.UUID `json:"id"`
+	Secret string    `json:"secret"`
+}
+
+// ==========================================
+// VIEW
+// ==========================================
+
+type View struct {
 	ID         uuid.UUID  `json:"id"`
 	Email      string     `json:"email"`
 	Username   string     `json:"username"`
@@ -16,14 +67,14 @@ type UserView struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
-func NewUserView(row repository.User) UserView {
+func NewView(row repository.User) View {
 	var verifiedAt *time.Time
 	if row.VerifiedAt.Valid {
 		t := row.VerifiedAt.Time
 		verifiedAt = &t
 	}
 
-	return UserView{
+	return View{
 		ID:         uuid.UUID(row.ID.Bytes),
 		Email:      row.Email,
 		Username:   row.Username,

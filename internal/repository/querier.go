@@ -44,22 +44,40 @@ type Querier interface {
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
+	// ==========================================
+	// META
+	// ==========================================
+	UserCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
-	UserDelete(ctx context.Context, id pgtype.UUID) error
-	UserDeleteByEmail(ctx context.Context, email string) (User, error)
+	UserDeleteByEmail(ctx context.Context, email string) error
+	// ==========================================
+	// DELETE
+	// ==========================================
+	UserDeleteByID(ctx context.Context, id pgtype.UUID) error
 	UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error)
 	UserDeleteRequestDelete(ctx context.Context, userID pgtype.UUID) error
 	UserDeleteRequestGet(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error)
 	UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error)
-	UserDisableTOTP(ctx context.Context, id pgtype.UUID) error
-	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) error
-	UserGetAuthCredentials(ctx context.Context, email string) (UserGetAuthCredentialsRow, error)
+	UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error)
+	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
+	// ==========================================
+	// GET
+	// ==========================================
 	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByUsername(ctx context.Context, username string) (User, error)
-	UserGetTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error)
-	UserListUnverified(ctx context.Context) ([]UserListUnverifiedRow, error)
-	UserMarkVerified(ctx context.Context, id pgtype.UUID) error
+	// ==========================================
+	// LIST
+	// ==========================================
+	UserList(ctx context.Context, arg UserListParams) ([]User, error)
+	UserListUnverified(ctx context.Context, limit int32) ([]User, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
+	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
 	UserProfileCheckDisplayNameAvailability(ctx context.Context, lower string) (bool, error)
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
 	UserProfileDelete(ctx context.Context, userID pgtype.UUID) error
@@ -75,8 +93,8 @@ type Querier interface {
 	UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error
 	UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error
 	UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) error
-	UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) error
-	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) error
+	UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error)
+	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

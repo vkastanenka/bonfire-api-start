@@ -151,9 +151,7 @@ RETURNING
 DELETE FROM users
 WHERE id = $1;
 
--- name: UserDeleteByEmail :one
+-- name: UserDeleteByEmail :exec
 DELETE FROM users
-WHERE email = $1
-RETURNING
-    *;
+WHERE email = $1;
 

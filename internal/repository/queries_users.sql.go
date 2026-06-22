@@ -46,6 +46,23 @@ func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvaila
 	return i, err
 }
 
+const userCount = `-- name: UserCount :one
+SELECT
+    COUNT(*)
+FROM
+    users
+`
+
+// ==========================================
+// META
+// ==========================================
+func (q *Queries) UserCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, userCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const userCreate = `-- name: UserCreate :one
 INSERT INTO users(email, username, password_hash)
     VALUES ($1, $2, $3)
@@ -59,6 +76,9 @@ type UserCreateParams struct {
 	PasswordHash string `json:"password_hash"`
 }
 
+// ==========================================
+// CREATE
+// ==========================================
 func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
 	row := q.db.QueryRow(ctx, userCreate, arg.Email, arg.Username, arg.PasswordHash)
 	var i User
@@ -78,25 +98,43 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 	return i, err
 }
 
-const userDelete = `-- name: UserDelete :exec
+const userDeleteByEmail = `-- name: UserDeleteByEmail :exec
+DELETE FROM users
+WHERE email = $1
+`
+
+func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) error {
+	_, err := q.db.Exec(ctx, userDeleteByEmail, email)
+	return err
+}
+
+const userDeleteByID = `-- name: UserDeleteByID :exec
 DELETE FROM users
 WHERE id = $1
 `
 
-func (q *Queries) UserDelete(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userDelete, id)
+// ==========================================
+// DELETE
+// ==========================================
+func (q *Queries) UserDeleteByID(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, userDeleteByID, id)
 	return err
 }
 
-const userDeleteByEmail = `-- name: UserDeleteByEmail :one
-DELETE FROM users
-WHERE email = $1
+const userDisableTOTP = `-- name: UserDisableTOTP :one
+UPDATE
+    users
+SET
+    totp_secret = NULL,
+    is_totp_enabled = FALSE
+WHERE
+    id = $1
 RETURNING
     id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 `
 
-func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) (User, error) {
-	row := q.db.QueryRow(ctx, userDeleteByEmail, email)
+func (q *Queries) UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userDisableTOTP, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -114,31 +152,16 @@ func (q *Queries) UserDeleteByEmail(ctx context.Context, email string) (User, er
 	return i, err
 }
 
-const userDisableTOTP = `-- name: UserDisableTOTP :exec
-UPDATE
-    users
-SET
-    totp_secret = NULL,
-    is_totp_enabled = FALSE,
-    updated_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-`
-
-func (q *Queries) UserDisableTOTP(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userDisableTOTP, id)
-	return err
-}
-
-const userEnableTOTP = `-- name: UserEnableTOTP :exec
+const userEnableTOTP = `-- name: UserEnableTOTP :one
 UPDATE
     users
 SET
     totp_secret = $1,
-    is_totp_enabled = TRUE,
-    updated_at = CURRENT_TIMESTAMP
+    is_totp_enabled = TRUE
 WHERE
     id = $2
+RETURNING
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 `
 
 type UserEnableTOTPParams struct {
@@ -146,42 +169,20 @@ type UserEnableTOTPParams struct {
 	ID         pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) error {
-	_, err := q.db.Exec(ctx, userEnableTOTP, arg.TotpSecret, arg.ID)
-	return err
-}
-
-const userGetAuthCredentials = `-- name: UserGetAuthCredentials :one
-SELECT
-    id,
-    password_hash,
-    is_totp_enabled,
-    verified_at,
-    role
-
-FROM
-    users
-WHERE
-    email = $1
-LIMIT 1
-`
-
-type UserGetAuthCredentialsRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	PasswordHash  string             `json:"password_hash"`
-	IsTotpEnabled bool               `json:"is_totp_enabled"`
-	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
-	Role          UserRole           `json:"role"`
-}
-
-func (q *Queries) UserGetAuthCredentials(ctx context.Context, email string) (UserGetAuthCredentialsRow, error) {
-	row := q.db.QueryRow(ctx, userGetAuthCredentials, email)
-	var i UserGetAuthCredentialsRow
+func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) (User, error) {
+	row := q.db.QueryRow(ctx, userEnableTOTP, arg.TotpSecret, arg.ID)
+	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
 		&i.PasswordHash,
 		&i.IsTotpEnabled,
+		&i.TotpSecret,
 		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
 		&i.Role,
 	)
 	return i, err
@@ -226,6 +227,9 @@ WHERE
 LIMIT 1
 `
 
+// ==========================================
+// GET
+// ==========================================
 func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, userGetByID, id)
 	var i User
@@ -274,58 +278,47 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
-const userGetTOTPSecret = `-- name: UserGetTOTPSecret :one
+const userList = `-- name: UserList :many
 SELECT
-    totp_secret
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 FROM
     users
-WHERE
-    id = $1
-LIMIT 1
-`
-
-func (q *Queries) UserGetTOTPSecret(ctx context.Context, id pgtype.UUID) (pgtype.Text, error) {
-	row := q.db.QueryRow(ctx, userGetTOTPSecret, id)
-	var totp_secret pgtype.Text
-	err := row.Scan(&totp_secret)
-	return totp_secret, err
-}
-
-const userListUnverified = `-- name: UserListUnverified :many
-SELECT
-    id,
-    email,
-    username,
-    created_at
-FROM
-    users
-WHERE
-    verified_at IS NULL
+WHERE ($1::uuid IS NULL
+    OR id < $1)
 ORDER BY
-    created_at ASC
+    id DESC
+LIMIT $2
 `
 
-type UserListUnverifiedRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Email     string             `json:"email"`
-	Username  string             `json:"username"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+type UserListParams struct {
+	Column1 pgtype.UUID `json:"column_1"`
+	Limit   int32       `json:"limit"`
 }
 
-func (q *Queries) UserListUnverified(ctx context.Context) ([]UserListUnverifiedRow, error) {
-	rows, err := q.db.Query(ctx, userListUnverified)
+// ==========================================
+// LIST
+// ==========================================
+func (q *Queries) UserList(ctx context.Context, arg UserListParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, userList, arg.Column1, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserListUnverifiedRow
+	var items []User
 	for rows.Next() {
-		var i UserListUnverifiedRow
+		var i User
 		if err := rows.Scan(
 			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.Email,
 			&i.Username,
-			&i.CreatedAt,
+			&i.PasswordHash,
+			&i.IsTotpEnabled,
+			&i.TotpSecret,
+			&i.VerifiedAt,
+			&i.LastVerificationSentAt,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -337,44 +330,123 @@ func (q *Queries) UserListUnverified(ctx context.Context) ([]UserListUnverifiedR
 	return items, nil
 }
 
-const userMarkVerified = `-- name: UserMarkVerified :exec
+const userListUnverified = `-- name: UserListUnverified :many
+SELECT
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+FROM
+    users
+WHERE
+    verified_at IS NULL
+ORDER BY
+    created_at ASC
+LIMIT $1
+`
+
+func (q *Queries) UserListUnverified(ctx context.Context, limit int32) ([]User, error) {
+	rows, err := q.db.Query(ctx, userListUnverified, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Email,
+			&i.Username,
+			&i.PasswordHash,
+			&i.IsTotpEnabled,
+			&i.TotpSecret,
+			&i.VerifiedAt,
+			&i.LastVerificationSentAt,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const userMarkVerified = `-- name: UserMarkVerified :one
 UPDATE
     users
 SET
-    verified_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
+    verified_at = CURRENT_TIMESTAMP
 WHERE
     id = $1
     AND verified_at IS NULL
+RETURNING
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 `
 
-func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userMarkVerified, id)
-	return err
+// ==========================================
+// UPDATE
+// ==========================================
+func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userMarkVerified, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.IsTotpEnabled,
+		&i.TotpSecret,
+		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
+		&i.Role,
+	)
+	return i, err
 }
 
-const userUpdateLastVerificationSent = `-- name: UserUpdateLastVerificationSent :exec
+const userUpdateLastVerificationSent = `-- name: UserUpdateLastVerificationSent :one
 UPDATE
     users
 SET
     last_verification_sent_at = CURRENT_TIMESTAMP
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 `
 
-func (q *Queries) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userUpdateLastVerificationSent, id)
-	return err
+func (q *Queries) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdateLastVerificationSent, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.IsTotpEnabled,
+		&i.TotpSecret,
+		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
+		&i.Role,
+	)
+	return i, err
 }
 
-const userUpdatePassword = `-- name: UserUpdatePassword :exec
+const userUpdatePassword = `-- name: UserUpdatePassword :one
 UPDATE
     users
 SET
-    password_hash = $2,
-    updated_at = CURRENT_TIMESTAMP
+    password_hash = $2
 WHERE
     id = $1
+RETURNING
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
 `
 
 type UserUpdatePasswordParams struct {
@@ -382,7 +454,21 @@ type UserUpdatePasswordParams struct {
 	PasswordHash string      `json:"password_hash"`
 }
 
-func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) error {
-	_, err := q.db.Exec(ctx, userUpdatePassword, arg.ID, arg.PasswordHash)
-	return err
+func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdatePassword, arg.ID, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.IsTotpEnabled,
+		&i.TotpSecret,
+		&i.VerifiedAt,
+		&i.LastVerificationSentAt,
+		&i.Role,
+	)
+	return i, err
 }

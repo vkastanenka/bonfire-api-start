@@ -30,6 +30,6 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User        user.UserView                `json:"user"`
+	User        user.View                `json:"user"`
 	UserProfile user_profile.UserProfileView `json:"user_profile"`
 }
