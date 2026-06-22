@@ -1,5 +1,5 @@
 -- ==========================================
--- META QUERIES
+-- META
 -- ==========================================
 -- name: OutboxEventCount :one
 SELECT
@@ -8,7 +8,7 @@ FROM
     outbox_events;
 
 -- ==========================================
--- CREATE QUERIES
+-- CREATE
 -- ==========================================
 -- name: OutboxEventCreate :one
 INSERT INTO outbox_events(event_type, payload)
@@ -17,7 +17,7 @@ RETURNING
     *;
 
 -- ==========================================
--- LIST QUERIES
+-- LIST
 -- ==========================================
 -- name: OutboxEventList :many
 SELECT
@@ -25,10 +25,12 @@ SELECT
     created_at,
     updated_at,
     event_type,
+    payload,
     processed_at,
     attempts,
     max_attempts,
-    next_attempt_at
+    next_attempt_at,
+    last_error
 FROM
     outbox_events
 WHERE ($1::uuid IS NULL
@@ -68,7 +70,7 @@ RETURNING
     *;
 
 -- ==========================================
--- GET QUERIES
+-- GET
 -- ==========================================
 -- name: OutboxEventGetByID :one
 SELECT
@@ -88,7 +90,7 @@ WHERE
     id = $1;
 
 -- ==========================================
--- UPDATE QUERIES
+-- UPDATE
 -- ==========================================
 -- name: OutboxEventMarkProcessed :exec
 UPDATE
@@ -130,7 +132,7 @@ WHERE
     id = $1;
 
 -- ==========================================
--- DELETE QUERIES
+-- DELETE
 -- ==========================================
 -- name: OutboxEventDeleteByID :exec
 DELETE FROM outbox_events
