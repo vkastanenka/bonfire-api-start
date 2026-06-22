@@ -38,6 +38,10 @@ type RecordFailureParams struct {
 // RESPONSE / VIEW DTOs
 // ==========================================
 
+type CountRes struct {
+	Count int64 `json:"count"`
+}
+
 type View struct {
 	ID            uuid.UUID       `json:"id"`
 	EventType     string          `json:"event_type"`

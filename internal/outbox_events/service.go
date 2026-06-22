@@ -147,7 +147,7 @@ func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) error {
 // MarkDeadLetter
 func (s *Service) MarkDeadLetter(ctx context.Context, id uuid.UUID, errMsg string) error {
 	err := s.store.OutboxEventMarkDeadLetter(ctx, repository.OutboxEventMarkDeadLetterParams{
-		ID:      pgtype.UUID{Bytes: id, Valid: true},
+		ID:        pgtype.UUID{Bytes: id, Valid: true},
 		LastError: pgtype.Text{String: errMsg, Valid: true},
 	})
 	if err != nil {
