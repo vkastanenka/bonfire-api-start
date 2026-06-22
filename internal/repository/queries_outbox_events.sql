@@ -1,99 +1,41 @@
--- name: OutboxEventCreate :one (TODO: Narrow implementation)
-INSERT INTO outbox_events(event_type, payload)
-VALUES ($1, $2)
-RETURNING *;
-
--- name: OutboxEventList :many
-SELECT
-    *
-FROM
-    outbox_events
-ORDER BY
-    created_at DESC
-LIMIT $1 OFFSET $2;
-
+-- ==========================================
+-- META QUERIES
+-- ==========================================
 -- name: OutboxEventCount :one
 SELECT
     COUNT(*)
 FROM
     outbox_events;
 
--- name: OutboxEventGetByID :one
-SELECT
-    *
-FROM
-    outbox_events
-WHERE
-    id = $1;
-
--- name: OutboxEventUpdateByID :one
-UPDATE
-    outbox_events
-SET
-    created_at = COALESCE($2, created_at),
-    updated_at = COALESCE($3, updated_at),
-    event_type = COALESCE($4, event_type),
-    payload = COALESCE($5, payload),
-    processed_at = COALESCE($6, processed_at),
-    attempts = COALESCE($7, attempts),
-    max_attempts = COALESCE($8, max_attempts),
-    next_attempt_at = COALESCE($9, next_attempt_at),
-    last_error = COALESCE($10, last_error)
-WHERE
-    id = $1
+-- ==========================================
+-- CREATE QUERIES
+-- ==========================================
+-- name: OutboxEventCreate :one
+INSERT INTO outbox_events(event_type, payload)
+    VALUES ($1, $2)
 RETURNING
     *;
 
--- name: OutboxEventDeleteByID :exec
-DELETE FROM outbox_events
-WHERE id = $1;
-
--- name: OutboxEventCountPending :one
+-- ==========================================
+-- LIST QUERIES
+-- ==========================================
+-- name: OutboxEventList :many
 SELECT
-    COUNT(*)
+    id,
+    created_at,
+    updated_at,
+    event_type,
+    processed_at,
+    attempts,
+    max_attempts,
+    next_attempt_at
 FROM
     outbox_events
-WHERE
-    processed_at IS NULL;
-
--- name: OutboxEventMarkProcessed :exec
-UPDATE
-    outbox_events
-SET
-    processed_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1;
-
--- name: OutboxEventRecordFailure :exec
-UPDATE
-    outbox_events
-SET
-    attempts = attempts + 1,
-    last_error = $2,
-    -- Exponential backoff: 2^attempts minutes
-    next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1))
-WHERE
-    id = $1;
-
--- name: OutboxEventResetAttempts :exec
-UPDATE
-    outbox_events
-SET
-    attempts = 0,
-    next_attempt_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1;
-
--- name: OutboxEventMarkDeadLetter :exec
--- Permanently ignores an event that cannot be processed.
-UPDATE
-    outbox_events
-SET
-    processed_at = CURRENT_TIMESTAMP,
-    last_error = $2,
-    attempts = max_attempts
-WHERE
-    id = $1;
+WHERE ($1::uuid IS NULL
+    OR id < $1)
+ORDER BY
+    id DESC
+LIMIT $2;
 
 -- name: OutboxEventAcquireBatch :many
 -- Uses a CTE to lock rows and immediately push next_attempt_at into the future.
@@ -108,7 +50,7 @@ WITH batch AS (
         AND attempts < max_attempts
         AND next_attempt_at <= CURRENT_TIMESTAMP
     ORDER BY
-        created_at ASC
+        id ASC
     LIMIT $1
     FOR UPDATE
         SKIP LOCKED)
@@ -125,7 +67,76 @@ WHERE
 RETURNING
     *;
 
--- name: OutboxEventDeleteOld :exec
+-- ==========================================
+-- GET QUERIES
+-- ==========================================
+-- name: OutboxEventGetByID :one
+SELECT
+    id,
+    created_at,
+    updated_at,
+    event_type,
+    payload,
+    processed_at,
+    attempts,
+    max_attempts,
+    next_attempt_at,
+    last_error
+FROM
+    outbox_events
+WHERE
+    id = $1;
+
+-- ==========================================
+-- UPDATE QUERIES
+-- ==========================================
+-- name: OutboxEventMarkProcessed :exec
+UPDATE
+    outbox_events
+SET
+    processed_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1;
+
+-- name: OutboxEventRecordFailure :exec
+UPDATE
+    outbox_events
+SET
+    attempts = attempts + 1,
+    last_error = $2,
+    next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1)::int)
+WHERE
+    id = $1;
+
+-- name: OutboxEventResetAttempts :exec
+UPDATE
+    outbox_events
+SET
+    attempts = 0,
+    next_attempt_at = CURRENT_TIMESTAMP,
+    last_error = NULL
+WHERE
+    id = $1;
+
+-- name: OutboxEventMarkDeadLetter :exec
+-- Permanently ignores an event that cannot be processed.
+UPDATE
+    outbox_events
+SET
+    processed_at = CURRENT_TIMESTAMP,
+    last_error = COALESCE($2, 'Manually marked dead letter by operator.'),
+    attempts = max_attempts
+WHERE
+    id = $1;
+
+-- ==========================================
+-- DELETE QUERIES
+-- ==========================================
+-- name: OutboxEventDeleteByID :exec
+DELETE FROM outbox_events
+WHERE id = $1;
+
+-- name: OutboxEventPurgeProcessed :exec
 DELETE FROM outbox_events
 WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
 

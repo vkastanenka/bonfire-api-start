@@ -29,6 +29,17 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// Count
+func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
+	count, err := h.service.Count(r.Context())
+	if err != nil {
+		return apperr.NewDBError(err)
+	}
+
+	httpio.RespondOK(w, CountRes{Count: count}, "Count retrieved.")
+	return nil
+}
+
 // Create
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	req, err := httpio.BindJSON[CreateReq](w, r, h.val)
@@ -89,17 +100,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 
 type CountRes struct {
 	Count int64 `json:"count"`
-}
-
-// Count
-func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
-	count, err := h.service.Count(r.Context())
-	if err != nil {
-		return apperr.NewDBError(err)
-	}
-
-	httpio.RespondOK(w, CountRes{Count: count}, "Count retrieved.")
-	return nil
 }
 
 // GetByID

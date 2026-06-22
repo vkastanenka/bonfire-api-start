@@ -18,7 +18,7 @@ CREATE TABLE outbox_events(
 );
 
 -- Indexes
-CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at)
+CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at, id ASC)
 WHERE
     processed_at IS NULL;
 
