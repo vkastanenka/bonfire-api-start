@@ -42,6 +42,15 @@ func (app *Application) routes() http.Handler {
 		api.Group(func(publicAuth chi.Router) {
 			publicAuth.Use(customMiddleware.RateLimit(app.RateLimiter, 5, time.Minute, "auth"))
 
+			// Outbox events
+			publicAuth.Get("/outbox-events/ping", httpio.ToHTTP(app.Handlers.OutboxEvents.Ping))
+			publicAuth.Get("/outbox-events/count", httpio.ToHTTP(app.Handlers.OutboxEvents.Count))
+			publicAuth.Get("/outbox-events", httpio.ToHTTP(app.Handlers.OutboxEvents.List))
+			publicAuth.Post("/outbox-events/purge", httpio.ToHTTP(app.Handlers.OutboxEvents.PurgeProcessed))
+			publicAuth.Get("/outbox-events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.GetByID))
+			publicAuth.Delete("/outbox-events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.DeleteByID))
+			publicAuth.Post("/outbox-events/{id}/reset", httpio.ToHTTP(app.Handlers.OutboxEvents.ResetAttempts))
+
 			// Testing
 			publicAuth.Get("/user/ping", httpio.ToHTTP(app.Handlers.User.Ping))
 			publicAuth.Get("/user/{id}", httpio.ToHTTP(app.Handlers.User.GetByID))
@@ -50,12 +59,6 @@ func (app *Application) routes() http.Handler {
 
 			publicAuth.Get("/user_profile/ping", httpio.ToHTTP(app.Handlers.UserProfile.Ping))
 			publicAuth.Get("/user_profile/{id}", httpio.ToHTTP(app.Handlers.UserProfile.GetByUserID))
-
-			publicAuth.Get("/outbox_events/ping", httpio.ToHTTP(app.Handlers.OutboxEvents.Ping))
-			publicAuth.Get("/outbox_events/count", httpio.ToHTTP(app.Handlers.OutboxEvents.Count))
-			publicAuth.Get("/outbox_events", httpio.ToHTTP(app.Handlers.OutboxEvents.List))
-			publicAuth.Get("/outbox_events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.GetByID))
-			publicAuth.Delete("/outbox_events/{id}", httpio.ToHTTP(app.Handlers.OutboxEvents.DeleteByID))
 
 			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))

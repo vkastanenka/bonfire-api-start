@@ -1,4 +1,4 @@
-package outbox_events
+package outbox
 
 import (
 	"bonfire-api/internal/apperr"

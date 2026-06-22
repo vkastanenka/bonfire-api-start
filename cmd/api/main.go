@@ -13,7 +13,7 @@ import (
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
-	"bonfire-api/internal/outbox_events"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
@@ -83,7 +83,7 @@ func run() error {
 		VerificationSecret:  cfg.VerificationSecret,
 		PasswordResetSecret: cfg.PasswordResetSecret,
 	})
-	outboxEventsService := outbox_events.NewService(store)
+	outboxEventsService := outbox.NewService(store)
 	userService := user.NewUserService(store)
 	userProfileService := user_profile.NewService(store)
 
@@ -95,7 +95,7 @@ func run() error {
 	// Setup presentation layer
 	authHandler := auth.NewHandler(authService, val)
 	healthHandler := health.NewHandler(pdbPool, rdb)
-	outboxEventsHandler := outbox_events.NewHandler(outboxEventsService)
+	outboxEventsHandler := outbox.NewHandler(outboxEventsService)
 	userHandler := user.NewHandler(userService, val)
 	userProfileHandler := user_profile.NewHandler(userProfileService)
 
@@ -109,7 +109,7 @@ func run() error {
 		Handlers: struct {
 			Auth         *auth.AuthHandler
 			Health       *health.Handler
-			OutboxEvents *outbox_events.Handler
+			OutboxEvents *outbox.Handler
 			User         *user.Handler
 			UserProfile  *user_profile.Handler
 		}{

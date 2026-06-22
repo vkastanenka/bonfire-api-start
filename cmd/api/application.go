@@ -10,7 +10,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/health"
-	"bonfire-api/internal/outbox_events"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/user_profile"
@@ -30,7 +30,7 @@ type Application struct {
 	Handlers     struct {
 		Auth         *auth.AuthHandler
 		Health       *health.Handler
-		OutboxEvents *outbox_events.Handler
+		OutboxEvents *outbox.Handler
 		User         *user.Handler
 		UserProfile  *user_profile.Handler
 	}

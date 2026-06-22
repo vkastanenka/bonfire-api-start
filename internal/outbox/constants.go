@@ -1,4 +1,9 @@
-package outbox_events
+package outbox
+
+// General
+const (
+	OutboxEvent = "outbox event"
+)
 
 // Success messages
 const (
@@ -15,9 +20,4 @@ const (
 const (
 	ErrInvalidCursor = "Invalid cursor; valid UUIDv7 format required."
 	ErrInvalidID     = "Invalid ID."
-)
-
-// General
-const (
-	OutboxEvent = "outbox event"
 )
