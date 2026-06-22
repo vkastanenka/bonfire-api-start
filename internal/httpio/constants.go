@@ -41,9 +41,8 @@ type OffsetPagination struct {
 	TotalPages int `json:"total_pages"`
 }
 
-// CursorPagination defines the meta payload for infinite-scroll lists.
+// CursorPagination defines the metadata returned for keyset-paginated lists.
 type CursorPagination struct {
-	NextCursor *string `json:"next_cursor"` // Omit or set to null if there are no more pages
-	HasMore    bool    `json:"has_more"`
-	Limit      int     `json:"limit"`
+	NextCursor *string `json:"next_cursor,omitempty"` // Opaque string for the client
+	PageSize   int32   `json:"page_size"`             // Count of items in this specific batch
 }

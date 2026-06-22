@@ -2,6 +2,7 @@ package outbox_events
 
 // Success messages
 const (
+	PingOK           = "Ping OK."
 	CountOK          = "Count OK."
 	ListOK           = "List OK."
 	GetByIDOK        = "Get by ID OK."

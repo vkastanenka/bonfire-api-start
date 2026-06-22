@@ -23,9 +23,7 @@ func NewHandler(service *Service) *Handler {
 
 // Ping GET
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, http.StatusOK, PingRes{
-		Status: "healthy",
-	})
+	httpio.RespondOK(w, r, PingRes{Status: "healthy"}, PingOK)
 
 	return nil
 }
@@ -37,7 +35,7 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, CountRes{Count: count}, CountOK)
+	httpio.RespondOK(w, r, CountRes{Count: count}, CountOK)
 	return nil
 }
 
@@ -72,7 +70,22 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, events, ListOK)
+	// Declare the next cursor as a string pointer matching httpio.CursorPagination
+	var nextCursor *string
+	if len(events) == int(limit) {
+		// Since events are ordered by ID DESC, the last item has the lowest ID
+		// and serves as the cursor boundary for the next page.
+		lastEvent := events[len(events)-1]
+
+		// Safely extract the string representation of the UUID
+		strCursor := lastEvent.ID.String()
+		nextCursor = &strCursor
+	}
+
+	httpio.RespondCursorList(w, r, events, httpio.CursorPagination{
+		NextCursor: nextCursor,
+		PageSize:   int32(len(events)),
+	})
 	return nil
 }
 
@@ -93,7 +106,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, event, GetByIDOK)
+	httpio.RespondOK(w, r, event, GetByIDOK)
 	return nil
 }
 
@@ -113,7 +126,7 @@ func (h *Handler) ResetAttempts(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, struct{}{}, ResetAttemptsOK)
+	httpio.RespondOK(w, r, struct{}{}, ResetAttemptsOK)
 	return nil
 }
 
@@ -133,7 +146,7 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, struct{}{}, DeleteByIDOK)
+	httpio.RespondOK(w, r, struct{}{}, DeleteByIDOK)
 	return nil
 }
 
@@ -142,6 +155,6 @@ func (h *Handler) PurgeProcessed(w http.ResponseWriter, r *http.Request) error {
 	if err := h.service.PurgeProcessed(r.Context()); err != nil {
 		return err
 	}
-	httpio.RespondOK(w, struct{}{}, PurgeProcessedOK)
+	httpio.RespondOK(w, r, struct{}{}, PurgeProcessedOK)
 	return nil
 }

@@ -10,64 +10,66 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// bufferPool reuses buffers to reduce memory allocations
+// MaxPoolBufferCapacity prevents oversized buffers from polluting memory (64 KB)
+const maxPoolBufferCapacity = 64 * 1024
+
 var bufferPool = sync.Pool{
 	New: func() interface{} {
-		return new(bytes.Buffer)
+		// Pre-allocate a reasonable starting size (e.g., 2 KB) to avoid early allocations
+		return bytes.NewBuffer(make([]byte, 0, 2048))
 	},
 }
 
-func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
-	// Always set JSON header
+// RespondJSON marshals data and writes it securely to the wire.
+// Pass r.Context() to ensure structured logs maintain distributed trace IDs.
+func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+	ctx := r.Context()
+
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get a buffer from the pool
 	buf := bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer bufferPool.Put(buf)
 
-	// Encode
+	// Conditionally return the buffer to the pool to prevent memory bloat
+	defer func() {
+		if buf.Cap() <= maxPoolBufferCapacity {
+			bufferPool.Put(buf)
+		}
+	}()
+
 	if err := json.NewEncoder(buf).Encode(data); err != nil {
-		slog.Error("failed to encode json response", "error", err)
+		// Uses ErrorContext to tie logs directly to your request span/ID
+		slog.ErrorContext(ctx, "failed to encode json response", "error", err)
 
-		// Fallback: Manual 500 status to ensure we stay JSON
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"error":"INTERNAL","message":"An unexpected error occurred."}`))
 		return
 	}
 
-	// Success: Commit status and write
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
 }
 
-// RespondOK sends a standard 200 OK response with the wrapped data.
-func RespondOK[T any](w http.ResponseWriter, data T, message string) {
-	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
-		Message: message,
-		Data: data,
-	})
-}
+// ==========================================
+// STANDARD ENVELOPES
+// ==========================================
 
-// RespondCreated sends a standard 201 Created response, allowing for an optional message.
-func RespondCreated[T any](w http.ResponseWriter, data T, message string) {
-	RespondJSON(w, http.StatusCreated, SuccessResponse[T]{
+func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
+	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
 		Message: message,
 		Data:    data,
 	})
 }
 
-// RespondOffsetList sends a 200 OK with offset pagination metadata.
-func RespondOffsetList[T any](w http.ResponseWriter, data T, meta OffsetPagination) {
-	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
-		Data: data,
-		Meta: meta,
+func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
+	RespondJSON(w, r, http.StatusCreated, SuccessResponse[T]{
+		Message: message,
+		Data:    data,
 	})
 }
 
-// RespondCursorList sends a 200 OK with cursor pagination metadata.
-func RespondCursorList[T any](w http.ResponseWriter, data T, meta CursorPagination) {
-	RespondJSON(w, http.StatusOK, SuccessResponse[T]{
+func RespondCursorList[T any](w http.ResponseWriter, r *http.Request, data T, meta CursorPagination) {
+	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
 		Data: data,
 		Meta: meta,
 	})
