@@ -70,14 +70,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Declare the next cursor as a string pointer matching httpio.CursorPagination
 	var nextCursor *string
 	if len(events) == int(limit) {
-		// Since events are ordered by ID DESC, the last item has the lowest ID
-		// and serves as the cursor boundary for the next page.
 		lastEvent := events[len(events)-1]
-
-		// Safely extract the string representation of the UUID
 		strCursor := lastEvent.ID.String()
 		nextCursor = &strCursor
 	}

@@ -16,3 +16,8 @@ const (
 	ErrInvalidCursor = "Invalid cursor; valid UUIDv7 format required."
 	ErrInvalidID     = "Invalid ID."
 )
+
+// General
+const (
+	OutboxEvent = "outbox event"
+)

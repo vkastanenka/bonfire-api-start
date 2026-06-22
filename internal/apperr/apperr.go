@@ -54,20 +54,40 @@ func New(code Code, detail string, opts ...ErrorOption) error {
 	return e
 }
 
-// FromDB translates raw database errors into standard domain app errors.
-func NewDBError(err error) error {
+// NewDBError translates raw database anomalies and row-omission exceptions (404s)
+// into unified, structured RFC 7807 application domain errors.
+func NewDBError(err error, entityName ...string) error {
 	if err == nil {
 		return nil
 	}
 
-	// Inspect PostgreSQL-specific errors
+	// 1. Resolve a friendly noun for the entity context (defaults to "Resource")
+	entity := "Resource"
+	if len(entityName) > 0 && entityName[0] != "" {
+		entity = entityName[0]
+	}
+
+	// 2. Intercept "Not Found" exceptions natively (e.g., pgx.ErrNoRows / sqlc targets)
+	if repository.IsNotFoundError(err) {
+		return New(
+			CodeNotFound,
+			fmt.Sprintf("%s could not be found.", entity),
+			WithErr(err),
+		)
+	}
+
+	// 3. Inspect specific structural PostgreSQL constraints
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 
 		// --- Integrity & Relationship Violations ---
 		case "23505": // unique_violation
-			return New(CodeConflict, "A conflict occurred with existing records. Please try again.", WithErr(err))
+			return New(
+				CodeConflict,
+				fmt.Sprintf("A conflict occurred. This %s already exists.", entity),
+				WithErr(err),
+			)
 		case "23503": // foreign_key_violation
 			return New(CodeInvalidInput, "A referenced record does not exist.", WithErr(err))
 		case "23502": // not_null_violation
@@ -95,7 +115,7 @@ func NewDBError(err error) error {
 		}
 	}
 
-	// Default fallback for unknown database or connection errors
+	// Default fallback for unmapped systemic or network connection infrastructure faults
 	return New(CodeInternal, CodeInternal.Title(), WithErr(err))
 }
 
@@ -211,16 +231,4 @@ func generateW3CTraceID() string {
 		return "00000000000000000000000000000000" // Fallback trace zero boundary indicator if entropy fails
 	}
 	return hex.EncodeToString(b)
-}
-
-func NewRepositoryError(err error, notFoundErr error) error {
-	if err == nil {
-		return nil
-	}
-
-	if repository.IsNotFoundError(err) {
-		return notFoundErr
-	}
-
-	return NewDBError(err)
 }
