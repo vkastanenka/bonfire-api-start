@@ -62,7 +62,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 		cursor = &parsed
 	}
 
-	events, err := h.service.List(r.Context(), ListParams{
+	rows, err := h.service.List(r.Context(), ListParams{
 		Limit:  limit,
 		Cursor: cursor,
 	})
@@ -71,15 +71,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	var nextCursor *string
-	if len(events) == int(limit) {
-		lastEvent := events[len(events)-1]
+	if len(rows) == int(limit) {
+		lastEvent := rows[len(rows)-1]
 		strCursor := lastEvent.ID.String()
 		nextCursor = &strCursor
 	}
 
-	httpio.RespondCursorList(w, r, events, ListOK, httpio.CursorPagination{
+	httpio.RespondCursorList(w, r, rows, ListOK, httpio.CursorPagination{
 		NextCursor: nextCursor,
-		PageSize:   int32(len(events)),
+		PageSize:   int32(len(rows)),
 	})
 	return nil
 }

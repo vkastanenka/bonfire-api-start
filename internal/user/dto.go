@@ -19,13 +19,19 @@ type CountRes struct {
 	Count int64 `json:"count"`
 }
 
+type CreateReq struct {
+	Email    string `json:"email" validate:"required,email,max=255"`
+	Username string `json:"username" validate:"required,min=4,max=32,valid_username"`
+	Password string `json:"password" validate:"required,min=12,max=128"`
+}
+
 // ==========================================
 // SERVICES
 // ==========================================
 
 type CheckAvailabilityParams struct {
-	Email    string `json:"email" validate:"required,email,max=255"`
-	Username string `json:"username" validate:"required,min=4,max=32,valid_username"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
 }
 
 type CheckAvailabilityResult struct {
@@ -34,9 +40,9 @@ type CheckAvailabilityResult struct {
 }
 
 type CreateParams struct {
-	Email    string `json:"email" validate:"required,email,max=255"`
-	Username string `json:"username" validate:"required,min=4,max=32,valid_username"`
-	Password string `json:"password" validate:"required,min=12,max=128"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type ListParams struct {
