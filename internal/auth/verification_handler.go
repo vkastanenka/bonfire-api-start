@@ -10,7 +10,7 @@ type VerifyEmailRequest struct {
 }
 
 // VerifyEmail handles incoming verification tokens sent from the frontend client.
-func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	var req VerifyEmailRequest
 
 	if err := httpio.DecodeJSON(w, r, &req); err != nil {
@@ -37,7 +37,7 @@ type ResendVerificationEmailRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
-func (h *AuthHandler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
 	var data ResendVerificationEmailRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {

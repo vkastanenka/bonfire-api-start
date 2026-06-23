@@ -6,7 +6,7 @@ import (
 )
 
 // Login handles user login
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
 	req, err := httpio.BindJSON[LoginReq](w, r, h.val)
 	if err != nil {

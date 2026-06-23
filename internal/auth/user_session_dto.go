@@ -1,4 +1,4 @@
-package usersession
+package auth
 
 import (
 	"bonfire-api/internal/repository"
@@ -35,7 +35,7 @@ type PurgeRes struct {
 // SERVICES
 // ==========================================
 
-type CreateParams struct {
+type CreateUserSessionParams struct {
 	ID           uuid.UUID
 	UserID       uuid.UUID
 	RefreshToken string
@@ -55,7 +55,7 @@ type UpdateRefreshTokenParams struct {
 // VIEW
 // ==========================================
 
-type View struct {
+type UserSessionView struct {
 	ID           uuid.UUID `json:"id"`
 	UserID       uuid.UUID `json:"user_id"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -68,8 +68,8 @@ type View struct {
 	UserAgent    string    `json:"user_agent"`
 }
 
-func NewView(row repository.UserSession) View {
-	return View{
+func NewUserSessionView(row repository.UserSession) UserSessionView {
+	return UserSessionView{
 		ID:           row.ID.Bytes,
 		UserID:       row.UserID.Bytes,
 		CreatedAt:    row.CreatedAt.Time,

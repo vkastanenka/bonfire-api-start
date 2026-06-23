@@ -78,7 +78,7 @@ func run() error {
 	// Setup domain services
 	outboxEventsService := outbox.NewService(store)
 	userService := user.NewService(store)
-	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
+	authService := auth.NewService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,
@@ -104,7 +104,7 @@ func run() error {
 		RateLimiter:  rateLimiter,
 		TokenManager: tokenManager,
 		Handlers: struct {
-			Auth         *auth.AuthHandler
+			Auth         *auth.Handler
 			Health       *health.Handler
 			OutboxEvents *outbox.Handler
 			Users        *user.Handler

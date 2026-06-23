@@ -130,6 +130,14 @@ func (s *Service) GetByUsername(ctx context.Context, username string) (View, err
 	return NewView(row), nil
 }
 
+func (s *Service) GetAuthByEmail(ctx context.Context, email string) (AuthView, error) {
+	row, err := s.store.UserGetByEmail(ctx, email)
+	if err != nil {
+		return AuthView{}, apperr.NewDBError(err, Domain)
+	}
+	return NewAuthView(row), nil
+}
+
 // ==========================================
 // UPDATE
 // ==========================================

@@ -12,9 +12,9 @@ import (
 )
 
 // Login
-func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
+func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	// Fetch user credentials
-	userAuth, err := s.store.UserGetByEmail(ctx, r.Email)
+	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
 		return LoginResult{}, apperr.NewDBError(err)
 	}
@@ -26,9 +26,9 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	}
 
 	// Issue new token bundle
-	userID := uuid.UUID(userAuth.ID.Bytes)
+	userID := uuid.UUID(userAuth.ID)
 	userRole := string(userAuth.Role)
-	userIsVerified := userAuth.VerifiedAt.Valid
+	userIsVerified := userAuth.VerifiedAt != nil
 
 	bundle, err := s.tokenManager.IssueNewBundle(userID, userRole, userIsVerified)
 	if err != nil {
@@ -38,7 +38,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 	// Create user session
 	_, err = s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
 		ID:           pgtype.UUID{Bytes: bundle.SessionID, Valid: true},
-		UserID:       userAuth.ID,
+		UserID:       pgtype.UUID{Bytes: userAuth.ID, Valid: true},
 		RefreshToken: bundle.RefreshToken,
 		UserAgent:    r.Meta.UserAgent,
 		ClientIP:     r.Meta.IP,

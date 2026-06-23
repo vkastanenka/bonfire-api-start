@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
 	reqData, err := httpio.BindJSON[RegisterReq](w, r, h.val)
 	if err != nil {

@@ -27,7 +27,7 @@ type Application struct {
 	RateLimiter  *redis_rate.Limiter
 	TokenManager token.Manager
 	Handlers     struct {
-		Auth         *auth.AuthHandler
+		Auth         *auth.Handler
 		Health       *health.Handler
 		OutboxEvents *outbox.Handler
 		Users        *user.Handler

@@ -8,7 +8,7 @@ import (
 )
 
 // GenerateTOTP creates a new 2FA setup intent for the logged-in user.
-func (h *AuthHandler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) GenerateTOTP(w http.ResponseWriter, r *http.Request) error {
 	// 1. Pull the user ID out of the context
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
@@ -35,7 +35,7 @@ type EnableTOTPRequest struct {
 }
 
 // EnableTOTP validates the user's first 6-digit code and permanently activates 2FA.
-func (h *AuthHandler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 	var data EnableTOTPRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
@@ -70,7 +70,7 @@ type VerifyLogin2FARequest struct {
 }
 
 // VerifyLogin2FA handles the second step of the login flow if the user has 2FA enabled.
-func (h *AuthHandler) VerifyLogin2FA(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) VerifyLogin2FA(w http.ResponseWriter, r *http.Request) error {
 	var data VerifyLogin2FARequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {

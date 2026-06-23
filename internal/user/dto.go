@@ -133,6 +133,40 @@ func NewView(row repository.User) View {
 	}
 }
 
+type AuthView struct {
+	ID            uuid.UUID  `json:"id"`
+	Email         string     `json:"email"`
+	PasswordHash  string     `json:"password"`
+	IsTOTPEnabled bool       `json:"is_totp_enabled"`
+	TOTPSecret    *string    `json:"totp_secret"`
+	VerifiedAt    *time.Time `json:"verified_at"`
+	Role          Role     `json:"role"`
+}
+
+func NewAuthView(row repository.User) AuthView {
+	var verifiedAt *time.Time
+	if row.VerifiedAt.Valid {
+		t := row.VerifiedAt.Time
+		verifiedAt = &t
+	}
+
+	var totpSecret *string
+	if row.TotpSecret.Valid {
+		s := row.TotpSecret.String
+		totpSecret = &s
+	}
+
+	return AuthView{
+		ID:            uuid.UUID(row.ID.Bytes),
+		Email:         row.Email,
+		PasswordHash:  row.PasswordHash,
+		IsTOTPEnabled: row.IsTotpEnabled,
+		TOTPSecret:    totpSecret,
+		VerifiedAt:    verifiedAt,
+		Role:          Role(row.Role),
+	}
+}
+
 // user_delete_requests
 
 type DeleteRequestView struct {

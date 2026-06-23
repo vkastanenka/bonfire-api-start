@@ -10,7 +10,7 @@ import (
 )
 
 // RegisterService
-func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
+func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
 	// Define result
 	var result RegisterResult
 

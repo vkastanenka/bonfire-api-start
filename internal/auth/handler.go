@@ -6,20 +6,17 @@ import (
 	"net/http"
 )
 
-type AuthHandler struct {
-	service *AuthService
+type Handler struct {
+	service *Service
 	val     *validator.Validator
 }
 
-func NewHandler(service *AuthService, val *validator.Validator) *AuthHandler {
-	return &AuthHandler{service: service, val: val}
+func NewHandler(service *Service, val *validator.Validator) *Handler {
+	return &Handler{service: service, val: val}
 }
 
-// Ping confirms the auth routes are available
-func (h *AuthHandler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
-		"status": "healthy",
-	})
-
+// Ping
+func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
+	httpio.RespondOK(w, r, PingRes{Status: "healthy"}, PingOK)
 	return nil
 }

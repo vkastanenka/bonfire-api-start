@@ -7,7 +7,7 @@ import (
 )
 
 // Refresh rotates access and refresh tokens
-func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {

@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *AuthService) generateAccessToken(userID uuid.UUID, role string, isVerified bool) (string, error) {
+func (s *Service) generateAccessToken(userID uuid.UUID, role string, isVerified bool) (string, error) {
 	// Scalable payload mapping
 	customClaims := map[string]any{
 		"role": role,
@@ -16,7 +16,7 @@ func (s *AuthService) generateAccessToken(userID uuid.UUID, role string, isVerif
 	return s.tokenManager.GenerateJWT(userID, s.tokenConfig.AccessSecret, 15*time.Minute, customClaims)
 }
 
-func (s *AuthService) generateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
+func (s *Service) generateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
 	customClaims := map[string]any{
 		"sid": sessionID.String(),
 	}

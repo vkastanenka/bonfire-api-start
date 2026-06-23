@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
+func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// user, err := s.store.UserGetByEmail(ctx, email)
 	// if err != nil {
 	// 	if errors.Is(err, pgx.ErrNoRows) {
@@ -30,7 +30,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	return nil
 }
 
-func (s *AuthService) ResetPassword(ctx context.Context, tokenStr string, newPassword string) error {
+func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPassword string) error {
 	// // Verify the token using the PasswordResetSecret
 	// claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
 	// if err != nil {

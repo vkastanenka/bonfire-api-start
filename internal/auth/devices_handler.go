@@ -9,8 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
+/*
+TODO
+*/
+
 // GetDevices returns all active sessions for the logged-in user
-func (h *AuthHandler) GetDevices(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) GetDevices(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
@@ -33,7 +37,7 @@ func (h *AuthHandler) GetDevices(w http.ResponseWriter, r *http.Request) error {
 }
 
 // RevokeDevice logs the user out of a specific session
-func (h *AuthHandler) RevokeDevice(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) RevokeDevice(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")
@@ -57,7 +61,7 @@ func (h *AuthHandler) RevokeDevice(w http.ResponseWriter, r *http.Request) error
 }
 
 // RevokeAllOtherDevices logs the user out of all devices EXCEPT the current one
-func (h *AuthHandler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) RevokeAllOtherDevices(w http.ResponseWriter, r *http.Request) error {
 	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthenticated, "Missing user identity in context.")

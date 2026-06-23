@@ -11,7 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func (s *AuthService) RevokeAllOtherSessions(ctx context.Context, userID uuid.UUID, currentSessionID uuid.UUID) error {
+/*
+TODO
+*/
+
+func (s *Service) RevokeAllOtherSessions(ctx context.Context, userID uuid.UUID, currentSessionID uuid.UUID) error {
 	// You'll need to add DeleteAllSessionsExcept to your interface
 	return s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
@@ -29,7 +33,7 @@ type DeviceResponse struct {
 }
 
 // GetDevices retrieves all active sessions and flags the current one based on the refresh token.
-func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) ([]DeviceResponse, error) {
+func (s *Service) GetDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) ([]DeviceResponse, error) {
 	// // 1. Convert uuid.UUID to pgtype.UUID
 	// pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
 
@@ -63,7 +67,7 @@ func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentR
 }
 
 // RevokeDevice deletes a specific session, ensuring it belongs to the authenticated user.
-func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
+func (s *Service) RevokeDevice(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
 	err := s.store.UserSessionDelete(ctx, repository.UserSessionDeleteParams{
 		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
@@ -75,7 +79,7 @@ func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessio
 }
 
 // RevokeAllOtherDevices deletes all sessions except the one associated with the provided refresh token.
-func (s *AuthService) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) error {
+func (s *Service) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) error {
 	// // 1. Fetch the current session to get its ID
 	// currentSession, err := s.store.UserSessionGet(ctx, currentRefreshToken)
 	// if err != nil {

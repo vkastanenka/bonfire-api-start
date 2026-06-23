@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
+func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// // 1. Validate the stateless token structure
 	// claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.RefreshSecret)
 	// if err != nil {
@@ -20,7 +20,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
 	return nil
 }
 
-func (s *AuthService) ResendVerificationEmail(ctx context.Context, email string) error {
+func (s *Service) ResendVerificationEmail(ctx context.Context, email string) error {
 	return nil
 	// // 1. Fetch the user
 	// user, err := s.store.UserGetByEmail(ctx, email)

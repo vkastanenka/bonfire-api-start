@@ -14,15 +14,15 @@ type TokenConfig struct {
 	PasswordMFASecret   string
 }
 
-type AuthService struct {
+type Service struct {
 	store        repository.Store
 	tokenManager token.Manager
 	tokenConfig  TokenConfig
 	user         *user.Service
 }
 
-func NewAuthService(store repository.Store, tokenManager token.Manager, tokenConfig TokenConfig, user *user.Service) *AuthService {
-	return &AuthService{
+func NewService(store repository.Store, tokenManager token.Manager, tokenConfig TokenConfig, user *user.Service) *Service {
+	return &Service{
 		store:        store,
 		tokenManager: tokenManager,
 		tokenConfig:  tokenConfig,

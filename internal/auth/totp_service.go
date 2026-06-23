@@ -8,7 +8,7 @@ import (
 
 // GenerateTOTP creates a temporary 2FA secret for the user by looking up their profile.
 // It returns the raw secret string and an otpauth:// URL for QR code generation.
-func (s *AuthService) GenerateTOTP(ctx context.Context, userID uuid.UUID) (string, string, error) {
+func (s *Service) GenerateTOTP(ctx context.Context, userID uuid.UUID) (string, string, error) {
 	// pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
 
 	// // 1. Look up the user record using the injected cross-domain provider
@@ -35,7 +35,7 @@ func (s *AuthService) GenerateTOTP(ctx context.Context, userID uuid.UUID) (strin
 }
 
 // EnableTOTP validates the user's first 6-digit code and permanently saves the secret.
-func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret string, code string) error {
+func (s *Service) EnableTOTP(ctx context.Context, userID uuid.UUID, secret string, code string) error {
 	// // 1. Verify the provided 6-digit code against the pending secret
 	// valid := totp.Validate(code, secret)
 	// if !valid {
@@ -65,7 +65,7 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID uuid.UUID, secret s
 }
 
 // VerifyLogin2FA validates the TOTP code and completes the login process.
-func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code string, userAgent, clientIP string) (map[string]string, error) {
+func (s *Service) VerifyLogin2FA(ctx context.Context, mfaToken string, code string, userAgent, clientIP string) (map[string]string, error) {
 	// // 1. Verify the temporary MFA token.
 	// // NOTE: Replace this with your actual JWT verification logic.
 	// // You need to extract the userID from the token claims here.
@@ -129,7 +129,7 @@ func (s *AuthService) VerifyLogin2FA(ctx context.Context, mfaToken string, code 
 	}, nil
 }
 
-func (s *AuthService) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
+func (s *Service) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
 	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
 	if err != nil {
 		return uuid.Nil, err

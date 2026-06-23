@@ -10,7 +10,7 @@ type ForgotPasswordRequest struct {
 }
 
 // ForgotPassword initiates the password reset flow
-func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var data ForgotPasswordRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {
@@ -41,7 +41,7 @@ type ResetPasswordRequest struct {
 }
 
 // ResetPassword finalizes the password change
-func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	var data ResetPasswordRequest
 
 	if err := httpio.DecodeJSON(w, r, &data); err != nil {

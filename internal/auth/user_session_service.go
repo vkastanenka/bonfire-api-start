@@ -1,4 +1,4 @@
-package usersession
+package auth
 
 import (
 	"bonfire-api/internal/apperr"
@@ -9,18 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Store interface {
-	repository.Querier
-}
-
-type Service struct {
-	store Store
-}
-
-func NewService(store Store) *Service {
-	return &Service{store: store}
-}
-
 // ==========================================
 // META
 // ==========================================
@@ -28,7 +16,7 @@ func NewService(store Store) *Service {
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.UserSessionCount(ctx)
 	if err != nil {
-		return 0, apperr.NewDBError(err, Domain)
+		return 0, apperr.NewDBError(err, DomainUserSession)
 	}
 	return count, nil
 }
@@ -37,7 +25,7 @@ func (s *Service) Count(ctx context.Context) (int64, error) {
 // CREATE
 // ==========================================
 
-func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
+func (s *Service) CreateUserSession(ctx context.Context, p CreateUserSessionParams) (UserSessionView, error) {
 	row, err := s.store.UserSessionCreate(ctx, repository.UserSessionCreateParams{
 		ID:           pgtype.UUID{Bytes: p.ID, Valid: true},
 		UserID:       pgtype.UUID{Bytes: p.UserID, Valid: true},
@@ -48,24 +36,24 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
 // ==========================================
 // LIST
 // ==========================================
 
-func (s *Service) ListActiveByUserID(ctx context.Context, userID uuid.UUID) ([]View, error) {
+func (s *Service) ListActiveUserSessionByUserID(ctx context.Context, userID uuid.UUID) ([]UserSessionView, error) {
 	rows, err := s.store.UserSessionListActiveByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return nil, apperr.NewDBError(err, Domain)
+		return nil, apperr.NewDBError(err, DomainUserSession)
 	}
 
-	views := make([]View, len(rows))
+	views := make([]UserSessionView, len(rows))
 	for i, row := range rows {
-		views[i] = NewView(row)
+		views[i] = NewUserSessionView(row)
 	}
 	return views, nil
 }
@@ -74,84 +62,84 @@ func (s *Service) ListActiveByUserID(ctx context.Context, userID uuid.UUID) ([]V
 // GET
 // ==========================================
 
-func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) GetUserSessionByID(ctx context.Context, id uuid.UUID) (UserSessionView, error) {
 	row, err := s.store.UserSessionGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
-func (s *Service) GetByRefreshToken(ctx context.Context, refreshToken string) (View, error) {
+func (s *Service) GetUserSessionByRefreshToken(ctx context.Context, refreshToken string) (UserSessionView, error) {
 	row, err := s.store.UserSessionGetByRefreshToken(ctx, refreshToken)
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
 // ==========================================
 // UPDATE
 // ==========================================
 
-func (s *Service) UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenParams) (View, error) {
+func (s *Service) UpdateUserSessionRefreshToken(ctx context.Context, p UpdateRefreshTokenParams) (UserSessionView, error) {
 	row, err := s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
 		ID:           pgtype.UUID{Bytes: p.ID, Valid: true},
 		RefreshToken: p.RefreshToken,
 		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
-func (s *Service) UpdateLastSeen(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) UpdateUserSessionLastSeen(ctx context.Context, id uuid.UUID) (UserSessionView, error) {
 	row, err := s.store.UserSessionUpdateLastSeen(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
-func (s *Service) MarkBlocked(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) MarkUserSessionBlocked(ctx context.Context, id uuid.UUID) (UserSessionView, error) {
 	row, err := s.store.UserSessionMarkBlocked(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, Domain)
+		return UserSessionView{}, apperr.NewDBError(err, DomainUserSession)
 	}
-	return NewView(row), nil
+	return NewUserSessionView(row), nil
 }
 
 // ==========================================
 // DELETE
 // ==========================================
 
-func (s *Service) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+func (s *Service) DeleteUserSession(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
 	err := s.store.UserSessionDelete(ctx, repository.UserSessionDeleteParams{
 		ID:     pgtype.UUID{Bytes: id, Valid: true},
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewDBError(err, Domain)
+		return apperr.NewDBError(err, DomainUserSession)
 	}
 	return nil
 }
 
-func (s *Service) DeleteAllExcept(ctx context.Context, userID uuid.UUID, exceptID uuid.UUID) error {
+func (s *Service) DeleteAllUserSessionExcept(ctx context.Context, userID uuid.UUID, exceptID uuid.UUID) error {
 	err := s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 		ID:     pgtype.UUID{Bytes: exceptID, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewDBError(err, Domain)
+		return apperr.NewDBError(err, DomainUserSession)
 	}
 	return nil
 }
 
-func (s *Service) PurgeExpired(ctx context.Context) error {
+func (s *Service) PurgeExpiredUserSession(ctx context.Context) error {
 	err := s.store.UserSessionPurgeExpired(ctx)
 	if err != nil {
-		return apperr.NewDBError(err, Domain)
+		return apperr.NewDBError(err, DomainUserSession)
 	}
 	return nil
 }

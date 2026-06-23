@@ -1,4 +1,4 @@
-package userprofile
+package usersession
 
 import (
 	"bonfire-api/internal/apperr"
