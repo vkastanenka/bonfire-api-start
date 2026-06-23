@@ -11,16 +11,43 @@ import (
 	goValidator "github.com/go-playground/validator/v10"
 )
 
-// Pre-compile the regex
-// No consecutive periods/underscores, cannot start or end with a period/underscore
-var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
+// --- VALIDATOR CONSTANTS ---
 
-// Validator wraps the core third-party validation engine
+// Errors
+const (
+	ErrInvalidTarget          = "Invalid validation target provided."
+	ErrValidationFailed       = "Validation failed for the request payload."
+	ErrUnknownValidation      = "An unknown error occurred during validation."
+	ErrRequired               = "This field is required."
+	ErrWhitespace             = "This field cannot consist entirely of whitespace."
+	ErrEmail                  = "Invalid email format."
+	ErrAlphanum               = "Must contain only letters and numbers."
+	ErrUsername               = "Must contain only letters, numbers, underscores, or periods."
+	ErrMinString              = "Must be at least %s characters long."
+	ErrMinNumeric             = "Must be %s or greater."
+	ErrMinCollection          = "Must contain at least %s items."
+	ErrMaxString              = "Cannot be longer than %s characters."
+	ErrMaxNumeric             = "Must be %s or less."
+	ErrMaxCollection          = "Cannot contain more than %s items."
+	ErrInvalidConstraintValue = "Invalid value for constraint: %s"
+)
+
+// Regex
+var (
+	// No consecutive periods/underscores, cannot start or end with a period/underscore
+	RgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
+)
+
+// --- VALIDATOR TYPES ---
+
+// Validator
 type Validator struct {
 	engine *goValidator.Validate
 }
 
-// New initializes and returns a pre-configured Validator instance.
+// --- VALIDATOR INITIALIZATION ---
+
+// New
 func New() *Validator {
 	v := goValidator.New()
 
@@ -35,13 +62,15 @@ func New() *Validator {
 
 	// Register the custom validation tag handler
 	v.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
-		return usernameRegex.MatchString(fl.Field().String())
+		return RgxUsername.MatchString(fl.Field().String())
 	})
 
 	return &Validator{engine: v}
 }
 
-// ValidateStruct validates an arbitrary struct against its defined validation tags.
+// --- VALIDATOR METHODS ---
+
+// ValidateStruct
 func (v *Validator) ValidateStruct(s interface{}) error {
 	err := v.engine.Struct(s)
 	if err == nil {
@@ -50,7 +79,7 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return apperr.New(apperr.CodeInternal, "invalid validation target provided", apperr.WithErr(err))
+		return apperr.New(apperr.CodeInternal, ErrInvalidTarget, apperr.WithErr(err))
 	}
 
 	var validationErrors goValidator.ValidationErrors
@@ -59,32 +88,34 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 		invalidParams := make([]apperr.InvalidParam, 0, len(validationErrors))
 
 		for _, fieldErr := range validationErrors {
-			// Using StructNamespace provides the full path (e.g., "User.Address.City")
 			ns := fieldErr.StructNamespace()
-			parts := strings.Split(ns, ".")
-			jsonPath := strings.Join(parts[1:], ".")
-			if jsonPath == "" {
+			var jsonPath string
+			if idx := strings.Index(ns, "."); idx != -1 {
+				jsonPath = ns[idx+1:]
+			} else {
 				jsonPath = fieldErr.Field()
 			}
 
 			invalidParams = append(invalidParams, apperr.InvalidParam{
-				Name:  jsonPath,
+				Name:   jsonPath,
 				Reason: msgForFieldError(fieldErr),
 			})
 		}
 
 		return apperr.New(
 			apperr.CodeInvalidInput,
-			"validation failed for the request payload.",
+			ErrValidationFailed,
 			apperr.WithInvalidParams(invalidParams),
 			apperr.WithErr(err),
 		)
 	}
 
-	return apperr.New(apperr.CodeInternal, "an unknown error occurred during validation", apperr.WithErr(err))
+	return apperr.New(apperr.CodeInternal, ErrUnknownValidation, apperr.WithErr(err))
 }
 
-// msgForFieldError evaluates the field error and returns a contextual message.
+// --- VALIDATOR HELPERS ---
+
+// msgForFieldError
 func msgForFieldError(err goValidator.FieldError) string {
 	// Custom handling for empty/whitespace string edge-cases caught by 'required'
 	if err.Tag() == "required" {
@@ -100,29 +131,29 @@ func msgForFieldError(err goValidator.FieldError) string {
 
 		if valStr, ok := val.(string); ok {
 			if len(valStr) > 0 && strings.TrimSpace(valStr) == "" {
-				return "This field cannot consist entirely of whitespace."
+				return ErrWhitespace
 			}
 		}
-		return "This field is required."
+		return ErrRequired
 	}
 
 	switch err.Tag() {
 	case "email":
-		return "Invalid email format."
+		return ErrEmail
 	case "alphanum":
-		return "Must contain only letters and numbers."
+		return ErrAlphanum
 	case "valid_username":
-		return "Must contain only letters, numbers, underscores, or periods."
+		return ErrUsername
 	case "min":
-		return formatRangeMessage(err, "Must be at least %s characters long.", "Must be %s or greater.", "Must contain at least %s items.")
+		return formatRangeMessage(err, ErrMinString, ErrMinNumeric, ErrMinCollection)
 	case "max":
-		return formatRangeMessage(err, "Cannot be longer than %s characters.", "Must be %s or less.", "Cannot contain more than %s items.")
+		return formatRangeMessage(err, ErrMaxString, ErrMaxNumeric, ErrMaxCollection)
 	default:
-		return fmt.Sprintf("Invalid value for constraint: %s", err.Tag())
+		return fmt.Sprintf(ErrInvalidConstraintValue, err.Tag())
 	}
 }
 
-// formatRangeMessage differentiates between string length and numeric value boundaries.
+// formatRangeMessage
 func formatRangeMessage(err goValidator.FieldError, stringTmpl, numericTmpl, collectionTmpl string) string {
 	switch err.Kind() {
 	case reflect.String:
