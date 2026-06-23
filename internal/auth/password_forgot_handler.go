@@ -5,10 +5,6 @@ import (
 	"net/http"
 )
 
-type ForgotPasswordRequest struct {
-	Email string `json:"email" validate:"required,email"`
-}
-
 // ForgotPassword initiates the password reset flow
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var data ForgotPasswordRequest
@@ -30,34 +26,6 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	// Success response is generic to prevent email enumeration
 	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
 		"message": "If an account exists with this email, a password reset link has been sent.",
-	})
-
-	return nil
-}
-
-type ResetPasswordRequest struct {
-	Token       string `json:"token" validate:"required"`
-	NewPassword string `json:"newPassword" validate:"required,min=8"`
-}
-
-// ResetPassword finalizes the password change
-func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
-	var data ResetPasswordRequest
-
-	if err := httpio.DecodeJSON(w, r, &data); err != nil {
-		return err
-	}
-
-	if err := h.validator.ValidateStruct(&data); err != nil {
-		return err
-	}
-
-	if err := h.service.ResetPassword(r.Context(), data.Token, data.NewPassword); err != nil {
-		return err
-	}
-
-	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
-		"message": "Your password has been reset successfully. You may now log in.",
 	})
 
 	return nil
