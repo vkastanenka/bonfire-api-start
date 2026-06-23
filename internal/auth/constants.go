@@ -4,6 +4,8 @@ import "bonfire-api/internal/apperr"
 
 // General
 const (
+	Domain = "auth"
+	DomainUser = "user"
 	DomainUserSession = "user session"
 )
 

@@ -57,20 +57,20 @@ func RequireVerified() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Read the full claims struct that RequireAuth injected
-			claims, ok := r.Context().Value(ClaimsKey).(*token.Claims)
-			if !ok {
-				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Unauthorized Access."})
-				return
-			}
+			// claims, ok := r.Context().Value(ClaimsKey).(*token.Claims)
+			// if !ok {
+			// 	httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Unauthorized Access."})
+			// 	return
+			// }
 
 			// Perform an in-memory bitwise check
-			currentFlags := UserFlag(claims.Flags)
-			if !currentFlags.Has(UserFlagVerified) {
-				httpio.RespondJSON(w, r, http.StatusForbidden, map[string]string{
-					"error": "Unverified email. Please complete verification via your registration email.",
-				})
-				return
-			}
+			// currentFlags := UserFlag(claims.Flags)
+			// if !currentFlags.Has(UserFlagVerified) {
+			// 	httpio.RespondJSON(w, r, http.StatusForbidden, map[string]string{
+			// 		"error": "Unverified email. Please complete verification via your registration email.",
+			// 	})
+			// 	return
+			// }
 
 			next.ServeHTTP(w, r)
 		})
