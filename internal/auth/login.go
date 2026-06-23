@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- DTOs ---
+// --- DTO ---
 
 type LoginReq struct {
 	Email    string `json:"email" validate:"required,email,max=255"`

@@ -11,15 +11,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// --- Forgot Password ---
-
-// --- DTO ---
+// --- Forgot Password DTO ---
 
 type ForgotPasswordRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
-// --- Handler ---
+// --- Forgot Password Handler ---
 
 // ForgotPassword
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
@@ -45,7 +43,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- Service ---
+// --- Forgot Password Service ---
 
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
@@ -72,16 +70,14 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	return nil
 }
 
-// --- Reset Password ---
-
-// --- DTO ---
+// --- Reset Password DTO ---
 
 type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
 	NewPassword string `json:"newPassword" validate:"required,min=8"`
 }
 
-// --- Handler ---
+// --- Reset Password Handler ---
 
 // ResetPassword
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
@@ -105,7 +101,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- Service ---
+// --- Reset Password Service ---
 
 // ResetPassword
 func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPassword string) (user.View, error) {

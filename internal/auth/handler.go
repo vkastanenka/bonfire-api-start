@@ -15,9 +15,13 @@ func NewHandler(service *Service, validator *validator.Validator) *Handler {
 	return &Handler{service: service, validator: validator}
 }
 
+// --- Ping DTO ---
+
 type PingRes struct {
 	Status string `json:"status"`
 }
+
+// --- Ping Handler ---
 
 // Ping
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
