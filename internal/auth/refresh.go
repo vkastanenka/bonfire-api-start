@@ -2,15 +2,59 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// RotateTokens
+// --- DTO ---
+
+type RefreshParams struct {
+	RefreshToken string
+}
+
+type RefreshResult struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+type RefreshRes struct {
+	AccessToken string `json:"access_token"`
+}
+
+// --- Handler ---
+
+// Refresh
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
+	// Check refresh token
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		return apperr.New(apperr.CodeUnauthenticated, ErrMissingRefreshToken)
+	}
+
+	// Rotate access token
+	tokens, err := h.service.Refresh(r.Context(), RefreshParams{
+		RefreshToken: cookie.Value,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Repond with tokens
+	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
+	httpio.RespondOK(w, r, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOK)
+
+	return nil
+}
+
+// --- Service ---
+
+// Refresh
 func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
 	// Check old token
 	claims, err := s.tokenManager.VerifyJWT(r.RefreshToken, s.tokenConfig.RefreshSecret)
