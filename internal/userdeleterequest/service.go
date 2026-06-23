@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -38,45 +37,45 @@ func (s *Service) Count(ctx context.Context) (int64, error) {
 // CREATE
 // ==========================================
 
-func (s *Service) Create(ctx context.Context, userID uuid.UUID, scheduledAt time.Time) (View, error) {
+func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 	row, err := s.store.UserDeleteRequestCreate(ctx, repository.UserDeleteRequestCreateParams{
-		UserID:      pgtype.UUID{Bytes: userID, Valid: true},
-		ScheduledAt: pgtype.Timestamptz{Time: scheduledAt, Valid: true},
+		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
+		ScheduledAt: pgtype.Timestamptz{Time: p.ScheduledAt, Valid: true},
 	})
 	if err != nil {
 		return View{}, apperr.NewDBError(err, UserDeleteRequest)
 	}
-	return row, nil
+	return NewView(row), nil
 }
 
 // ==========================================
 // LIST
 // ==========================================
 
-func (s *Service) ListDue(ctx context.Context) ([]uuid.UUID, error) {
+func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 	rows, err := s.store.UserDeleteRequestListDue(ctx)
 	if err != nil {
 		return nil, apperr.NewDBError(err, UserDeleteRequest)
 	}
 
-	// Convert pgtype.UUID to standard uuid.UUID
-	userIDs := make([]uuid.UUID, len(rows))
+	views := make([]View, len(rows))
 	for i, row := range rows {
-		userIDs[i] = row.Bytes
+		views[i] = NewView(row)
 	}
-	return userIDs, nil
+
+	return views, nil
 }
 
 // ==========================================
 // GET
 // ==========================================
 
-func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (repository.UserDeleteRequest, error) {
+func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.UserDeleteRequestGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return repository.UserDeleteRequest{}, apperr.NewDBError(err, UserDeleteRequest)
+		return View{}, apperr.NewDBError(err, UserDeleteRequest)
 	}
-	return row, nil
+	return NewView(row), nil
 }
 
 // ==========================================

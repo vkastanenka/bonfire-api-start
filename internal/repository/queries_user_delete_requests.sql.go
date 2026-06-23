@@ -15,7 +15,7 @@ const userDeleteRequestCount = `-- name: UserDeleteRequestCount :one
 SELECT
     COUNT(*)
 FROM
-    users
+    user_delete_requests
 `
 
 // ==========================================
@@ -85,7 +85,7 @@ func (q *Queries) UserDeleteRequestGetByUserID(ctx context.Context, userID pgtyp
 
 const userDeleteRequestListDue = `-- name: UserDeleteRequestListDue :many
 SELECT
-    user_id
+    user_id, created_at, scheduled_at
 FROM
     user_delete_requests
 WHERE
@@ -97,19 +97,19 @@ ORDER BY
 // ==========================================
 // LIST
 // ==========================================
-func (q *Queries) UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error) {
+func (q *Queries) UserDeleteRequestListDue(ctx context.Context) ([]UserDeleteRequest, error) {
 	rows, err := q.db.Query(ctx, userDeleteRequestListDue)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []pgtype.UUID
+	var items []UserDeleteRequest
 	for rows.Next() {
-		var user_id pgtype.UUID
-		if err := rows.Scan(&user_id); err != nil {
+		var i UserDeleteRequest
+		if err := rows.Scan(&i.UserID, &i.CreatedAt, &i.ScheduledAt); err != nil {
 			return nil, err
 		}
-		items = append(items, user_id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

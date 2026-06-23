@@ -21,7 +21,7 @@ RETURNING
 -- ==========================================
 -- name: UserDeleteRequestListDue :many
 SELECT
-    user_id
+    *
 FROM
     user_delete_requests
 WHERE

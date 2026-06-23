@@ -76,7 +76,7 @@ type Querier interface {
 	// ==========================================
 	// LIST
 	// ==========================================
-	UserDeleteRequestListDue(ctx context.Context) ([]pgtype.UUID, error)
+	UserDeleteRequestListDue(ctx context.Context) ([]UserDeleteRequest, error)
 	UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error)
 	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
