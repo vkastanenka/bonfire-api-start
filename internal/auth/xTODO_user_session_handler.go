@@ -20,7 +20,7 @@ func (h *Handler) CountUserSessions(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondOK(w, r, CountRes{Count: count}, CountUserSessionsOK)
+	httpio.RespondOK(w, r, CountRes{Count: count}, "")
 	return nil
 }
 
@@ -69,7 +69,7 @@ func (h *Handler) CreateUserSession(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondCreated(w, r, view, CreateUserSessionOK)
+	httpio.RespondCreated(w, r, view, "")
 	return nil
 }
 
@@ -90,7 +90,7 @@ func (h *Handler) ListActiveByUserID(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	httpio.RespondOK(w, r, views, ListActiveUserSessionByUserID)
+	httpio.RespondOK(w, r, views, "")
 	return nil
 }
 
@@ -111,7 +111,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, GetUserSessionByIDOK)
+	httpio.RespondOK(w, r, view, "")
 	return nil
 }
 
@@ -127,7 +127,7 @@ func (h *Handler) GetByRefreshToken(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, GetUserSessionByRefreshTokenOK)
+	httpio.RespondOK(w, r, view, "")
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (h *Handler) UpdateRefreshToken(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, UpdateRefreshTokenOK)
+	httpio.RespondOK(w, r, view, "")
 	return nil
 }
 

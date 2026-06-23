@@ -12,7 +12,32 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- DTO ---
+// --- LOGIN CONSTANTS ---
+
+// Messages
+const (
+	MsgLoginSuccess = "login_success"
+)
+
+// Errors
+const (
+	ErrCredentialsInvalid = "Invalid credentials."
+)
+
+// --- LOGIN ERRORS ---
+
+func NewLoginCredentialsError() error {
+	return apperr.New(
+		apperr.CodeUnauthenticated,
+		ErrCredentialsInvalid,
+		apperr.WithInvalidParams([]apperr.InvalidParam{
+			{Name: "email", Reason: ErrCredentialsInvalid},
+			{Name: "password", Reason: ErrCredentialsInvalid},
+		}),
+	)
+}
+
+// --- LOGIN DTO ---
 
 type LoginReq struct {
 	Email    string `json:"email" validate:"required,email,max=255"`
@@ -38,7 +63,7 @@ type LoginRes struct {
 	AccessToken string `json:"access_token"`
 }
 
-// --- Handler ---
+// --- LOGIN HANDLER ---
 
 // Login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
@@ -63,12 +88,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, LoginOK)
+	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, MsgLoginSuccess)
 
 	return nil
 }
 
-// --- Service ---
+// --- LOGIN SERVICE ---
 
 // Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {

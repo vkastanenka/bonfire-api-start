@@ -15,16 +15,22 @@ func NewHandler(service *Service, validator *validator.Validator) *Handler {
 	return &Handler{service: service, validator: validator}
 }
 
-// --- Ping DTO ---
+// --- PING CONSTANTS ---
+
+const (
+	MsgPingSuccess = "pong"
+)
+
+// --- PING DTO ---
 
 type PingRes struct {
 	Status string `json:"status"`
 }
 
-// --- Ping Handler ---
+// --- PING HANDLER ---
 
 // Ping
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) error {
-	httpio.RespondOK(w, r, PingRes{Status: "healthy"}, PingOK)
+	httpio.RespondOK(w, r, PingRes{Status: "healthy"}, MsgPingSuccess)
 	return nil
 }

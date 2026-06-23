@@ -12,7 +12,48 @@ import (
 	"net/http"
 )
 
-// --- DTOs ---
+// --- REFRESH CONSTANTS ---
+
+// Messages
+const (
+	MsgRegisterSuccess = "register_success"
+)
+
+// Errors
+const (
+	ErrEmailTaken       = "Email taken."
+	ErrUsernameTaken    = "Username taken."
+	ErrCredentialsTaken = "Email and/or username taken."
+	ErrHashPassword     = "Hash password failed."
+)
+
+// --- REFRESH ERRORS ---
+
+func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error {
+	var params []apperr.InvalidParam
+
+	if !emailAvailable {
+		params = append(params, apperr.InvalidParam{Name: "email", Reason: ErrEmailTaken})
+	}
+	if !usernameAvailable {
+		params = append(params, apperr.InvalidParam{Name: "username", Reason: ErrUsernameTaken})
+	}
+
+	return apperr.New(
+		apperr.CodeConflict,
+		ErrCredentialsTaken,
+		apperr.WithInvalidParams(params),
+	)
+}
+
+func NewHashPasswordError(err error) error {
+	return apperr.New(apperr.CodeInternal,
+		ErrHashPassword,
+		apperr.WithErr(err),
+	)
+}
+
+// --- REGISTER DTOs ---
 
 type RegisterReq struct {
 	Email       string  `json:"email" validate:"required,email,max=255"`
@@ -42,7 +83,7 @@ type RegisterResult struct {
 	UserProfile user.ProfileView `json:"user_profile"`
 }
 
-// --- Handler ---
+// --- REGISTER HANDLER ---
 
 // Register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
@@ -64,12 +105,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Respond
-	httpio.RespondCreated(w, r, data, RegisterOK)
+	httpio.RespondCreated(w, r, data, MsgRegisterSuccess)
 
 	return nil
 }
 
-// --- Service ---
+// --- REGISTER SERVICE ---
 
 // Register
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {

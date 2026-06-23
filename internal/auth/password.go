@@ -11,13 +11,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// --- Forgot Password DTO ---
+// --- FORGOT PASSWORD CONSTANTS ---
+
+const (
+	MsgForgotPasswordSuccess = "forgot_password_success"
+)
+
+// --- FORGOT PASSWORD DTO ---
 
 type ForgotPasswordRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
-// --- Forgot Password Handler ---
+// --- FORGOT PASSWORD HANDLER ---
 
 // ForgotPassword
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
@@ -38,12 +44,12 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Success response is generic to prevent email enumeration
-	httpio.RespondOK(w, r, struct{}{}, "If an account exists with this email, a password reset link has been sent.")
+	httpio.RespondOK(w, r, struct{}{}, MsgForgotPasswordSuccess)
 
 	return nil
 }
 
-// --- Forgot Password Service ---
+// --- FORGOT PASSWORD SERVICE ---
 
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
@@ -70,14 +76,20 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	return nil
 }
 
-// --- Reset Password DTO ---
+// --- RESET PASSWORD CONSTANTS ---
+
+const (
+	MsgResetPasswordSuccess = "reset_password_success"
+)
+
+// --- RESET PASSWORD DTO ---
 
 type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
 	NewPassword string `json:"newPassword" validate:"required,min=8"`
 }
 
-// --- Reset Password Handler ---
+// --- RESET PASSWORD HANDLER ---
 
 // ResetPassword
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
@@ -96,12 +108,12 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, row, "Your password has been reset successfully. You may now log in.")
+	httpio.RespondOK(w, r, row, MsgResetPasswordSuccess)
 
 	return nil
 }
 
-// --- Reset Password Service ---
+// --- RESET PASSWORD SERVICE ---
 
 // ResetPassword
 func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPassword string) (user.View, error) {

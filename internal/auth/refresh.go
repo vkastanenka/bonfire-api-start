@@ -12,7 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// --- DTO ---
+// --- REFRESH CONSTANTS ---
+
+// Messages
+const (
+	MsgRefreshTokenSuccess = "refresh_token_success"
+)
+
+// Errors
+const (
+	ErrMissingRefreshToken = "Missing refresh token, please log in."
+	ErrSessionInvalid      = "Invalid or unrecognized session."
+	ErrSessionBlocked      = "Access denied. This session has been blocked."
+	ErrSessionExpired      = "Session expired. Please log in again."
+	ErrSessionMalformed    = "Invalid session format."
+)
+
+// --- REFRESH DTO ---
 
 type RefreshParams struct {
 	RefreshToken string
@@ -27,7 +43,7 @@ type RefreshRes struct {
 	AccessToken string `json:"access_token"`
 }
 
-// --- Handler ---
+// --- REFRESH HANDLER ---
 
 // Refresh
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
@@ -47,12 +63,12 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-	httpio.RespondOK(w, r, RefreshRes{AccessToken: tokens.AccessToken}, RefreshTokenOK)
+	httpio.RespondOK(w, r, RefreshRes{AccessToken: tokens.AccessToken}, MsgRefreshTokenSuccess)
 
 	return nil
 }
 
-// --- Service ---
+// --- REFRESH SERVICE ---
 
 // Refresh
 func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
@@ -78,7 +94,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	session, err := s.store.UserSessionGetByID(ctx, pgtype.UUID{Bytes: sessionUUID, Valid: true})
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionNotFound)
+			return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 		}
 		return RefreshResult{}, apperr.NewDBError(err)
 	}
