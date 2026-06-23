@@ -17,13 +17,12 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.service.ResetPassword(r.Context(), data.Token, data.NewPassword); err != nil {
+	row, err := h.service.ResetPassword(r.Context(), data.Token, data.NewPassword)
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
-		"message": "Your password has been reset successfully. You may now log in.",
-	})
+	httpio.RespondOK(w, r, row, "Your password has been reset successfully. You may now log in.")
 
 	return nil
 }

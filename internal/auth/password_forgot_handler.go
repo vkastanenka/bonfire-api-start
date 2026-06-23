@@ -24,9 +24,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Success response is generic to prevent email enumeration
-	httpio.RespondJSON(w, r, http.StatusOK, map[string]string{
-		"message": "If an account exists with this email, a password reset link has been sent.",
-	})
+	httpio.RespondOK(w, r, struct{}{}, "If an account exists with this email, a password reset link has been sent.")
 
 	return nil
 }

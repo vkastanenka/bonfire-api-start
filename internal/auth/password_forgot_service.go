@@ -18,7 +18,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	// // Create Outbox Event
-	err = worker.EmitEvent(ctx, qtx, worker.EventUserRegistered, worker.AuthForgotPasswordPayload{
+	err = worker.EmitEvent(ctx, s.store, worker.EventUserRegistered, worker.AuthForgotPasswordPayload{
 		Email: email,
 		Token: resetToken,
 	})
