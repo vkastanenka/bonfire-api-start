@@ -17,7 +17,6 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/userprofile"
 	"bonfire-api/internal/validator"
 	"bonfire-api/internal/worker"
 
@@ -79,13 +78,12 @@ func run() error {
 	// Setup domain services
 	outboxEventsService := outbox.NewService(store)
 	userService := user.NewService(store)
-	userProfileService := userprofile.NewService(store)
 	authService := auth.NewAuthService(store, tokenManager, auth.TokenConfig{
 		AccessSecret:        cfg.AccessSecret,
 		RefreshSecret:       cfg.RefreshSecret,
 		VerificationSecret:  cfg.VerificationSecret,
 		PasswordResetSecret: cfg.PasswordResetSecret,
-	}, userService, userProfileService)
+	}, userService)
 
 	// Setup background workers
 	outboxWorker := worker.NewOutboxWorker(queries, 5*time.Second, 10)
@@ -97,7 +95,6 @@ func run() error {
 	healthHandler := health.NewHandler(pdbPool, rdb)
 	outboxEventsHandler := outbox.NewHandler(outboxEventsService)
 	userHandler := user.NewHandler(userService, val)
-	userProfileHandler := userprofile.NewHandler(userProfileService)
 
 	// Setup application container
 	app := &Application{
@@ -111,13 +108,11 @@ func run() error {
 			Health       *health.Handler
 			OutboxEvents *outbox.Handler
 			Users        *user.Handler
-			UserProfiles *userprofile.Handler
 		}{
 			Auth:         authHandler,
 			Health:       healthHandler,
 			OutboxEvents: outboxEventsHandler,
 			Users:        userHandler,
-			UserProfiles: userProfileHandler,
 		},
 	}
 

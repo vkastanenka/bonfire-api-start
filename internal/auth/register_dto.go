@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/userprofile"
 )
 
 type RegisterReq struct {
@@ -30,6 +29,6 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User        user.View                   `json:"user"`
-	UserProfile userprofile.UserProfileView `json:"user_profile"`
+	User        user.View        `json:"user"`
+	UserProfile user.ProfileView `json:"user_profile"`
 }

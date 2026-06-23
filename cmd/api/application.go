@@ -13,7 +13,6 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/userprofile"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,7 +31,6 @@ type Application struct {
 		Health       *health.Handler
 		OutboxEvents *outbox.Handler
 		Users        *user.Handler
-		UserProfiles *userprofile.Handler
 	}
 }
 

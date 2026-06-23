@@ -2,11 +2,14 @@ package user
 
 // General
 const (
-	User = "user"
+	Domain              = "user"
+	DomainDeleteRequest = "user_delete_request"
+	DomainProfile       = "user_profile"
 )
 
 // Success messages
 const (
+	// users
 	PingOK              = "Ping OK."
 	CountOK             = "Count OK."
 	CheckAvailabilityOK = "Check availability OK."
@@ -16,6 +19,14 @@ const (
 	GetByIDOK           = "Get by ID OK."
 	GetByEmailOK        = "Get by Email OK."
 	GetByUsernameOK     = "Get by Username OK."
+
+	// user_delete_requests
+	ListDeleteRequestsDueOK    = "List delete requests due OK."
+	GetDeleteRequestByUserIDOK = "Get delete request by user ID OK."
+
+	// user_profiles
+	GetProfileByUserIDOK       = "Get profile by user ID OK."
+	UpdateProfileDisplayNameOK = "Update profile display name OK."
 )
 
 // Error messages

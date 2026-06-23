@@ -11,6 +11,8 @@ import (
 // HANDLERS
 // ==========================================
 
+// users
+
 type PingRes struct {
 	Status string `json:"status"`
 }
@@ -25,9 +27,29 @@ type CreateReq struct {
 	Password string `json:"password" validate:"required,min=12,max=128"`
 }
 
+// user_delete_requests
+
+type CreateDeleteRequestReq struct {
+	UserID      string    `json:"user_id" validate:"required,uuid"`
+	ScheduledAt time.Time `json:"scheduled_at" validate:"required"`
+}
+
+// user_profiles
+
+type CreateProfileReq struct {
+	UserID      string `json:"user_id" validate:"required,uuid"`
+	DisplayName string `json:"display_name" validate:"required,min=3,max=32"`
+}
+
+type UpdateProfileDisplayNameReq struct {
+	DisplayName string `json:"display_name" validate:"required,min=3,max=32"`
+}
+
 // ==========================================
 // SERVICES
 // ==========================================
+
+// users
 
 type CheckAvailabilityParams struct {
 	Email    string `json:"email"`
@@ -60,9 +82,30 @@ type EnableTOTPParams struct {
 	Secret string    `json:"secret"`
 }
 
+// user_delete_requests
+
+type CreateDeleteRequestParams struct {
+	UserID      uuid.UUID `json:"user_id"`
+	ScheduledAt time.Time `json:"scheduled_at"`
+}
+
+// user_profiles
+
+type CreateProfileParams struct {
+	UserID      uuid.UUID
+	DisplayName string
+}
+
+type UpdateProfileDisplayNameParams struct {
+	UserID      uuid.UUID
+	DisplayName string
+}
+
 // ==========================================
-// VIEW
+// VIEWS
 // ==========================================
+
+// users
 
 type View struct {
 	ID         uuid.UUID  `json:"id"`
@@ -87,5 +130,39 @@ func NewView(row repository.User) View {
 		VerifiedAt: verifiedAt,
 		CreatedAt:  row.CreatedAt.Time,
 		UpdatedAt:  row.UpdatedAt.Time,
+	}
+}
+
+// user_delete_requests
+
+type DeleteRequestView struct {
+	UserID      uuid.UUID `json:"user_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	ScheduledAt time.Time `json:"scheduled_at"`
+}
+
+func NewDeleteRequestView(row repository.UserDeleteRequest) DeleteRequestView {
+	return DeleteRequestView{
+		UserID:      row.UserID.Bytes,
+		CreatedAt:   row.CreatedAt.Time,
+		ScheduledAt: row.ScheduledAt.Time,
+	}
+}
+
+// user_profiles
+
+type ProfileView struct {
+	UserID      uuid.UUID `json:"user_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	DisplayName string    `json:"display_name"`
+}
+
+func NewProfileView(row repository.UserProfile) ProfileView {
+	return ProfileView{
+		UserID:      uuid.UUID(row.UserID.Bytes),
+		CreatedAt:   row.CreatedAt.Time,
+		UpdatedAt:   row.UpdatedAt.Time,
+		DisplayName: row.DisplayName,
 	}
 }

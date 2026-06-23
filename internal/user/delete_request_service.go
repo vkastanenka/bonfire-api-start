@@ -1,4 +1,4 @@
-package userdeleterequest
+package user
 
 import (
 	"bonfire-api/internal/apperr"
@@ -9,26 +9,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Store interface {
-	repository.Querier
-}
-
-type Service struct {
-	store Store
-}
-
-func NewService(store Store) *Service {
-	return &Service{store: store}
-}
-
 // ==========================================
 // META
 // ==========================================
 
-func (s *Service) Count(ctx context.Context) (int64, error) {
+// CountDeleteRequests
+func (s *Service) CountDeleteRequests(ctx context.Context) (int64, error) {
 	count, err := s.store.UserDeleteRequestCount(ctx)
 	if err != nil {
-		return 0, apperr.NewDBError(err, UserDeleteRequest)
+		return 0, apperr.NewDBError(err, DomainDeleteRequest)
 	}
 	return count, nil
 }
@@ -37,30 +26,30 @@ func (s *Service) Count(ctx context.Context) (int64, error) {
 // CREATE
 // ==========================================
 
-func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
+func (s *Service) CreateDeleteRequest(ctx context.Context, p CreateDeleteRequestParams) (DeleteRequestView, error) {
 	row, err := s.store.UserDeleteRequestCreate(ctx, repository.UserDeleteRequestCreateParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
 		ScheduledAt: pgtype.Timestamptz{Time: p.ScheduledAt, Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, UserDeleteRequest)
+		return DeleteRequestView{}, apperr.NewDBError(err, DomainDeleteRequest)
 	}
-	return NewView(row), nil
+	return NewDeleteRequestView(row), nil
 }
 
 // ==========================================
 // LIST
 // ==========================================
 
-func (s *Service) ListDue(ctx context.Context) ([]View, error) {
+func (s *Service) ListDeleteRequestDue(ctx context.Context) ([]DeleteRequestView, error) {
 	rows, err := s.store.UserDeleteRequestListDue(ctx)
 	if err != nil {
-		return nil, apperr.NewDBError(err, UserDeleteRequest)
+		return nil, apperr.NewDBError(err, DomainDeleteRequest)
 	}
 
-	views := make([]View, len(rows))
+	views := make([]DeleteRequestView, len(rows))
 	for i, row := range rows {
-		views[i] = NewView(row)
+		views[i] = NewDeleteRequestView(row)
 	}
 
 	return views, nil
@@ -70,22 +59,22 @@ func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 // GET
 // ==========================================
 
-func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
+func (s *Service) GetDeleteRequestByUserID(ctx context.Context, userID uuid.UUID) (DeleteRequestView, error) {
 	row, err := s.store.UserDeleteRequestGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err, UserDeleteRequest)
+		return DeleteRequestView{}, apperr.NewDBError(err, DomainDeleteRequest)
 	}
-	return NewView(row), nil
+	return NewDeleteRequestView(row), nil
 }
 
 // ==========================================
 // DELETE
 // ==========================================
 
-func (s *Service) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
+func (s *Service) DeleteDeleteRequestByUserID(ctx context.Context, userID uuid.UUID) error {
 	err := s.store.UserDeleteRequestDeleteByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return apperr.NewDBError(err, UserDeleteRequest)
+		return apperr.NewDBError(err, DomainDeleteRequest)
 	}
 	return nil
 }

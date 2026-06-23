@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/userprofile"
 	"bonfire-api/internal/worker"
 	"context"
 )
@@ -73,7 +72,7 @@ func (s *AuthService) Register(ctx context.Context, r RegisterParams) (RegisterR
 
 		result = RegisterResult{
 			User:        user.NewView(userRow),
-			UserProfile: userprofile.NewUserProfileView(userProfileRow),
+			UserProfile: user.NewProfileView(userProfileRow),
 		}
 
 		return nil

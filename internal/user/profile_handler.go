@@ -1,30 +1,19 @@
-package userprofile
+package user
 
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/validator"
 	"net/http"
 
 	"github.com/google/uuid"
 )
 
-type Handler struct {
-	service   *Service
-	validator *validator.Validator
-}
-
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
-}
-
 // ==========================================
 // META
 // ==========================================
 
-// Count GET
-func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
-	count, err := h.service.Count(r.Context())
+func (h *Handler) CountProfiles(w http.ResponseWriter, r *http.Request) error {
+	count, err := h.service.CountProfiles(r.Context())
 	if err != nil {
 		return err
 	}
@@ -37,9 +26,8 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 // CREATE
 // ==========================================
 
-// Create POST
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
-	reqData, err := httpio.BindJSON[CreateReq](w, r, h.validator)
+func (h *Handler) CreateProfile(w http.ResponseWriter, r *http.Request) error {
+	reqData, err := httpio.BindJSON[CreateProfileReq](w, r, h.validator)
 	if err != nil {
 		return err
 	}
@@ -49,7 +37,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	view, err := h.service.Create(r.Context(), CreateParams{
+	view, err := h.service.CreateProfile(r.Context(), CreateProfileParams{
 		UserID:      userID,
 		DisplayName: reqData.DisplayName,
 	})
@@ -65,20 +53,19 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 // GET
 // ==========================================
 
-// GetByUserID GET
-func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) GetProfileByUserID(w http.ResponseWriter, r *http.Request) error {
 	userIDStr := r.PathValue("userId")
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	view, err := h.service.GetByUserID(r.Context(), userID)
+	view, err := h.service.GetProfileByUserID(r.Context(), userID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, GetByUserIDOK)
+	httpio.RespondOK(w, r, view, GetProfileByUserIDOK)
 	return nil
 }
 
@@ -86,20 +73,19 @@ func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 // UPDATE
 // ==========================================
 
-// UpdateDisplayName PATCH/PUT
-func (h *Handler) UpdateDisplayName(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) UpdateProfileDisplayName(w http.ResponseWriter, r *http.Request) error {
 	userIDStr := r.PathValue("userId")
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	reqData, err := httpio.BindJSON[UpdateDisplayNameReq](w, r, h.validator)
+	reqData, err := httpio.BindJSON[UpdateProfileDisplayNameReq](w, r, h.validator)
 	if err != nil {
 		return err
 	}
 
-	view, err := h.service.UpdateDisplayName(r.Context(), UpdateDisplayNameParams{
+	view, err := h.service.UpdateProfileDisplayName(r.Context(), UpdateProfileDisplayNameParams{
 		UserID:      userID,
 		DisplayName: reqData.DisplayName,
 	})
@@ -107,7 +93,7 @@ func (h *Handler) UpdateDisplayName(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, UpdateDisplayNameOK)
+	httpio.RespondOK(w, r, view, UpdateProfileDisplayNameOK)
 	return nil
 }
 
@@ -115,15 +101,14 @@ func (h *Handler) UpdateDisplayName(w http.ResponseWriter, r *http.Request) erro
 // DELETE
 // ==========================================
 
-// DeleteByUserID DELETE
-func (h *Handler) DeleteByUserID(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) DeleteProfileByUserID(w http.ResponseWriter, r *http.Request) error {
 	userIDStr := r.PathValue("userId")
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
 	}
 
-	if err := h.service.DeleteByUserID(r.Context(), userID); err != nil {
+	if err := h.service.DeleteProfileByUserID(r.Context(), userID); err != nil {
 		return err
 	}
 

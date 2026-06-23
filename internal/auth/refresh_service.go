@@ -41,7 +41,7 @@ func (s *AuthService) Refresh(ctx context.Context, r RefreshParams) (RefreshResu
 
 	// Check for an un-rotated token
 	if session.RefreshToken != r.RefreshToken {
-		_ = s.store.UserSessionMarkBlocked(ctx, session.ID)
+		_, err = s.store.UserSessionMarkBlocked(ctx, session.ID)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 	}
 
@@ -74,7 +74,7 @@ func (s *AuthService) Refresh(ctx context.Context, r RefreshParams) (RefreshResu
 	}
 
 	// Update refresh token
-	err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
+	_, err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
 		ID:           session.ID,
 		RefreshToken: bundle.RefreshToken,
 		ExpiresAt: pgtype.Timestamptz{

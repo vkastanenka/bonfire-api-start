@@ -30,36 +30,36 @@ type DeviceResponse struct {
 
 // GetDevices retrieves all active sessions and flags the current one based on the refresh token.
 func (s *AuthService) GetDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) ([]DeviceResponse, error) {
-	// 1. Convert uuid.UUID to pgtype.UUID
-	pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
+	// // 1. Convert uuid.UUID to pgtype.UUID
+	// pgUserID := pgtype.UUID{Bytes: userID, Valid: true}
 
-	// 2. Fetch sessions using the generated sqlc method
-	sessions, err := s.store.UserSessionListByUser(ctx, pgUserID)
-	if err != nil {
-		return nil, apperr.New(apperr.CodeInternal, "Failed to fetch active devices.", apperr.WithErr(err))
-	}
+	// // 2. Fetch sessions using the generated sqlc method
+	// sessions, err := s.store.UserSessionListByUser(ctx, pgUserID)
+	// if err != nil {
+	// 	return nil, apperr.New(apperr.CodeInternal, "Failed to fetch active devices.", apperr.WithErr(err))
+	// }
 
-	var devices []DeviceResponse
-	for _, sess := range sessions {
-		// 3. Convert netip.Addr to string for display
-		ipStr := sess.ClientIp.String()
+	// var devices []DeviceResponse
+	// for _, sess := range sessions {
+	// 	// 3. Convert netip.Addr to string for display
+	// 	ipStr := sess.ClientIp.String()
 
-		location := "Unknown Location"
-		if sess.ClientIp.IsLoopback() {
-			location = "Localhost"
-		}
+	// 	location := "Unknown Location"
+	// 	if sess.ClientIp.IsLoopback() {
+	// 		location = "Localhost"
+	// 	}
 
-		devices = append(devices, DeviceResponse{
-			ID:        uuid.UUID(sess.ID.Bytes).String(),
-			Name:      parseDeviceName(sess.UserAgent),
-			Location:  location,
-			IPAddress: ipStr,
-			IsCurrent: sess.RefreshToken == currentRefreshToken,
-			LastSeen:  sess.LastSeenAt.Time,
-		})
-	}
+	// 	devices = append(devices, DeviceResponse{
+	// 		ID:        uuid.UUID(sess.ID.Bytes).String(),
+	// 		Name:      parseDeviceName(sess.UserAgent),
+	// 		Location:  location,
+	// 		IPAddress: ipStr,
+	// 		IsCurrent: sess.RefreshToken == currentRefreshToken,
+	// 		LastSeen:  sess.LastSeenAt.Time,
+	// 	})
+	// }
 
-	return devices, nil
+	return nil, nil
 }
 
 // RevokeDevice deletes a specific session, ensuring it belongs to the authenticated user.
@@ -76,20 +76,20 @@ func (s *AuthService) RevokeDevice(ctx context.Context, userID uuid.UUID, sessio
 
 // RevokeAllOtherDevices deletes all sessions except the one associated with the provided refresh token.
 func (s *AuthService) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) error {
-	// 1. Fetch the current session to get its ID
-	currentSession, err := s.store.UserSessionGet(ctx, currentRefreshToken)
-	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, "Current session invalid or already logged out.")
-	}
+	// // 1. Fetch the current session to get its ID
+	// currentSession, err := s.store.UserSessionGet(ctx, currentRefreshToken)
+	// if err != nil {
+	// 	return apperr.New(apperr.CodeUnauthenticated, "Current session invalid or already logged out.")
+	// }
 
-	// 2. Delete everything else
-	err = s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		ID:     currentSession.ID,
-	})
-	if err != nil {
-		return apperr.New(apperr.CodeInternal, "Failed to log out of other devices.", apperr.WithErr(err))
-	}
+	// // 2. Delete everything else
+	// err = s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
+	// 	UserID: pgtype.UUID{Bytes: userID, Valid: true},
+	// 	ID:     currentSession.ID,
+	// })
+	// if err != nil {
+	// 	return apperr.New(apperr.CodeInternal, "Failed to log out of other devices.", apperr.WithErr(err))
+	// }
 
 	return nil
 }

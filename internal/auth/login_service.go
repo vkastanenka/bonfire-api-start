@@ -41,7 +41,7 @@ func (s *AuthService) Login(ctx context.Context, r LoginParams) (LoginResult, er
 		UserID:       userAuth.ID,
 		RefreshToken: bundle.RefreshToken,
 		UserAgent:    r.Meta.UserAgent,
-		ClientIp:     r.Meta.IP,
+		ClientIP:     r.Meta.IP,
 		IsBlocked:    false,
 		ExpiresAt: pgtype.Timestamptz{
 			Time:  time.Now().Add(7 * 24 * time.Hour),
