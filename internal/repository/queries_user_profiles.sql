@@ -1,10 +1,25 @@
+-- ==========================================
+-- META
+-- ==========================================
+-- name: UserProfileCount :one
+SELECT
+    COUNT(*)
+FROM
+    user_profiles;
+
+-- ==========================================
+-- CREATE
+-- ==========================================
 -- name: UserProfileCreate :one
 INSERT INTO user_profiles(user_id, display_name)
     VALUES ($1, $2)
 RETURNING
     *;
 
--- name: UserProfileGet :one
+-- ==========================================
+-- GET
+-- ==========================================
+-- name: UserProfileGetByUserID :one
 SELECT
     *
 FROM
@@ -13,6 +28,7 @@ WHERE
     user_id = $1
 LIMIT 1;
 
+-- TODO: Not just 1, need to allow many since display name is not unique
 -- name: UserProfileGetByDisplayName :one
 SELECT
     *
@@ -22,26 +38,23 @@ WHERE
     lower(display_name) = lower($1)
 LIMIT 1;
 
--- name: UserProfileUpdateDisplayName :exec
+-- ==========================================
+-- UPDATE
+-- ==========================================
+-- name: UserProfileUpdateDisplayName :one
 UPDATE
     user_profiles
 SET
-    display_name = $2,
-    updated_at = CURRENT_TIMESTAMP
+    display_name = $2
 WHERE
-    user_id = $1;
+    user_id = $1
+RETURNING
+    *;
 
--- name: UserProfileDelete :exec
+-- ==========================================
+-- DELETE
+-- ==========================================
+-- name: UserProfileDeleteByUserID :exec
 DELETE FROM user_profiles
 WHERE user_id = $1;
-
--- name: UserProfileCheckDisplayNameAvailability :one
-SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            user_profiles
-        WHERE
-            lower(display_name) = lower($1)) AS available;
 

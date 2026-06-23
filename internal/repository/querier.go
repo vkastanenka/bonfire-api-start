@@ -94,12 +94,27 @@ type Querier interface {
 	// UPDATE
 	// ==========================================
 	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
-	UserProfileCheckDisplayNameAvailability(ctx context.Context, lower string) (bool, error)
+	// ==========================================
+	// META
+	// ==========================================
+	UserProfileCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
-	UserProfileDelete(ctx context.Context, userID pgtype.UUID) error
-	UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	UserProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
 	UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error)
-	UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) error
+	// ==========================================
+	// GET
+	// ==========================================
+	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
+	UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) (UserProfile, error)
 	UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error)
 	UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error
 	UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error

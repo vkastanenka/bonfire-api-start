@@ -11,22 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const userProfileCheckDisplayNameAvailability = `-- name: UserProfileCheckDisplayNameAvailability :one
+const userProfileCount = `-- name: UserProfileCount :one
 SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            user_profiles
-        WHERE
-            lower(display_name) = lower($1)) AS available
+    COUNT(*)
+FROM
+    user_profiles
 `
 
-func (q *Queries) UserProfileCheckDisplayNameAvailability(ctx context.Context, lower string) (bool, error) {
-	row := q.db.QueryRow(ctx, userProfileCheckDisplayNameAvailability, lower)
-	var available bool
-	err := row.Scan(&available)
-	return available, err
+// ==========================================
+// META
+// ==========================================
+func (q *Queries) UserProfileCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, userProfileCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const userProfileCreate = `-- name: UserProfileCreate :one
@@ -41,6 +40,9 @@ type UserProfileCreateParams struct {
 	DisplayName string      `json:"display_name"`
 }
 
+// ==========================================
+// CREATE
+// ==========================================
 func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error) {
 	row := q.db.QueryRow(ctx, userProfileCreate, arg.UserID, arg.DisplayName)
 	var i UserProfile
@@ -53,36 +55,17 @@ func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreatePa
 	return i, err
 }
 
-const userProfileDelete = `-- name: UserProfileDelete :exec
+const userProfileDeleteByUserID = `-- name: UserProfileDeleteByUserID :exec
 DELETE FROM user_profiles
 WHERE user_id = $1
 `
 
-func (q *Queries) UserProfileDelete(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userProfileDelete, userID)
+// ==========================================
+// DELETE
+// ==========================================
+func (q *Queries) UserProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, userProfileDeleteByUserID, userID)
 	return err
-}
-
-const userProfileGet = `-- name: UserProfileGet :one
-SELECT
-    user_id, created_at, updated_at, display_name
-FROM
-    user_profiles
-WHERE
-    user_id = $1
-LIMIT 1
-`
-
-func (q *Queries) UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileGet, userID)
-	var i UserProfile
-	err := row.Scan(
-		&i.UserID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DisplayName,
-	)
-	return i, err
 }
 
 const userProfileGetByDisplayName = `-- name: UserProfileGetByDisplayName :one
@@ -107,14 +90,40 @@ func (q *Queries) UserProfileGetByDisplayName(ctx context.Context, lower string)
 	return i, err
 }
 
-const userProfileUpdateDisplayName = `-- name: UserProfileUpdateDisplayName :exec
+const userProfileGetByUserID = `-- name: UserProfileGetByUserID :one
+SELECT
+    user_id, created_at, updated_at, display_name
+FROM
+    user_profiles
+WHERE
+    user_id = $1
+LIMIT 1
+`
+
+// ==========================================
+// GET
+// ==========================================
+func (q *Queries) UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileGetByUserID, userID)
+	var i UserProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+	)
+	return i, err
+}
+
+const userProfileUpdateDisplayName = `-- name: UserProfileUpdateDisplayName :one
 UPDATE
     user_profiles
 SET
-    display_name = $2,
-    updated_at = CURRENT_TIMESTAMP
+    display_name = $2
 WHERE
     user_id = $1
+RETURNING
+    user_id, created_at, updated_at, display_name
 `
 
 type UserProfileUpdateDisplayNameParams struct {
@@ -122,7 +131,17 @@ type UserProfileUpdateDisplayNameParams struct {
 	DisplayName string      `json:"display_name"`
 }
 
-func (q *Queries) UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) error {
-	_, err := q.db.Exec(ctx, userProfileUpdateDisplayName, arg.UserID, arg.DisplayName)
-	return err
+// ==========================================
+// UPDATE
+// ==========================================
+func (q *Queries) UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileUpdateDisplayName, arg.UserID, arg.DisplayName)
+	var i UserProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+	)
+	return i, err
 }
