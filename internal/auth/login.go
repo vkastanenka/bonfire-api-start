@@ -100,7 +100,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Fetch user credentials
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
-		return LoginResult{}, apperr.NewDBError(err)
+		return LoginResult{}, err
 	}
 
 	// Check password
