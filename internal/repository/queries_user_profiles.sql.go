@@ -78,6 +78,7 @@ WHERE
 LIMIT 1
 `
 
+// TODO: Not just 1, need to allow many since display name is not unique
 func (q *Queries) UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error) {
 	row := q.db.QueryRow(ctx, userProfileGetByDisplayName, lower)
 	var i UserProfile

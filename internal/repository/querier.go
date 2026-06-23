@@ -106,6 +106,7 @@ type Querier interface {
 	// DELETE
 	// ==========================================
 	UserProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
+	// TODO: Not just 1, need to allow many since display name is not unique
 	UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error)
 	// ==========================================
 	// GET
@@ -115,15 +116,35 @@ type Querier interface {
 	// UPDATE
 	// ==========================================
 	UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) (UserProfile, error)
+	// ==========================================
+	// META
+	// ==========================================
+	UserSessionCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
 	UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
 	UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error
 	UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error
-	UserSessionGet(ctx context.Context, refreshToken string) (UserSession, error)
+	// ==========================================
+	// GET
+	// ==========================================
 	UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserSession, error)
-	UserSessionListByUser(ctx context.Context, userID pgtype.UUID) ([]UserSession, error)
-	UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error
-	UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error
-	UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) error
+	UserSessionGetByRefreshToken(ctx context.Context, refreshToken string) (UserSession, error)
+	// ==========================================
+	// LIST
+	// ==========================================
+	UserSessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]UserSession, error)
+	UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) (UserSession, error)
+	UserSessionPurgeExpired(ctx context.Context) error
+	UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (UserSession, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
+	UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) (UserSession, error)
 	UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error)
 	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }

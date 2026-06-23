@@ -12,6 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const userSessionCount = `-- name: UserSessionCount :one
+SELECT
+    COUNT(*)
+FROM
+    user_sessions
+`
+
+// ==========================================
+// META
+// ==========================================
+func (q *Queries) UserSessionCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, userSessionCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const userSessionCreate = `-- name: UserSessionCreate :one
 INSERT INTO user_sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -24,18 +41,21 @@ type UserSessionCreateParams struct {
 	UserID       pgtype.UUID        `json:"user_id"`
 	RefreshToken string             `json:"refresh_token"`
 	UserAgent    string             `json:"user_agent"`
-	ClientIp     netip.Addr         `json:"client_ip"`
+	ClientIP     netip.Addr         `json:"client_ip"`
 	IsBlocked    bool               `json:"is_blocked"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 }
 
+// ==========================================
+// CREATE
+// ==========================================
 func (q *Queries) UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error) {
 	row := q.db.QueryRow(ctx, userSessionCreate,
 		arg.ID,
 		arg.UserID,
 		arg.RefreshToken,
 		arg.UserAgent,
-		arg.ClientIp,
+		arg.ClientIP,
 		arg.IsBlocked,
 		arg.ExpiresAt,
 	)
@@ -49,7 +69,7 @@ func (q *Queries) UserSessionCreate(ctx context.Context, arg UserSessionCreatePa
 		&i.LastSeenAt,
 		&i.RefreshToken,
 		&i.IsBlocked,
-		&i.ClientIp,
+		&i.ClientIP,
 		&i.UserAgent,
 	)
 	return i, err
@@ -66,6 +86,9 @@ type UserSessionDeleteParams struct {
 	UserID pgtype.UUID `json:"user_id"`
 }
 
+// ==========================================
+// DELETE
+// ==========================================
 func (q *Queries) UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error {
 	_, err := q.db.Exec(ctx, userSessionDelete, arg.ID, arg.UserID)
 	return err
@@ -87,34 +110,6 @@ func (q *Queries) UserSessionDeleteAllExcept(ctx context.Context, arg UserSessio
 	return err
 }
 
-const userSessionGet = `-- name: UserSessionGet :one
-SELECT
-    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
-FROM
-    user_sessions
-WHERE
-    refresh_token = $1
-LIMIT 1
-`
-
-func (q *Queries) UserSessionGet(ctx context.Context, refreshToken string) (UserSession, error) {
-	row := q.db.QueryRow(ctx, userSessionGet, refreshToken)
-	var i UserSession
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ExpiresAt,
-		&i.LastSeenAt,
-		&i.RefreshToken,
-		&i.IsBlocked,
-		&i.ClientIp,
-		&i.UserAgent,
-	)
-	return i, err
-}
-
 const userSessionGetByID = `-- name: UserSessionGetByID :one
 SELECT
     id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
@@ -125,6 +120,9 @@ WHERE
 LIMIT 1
 `
 
+// ==========================================
+// GET
+// ==========================================
 func (q *Queries) UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserSession, error) {
 	row := q.db.QueryRow(ctx, userSessionGetByID, id)
 	var i UserSession
@@ -137,13 +135,43 @@ func (q *Queries) UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserS
 		&i.LastSeenAt,
 		&i.RefreshToken,
 		&i.IsBlocked,
-		&i.ClientIp,
+		&i.ClientIP,
 		&i.UserAgent,
 	)
 	return i, err
 }
 
-const userSessionListByUser = `-- name: UserSessionListByUser :many
+const userSessionGetByRefreshToken = `-- name: UserSessionGetByRefreshToken :one
+SELECT
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
+FROM
+    user_sessions
+WHERE
+    refresh_token = $1
+    AND is_blocked = FALSE
+    AND expires_at > CURRENT_TIMESTAMP
+LIMIT 1
+`
+
+func (q *Queries) UserSessionGetByRefreshToken(ctx context.Context, refreshToken string) (UserSession, error) {
+	row := q.db.QueryRow(ctx, userSessionGetByRefreshToken, refreshToken)
+	var i UserSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.LastSeenAt,
+		&i.RefreshToken,
+		&i.IsBlocked,
+		&i.ClientIP,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
+const userSessionListActiveByUserID = `-- name: UserSessionListActiveByUserID :many
 SELECT
     id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
 FROM
@@ -151,12 +179,16 @@ FROM
 WHERE
     user_id = $1
     AND is_blocked = FALSE
+    AND expires_at > CURRENT_TIMESTAMP
 ORDER BY
     last_seen_at DESC
 `
 
-func (q *Queries) UserSessionListByUser(ctx context.Context, userID pgtype.UUID) ([]UserSession, error) {
-	rows, err := q.db.Query(ctx, userSessionListByUser, userID)
+// ==========================================
+// LIST
+// ==========================================
+func (q *Queries) UserSessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]UserSession, error) {
+	rows, err := q.db.Query(ctx, userSessionListActiveByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +205,7 @@ func (q *Queries) UserSessionListByUser(ctx context.Context, userID pgtype.UUID)
 			&i.LastSeenAt,
 			&i.RefreshToken,
 			&i.IsBlocked,
-			&i.ClientIp,
+			&i.ClientIP,
 			&i.UserAgent,
 		); err != nil {
 			return nil, err
@@ -186,43 +218,84 @@ func (q *Queries) UserSessionListByUser(ctx context.Context, userID pgtype.UUID)
 	return items, nil
 }
 
-const userSessionMarkBlocked = `-- name: UserSessionMarkBlocked :exec
+const userSessionMarkBlocked = `-- name: UserSessionMarkBlocked :one
 UPDATE
     user_sessions
 SET
     is_blocked = TRUE
 WHERE
     id = $1
+RETURNING
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
 `
 
-func (q *Queries) UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userSessionMarkBlocked, id)
+func (q *Queries) UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) (UserSession, error) {
+	row := q.db.QueryRow(ctx, userSessionMarkBlocked, id)
+	var i UserSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.LastSeenAt,
+		&i.RefreshToken,
+		&i.IsBlocked,
+		&i.ClientIP,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
+const userSessionPurgeExpired = `-- name: UserSessionPurgeExpired :exec
+DELETE FROM user_sessions
+WHERE expires_at <= CURRENT_TIMESTAMP
+`
+
+func (q *Queries) UserSessionPurgeExpired(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, userSessionPurgeExpired)
 	return err
 }
 
-const userSessionUpdateLastSeen = `-- name: UserSessionUpdateLastSeen :exec
+const userSessionUpdateLastSeen = `-- name: UserSessionUpdateLastSeen :one
 UPDATE
     user_sessions
 SET
     last_seen_at = CURRENT_TIMESTAMP
 WHERE
     id = $1
+RETURNING
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
 `
 
-func (q *Queries) UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, userSessionUpdateLastSeen, id)
-	return err
+func (q *Queries) UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (UserSession, error) {
+	row := q.db.QueryRow(ctx, userSessionUpdateLastSeen, id)
+	var i UserSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.LastSeenAt,
+		&i.RefreshToken,
+		&i.IsBlocked,
+		&i.ClientIP,
+		&i.UserAgent,
+	)
+	return i, err
 }
 
-const userSessionUpdateRefreshToken = `-- name: UserSessionUpdateRefreshToken :exec
+const userSessionUpdateRefreshToken = `-- name: UserSessionUpdateRefreshToken :one
 UPDATE
     user_sessions
 SET
     refresh_token = $2,
-    expires_at = $3,
-    updated_at = CURRENT_TIMESTAMP
+    expires_at = $3
 WHERE
     id = $1
+RETURNING
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
 `
 
 type UserSessionUpdateRefreshTokenParams struct {
@@ -231,7 +304,23 @@ type UserSessionUpdateRefreshTokenParams struct {
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 }
 
-func (q *Queries) UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) error {
-	_, err := q.db.Exec(ctx, userSessionUpdateRefreshToken, arg.ID, arg.RefreshToken, arg.ExpiresAt)
-	return err
+// ==========================================
+// UPDATE
+// ==========================================
+func (q *Queries) UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) (UserSession, error) {
+	row := q.db.QueryRow(ctx, userSessionUpdateRefreshToken, arg.ID, arg.RefreshToken, arg.ExpiresAt)
+	var i UserSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.LastSeenAt,
+		&i.RefreshToken,
+		&i.IsBlocked,
+		&i.ClientIP,
+		&i.UserAgent,
+	)
+	return i, err
 }

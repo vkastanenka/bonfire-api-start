@@ -103,6 +103,6 @@ type UserSession struct {
 	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
 	RefreshToken string             `json:"refresh_token"`
 	IsBlocked    bool               `json:"is_blocked"`
-	ClientIp     netip.Addr         `json:"client_ip"`
+	ClientIP     netip.Addr         `json:"client_ip"`
 	UserAgent    string             `json:"user_agent"`
 }
