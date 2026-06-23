@@ -9,10 +9,16 @@ const (
 
 // Success messages
 const (
-	RegisterOk     = "User register ok! 🥳🎉"
-	LoginOk        = "User login ok!"
-	RefreshTokenOk = "Refresh tokens ok!"
-	PingOK         = "Ping ok!"
+	RegisterOK                     = "User register ok! 🥳🎉"
+	LoginOK                        = "User login ok!"
+	RefreshTokenOK                 = "Refresh tokens ok!"
+	PingOK                         = "Ping ok!"
+	CountUserSessionsOK            = "Count user sessions ok!"
+	CreateUserSessionOK            = "Create user session ok!"
+	ListActiveUserSessionByUserID  = "List active user session by user id ok!"
+	GetUserSessionByIDOK           = "Get user session by id ok!"
+	GetUserSessionByRefreshTokenOK = "Get user session by refresh token ok!"
+	UpdateRefreshTokenOK           = "Update refresh token ok!"
 )
 
 // Validation / Error messages

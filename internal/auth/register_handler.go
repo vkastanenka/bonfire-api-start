@@ -7,7 +7,7 @@ import (
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
-	reqData, err := httpio.BindJSON[RegisterReq](w, r, h.val)
+	reqData, err := httpio.BindJSON[RegisterReq](w, r, h.validator)
 	if err != nil {
 		return err
 	}
@@ -24,7 +24,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Respond
-	httpio.RespondCreated(w, r, data, RegisterOk)
+	httpio.RespondCreated(w, r, data, RegisterOK)
 
 	return nil
 }

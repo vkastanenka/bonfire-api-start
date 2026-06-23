@@ -7,12 +7,12 @@ import (
 )
 
 type Handler struct {
-	service *Service
-	val     *validator.Validator
+	service   *Service
+	validator *validator.Validator
 }
 
-func NewHandler(service *Service, val *validator.Validator) *Handler {
-	return &Handler{service: service, val: val}
+func NewHandler(service *Service, validator *validator.Validator) *Handler {
+	return &Handler{service: service, validator: validator}
 }
 
 // Ping

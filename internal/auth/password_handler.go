@@ -17,7 +17,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.validator.ValidateStruct(&data); err != nil {
 		return err
 	}
 
@@ -48,7 +48,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.validator.ValidateStruct(&data); err != nil {
 		return err
 	}
 

@@ -17,7 +17,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&req); err != nil {
+	if err := h.validator.ValidateStruct(&req); err != nil {
 		return err
 	}
 
@@ -44,7 +44,7 @@ func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.validator.ValidateStruct(&data); err != nil {
 		return err
 	}
 

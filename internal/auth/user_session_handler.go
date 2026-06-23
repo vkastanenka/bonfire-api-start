@@ -1,36 +1,26 @@
-package usersession
+package auth
 
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/validator"
 	"net/http"
 	"net/netip"
 
 	"github.com/google/uuid"
 )
 
-type Handler struct {
-	service   *Service
-	validator *validator.Validator
-}
-
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
-}
-
 // ==========================================
 // META
 // ==========================================
 
 // Count GET
-func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) CountUserSessions(w http.ResponseWriter, r *http.Request) error {
 	count, err := h.service.Count(r.Context())
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, CountRes{Count: count}, CountBytesOK)
+	httpio.RespondOK(w, r, CountRes{Count: count}, CountUserSessionsOK)
 	return nil
 }
 
@@ -39,7 +29,7 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 // ==========================================
 
 // Create POST
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) CreateUserSession(w http.ResponseWriter, r *http.Request) error {
 	reqData, err := httpio.BindJSON[CreateReq](w, r, h.validator)
 	if err != nil {
 		return err
@@ -66,7 +56,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	view, err := h.service.Create(r.Context(), CreateParams{
+	view, err := h.service.CreateUserSession(r.Context(), CreateUserSessionParams{
 		ID:           sessionID,
 		UserID:       userID,
 		RefreshToken: reqData.RefreshToken,
@@ -79,7 +69,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondCreated(w, r, view, CreateOK)
+	httpio.RespondCreated(w, r, view, CreateUserSessionOK)
 	return nil
 }
 
@@ -95,12 +85,12 @@ func (h *Handler) ListActiveByUserID(w http.ResponseWriter, r *http.Request) err
 		return apperr.New(apperr.CodeBadRequest, "invalid user id")
 	}
 
-	views, err := h.service.ListActiveByUserID(r.Context(), userID)
+	views, err := h.service.ListActiveUserSessionByUserID(r.Context(), userID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, views, ListActiveOK)
+	httpio.RespondOK(w, r, views, ListActiveUserSessionByUserID)
 	return nil
 }
 
@@ -116,12 +106,12 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, "invalid session id")
 	}
 
-	view, err := h.service.GetByID(r.Context(), id)
+	view, err := h.service.GetUserSessionByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, GetByIDOK)
+	httpio.RespondOK(w, r, view, GetUserSessionByIDOK)
 	return nil
 }
 
@@ -132,12 +122,12 @@ func (h *Handler) GetByRefreshToken(w http.ResponseWriter, r *http.Request) erro
 		return apperr.New(apperr.CodeBadRequest, "refresh token query parameter required")
 	}
 
-	view, err := h.service.GetByRefreshToken(r.Context(), token)
+	view, err := h.service.GetUserSessionByRefreshToken(r.Context(), token)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, GetByRefreshTokenOK)
+	httpio.RespondOK(w, r, view, GetUserSessionByRefreshTokenOK)
 	return nil
 }
 
@@ -158,7 +148,7 @@ func (h *Handler) UpdateRefreshToken(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	view, err := h.service.UpdateRefreshToken(r.Context(), UpdateRefreshTokenParams{
+	view, err := h.service.UpdateUserSessionRefreshToken(r.Context(), UpdateRefreshTokenParams{
 		ID:           id,
 		RefreshToken: reqData.RefreshToken,
 		ExpiresAt:    reqData.ExpiresAt,
@@ -179,12 +169,12 @@ func (h *Handler) UpdateLastSeen(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, "invalid session id")
 	}
 
-	view, err := h.service.UpdateLastSeen(r.Context(), id)
+	view, err := h.service.UpdateUserSessionLastSeen(r.Context(), id)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, UpdateLastSeenOK)
+	httpio.RespondOK(w, r, view, "ok")
 	return nil
 }
 
@@ -196,12 +186,12 @@ func (h *Handler) MarkBlocked(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, "invalid session id")
 	}
 
-	view, err := h.service.MarkBlocked(r.Context(), id)
+	view, err := h.service.MarkUserSessionBlocked(r.Context(), id)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, view, MarkBlockedOK)
+	httpio.RespondOK(w, r, view, "ok")
 	return nil
 }
 
@@ -223,7 +213,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
 		return apperr.New(apperr.CodeBadRequest, "invalid user id")
 	}
 
-	if err := h.service.Delete(r.Context(), id, userID); err != nil {
+	if err := h.service.DeleteUserSession(r.Context(), id, userID); err != nil {
 		return err
 	}
 
@@ -245,7 +235,7 @@ func (h *Handler) DeleteAllExcept(w http.ResponseWriter, r *http.Request) error 
 		return apperr.New(apperr.CodeBadRequest, "invalid exception session id")
 	}
 
-	if err := h.service.DeleteAllExcept(r.Context(), userID, exceptID); err != nil {
+	if err := h.service.DeleteAllUserSessionExcept(r.Context(), userID, exceptID); err != nil {
 		return err
 	}
 
@@ -255,10 +245,10 @@ func (h *Handler) DeleteAllExcept(w http.ResponseWriter, r *http.Request) error 
 
 // PurgeExpired POST
 func (h *Handler) PurgeExpired(w http.ResponseWriter, r *http.Request) error {
-	if err := h.service.PurgeExpired(r.Context()); err != nil {
+	if err := h.service.PurgeExpiredUserSession(r.Context()); err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, PurgeRes{Message: "expired sessions purged successfully"}, PurgeExpiredOK)
+	httpio.RespondOK(w, r, PurgeRes{Message: "expired sessions purged successfully"}, "ok")
 	return nil
 }

@@ -42,7 +42,7 @@ func (h *Handler) EnableTOTP(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.validator.ValidateStruct(&data); err != nil {
 		return err
 	}
 
@@ -77,7 +77,7 @@ func (h *Handler) VerifyLogin2FA(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.val.ValidateStruct(&data); err != nil {
+	if err := h.validator.ValidateStruct(&data); err != nil {
 		return err
 	}
 

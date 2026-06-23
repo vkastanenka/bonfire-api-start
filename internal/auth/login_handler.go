@@ -8,7 +8,7 @@ import (
 // Login handles user login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[LoginReq](w, r, h.val)
+	req, err := httpio.BindJSON[LoginReq](w, r, h.validator)
 	if err != nil {
 		return err
 	}
@@ -28,7 +28,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, LoginOk)
+	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, LoginOK)
 
 	return nil
 }
