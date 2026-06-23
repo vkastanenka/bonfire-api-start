@@ -1,31 +1,30 @@
 package auth
 
 import (
+	"bonfire-api/internal/worker"
 	"context"
 )
 
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
-	// user, err := s.store.UserGetByEmail(ctx, email)
-	// if err != nil {
-	// 	if errors.Is(err, pgx.ErrNoRows) {
-	// 		return nil
-	// 	}
-	// 	return apperr.New(apperr.CodeInternal, "System error", apperr.WithErr(err))
-	// }
+	user, err := s.user.GetByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
 
-	// // Generate a short-lived token (15 mins) specifically for resetting
-	// userID := uuid.UUID(user.ID.Bytes)
-	// resetToken, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.PasswordResetSecret, 15*time.Minute)
-	// if err != nil {
-	// 	return err
-	// }
+	// Generate a short-lived token (15 mins) specifically for resetting
+	resetToken, err := s.generatePasswordResetToken(user.ID)
+	if err != nil {
+		return err
+	}
 
 	// // Create Outbox Event
-	// jsonBytes, _ := json.Marshal(map[string]string{"email": email, "token": resetToken})
-	// _, err = s.store.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
-	// 	EventType: "user.forgot_password",
-	// 	Payload:   jsonBytes,
-	// })
-	// return err
+	err = worker.EmitEvent(ctx, qtx, worker.EventUserRegistered, worker.AuthForgotPasswordPayload{
+		Email: email,
+		Token: resetToken,
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

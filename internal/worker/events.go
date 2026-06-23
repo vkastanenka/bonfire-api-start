@@ -33,3 +33,8 @@ func EmitEvent(ctx context.Context, qtx *repository.Queries, eventType string, p
 type AuthRegisterEventPayload struct {
 	UserID pgtype.UUID `json:"user_id"`
 }
+
+type AuthForgotPasswordPayload struct {
+	Email string `json:"email"`
+	Token string `json:"token"`
+}

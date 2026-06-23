@@ -23,3 +23,14 @@ func (s *Service) generateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (s
 
 	return s.tokenManager.GenerateJWT(userID, s.tokenConfig.RefreshSecret, 7*24*time.Hour, customClaims)
 }
+
+func (s *Service) generatePasswordResetToken(userID uuid.UUID) (string, error) {
+	customClaims := map[string]any{}
+
+	return s.tokenManager.GenerateJWT(
+		userID,
+		s.tokenConfig.PasswordResetSecret,
+		15*time.Minute,
+		customClaims,
+	)
+}
