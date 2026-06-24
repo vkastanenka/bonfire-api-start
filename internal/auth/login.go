@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/token"
 	"context"
 	"net/http"
 	"time"
@@ -22,6 +23,7 @@ const (
 // Errors
 const (
 	ErrCredentialsInvalid = "Invalid credentials."
+	ErrCreatingSession    = "Unable to create session."
 )
 
 // --- LOGIN ERRORS ---
@@ -37,7 +39,7 @@ func NewLoginCredentialsError() error {
 	)
 }
 
-// --- LOGIN DTO ---
+// --- LOGIN TYPES ---
 
 type LoginReq struct {
 	Email    string `json:"email" validate:"required,email,max=255"`
@@ -111,11 +113,16 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Issue new token bundle
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return LoginResult{}, apperr.New(apperr.CodeInternal, ErrCreatingSession)
+	}
+
 	userID := uuid.UUID(userAuth.ID)
 	userRole := string(userAuth.Role)
 	userIsVerified := userAuth.VerifiedAt != nil
 
-	bundle, err := s.tokenManager.IssueNewBundle(userID, userRole, userIsVerified)
+	bundle, err := s.token.NewBundle(userID, sessionID, userRole, userIsVerified)
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -128,7 +135,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		UserAgent:    r.Meta.UserAgent,
 		ClientIP:     r.Meta.IP,
 		IsBlocked:    false,
-		ExpiresAt:    time.Now().Add(7 * 24 * time.Hour),
+		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
 	})
 	if err != nil {
 		return LoginResult{}, err

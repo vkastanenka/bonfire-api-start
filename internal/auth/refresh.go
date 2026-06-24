@@ -73,13 +73,15 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 // Refresh
 func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
 	// Check old token
-	claims, err := s.tokenManager.VerifyJWT(r.RefreshToken, s.tokenConfig.RefreshSecret)
+	// claims, err := s.token.VerifyRefresh(r.RefreshToken)
+	_, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
 	}
 
 	// Check session
-	sessionIDStr := claims.GetString("sid")
+	// sessionIDStr := claims.GetString("sid")
+	sessionIDStr := ""
 	if sessionIDStr == "" {
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionMalformed)
 	}
@@ -125,10 +127,15 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Issue new token bundle
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return RefreshResult{}, apperr.New(apperr.CodeInternal, ErrCreatingSession)
+	}
+
 	userRole := string(userRow.Role)
 	userIsVerified := userRow.VerifiedAt.Valid
 
-	bundle, err := s.tokenManager.IssueNewBundle(userID, userRole, userIsVerified)
+	bundle, err := s.token.NewBundle(userID, sessionID, userRole, userIsVerified)
 	if err != nil {
 		return RefreshResult{}, err
 	}

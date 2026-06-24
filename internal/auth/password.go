@@ -53,21 +53,21 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
-	user, err := s.user.GetByEmail(ctx, email)
+	_, err := s.user.GetByEmail(ctx, email)
 	if err != nil {
 		return err
 	}
 
 	// Generate a short-lived token (15 mins) specifically for resetting
-	resetToken, err := s.generatePasswordResetToken(user.ID)
-	if err != nil {
-		return err
-	}
+	// resetToken, err := s.generatePasswordResetToken(user.ID)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// // Create Outbox Event
 	err = worker.EmitEvent(ctx, s.store, worker.EventUserRegistered, worker.AuthForgotPasswordPayload{
 		Email: email,
-		Token: resetToken,
+		Token: "",
 	})
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 // ResetPassword
 func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPassword string) (user.View, error) {
 	// Verify the token using the PasswordResetSecret
-	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordResetSecret)
+	claims, err := s.token.VerifyPasswordReset(tokenStr)
 	if err != nil {
 		return user.View{}, apperr.New(apperr.CodeUnauthenticated, "Invalid or expired reset token.")
 	}

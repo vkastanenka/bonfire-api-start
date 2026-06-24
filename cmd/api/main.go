@@ -70,20 +70,15 @@ func run() error {
 	store := repository.NewStore(pdbPool)
 	queries := repository.New(pdbPool)
 
-	// Setup middleware services
-	rateLimiter := redis_rate.NewLimiter(rdb)
+	// Setup helper services
 	val := validator.New()
-	tokenManager := token.NewJWTManager()
+	rateLimiter := redis_rate.NewLimiter(rdb)
+	tokenService := token.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.VerificationSecret, cfg.PasswordResetSecret, cfg.PasswordMFASecret)
 
 	// Setup domain services
 	outboxEventsService := outbox.NewService(store)
 	userService := user.NewService(store)
-	authService := auth.NewService(store, tokenManager, auth.TokenConfig{
-		AccessSecret:        cfg.AccessSecret,
-		RefreshSecret:       cfg.RefreshSecret,
-		VerificationSecret:  cfg.VerificationSecret,
-		PasswordResetSecret: cfg.PasswordResetSecret,
-	}, userService)
+	authService := auth.NewService(store, tokenService, userService)
 
 	// Setup background workers
 	outboxWorker := worker.NewOutboxWorker(queries, 5*time.Second, 10)
@@ -98,11 +93,10 @@ func run() error {
 
 	// Setup application container
 	app := &Application{
-		Config:       cfg,
-		DB:           pdbPool,
-		Redis:        rdb,
-		RateLimiter:  rateLimiter,
-		TokenManager: tokenManager,
+		Config:      cfg,
+		DB:          pdbPool,
+		Redis:       rdb,
+		RateLimiter: rateLimiter,
 		Handlers: struct {
 			Auth         *auth.Handler
 			Health       *health.Handler

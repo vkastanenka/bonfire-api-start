@@ -2,114 +2,134 @@ package token
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// Manager defines the contract for token operations, accepting arbitrary custom claims
-type Manager interface {
-	VerifyJWT(tokenString string, secret string) (*Claims, error)
-	GenerateJWT(userID uuid.UUID, secret string, duration time.Duration, customClaims map[string]any) (string, error)
-	IssueNewBundle(userID uuid.UUID, role string, isVerified bool) (TokenBundle, error)
+// --- COOKIE CONSTANTS ---
+
+const (
+	RefreshTokenTTL = 7 * 24 * time.Hour
+)
+
+// --- TOKEN TYPES ---
+
+type Bundle struct {
+	AccessToken  string
+	RefreshToken string
+	SessionID    uuid.UUID
 }
 
-// Claims defines the JWT payload structure.
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID uuid.UUID      `json:"user_id"`
-	Flags  int64          `json:"flags,omitempty"`
-	Extra  map[string]any `json:"extra,omitempty"` // Allows adding any fields dynamically
+	UserID     uuid.UUID `json:"user_id"`
+	Role       string    `json:"role,omitempty"`
+	IsVerified bool      `json:"ver,omitempty"`
+	SessionID  uuid.UUID `json:"sid,omitempty"`
 }
 
-// Helper methods to make grabbing custom data out of validated claims effortless
-func (c *Claims) GetString(key string) string {
-	if c.Extra == nil {
-		return ""
-	}
-	val, ok := c.Extra[key].(string)
-	if !ok {
-		return ""
-	}
-	return val
+type Service struct {
+	accessSecret        []byte
+	refreshSecret       []byte
+	verificationSecret  []byte
+	passwordResetSecret []byte
+	passwordMFASecret   []byte
 }
 
-func (c *Claims) GetBool(key string) bool {
-	if c.Extra == nil {
-		return false
+// --- TOKEN INITIALIZATION ---
+
+func NewService(accessSecret string, refreshSecret string, verificationSecret string, passwordResetSecret string, passwordMFASecret string) *Service {
+	return &Service{
+		accessSecret:        []byte(accessSecret),
+		refreshSecret:       []byte(refreshSecret),
+		verificationSecret:  []byte(verificationSecret),
+		passwordResetSecret: []byte(passwordResetSecret),
+		passwordMFASecret:   []byte(passwordMFASecret),
 	}
-	val, ok := c.Extra[key].(bool)
-	if !ok {
-		return false
-	}
-	return val
 }
 
-type JWTManager struct{}
+// --- TOKEN METHODS ---
 
-func NewJWTManager() *JWTManager {
-	return &JWTManager{}
-}
-
-// GenerateJWT creates a new token accepting a flexible customClaims map
-func (m *JWTManager) GenerateJWT(userID uuid.UUID, secretKey string, duration time.Duration, customClaims map[string]any) (string, error) {
-	claims := Claims{
-		UserID: userID,
-		Extra:  customClaims, // Pass your scalable map directly here
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        uuid.NewString(),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secretKey))
-}
-
-func (m *JWTManager) VerifyJWT(tokenString string, secretKey string) (*Claims, error) {
-	keyFunc := func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secretKey), nil
-	}
-
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, keyFunc)
+// NewBundle
+func (m *Service) NewBundle(userID uuid.UUID, sessionID uuid.UUID, role string, isVerified bool) (Bundle, error) {
+	// Create Access Token
+	access, err := m.generate(userID, 15*time.Minute, Claims{
+		Role:       role,
+		IsVerified: isVerified,
+	}, m.accessSecret)
 	if err != nil {
-		return nil, err
+		return Bundle{}, err
+	}
+
+	// Create Refresh Token
+	refresh, err := m.generate(userID, 7*24*time.Hour, Claims{
+		SessionID: sessionID,
+	}, m.refreshSecret)
+	if err != nil {
+		return Bundle{}, err
+	}
+
+	return Bundle{
+		AccessToken:  access,
+		RefreshToken: refresh,
+		SessionID:    sessionID,
+	}, nil
+}
+
+func (m *Service) generate(userID uuid.UUID, duration time.Duration, claims Claims, secret []byte) (string, error) {
+	claims.UserID = userID
+	claims.RegisteredClaims = jwt.RegisteredClaims{
+		ID:        uuid.NewString(),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+		Issuer:    "bonfire-api",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secret)
+}
+
+func (m *Service) VerifyAccess(tokenString string) (*Claims, error) {
+	return m.verify(tokenString, m.accessSecret)
+}
+
+func (m *Service) VerifyRefresh(tokenString string) (*Claims, error) {
+	return m.verify(tokenString, m.refreshSecret)
+}
+
+func (m *Service) VerifyVerification(tokenString string) (*Claims, error) {
+	return m.verify(tokenString, m.verificationSecret)
+}
+
+func (m *Service) VerifyPasswordReset(tokenString string) (*Claims, error) {
+	return m.verify(tokenString, m.passwordResetSecret)
+}
+
+func (m *Service) VerifyPasswordMFA(tokenString string) (*Claims, error) {
+	return m.verify(tokenString, m.passwordMFASecret)
+}
+
+func (m *Service) verify(tokenString string, secret []byte) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return secret, nil
+	})
+
+	if err != nil || !token.Valid {
+		return nil, errors.New("invalid token")
 	}
 
 	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token format or expired")
+	if !ok {
+		return nil, errors.New("invalid claims format")
+	}
+
+	if claims.Issuer != "bonfire-api" {
+		return nil, errors.New("invalid issuer")
 	}
 
 	return claims, nil
-}
-
-// Define constants here so only the token package knows the internal claim keys
-const (
-	ClaimRole = "role"
-	ClaimVer  = "ver"
-	ClaimSID  = "sid"
-)
-
-// GenerateAccessToken abstracts the claim mapping away from Auth
-func (m *JWTManager) GenerateAccessToken(userID uuid.UUID, secret string, role string, isVerified bool) (string, error) {
-	claims := map[string]any{
-		ClaimRole: role,
-		ClaimVer:  isVerified,
-	}
-	return m.GenerateJWT(userID, secret, 15*time.Minute, claims)
-}
-
-// GenerateRefreshToken abstracts the session ID mapping
-func (m *JWTManager) GenerateRefreshToken(userID uuid.UUID, secret string, sessionID uuid.UUID) (string, error) {
-	claims := map[string]any{
-		ClaimSID: sessionID.String(),
-	}
-	return m.GenerateJWT(userID, secret, 7*24*time.Hour, claims)
 }

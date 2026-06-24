@@ -19,6 +19,7 @@ type Config struct {
 	RefreshSecret        string   `env:"JWT_REFRESH_SECRET,required"`
 	VerificationSecret   string   `env:"JWT_VERIFICATION_SECRET,required"`
 	PasswordResetSecret  string   `env:"JWT_PASSWORD_RESET_SECRET,required"`
+	PasswordMFASecret    string   `env:"JWT_PASSWORD_MFA_SECRET,required"`
 	ResendApiKey         string   `env:"RESEND_API_KEY"`
 	EmailFromAddress     string   `env:"EMAIL_FROM_ADDRESS"`
 	FrontendURL          string   `env:"FRONTEND_URL"`

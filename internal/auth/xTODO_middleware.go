@@ -1,12 +1,10 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/token"
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -19,34 +17,35 @@ const (
 )
 
 // RequireAuth validates the Access Token and injects claims into the context.
-func RequireAuth(manager token.Manager, accessSecret string) func(http.Handler) http.Handler {
+func RequireAuth(manager token.Service, accessSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Missing authorization header. Please log in."})
-				return
-			}
+			// authHeader := r.Header.Get("Authorization")
+			// if authHeader == "" {
+			// 	httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Missing authorization header. Please log in."})
+			// 	return
+			// }
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid authorization header format."})
-				return
-			}
+			// parts := strings.Split(authHeader, " ")
+			// if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			// 	httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid authorization header format."})
+			// 	return
+			// }
 
-			accessToken := parts[1]
+			// accessToken := parts[1]
 
-			claims, err := manager.VerifyJWT(accessToken, accessSecret)
-			if err != nil {
-				httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired access token."})
-				return
-			}
+			// claims, err := manager.VerifyJWT(accessToken, accessSecret)
+			// if err != nil {
+			// 	httpio.RespondJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired access token."})
+			// 	return
+			// }
 
-			// Store BOTH the UserID (for convenience) AND the full Claims (for flags)
-			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, ClaimsKey, claims)
+			// // Store BOTH the UserID (for convenience) AND the full Claims (for flags)
+			// ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+			// ctx = context.WithValue(ctx, ClaimsKey, claims)
 
-			next.ServeHTTP(w, r.WithContext(ctx))
+			// next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r)
 		})
 	}
 }

@@ -1,6 +1,7 @@
 package httpio
 
 import (
+	"bonfire-api/internal/token"
 	"net/http"
 	"time"
 )
@@ -9,19 +10,18 @@ import (
 
 const (
 	RefreshTokenCookie = "refresh_token"
-	RefreshTokenTTL    = 7 * 24 * time.Hour
 )
 
 // --- COOKIE FUNCTIONS ---
 
 // SetRefreshTokenCookie
-func SetRefreshTokenCookie(w http.ResponseWriter, token string) {
+func SetRefreshTokenCookie(w http.ResponseWriter, tokenString string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     RefreshTokenCookie,
-		Value:    token,
+		Value:    tokenString,
 		Path:     "/",
-		Expires:  time.Now().Add(RefreshTokenTTL),
-		MaxAge:   int(RefreshTokenTTL.Seconds()),
+		Expires:  time.Now().Add(token.RefreshTokenTTL),
+		MaxAge:   int(token.RefreshTokenTTL.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,

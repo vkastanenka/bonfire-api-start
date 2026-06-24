@@ -129,10 +129,10 @@ func (s *Service) VerifyLogin2FA(ctx context.Context, mfaToken string, code stri
 	}, nil
 }
 
-func (s *Service) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
-	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	return claims.UserID, nil
-}
+// func (s *Service) ValidateMFAToken(tokenStr string) (uuid.UUID, error) {
+// 	claims, err := s.tokenManager.VerifyJWT(tokenStr, s.tokenConfig.PasswordMFASecret)
+// 	if err != nil {
+// 		return uuid.Nil, err
+// 	}
+// 	return claims.UserID, nil
+// }
