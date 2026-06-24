@@ -8,20 +8,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Define a mini-interface for the outbox capability
 type OutboxExt interface {
 	OutboxEventCreate(ctx context.Context, arg repository.OutboxEventCreateParams) (repository.OutboxEvent, error)
 }
 
-// Event types defined as constants to avoid magic strings throughout the codebase
 const (
-	EventUserRegistered = "user.registered"
-	EventForgotPassword = "user.forgot-password"
+	eventUserRegistered = "user.registered"
+	eventForgotPassword = "user.forgot-password"
 )
 
-// EmitEvent handles serialization and insertion into the outbox.
-// This is called by services within an existing database transaction (qtx).
-func EmitEvent(ctx context.Context, db OutboxExt, eventType string, payload any) error {
+// --- TYPE-SAFE EXPORTED EMITTERS ---
+
+// EmitUserRegistered safely queues a user registration event.
+func EmitUserRegistered(ctx context.Context, db OutboxExt, payload AuthRegisterEventPayload) error {
+	return emitEvent(ctx, db, eventUserRegistered, payload)
+}
+
+// EmitForgotPassword safely queues a password reset intent event.
+func EmitForgotPassword(ctx context.Context, db OutboxExt, payload AuthForgotPasswordPayload) error {
+	return emitEvent(ctx, db, eventForgotPassword, payload)
+}
+
+// --- PRIVATE SERIALIZATION LAYER ---
+
+// emitEvent is private so nobody can bypass the type-safe wrappers above.
+func emitEvent(ctx context.Context, db OutboxExt, eventType string, payload any) error {
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -34,7 +45,7 @@ func EmitEvent(ctx context.Context, db OutboxExt, eventType string, payload any)
 	return err
 }
 
-// --- Payload Definitions ---
+// --- PAYLOAD DEFINITIONS ---
 
 type AuthRegisterEventPayload struct {
 	UserID pgtype.UUID `json:"user_id"`

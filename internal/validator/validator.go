@@ -11,6 +11,13 @@ import (
 	goValidator "github.com/go-playground/validator/v10"
 )
 
+// --- VALIDATOR TYPES ---
+
+// Validator
+type Validator struct {
+	engine *goValidator.Validate
+}
+
 // --- VALIDATOR CONSTANTS ---
 
 // Errors
@@ -38,13 +45,6 @@ var (
 	RgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
 )
 
-// --- VALIDATOR TYPES ---
-
-// Validator
-type Validator struct {
-	engine *goValidator.Validate
-}
-
 // --- VALIDATOR INITIALIZATION ---
 
 // New
@@ -64,6 +64,8 @@ func New() *Validator {
 	v.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
 		return RgxUsername.MatchString(fl.Field().String())
 	})
+
+	v.RegisterAlias("auth_email", "required,email,max=255")
 
 	return &Validator{engine: v}
 }

@@ -3,40 +3,45 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
 	"net/http"
 )
 
+// --- FORGOT PASSWORD TYPES ---
+
+type ForgotPasswordReq struct {
+	Email string `json:"email" validate:"auth_email"`
+}
+
+func (r *ForgotPasswordReq) Sanitize() {
+	r.Email = sanitize.SanitizeEmail(r.Email)
+}
+
 // --- FORGOT PASSWORD CONSTANTS ---
 
 const (
-	MsgForgotPasswordSuccess = "forgot_password_success"
+	msgForgotPasswordSuccess = "Forgot password flow started. Please check your email for next steps."
 )
-
-// --- FORGOT PASSWORD TYPES ---
-
-type ForgotPasswordRequest struct {
-	Email string `json:"email" validate:"required,email"`
-}
 
 // --- FORGOT PASSWORD HANDLER ---
 
 // ForgotPassword
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[ForgotPasswordRequest](w, r, h.validator)
+	req, err := httpio.BindJSON[ForgotPasswordReq](w, r, h.validator)
 	if err != nil {
 		return err
 	}
 
-	// Emit event
+	// Call service
 	if err := h.service.ForgotPassword(r.Context(), req.Email); err != nil {
 		return err
 	}
 
-	// Respond ok
-	httpio.RespondOK(w, r, struct{}{}, MsgForgotPasswordSuccess)
+	// Respond
+	httpio.RespondOK(w, r, struct{}{}, msgForgotPasswordSuccess)
 
 	return nil
 }
@@ -48,7 +53,8 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// Get user
 	user, err := s.user.GetByEmail(ctx, email)
 	if err != nil {
-		if apperr.Is(err, apperr.CodeNotFound) {
+		// Respond ok if not found
+		if apperr.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -57,15 +63,14 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// Generate token
 	resetToken, err := s.token.GeneratePasswordReset(user.ID)
 	if err != nil {
-		return apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+		return apperr.NewInternal(err)
 	}
 
 	// Emit event
-	err = worker.EmitEvent(ctx, s.store, worker.EventForgotPassword, worker.AuthForgotPasswordPayload{
+	if err := worker.EmitForgotPassword(ctx, s.store, worker.AuthForgotPasswordPayload{
 		Email: email,
 		Token: resetToken,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 

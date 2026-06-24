@@ -105,6 +105,14 @@ func NewDBError(err error, entityName ...string) error {
 	return New(CodeInternal, CodeInternal.Title(), WithErr(err))
 }
 
+// NewInternal
+func NewInternal(err ...error) error {
+	if len(err) > 0 && err[0] != nil {
+		return New(CodeInternal, CodeInternal.Title(), WithErr(err[0]))
+	}
+	return New(CodeInternal, CodeInternal.Title())
+}
+
 // --- APPERR FUNCTIONS ---
 
 // Is
@@ -121,9 +129,17 @@ func Is(err error, code Code) bool {
 	return false
 }
 
+// IsNotFound
+func IsNotFound(err error) bool {
+	return Is(err, CodeNotFound)
+}
+
 // WithErr couples lower-level execution context or database failures cleanly
 func WithErr(err error) ErrorOption {
 	return func(e *Error) {
+		if err == nil {
+			return
+		}
 		e.Err = err
 	}
 }
