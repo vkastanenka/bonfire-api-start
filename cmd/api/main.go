@@ -11,6 +11,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/outbox"
@@ -81,7 +82,13 @@ func run() error {
 	authService := auth.NewService(store, tokenService, userService)
 
 	// Setup background workers
-	outboxWorker := worker.NewOutboxWorker(queries, 5*time.Second, 10)
+	mailer := email.NewMailer(email.Config{
+		ResendAPIKey: cfg.ResendApiKey,
+		FromAddress:  cfg.EmailFromAddress,
+		FrontendURL:  cfg.FrontendURL,
+		OverrideTo:   cfg.EmailOverrideTo,
+	})
+	outboxWorker := worker.NewOutboxWorker(queries, mailer, 5*time.Second, 10)
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop()
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/repository"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -18,6 +19,7 @@ import (
 // OutboxWorker
 type OutboxWorker struct {
 	store        *repository.Queries
+	mailer       email.Mailer
 	pollInterval time.Duration
 	batchSize    int32
 	wg           sync.WaitGroup
@@ -27,9 +29,10 @@ type OutboxWorker struct {
 // --- OUTBOX WORKER INITIALIZATION ---
 
 // NewOutboxWorker
-func NewOutboxWorker(store *repository.Queries, pollInterval time.Duration, batchSize int32) *OutboxWorker {
+func NewOutboxWorker(store *repository.Queries, mailer email.Mailer, pollInterval time.Duration, batchSize int32) *OutboxWorker {
 	return &OutboxWorker{
 		store:        store,
+		mailer:       mailer,
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 	}
@@ -109,7 +112,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 	var isFatal bool
 
 	switch event.EventType {
-	case "user.registered":
+	case eventAuthRegister:
 		var payload RegisterEventPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			executionErr, isFatal = err, true
@@ -121,13 +124,18 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 			break
 		}
 
-		_, executionErr = w.store.UserMarkVerified(ctx, payload.UserID)
+		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
 
-	// Add other cases here...
+	case eventAuthForgotPassword:
+		var payload ForgotPasswordPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			executionErr, isFatal = err, true
+			break
+		}
+		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
 
 	default:
 		slog.Warn("unhandled event type dropped", "event_type", event.EventType, "event_id", event.ID)
-		// Mark as dead letter to avoid reprocessing unhandled events
 		executionErr, isFatal = errors.New("unhandled event type"), true
 	}
 

@@ -11,7 +11,10 @@ import (
 // --- EVENT TYPES ---
 
 type RegisterEventPayload struct {
-	UserID pgtype.UUID `json:"user_id"`
+	UserID   pgtype.UUID `json:"user_id"`
+	Email    string      `json:"email"`
+	Username string      `json:"username"`
+	Token    string      `json:"token"`
 }
 
 type ForgotPasswordPayload struct {
@@ -26,20 +29,20 @@ type OutboxExt interface {
 // --- EVENT CONSTANTS ---
 
 const (
-	eventUserRegistered = "user.registered"
-	eventForgotPassword = "user.forgot-password"
+	eventAuthRegister       = "auth.register"
+	eventAuthForgotPassword = "auth.forgot-password"
 )
 
 // --- EVENT FUNCTIONS ---
 
-// EmitUserRegister
-func EmitUserRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
-	return emitEvent(ctx, db, eventUserRegistered, payload)
+// EmitAuthRegister
+func EmitAuthRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
+	return emitEvent(ctx, db, eventAuthRegister, payload)
 }
 
-// EmitForgotPassword
-func EmitForgotPassword(ctx context.Context, db OutboxExt, payload ForgotPasswordPayload) error {
-	return emitEvent(ctx, db, eventForgotPassword, payload)
+// EmitAuthForgotPassword
+func EmitAuthForgotPassword(ctx context.Context, db OutboxExt, payload ForgotPasswordPayload) error {
+	return emitEvent(ctx, db, eventAuthForgotPassword, payload)
 }
 
 // --- EVENT HELPERS ---
