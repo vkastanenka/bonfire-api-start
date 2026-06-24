@@ -40,29 +40,9 @@ type CursorPagination struct {
 // ToHTTP wraps handlers that return an error to centralize response/logging logic
 func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := h(w, r)
-		if err == nil {
-			return
+		if err := h(w, r); err != nil {
+			RespondError(w, r, err)
 		}
-
-		// 1. Identify/Normalize error (Only use reflection once)
-		var appErr *apperr.Error
-		if !errors.As(err, &appErr) {
-			appErr = &apperr.Error{
-				Code:   apperr.CodeInternal,
-				Detail: apperr.CodeInternal.Title(),
-				Err:    err,
-			}
-		}
-
-		// 2. Map domain error onto a request-scoped payload (Thread-Safe!)
-		status, resp := MapToProblemDetails(r, appErr)
-
-		// 3. Log using the original context values and tracking IDs
-		logError(r, appErr, resp, err)
-
-		// 4. Respond
-		RespondJSON(w, r, status, resp)
 	}
 }
 
@@ -92,6 +72,28 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interf
 
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// RespondError
+func RespondError(w http.ResponseWriter, r *http.Request, err error) {
+	// 1. Identify/Normalize error (Only use reflection once)
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		appErr = &apperr.Error{
+			Code:   apperr.CodeInternal,
+			Detail: apperr.CodeInternal.Title(),
+			Err:    err,
+		}
+	}
+
+	// 2. Map domain error onto a request-scoped payload (Thread-Safe!)
+	status, resp := MapToProblemDetails(r, appErr)
+
+	// 3. Log using the original context values and tracking IDs
+	logError(r, appErr, resp, err)
+
+	// 4. Respond
+	RespondJSON(w, r, status, resp)
 }
 
 func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message string) {

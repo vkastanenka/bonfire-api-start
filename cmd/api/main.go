@@ -108,6 +108,11 @@ func run() error {
 			OutboxEvents: outboxEventsHandler,
 			Users:        userHandler,
 		},
+		Services: struct {
+			Token *token.Service
+		}{
+			Token: tokenService,
+		},
 	}
 
 	// Serve application safely
