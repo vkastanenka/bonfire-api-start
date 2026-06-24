@@ -1,0 +1,49 @@
+<div
+  style="
+    font-family:
+      -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto,
+      Helvetica, Arial, sans-serif;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+  "
+>
+  <h2 style="color: #333">{{.Title}}</h2>
+  <p style="color: #4f5660; font-size: 16px; line-height: 1.5">{{.Message}}</p>
+
+  <div style="margin: 30px 0; text-align: center">
+    <a
+      href="{{.ActionLink}}"
+      style="
+        background-color: #5865f2;
+        color: #ffffff;
+        padding: 14px 28px;
+        text-decoration: none;
+        border-radius: 4px;
+        font-weight: bold;
+        display: inline-block;
+      "
+    >
+      {{.ActionText}}
+    </a>
+  </div>
+
+  <p
+    style="
+      color: #72767d;
+      font-size: 13px;
+      margin-top: 40px;
+      border-top: 1px solid #e3e5e8;
+      padding-top: 20px;
+    "
+  >
+    Welcome to the community! If you are having trouble with the button above,
+    please copy and paste the following URL into your web browser:
+    <br /><br />
+    <a href="{{.ActionLink}}" style="color: #00a8fc; word-break: break-all"
+      >{{.ActionLink}}</a
+    >
+  </p>
+</div>

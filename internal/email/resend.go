@@ -1,94 +1,85 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"log"
+	"html/template"
+	"log/slog"
+	"time"
 
 	"github.com/resend/resend-go/v3"
 )
 
 type ResendMailer struct {
-	client      *resend.Client
-	fromAddress string
-	frontendURL string
-	overrideTo  string // NEW: Catches emails in development
+	client *resend.Client
+	cfg    Config
+	tmpl   *template.Template
 }
 
-// NewResendMailer initializes the production email client.
-// fromAddress should be a verified domain (e.g., "Bonfire <noreply@bonfire.app>")
-// frontendURL is your React app's base URL (e.g., "http://localhost:5173" or "https://bonfire.app")
-func NewResendMailer(apiKey, fromAddress, frontendURL, overrideTo string) *ResendMailer {
+func NewResendMailer(cfg Config) *ResendMailer {
+	tmpl, err := LoadTemplates()
+	if err != nil {
+		panic(fmt.Errorf("failed to parse email templates: %w", err))
+	}
+
 	return &ResendMailer{
-		client:      resend.NewClient(apiKey),
-		fromAddress: fromAddress,
-		frontendURL: frontendURL,
-		overrideTo:  overrideTo,
+		client: resend.NewClient(cfg.ResendAPIKey),
+		cfg:    cfg,
+		tmpl:   tmpl,
 	}
 }
 
-func (m *ResendMailer) SendWelcomeEmail(ctx context.Context, emailAddress, username, token string) error {
-	magicLink := fmt.Sprintf("%s/verify?token=%s", m.frontendURL, token)
-
-	// 1. Determine the actual recipient
-	recipient := emailAddress
-	if m.overrideTo != "" {
-		log.Printf("[RESEND] Sandbox mode: Redirecting email intended for %s to %s", emailAddress, m.overrideTo)
-		recipient = m.overrideTo
+func (m *ResendMailer) send(ctx context.Context, templateName, recipient, subject string, data map[string]any) error {
+	actualRecipient := recipient
+	if m.cfg.OverrideTo != "" {
+		actualRecipient = m.cfg.OverrideTo
 	}
 
-	// 2. Build the HTML payload (using a clean, Discord-esque layout)
-	htmlBody := fmt.Sprintf(`
-	<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
-		<h2 style="color: #333;">Welcome to Bonfire, %s! 🔥</h2>
-		<p style="color: #4f5660; font-size: 16px; line-height: 1.5;">
-			We're excited to have you. Before you can start joining servers and chatting, you need to verify your email address.
-		</p>
-		<div style="margin: 30px 0; text-align: center;">
-			<a href="%s" style="background-color: #5865F2; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">
-				Verify Email
-			</a>
-		</div>
-		<p style="color: #72767d; font-size: 13px; margin-top: 40px; border-top: 1px solid #e3e5e8; padding-top: 20px;">
-			If the button doesn't work, copy and paste this link into your browser:<br>
-			<a href="%[2]s" style="color: #00a8fc; word-break: break-all;">%[2]s</a>
-		</p>
-	</div>
-	`, username, magicLink)
+	var body bytes.Buffer
+	// Execute the specific template file from the parsed set
+	if err := m.tmpl.ExecuteTemplate(&body, templateName, data); err != nil {
+		return fmt.Errorf("failed to execute email template: %w", err)
+	}
 
-	// 3. Configure the Resend request
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled before email dispatch: %w", err)
+	}
+
+	// Wrap network call in a timeout
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	params := &resend.SendEmailRequest{
-		From:    m.fromAddress,
-		To:      []string{recipient}, // Use the intercepted address
-		Subject: "Verify your Bonfire account",
-		Html:    htmlBody,
+		From:    m.cfg.FromAddress,
+		To:      []string{actualRecipient},
+		Subject: subject,
+		Html:    body.String(),
 	}
 
-	// 4. Dispatch
-	// Note: Resend's SDK doesn't natively take a context for the send method yet,
-	// but we log the response ID for auditability in production.
 	resp, err := m.client.Emails.Send(params)
 	if err != nil {
-		return fmt.Errorf("failed to send welcome email: %w", err)
+		return fmt.Errorf("failed to dispatch email via Resend: %w", err)
 	}
 
-	log.Printf("[RESEND] Successfully dispatched to %s (ID: %s)", recipient, resp.Id)
+	slog.Info("email dispatched via resend", "to", actualRecipient, "subject", subject, "resend_id", resp.Id)
 	return nil
 }
 
-func (m *ResendMailer) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
-	resetLink := fmt.Sprintf("%s/reset-password?token=%s", m.frontendURL, resetToken)
+func (m *ResendMailer) SendRegisterEmail(ctx context.Context, emailAddress, username, token string) error {
+	return m.send(ctx, "register.html", emailAddress, "Welcome to Bonfire! 🔥", map[string]any{
+		"Title":      fmt.Sprintf("Welcome to Bonfire, %s! 🔥", username),
+		"Message":    "We're excited to have you. Before you can start joining servers, you need to verify your email.",
+		"ActionText": "Verify Email",
+		"ActionLink": fmt.Sprintf("%s/verify?token=%s", m.cfg.FrontendURL, token),
+	})
+}
 
-	// Build your HTML template here, similar to your Welcome Email
-	htmlBody := fmt.Sprintf(`... Link: %s ...`, resetLink)
-
-	params := &resend.SendEmailRequest{
-		From:    m.fromAddress,
-		To:      []string{email},
-		Subject: "Reset your Bonfire password",
-		Html:    htmlBody,
-	}
-
-	_, err := m.client.Emails.Send(params)
-	return err
+func (m *ResendMailer) SendPasswordResetEmail(ctx context.Context, emailAddress, resetToken string) error {
+	return m.send(ctx, "forgot_password.html", emailAddress, "Reset your Bonfire password", map[string]any{
+		"Title":      "Password Reset Request",
+		"Message":    "We received a request to reset your password. If you didn't request this, ignore this email.",
+		"ActionText": "Reset Password",
+		"ActionLink": fmt.Sprintf("%s/reset-password?token=%s", m.cfg.FrontendURL, resetToken),
+	})
 }
