@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// OutboxWorker handles transactional outbox background operations.
+// --- OUTBOX WORKER TYPES ---
+
+// OutboxWorker
 type OutboxWorker struct {
 	store        *repository.Queries
 	pollInterval time.Duration
@@ -22,7 +24,9 @@ type OutboxWorker struct {
 	cancel       context.CancelFunc
 }
 
-// NewOutboxWorker initializes a new outbox processor instance.
+// --- OUTBOX WORKER INITIALIZATION ---
+
+// NewOutboxWorker
 func NewOutboxWorker(store *repository.Queries, pollInterval time.Duration, batchSize int32) *OutboxWorker {
 	return &OutboxWorker{
 		store:        store,
@@ -30,6 +34,8 @@ func NewOutboxWorker(store *repository.Queries, pollInterval time.Duration, batc
 		batchSize:    batchSize,
 	}
 }
+
+// --- OUTBOX WORKER METHODS ---
 
 // Start spawns the background event processing loop.
 func (w *OutboxWorker) Start(ctx context.Context) {
