@@ -5,8 +5,7 @@ import (
 	"strings"
 )
 
-// Code defines the fine-grained category of application error
-type Code string
+// --- CODE CONSTANTS ---
 
 const (
 	// 400s: Client-side issues
@@ -42,6 +41,13 @@ const (
 	CodeRequestTimeout      Code = "REQUEST_TIMEOUT"
 	CodeClientClosedRequest Code = "CLIENT_CLOSED_REQUEST"
 )
+
+// --- CODE TYPES ---
+
+// Code
+type Code string
+
+// --- CODE METHODS ---
 
 // HTTPStatus returns the corresponding standard HTTP status code
 func (c Code) HTTPStatus() int {

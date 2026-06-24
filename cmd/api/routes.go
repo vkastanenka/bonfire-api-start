@@ -22,6 +22,7 @@ func (app *Application) routes() http.Handler {
 
 	// Global middleware
 	r.Use(middleware.RequestID)
+	r.Use(customMiddleware.TracingMiddleware)
 	r.Use(customMiddleware.LoggingMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(customMiddleware.Cors(app.Config))
@@ -34,7 +35,7 @@ func (app *Application) routes() http.Handler {
 	))
 
 	// Health check
-	r.Get("/healthz", app.Handlers.Health.HealthCheck)
+	r.Get("/healthz", httpio.ToHTTP(app.Handlers.Health.HealthCheck))
 
 	// Routes
 	r.Route("/api/v1", func(api chi.Router) {
