@@ -3,13 +3,12 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
 	"context"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // --- REFRESH CONSTANTS ---
@@ -48,9 +47,9 @@ type RefreshRes struct {
 // Refresh
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
-	cookie, err := r.Cookie("refresh_token")
+	cookie, err := r.Cookie(httpio.RefreshTokenCookie)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, ErrMissingRefreshToken)
+		return apperr.New(apperr.CodeUnauthenticated, ErrMissingRefreshToken, apperr.WithErr(err))
 	}
 
 	// Rotate access token
@@ -73,89 +72,69 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 // Refresh
 func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
 	// Check old token
-	// claims, err := s.token.VerifyRefresh(r.RefreshToken)
-	_, err := s.token.VerifyRefresh(r.RefreshToken)
+	claims, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Check session
-	// sessionIDStr := claims.GetString("sid")
-	sessionIDStr := ""
-	if sessionIDStr == "" {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionMalformed)
+	if claims.SessionID.String() == "" {
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionMalformed, apperr.WithErr(err))
 	}
 
 	// Parse session id
-	sessionUUID, err := uuid.Parse(sessionIDStr)
+	sessionID, err := uuid.Parse(claims.SessionID.String())
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Get user session
-	session, err := s.store.UserSessionGetByID(ctx, pgtype.UUID{Bytes: sessionUUID, Valid: true})
-	if err != nil {
-		if repository.IsNotFoundError(err) {
-			return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
-		}
-		return RefreshResult{}, apperr.NewDBError(err)
-	}
-
-	// Check for an un-rotated token
-	if session.RefreshToken != r.RefreshToken {
-		_, err = s.store.UserSessionMarkBlocked(ctx, session.ID)
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid)
-	}
-
-	// Check if session blocked
-	if session.IsBlocked {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionBlocked)
-	}
-
-	// Check if session expired
-	if time.Now().After(session.ExpiresAt.Time) {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionExpired)
-	}
-
-	// Format userID
-	userID := uuid.UUID(session.UserID.Bytes)
-
-	// Get userRow
-	userRow, err := s.store.UserGetByID(ctx, session.UserID)
-	if err != nil {
-		return RefreshResult{}, apperr.NewDBError(err)
-	}
-
-	// Issue new token bundle
-	sessionID, err := uuid.NewV7()
-	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeInternal, ErrCreatingSession)
-	}
-
-	userRole := string(userRow.Role)
-	userIsVerified := userRow.VerifiedAt.Valid
-
-	bundle, err := s.token.NewBundle(userID, sessionID, userRole, userIsVerified)
+	session, err := s.GetUserSessionByID(ctx, sessionID)
 	if err != nil {
 		return RefreshResult{}, err
 	}
 
+	// Check for an un-rotated token
+	if session.RefreshToken != r.RefreshToken {
+		_, err = s.MarkUserSessionBlocked(ctx, session.ID)
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
+	}
+
+	// Check if session blocked
+	if session.IsBlocked {
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionBlocked, apperr.WithErr(err))
+	}
+
+	// Check if session expired
+	if time.Now().After(session.ExpiresAt) {
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionExpired, apperr.WithErr(err))
+	}
+
+	// Get user
+	userAuth, err := s.user.GetAuthByID(ctx, session.UserID)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+
+	// Generate token pair
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, sessionID)
+	if err != nil {
+		return RefreshResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+	}
+
 	// Update refresh token
-	_, err = s.store.UserSessionUpdateRefreshToken(ctx, repository.UserSessionUpdateRefreshTokenParams{
+	_, err = s.UpdateUserSessionRefreshToken(ctx, UpdateRefreshTokenParams{
 		ID:           session.ID,
-		RefreshToken: bundle.RefreshToken,
-		ExpiresAt: pgtype.Timestamptz{
-			Time:  time.Now().Add(7 * 24 * time.Hour),
-			Valid: true,
-		},
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
 	})
 	if err != nil {
-		return RefreshResult{}, apperr.NewDBError(err)
+		return RefreshResult{}, err
 	}
 
 	// Return new tokens
 	return RefreshResult{
-		AccessToken:  bundle.AccessToken,
-		RefreshToken: bundle.RefreshToken,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	}, nil
 }

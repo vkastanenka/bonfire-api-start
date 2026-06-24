@@ -111,28 +111,23 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, NewLoginCredentialsError()
 	}
 
-	// TODO: REFACTOR START
-	// Issue new token bundle
+	// Generate refresh token
 	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}
 
-	userID := uuid.UUID(userAuth.ID)
-	userRole := string(userAuth.Role)
-	userIsVerified := userAuth.VerifiedAt != nil
-
-	bundle, err := s.token.NewBundle(userID, sessionID, userRole, userIsVerified)
+	// Generate token pair
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, sessionID)
 	if err != nil {
 		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}
-	// TODO: REFACTOR END
 
 	// Create user session
 	_, err = s.CreateUserSession(ctx, CreateUserSessionParams{
-		ID:           bundle.SessionID,
-		UserID:       userID,
-		RefreshToken: bundle.RefreshToken,
+		ID:           sessionID,
+		UserID:       userAuth.ID,
+		RefreshToken: tokenPair.RefreshToken,
 		UserAgent:    r.Meta.UserAgent,
 		ClientIP:     r.Meta.IP,
 		IsBlocked:    false,
@@ -144,7 +139,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	// Return the tokens
 	return LoginResult{
-		AccessToken:  bundle.AccessToken,
-		RefreshToken: bundle.RefreshToken,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	}, nil
 }

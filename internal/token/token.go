@@ -20,10 +20,9 @@ const (
 
 // --- TOKEN TYPES ---
 
-type Bundle struct {
+type Pair struct {
 	AccessToken  string
 	RefreshToken string
-	SessionID    uuid.UUID
 }
 
 type Claims struct {
@@ -56,30 +55,37 @@ func NewService(accessSecret string, refreshSecret string, verificationSecret st
 
 // --- TOKEN METHODS ---
 
-// NewBundle
-func (m *Service) NewBundle(userID uuid.UUID, sessionID uuid.UUID, role string, isVerified bool) (Bundle, error) {
-	// Create Access Token
-	access, err := m.generate(userID, 15*time.Minute, Claims{
+// GenerateTokenPair
+func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bool, sessionID uuid.UUID) (Pair, error) {
+	accessToken, err := m.GenerateAccessToken(userID, role, isVerified)
+	if err != nil {
+		return Pair{}, err
+	}
+
+	refreshToken, err := m.GenerateRefreshToken(userID, sessionID)
+	if err != nil {
+		return Pair{}, err
+	}
+
+	return Pair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+// GenerateAccessToken
+func (m *Service) GenerateAccessToken(userID uuid.UUID, role string, isVerified bool) (string, error) {
+	return m.generate(userID, AccessTokenTTL, Claims{
 		Role:       role,
 		IsVerified: isVerified,
 	}, m.accessSecret)
-	if err != nil {
-		return Bundle{}, err
-	}
+}
 
-	// Create Refresh Token
-	refresh, err := m.generate(userID, 7*24*time.Hour, Claims{
+// GenerateRefreshToken
+func (m *Service) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
+	return m.generate(userID, RefreshTokenTTL, Claims{
 		SessionID: sessionID,
 	}, m.refreshSecret)
-	if err != nil {
-		return Bundle{}, err
-	}
-
-	return Bundle{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		SessionID:    sessionID,
-	}, nil
 }
 
 func (m *Service) GenerateVerification(userID uuid.UUID) (string, error) {
