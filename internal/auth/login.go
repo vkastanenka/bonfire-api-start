@@ -115,7 +115,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Issue new token bundle
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeInternal, ErrCreatingSession)
+		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title())
 	}
 
 	userID := uuid.UUID(userAuth.ID)
