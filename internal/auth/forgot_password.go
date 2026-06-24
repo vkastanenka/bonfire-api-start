@@ -60,7 +60,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	// Emit event
-	err = worker.EmitEvent(ctx, s.store, worker.EventUserRegistered, worker.AuthForgotPasswordPayload{
+	err = worker.EmitEvent(ctx, s.store, worker.EventForgotPassword, worker.AuthForgotPasswordPayload{
 		Email: email,
 		Token: resetToken,
 	})
