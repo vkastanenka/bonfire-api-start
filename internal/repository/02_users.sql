@@ -20,7 +20,7 @@ CREATE TABLE users(
     verified_at timestamp with time zone DEFAULT NULL,
     last_verification_sent_at timestamp with time zone DEFAULT NULL,
     -- App logic
-    ROLE user_role NOT NULL DEFAULT 'user',
+    role user_role NOT NULL DEFAULT 'user',
     -- Constraints
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
@@ -32,7 +32,7 @@ CREATE INDEX idx_users_unverified ON users(created_at)
 WHERE
     verified_at IS NULL;
 
-CREATE INDEX idx_users_role ON users(ROLE);
+CREATE INDEX idx_users_role ON users(role);
 
 -- Triggers
 CREATE TRIGGER update_users_modtime
