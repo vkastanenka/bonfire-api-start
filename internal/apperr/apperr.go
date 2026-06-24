@@ -107,6 +107,20 @@ func NewDBError(err error, entityName ...string) error {
 
 // --- APPERR FUNCTIONS ---
 
+// Is
+func Is(err error, code Code) bool {
+	if err == nil {
+		return false
+	}
+
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr.Code == code
+	}
+
+	return false
+}
+
 // WithErr couples lower-level execution context or database failures cleanly
 func WithErr(err error) ErrorOption {
 	return func(e *Error) {

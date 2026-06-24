@@ -8,10 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- COOKIE CONSTANTS ---
+// --- TOKEN CONSTANTS ---
 
 const (
-	RefreshTokenTTL = 7 * 24 * time.Hour
+	AccessTokenTTL        = 15 * time.Minute
+	RefreshTokenTTL       = 7 * 24 * time.Hour
+	VerificationTokenTTL  = 1 * time.Hour
+	PasswordResetTokenTTL = 15 * time.Minute
+	PasswordMFATokenTTL   = 5 * time.Minute
 )
 
 // --- TOKEN TYPES ---
@@ -76,6 +80,18 @@ func (m *Service) NewBundle(userID uuid.UUID, sessionID uuid.UUID, role string, 
 		RefreshToken: refresh,
 		SessionID:    sessionID,
 	}, nil
+}
+
+func (m *Service) GenerateVerification(userID uuid.UUID) (string, error) {
+	return m.generate(userID, VerificationTokenTTL, Claims{}, m.verificationSecret)
+}
+
+func (m *Service) GeneratePasswordReset(userID uuid.UUID) (string, error) {
+	return m.generate(userID, PasswordResetTokenTTL, Claims{}, m.passwordResetSecret)
+}
+
+func (m *Service) GeneratePasswordMFA(userID uuid.UUID) (string, error) {
+	return m.generate(userID, PasswordMFATokenTTL, Claims{}, m.passwordMFASecret)
 }
 
 func (m *Service) generate(userID uuid.UUID, duration time.Duration, claims Claims, secret []byte) (string, error) {

@@ -102,8 +102,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Fetch user credentials
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
-		// Simulates finding a user
-		crypto.DummyVerify()
+		crypto.DummyVerify() // Simulates finding a user
 		return LoginResult{}, err
 	}
 
@@ -112,10 +111,11 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, NewLoginCredentialsError()
 	}
 
+	// TODO: REFACTOR START
 	// Issue new token bundle
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title())
+		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}
 
 	userID := uuid.UUID(userAuth.ID)
@@ -124,8 +124,9 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	bundle, err := s.token.NewBundle(userID, sessionID, userRole, userIsVerified)
 	if err != nil {
-		return LoginResult{}, err
+		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}
+	// TODO: REFACTOR END
 
 	// Create user session
 	_, err = s.CreateUserSession(ctx, CreateUserSessionParams{
