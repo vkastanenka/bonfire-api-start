@@ -5,28 +5,36 @@ import (
 	"time"
 )
 
-const RefreshTokenCookieName = "refresh_token"
+// --- COOKIE CONSTANTS ---
 
-// SetRefreshTokenCookie centralizes secure cookie management for token issuance and rotation.
+const (
+	RefreshTokenCookie = "refresh_token"
+	RefreshTokenTTL    = 7 * 24 * time.Hour
+)
+
+// --- COOKIE FUNCTIONS ---
+
+// SetRefreshTokenCookie
 func SetRefreshTokenCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshTokenCookieName,
+		Name:     RefreshTokenCookie,
 		Value:    token,
 		Path:     "/",
-		Expires:  time.Now().Add(7 * 24 * time.Hour), // Matches backend service TTL
+		Expires:  time.Now().Add(RefreshTokenTTL),
+		MaxAge:   int(RefreshTokenTTL.Seconds()),
 		HttpOnly: true,
-		Secure:   true, // Requires HTTPS in production environments
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
 
-// ClearRefreshTokenCookie invalidates the client cookie immediately upon manual logout.
+// ClearRefreshTokenCookie
 func ClearRefreshTokenCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshTokenCookieName,
+		Name:     RefreshTokenCookie,
 		Value:    "",
 		Path:     "/",
-		Expires:  time.Unix(0, 0), // Explicitly sets date to Jan 1, 1970 to clear the record
+		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,

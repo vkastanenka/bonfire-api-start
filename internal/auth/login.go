@@ -74,7 +74,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Get client meta
-	clientMeta := httpio.GetClientMeta(r)
+	clientMeta := httpio.GetClientMeta(r, false)
 
 	// Login user, get tokens
 	tokens, err := h.service.Login(r.Context(), LoginParams{

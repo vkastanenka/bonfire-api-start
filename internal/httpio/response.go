@@ -1,8 +1,10 @@
 package httpio
 
 import (
+	"bonfire-api/internal/apperr"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -54,6 +56,27 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interf
 // STANDARD ENVELOPES
 // ==========================================
 
+// SuccessResponse defines the standard envelope for all successful API responses.
+type SuccessResponse[T any] struct {
+	Message string `json:"message,omitempty"` // Optional human-readable message
+	Data    T      `json:"data"`              // The actual payload
+	Meta    any    `json:"meta,omitempty"`    // Pagination, cursors, or extra context
+}
+
+// OffsetPagination defines the meta payload for page-based lists.
+type OffsetPagination struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	TotalItems int `json:"total_items"`
+	TotalPages int `json:"total_pages"`
+}
+
+// CursorPagination defines the metadata returned for keyset-paginated lists.
+type CursorPagination struct {
+	NextCursor *string `json:"next_cursor,omitempty"` // Opaque string for the client
+	PageSize   int32   `json:"page_size"`             // Count of items in this specific batch
+}
+
 func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
 	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
 		Message: message,
@@ -91,4 +114,59 @@ func RespondTextError(w http.ResponseWriter, r *http.Request, logMsg string, err
 	reqID := middleware.GetReqID(r.Context())
 	slog.ErrorContext(r.Context(), logMsg, "error", err, "reqID", reqID)
 	RespondText(w, status, userMsg)
+}
+
+// ToHTTP wraps handlers that return an error to centralize response/logging logic
+func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := h(w, r)
+		if err == nil {
+			return
+		}
+
+		// Identify/Normalize error
+		var appErr *apperr.Error
+		if !errors.As(err, &appErr) {
+			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+		}
+
+		// Enrich and Prepare
+		appErr.Enrich(r)
+		status, resp := appErr.HTTPResponse()
+
+		// Log
+		logError(r, appErr, err, status)
+
+		// Respond
+		RespondJSON(w, r, status, resp)
+	}
+}
+
+// logError logs app errors
+func logError(r *http.Request, appErr *apperr.Error, originalErr error, status int) {
+	// level := slog.LevelInfo
+	// if appErr.IsCode(apperr.CodeInternal) {
+	// 	level = slog.LevelError
+	// }
+
+	// args := []any{
+	// 	"path", r.URL.Path,
+	// 	"method", r.Method,
+	// 	"status", status,
+	// 	slog.Group("error_context",
+	// 		"code", appErr.Code,
+	// 		"request_id", appErr.RequestID,
+	// 		"trace_id", appErr.TraceID,
+	// 		"error", originalErr,
+	// 	),
+	// }
+
+	// if len(appErr.Details) > 0 {
+	// 	args = append(args, "details", appErr.Details)
+	// }
+	// if len(appErr.ValidationErrors) > 0 {
+	// 	args = append(args, "validation_errors", appErr.ValidationErrors)
+	// }
+
+	// slog.Log(r.Context(), level, HTTPReqFailedMsg, args...)
 }
