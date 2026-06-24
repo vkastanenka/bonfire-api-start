@@ -30,11 +30,12 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Emit event
 	if err := h.service.ForgotPassword(r.Context(), req.Email); err != nil {
 		return err
 	}
 
-	// Success response is generic to prevent email enumeration
+	// Respond ok
 	httpio.RespondOK(w, r, struct{}{}, MsgForgotPasswordSuccess)
 
 	return nil

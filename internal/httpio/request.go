@@ -220,8 +220,8 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			return apperr.New(
 				apperr.CodeInvalidInput,
 				ErrInvalidFieldType,
-				apperr.WithInvalidParam(fieldName, fmt.Sprintf(ErrFieldTypeExpectation, unmarshalTypeErr.Type)),
 				apperr.WithErr(err),
+				apperr.WithInvalidParam(fieldName, fmt.Sprintf(ErrFieldTypeExpectation, unmarshalTypeErr.Type)),
 			)
 
 		// Check if JSON has unknown fields
