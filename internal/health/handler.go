@@ -1,20 +1,35 @@
 package health
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
-// Handler holds dependencies for health checks
+// --- HANDLER CONSTANTS ---
+
+// Errors
+const (
+	ErrDBCheck    = "Database connection check failed."
+	ErrRedisCheck = "Redis connection check failed."
+)
+
+// --- HANDLER TYPES ---
+
+// Handler
 type Handler struct {
 	db    *pgxpool.Pool
 	redis *redis.Client
 }
 
-// NewHandler creates a new health handler
+// --- HANDLER INITIALIZATION ---
+
+// NewHandler
 func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
 	return &Handler{
 		db:    db,
@@ -22,17 +37,32 @@ func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
 	}
 }
 
+// --- HANDLER METHODS ---
+
 // Check performs validation
-func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	if err := h.db.Ping(r.Context()); err != nil {
-		httpio.RespondTextError(w, r, "db health check failed", err, http.StatusInternalServerError, "DATABASE_UNREACHABLE")
-		return
+func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
+	// 2 second max deadline
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	// Verify PostgreSQL Connectivity
+	if err := h.db.Ping(ctx); err != nil {
+		return apperr.New(
+			apperr.CodeInternal,
+			ErrDBCheck,
+			apperr.WithErr(err),
+		)
 	}
 
-	if err := h.redis.Ping(r.Context()).Err(); err != nil {
-		httpio.RespondTextError(w, r, "redis health check failed", err, http.StatusInternalServerError, "REDIS_UNREACHABLE")
-		return
+	// Verify Redis Connectivity
+	if err := h.redis.Ping(ctx).Err(); err != nil {
+		return apperr.New(
+			apperr.CodeInternal,
+			ErrRedisCheck,
+			apperr.WithErr(err),
+		)
 	}
 
-	httpio.RespondText(w, http.StatusOK, "OK")
+	httpio.RespondOK(w, r, struct{}{}, "Healthy.")
+	return nil
 }

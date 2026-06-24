@@ -42,7 +42,6 @@ const (
 	// Internal Errors
 	ErrDecode        = "An unexpected parsing error occurred."
 	ErrReqTimeout    = "Request timed out."
-	ErrHTTPReqFailed = "http request failed"
 )
 
 // --- REQUEST TYPES ---

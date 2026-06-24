@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
-
-	"github.com/go-chi/chi/v5/middleware"
 )
 
-// MaxPoolBufferCapacity prevents oversized buffers from polluting memory (64 KB)
-const maxPoolBufferCapacity = 64 * 1024
+// --- RESPONSE CONSTANTS ---
+
+// Errors
+const (
+	ErrHTTPReqFailed = "http request failed"
+)
 
 var bufferPool = sync.Pool{
 	New: func() interface{} {
@@ -22,9 +24,58 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// RespondJSON marshals data and writes it securely to the wire.
-// Pass r.Context() to ensure structured logs maintain distributed trace IDs.
+// --- RESPONSE TYPES ---
+
+// SuccessResponse
+type SuccessResponse[T any] struct {
+	Message string `json:"message,omitempty"`
+	Data    T      `json:"data"`
+	Meta    any    `json:"meta,omitempty"`
+}
+
+// CursorPagination
+type CursorPagination struct {
+	NextCursor *string `json:"next_cursor,omitempty"`
+	PageSize   int32   `json:"page_size"`
+}
+
+// --- RESPONSE ADAPTERS ---
+
+// ToHTTP wraps handlers that return an error to centralize response/logging logic
+func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := h(w, r)
+		if err == nil {
+			return
+		}
+
+		// Identify/Normalize error
+		var appErr *apperr.Error
+		if !errors.As(err, &appErr) {
+			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+			// Extract the newly created concrete *apperr.Error pointer safely
+			_ = errors.As(err, &appErr)
+		}
+
+		// Enrich and Prepare
+		appErr.Enrich(r)
+		status, resp := appErr.HTTPResponse()
+
+		// Log
+		logError(r, appErr, err, status)
+
+		// Respond
+		RespondJSON(w, r, status, resp)
+	}
+}
+
+// --- RESPONSE FUNCTIONS ---
+
+// RespondJSON
 func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+	// MaxPoolBufferCapacity prevents oversized buffers from polluting memory (64 KB)
+	const maxPoolBufferCapacity = 64 * 1024
+
 	ctx := r.Context()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -52,31 +103,7 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interf
 	_, _ = w.Write(buf.Bytes())
 }
 
-// ==========================================
-// STANDARD ENVELOPES
-// ==========================================
-
-// SuccessResponse defines the standard envelope for all successful API responses.
-type SuccessResponse[T any] struct {
-	Message string `json:"message,omitempty"` // Optional human-readable message
-	Data    T      `json:"data"`              // The actual payload
-	Meta    any    `json:"meta,omitempty"`    // Pagination, cursors, or extra context
-}
-
-// OffsetPagination defines the meta payload for page-based lists.
-type OffsetPagination struct {
-	Page       int `json:"page"`
-	Limit      int `json:"limit"`
-	TotalItems int `json:"total_items"`
-	TotalPages int `json:"total_pages"`
-}
-
-// CursorPagination defines the metadata returned for keyset-paginated lists.
-type CursorPagination struct {
-	NextCursor *string `json:"next_cursor,omitempty"` // Opaque string for the client
-	PageSize   int32   `json:"page_size"`             // Count of items in this specific batch
-}
-
+// RespondOK
 func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
 	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
 		Message: message,
@@ -84,6 +111,7 @@ func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message st
 	})
 }
 
+// RespondCreated
 func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
 	RespondJSON(w, r, http.StatusCreated, SuccessResponse[T]{
 		Message: message,
@@ -91,82 +119,46 @@ func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T, messa
 	})
 }
 
+// RespondCursorList
 func RespondCursorList[T any](w http.ResponseWriter, r *http.Request, data T, message string, meta CursorPagination) {
 	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
-		Data: data,
-		Meta: meta,
+		Message: message,
+		Data:    data,
+		Meta:    meta,
 	})
 }
 
+// RespondNoContent
 func RespondNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// TODO: Deprecate
-func RespondText(w http.ResponseWriter, status int, body string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(body))
-}
+// --- RESPONSE HELPERS ---
 
-// TODO: Deprecate
-func RespondTextError(w http.ResponseWriter, r *http.Request, logMsg string, err error, status int, userMsg string) {
-	reqID := middleware.GetReqID(r.Context())
-	slog.ErrorContext(r.Context(), logMsg, "error", err, "reqID", reqID)
-	RespondText(w, status, userMsg)
-}
-
-// ToHTTP wraps handlers that return an error to centralize response/logging logic
-func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := h(w, r)
-		if err == nil {
-			return
-		}
-
-		// Identify/Normalize error
-		var appErr *apperr.Error
-		if !errors.As(err, &appErr) {
-			err = apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
-		}
-
-		// Enrich and Prepare
-		appErr.Enrich(r)
-		status, resp := appErr.HTTPResponse()
-
-		// Log
-		logError(r, appErr, err, status)
-
-		// Respond
-		RespondJSON(w, r, status, resp)
-	}
-}
-
-// logError logs app errors
+// logError
 func logError(r *http.Request, appErr *apperr.Error, originalErr error, status int) {
-	// level := slog.LevelInfo
-	// if appErr.IsCode(apperr.CodeInternal) {
-	// 	level = slog.LevelError
-	// }
+	level := slog.LevelInfo
+	if appErr.Code == apperr.CodeInternal {
+		level = slog.LevelError
+	}
 
-	// args := []any{
-	// 	"path", r.URL.Path,
-	// 	"method", r.Method,
-	// 	"status", status,
-	// 	slog.Group("error_context",
-	// 		"code", appErr.Code,
-	// 		"request_id", appErr.RequestID,
-	// 		"trace_id", appErr.TraceID,
-	// 		"error", originalErr,
-	// 	),
-	// }
+	args := []any{
+		"path", r.URL.Path,
+		"method", r.Method,
+		"status", status,
+		slog.Group("error_context",
+			"code", appErr.Code,
+			"detail", appErr.Detail,
+			"req_id", appErr.ReqID,
+			"trace_id", appErr.TraceID,
+			"error", originalErr,
+		),
+	}
 
-	// if len(appErr.Details) > 0 {
-	// 	args = append(args, "details", appErr.Details)
-	// }
-	// if len(appErr.ValidationErrors) > 0 {
-	// 	args = append(args, "validation_errors", appErr.ValidationErrors)
-	// }
+	// Dynamic evaluation of RFC 7807 validation parameter slices
+	if len(appErr.InvalidParams) > 0 {
+		args = append(args, "invalid_params", appErr.InvalidParams)
+	}
 
-	// slog.Log(r.Context(), level, HTTPReqFailedMsg, args...)
+	slog.Log(r.Context(), level, ErrHTTPReqFailed, args...)
 }
