@@ -104,7 +104,7 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 
 	switch event.EventType {
 	case "user.registered":
-		var payload AuthRegisterEventPayload
+		var payload RegisterEventPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			executionErr, isFatal = err, true
 			break

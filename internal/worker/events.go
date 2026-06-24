@@ -19,13 +19,13 @@ const (
 
 // --- TYPE-SAFE EXPORTED EMITTERS ---
 
-// EmitUserRegistered safely queues a user registration event.
-func EmitUserRegistered(ctx context.Context, db OutboxExt, payload AuthRegisterEventPayload) error {
+// EmitUserRegister safely queues a user registration event.
+func EmitUserRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
 	return emitEvent(ctx, db, eventUserRegistered, payload)
 }
 
 // EmitForgotPassword safely queues a password reset intent event.
-func EmitForgotPassword(ctx context.Context, db OutboxExt, payload AuthForgotPasswordPayload) error {
+func EmitForgotPassword(ctx context.Context, db OutboxExt, payload ForgotPasswordPayload) error {
 	return emitEvent(ctx, db, eventForgotPassword, payload)
 }
 
@@ -47,11 +47,11 @@ func emitEvent(ctx context.Context, db OutboxExt, eventType string, payload any)
 
 // --- PAYLOAD DEFINITIONS ---
 
-type AuthRegisterEventPayload struct {
+type RegisterEventPayload struct {
 	UserID pgtype.UUID `json:"user_id"`
 }
 
-type AuthForgotPasswordPayload struct {
+type ForgotPasswordPayload struct {
 	Email string `json:"email"`
 	Token string `json:"token"`
 }
