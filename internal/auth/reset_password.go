@@ -7,6 +7,7 @@ import (
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
+	"strings"
 )
 
 // --- RESET PASSWORD CONSTANTS ---
@@ -24,21 +25,27 @@ const (
 // --- RESET PASSWORD TYPES ---
 
 type ResetPasswordRequest struct {
-	Token       string `json:"token" validate:"required"`
-	NewPassword string `json:"newPassword" validate:"required,min=8"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
 }
 
 // --- RESET PASSWORD HANDLER ---
 
 // ResetPassword
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
+	// 1. Get token from Header (Bearer token pattern)
+	authHeader := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		return apperr.New(apperr.CodeUnauthenticated, "Missing authorization token")
+	}
+
 	// Get JSON
 	req, err := httpio.BindJSON[ResetPasswordRequest](w, r, h.validator)
 	if err != nil {
 		return err
 	}
 
-	if err := h.service.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
+	if err := h.service.ResetPassword(r.Context(), token, req.NewPassword); err != nil {
 		return err
 	}
 
