@@ -100,12 +100,13 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Fetch user credentials
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
+		// Simulates finding a user
+		crypto.DummyVerify()
 		return LoginResult{}, err
 	}
 
 	// Check password
-	err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password)
-	if err != nil {
+	if err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password); err != nil {
 		return LoginResult{}, NewLoginCredentialsError()
 	}
 
