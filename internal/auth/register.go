@@ -16,14 +16,14 @@ import (
 
 // Messages
 const (
-	MsgRegisterSuccess = "register_success"
+	msgRegisterSuccess = "register_success"
 )
 
 // Errors
 const (
-	ErrEmailTaken       = "Email taken."
-	ErrUsernameTaken    = "Username taken."
-	ErrCredentialsTaken = "Email and/or username taken."
+	errEmailTaken       = "Email taken."
+	errUsernameTaken    = "Username taken."
+	errCredentialsTaken = "Email and/or username taken."
 	ErrHashPassword     = "Hash password failed."
 )
 
@@ -33,23 +33,16 @@ func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error
 	var params []apperr.InvalidParam
 
 	if !emailAvailable {
-		params = append(params, apperr.InvalidParam{Name: "email", Reason: ErrEmailTaken})
+		params = append(params, apperr.InvalidParam{Name: "email", Reason: errEmailTaken})
 	}
 	if !usernameAvailable {
-		params = append(params, apperr.InvalidParam{Name: "username", Reason: ErrUsernameTaken})
+		params = append(params, apperr.InvalidParam{Name: "username", Reason: errUsernameTaken})
 	}
 
 	return apperr.New(
 		apperr.CodeConflict,
-		ErrCredentialsTaken,
+		errCredentialsTaken,
 		apperr.WithInvalidParams(params),
-	)
-}
-
-func NewHashPasswordError(err error) error {
-	return apperr.New(apperr.CodeInternal,
-		ErrHashPassword,
-		apperr.WithErr(err),
 	)
 }
 
@@ -105,7 +98,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Respond
-	httpio.RespondCreated(w, r, data, MsgRegisterSuccess)
+	httpio.RespondCreated(w, r, data, msgRegisterSuccess)
 
 	return nil
 }
@@ -134,14 +127,15 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 	// Hash password
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
-		return RegisterResult{}, NewHashPasswordError(err)
+		return RegisterResult{}, apperr.NewInternal(err)
 	}
 	passwordHash := string(hashedPasswordBytes)
 
 	// Execute DB tx
-	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
+	persistCtx := context.WithoutCancel(ctx)
+	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
 		// Create user
-		userRow, err := qtx.UserCreate(ctx, repository.UserCreateParams{
+		userRow, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
 			Email:        r.Email,
 			Username:     r.Username,
 			PasswordHash: passwordHash,
@@ -157,7 +151,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		// Create user profile
-		userProfileRow, err := qtx.UserProfileCreate(ctx, repository.UserProfileCreateParams{
+		userProfileRow, err := qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: displayName,
 		})
@@ -166,7 +160,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		// Create register event
-		err = worker.EmitRegister(ctx, qtx, worker.RegisterEventPayload{
+		err = worker.EmitRegister(persistCtx, qtx, worker.RegisterEventPayload{
 			UserID: userRow.ID,
 		})
 		if err != nil {
