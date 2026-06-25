@@ -96,21 +96,21 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return apperr.NewInternal(err)
 	}
 
+	// Generate persist ctx for writes
+	persistCtx := context.WithoutCancel(ctx)
+
 	// Emit event
-	if err := worker.EmitForgotPassword(ctx, s.store, worker.ForgotPasswordPayload{
+	if err := worker.EmitForgotPassword(persistCtx, s.store, worker.ForgotPasswordPayload{
 		Email: email,
 		Token: resetToken,
 	}); err != nil {
 		return err
 	}
 
-	// Generate lock context to ensure cache write
-	lockCtx := context.WithoutCancel(ctx)
-
 	// Set cooldown
-	if err := s.cache.Set(lockCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
+	if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
 		// Fail-Open
-		slog.WarnContext(ctx, "failed to set forgot password cooldown", "error", err, "email", email)
+		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
 	}
 
 	return nil

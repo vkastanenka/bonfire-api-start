@@ -8,8 +8,6 @@ import (
 	"context"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // --- REFRESH CONSTANTS ---
@@ -83,12 +81,6 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionMalformed, apperr.WithErr(err))
 	}
 
-	// Parse session id
-	sessionID, err := uuid.Parse(claims.SessionID.String())
-	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
-	}
-
 	// Get cache session
 	sessionKey := cache.UserSessionKey(claims.SessionID.String())
 	var session UserSessionView
@@ -101,17 +93,18 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			return RefreshResult{}, err
 		}
 		// Backfill cache
-		_ = s.cache.Set(ctx, sessionKey, session, time.Until(session.ExpiresAt))
+		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, session, time.Until(session.ExpiresAt))
 	} else if err != nil {
 		return RefreshResult{}, err
 	}
 
 	// Check for an un-rotated token
 	if session.RefreshToken != r.RefreshToken {
+		persistCtx := context.WithoutCancel(ctx)
 		if !session.IsBlocked {
-			_, _ = s.MarkUserSessionBlocked(ctx, session.ID)
+			_, _ = s.MarkUserSessionBlocked(persistCtx, session.ID)
 		}
-		_ = s.cache.Delete(ctx, sessionKey)
+		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
 	}
 
@@ -133,23 +126,25 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	// Check if user active
 	if !userAuth.IsActive() {
+		persistCtx := context.WithoutCancel(ctx)
 		if !session.IsBlocked {
-			_, _ = s.MarkUserSessionBlocked(ctx, session.ID)
+			_, _ = s.MarkUserSessionBlocked(persistCtx, session.ID)
 		}
-		_ = s.cache.Delete(ctx, sessionKey)
+		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked)
 	}
 
 	// Generate token pair
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, sessionID)
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, claims.SessionID)
 	if err != nil {
 		return RefreshResult{}, apperr.NewInternal(err)
 	}
 
-	lockCtx := context.WithoutCancel(ctx)
+	// Generate persist ctx for writes
+	persistCtx := context.WithoutCancel(ctx)
 
 	// Update refresh token
-	_, err = s.UpdateUserSessionRefreshToken(lockCtx, UpdateRefreshTokenParams{
+	_, err = s.UpdateUserSessionRefreshToken(persistCtx, UpdateRefreshTokenParams{
 		ID:           session.ID,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
@@ -161,8 +156,8 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Update cache
 	session.RefreshToken = tokenPair.RefreshToken
 	session.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
-	if err := s.cache.Set(lockCtx, sessionKey, session, time.Until(session.ExpiresAt)); err != nil {
-		_ = s.cache.Delete(ctx, sessionKey)
+	if err := s.cache.Set(persistCtx, sessionKey, session, time.Until(session.ExpiresAt)); err != nil {
+		_ = s.cache.Delete(persistCtx, sessionKey)
 	}
 
 	// Return new tokens

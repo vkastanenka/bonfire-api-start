@@ -142,16 +142,16 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Check password
 	if err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password); err != nil {
 		// Generate lock context to ensure cache write
-		lockCtx := context.WithoutCancel(ctx)
+		persistCtx := context.WithoutCancel(ctx)
 
 		failureKey := cache.LoginFailuresKey(r.Email)
-		attempts, incrErr := s.cache.Increment(lockCtx, failureKey, 1*time.Hour)
+		attempts, incrErr := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
 		if incrErr != nil {
 			// Fail open cache lookup
 			slog.ErrorContext(ctx, "failed to increment login failures", "error", incrErr, "email", r.Email)
 		} else if attempts >= loginMaxAttempts {
 			// Trigger account lockout
-			if lockErr := s.cache.Set(lockCtx, lockoutKey, true, loginLockoutDuration); lockErr != nil {
+			if lockErr := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); lockErr != nil {
 				slog.ErrorContext(ctx, "failed to set login lockout", "error", lockErr, "email", r.Email)
 			}
 			return LoginResult{}, newAccountLockedError()
@@ -163,12 +163,6 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Check status
 	if !userAuth.IsActive() {
 		return LoginResult{}, apperr.New(apperr.CodeForbidden, errAccountInactive)
-	}
-
-	// Clear fail count
-	cleanCtx := context.WithoutCancel(ctx)
-	if delErr := s.cache.Delete(cleanCtx, cache.LoginFailuresKey(r.Email)); delErr != nil {
-		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
 	}
 
 	// Generate refresh token
@@ -183,8 +177,14 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, apperr.NewInternal(err)
 	}
 
+	// Clear fail count
+	persistCtx := context.WithoutCancel(ctx)
+	if delErr := s.cache.Delete(persistCtx, cache.LoginFailuresKey(r.Email)); delErr != nil {
+		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
+	}
+
 	// Create user session
-	userSession, err := s.CreateUserSession(ctx, CreateUserSessionParams{
+	userSession, err := s.CreateUserSession(persistCtx, CreateUserSessionParams{
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
@@ -198,9 +198,8 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Add session to cache
-	lockCtx := context.WithoutCancel(ctx)
 	sessionKey := cache.UserSessionKey(userSessionID.String())
-	_ = s.cache.Set(lockCtx, sessionKey, userSession, token.RefreshTokenTTL)
+	_ = s.cache.Set(persistCtx, sessionKey, userSession, token.RefreshTokenTTL)
 
 	// Return the tokens
 	return LoginResult{
