@@ -75,7 +75,6 @@ func (app *Application) routes() http.Handler {
 			publicAuth.Delete("/users/{userId}/delete-request", httpio.ToHTTP(app.Handlers.Users.DeleteDeleteRequestByUserID))
 
 			// Auth
-			publicAuth.Get("/auth/ping", httpio.ToHTTP(app.Handlers.Auth.Ping))
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))
 			publicAuth.Post("/auth/verify", httpio.ToHTTP(app.Handlers.Auth.VerifyEmail))
 			publicAuth.Post("/auth/resend-verification-email", httpio.ToHTTP(app.Handlers.Auth.ResendVerificationEmail))
