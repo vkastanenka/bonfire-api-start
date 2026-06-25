@@ -52,7 +52,7 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// Verify refresh token
 	claims, err := s.token.VerifyRefresh(tokenStr)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, ErrInvalidRefreshToken, apperr.WithErr(err))
+		return apperr.New(apperr.CodeUnauthorized, ErrInvalidRefreshToken, apperr.WithErr(err))
 	}
 
 	// Mark user verification

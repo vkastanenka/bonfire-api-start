@@ -34,19 +34,19 @@ func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthenticated, ErrMissingAuthHeader))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrMissingAuthHeader))
 				return
 			}
 
 			parts := strings.Split(authHeader, " ")
 			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" || parts[1] == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrInvalidAuthHeader))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeForbidden, ErrInvalidAuthHeader))
 				return
 			}
 
 			claims, err := tokenSvc.VerifyAccess(parts[1])
 			if err != nil {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthenticated, ErrInvalidToken))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrInvalidToken))
 				return
 			}
 
@@ -68,7 +68,7 @@ func RequireVerified() func(http.Handler) http.Handler {
 			}
 
 			if !claims.IsVerified {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthenticated, ErrUnverifiedEmail))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrUnverifiedEmail))
 				return
 			}
 

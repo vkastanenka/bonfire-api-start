@@ -21,8 +21,8 @@ func VerifyPassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-// DummyVerify consumes equivalent CPU runtime cycles to defeat timing attacks.
-func DummyVerify() {
+// DummyVerifyPassword consumes equivalent CPU runtime cycles to defeat timing attacks.
+func DummyVerifyPassword() {
 	_ = bcrypt.CompareHashAndPassword([]byte(DummyHash), []byte("dummy_password"))
 }
 

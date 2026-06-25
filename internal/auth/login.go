@@ -17,24 +17,24 @@ import (
 
 // Messages
 const (
-	MsgLoginSuccess = "login_success"
+	msgLoginSuccess = "login_success"
 )
 
 // Errors
 const (
-	ErrCredentialsInvalid = "Invalid credentials."
-	ErrCreatingSession    = "Unable to create session."
+	errCredentialsInvalid = "Invalid credentials."
+	errAccountInactive    = "Account inactive."
 )
 
 // --- LOGIN ERRORS ---
 
 func NewLoginCredentialsError() error {
 	return apperr.New(
-		apperr.CodeUnauthenticated,
-		ErrCredentialsInvalid,
+		apperr.CodeUnauthorized,
+		errCredentialsInvalid,
 		apperr.WithInvalidParams([]apperr.InvalidParam{
-			{Name: "email", Reason: ErrCredentialsInvalid},
-			{Name: "password", Reason: ErrCredentialsInvalid},
+			{Name: "email", Reason: errCredentialsInvalid},
+			{Name: "password", Reason: errCredentialsInvalid},
 		}),
 	)
 }
@@ -42,8 +42,8 @@ func NewLoginCredentialsError() error {
 // --- LOGIN TYPES ---
 
 type LoginReq struct {
-	Email    string `json:"email" validate:"required,email,max=255"`
-	Password string `json:"password" validate:"required,min=12,max=128"`
+	Email    string `json:"email" validate:"auth_email"`
+	Password string `json:"password" validate:"auth_password"`
 }
 
 func (r *LoginReq) Sanitize() {
@@ -90,7 +90,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
-	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, MsgLoginSuccess)
+	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, msgLoginSuccess)
 
 	return nil
 }
@@ -99,10 +99,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 // Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
-	// Fetch user credentials
+	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
-		crypto.DummyVerify() // Simulates finding a user
+		// Handle not found
+		if apperr.IsNotFound(err) {
+			crypto.DummyVerifyPassword()
+			return LoginResult{}, NewLoginCredentialsError()
+		}
+
+		// Handle rest
 		return LoginResult{}, err
 	}
 
@@ -111,21 +117,26 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, NewLoginCredentialsError()
 	}
 
+	// Check status
+	if !userAuth.IsActive() {
+		return LoginResult{}, apperr.New(apperr.CodeForbidden, errAccountInactive)
+	}
+
 	// Generate refresh token
-	sessionID, err := uuid.NewV7()
+	userSessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+		return LoginResult{}, apperr.NewInternal(err)
 	}
 
 	// Generate token pair
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, sessionID)
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, userSessionID)
 	if err != nil {
-		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
+		return LoginResult{}, apperr.NewInternal(err)
 	}
 
 	// Create user session
 	_, err = s.CreateUserSession(ctx, CreateUserSessionParams{
-		ID:           sessionID,
+		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
 		UserAgent:    r.Meta.UserAgent,

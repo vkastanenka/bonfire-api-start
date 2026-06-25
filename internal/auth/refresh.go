@@ -49,7 +49,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
 	cookie, err := r.Cookie(httpio.RefreshTokenCookie)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, ErrMissingRefreshToken, apperr.WithErr(err))
+		return apperr.New(apperr.CodeUnauthorized, ErrMissingRefreshToken, apperr.WithErr(err))
 	}
 
 	// Rotate access token
@@ -74,18 +74,18 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Check old token
 	claims, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Check session
 	if claims.SessionID.String() == "" {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionMalformed, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionMalformed, apperr.WithErr(err))
 	}
 
 	// Parse session id
 	sessionID, err := uuid.Parse(claims.SessionID.String())
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Get user session
@@ -97,17 +97,17 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Check for an un-rotated token
 	if session.RefreshToken != r.RefreshToken {
 		_, err = s.MarkUserSessionBlocked(ctx, session.ID)
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionInvalid, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Check if session blocked
 	if session.IsBlocked {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionBlocked, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionBlocked, apperr.WithErr(err))
 	}
 
 	// Check if session expired
 	if time.Now().After(session.ExpiresAt) {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthenticated, ErrSessionExpired, apperr.WithErr(err))
+		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, ErrSessionExpired, apperr.WithErr(err))
 	}
 
 	// Get user

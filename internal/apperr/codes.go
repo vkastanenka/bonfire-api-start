@@ -8,31 +8,31 @@ import (
 // --- CODE CONSTANTS ---
 
 const (
-	// 400s: Client-side issues
+	// 400s
 	CodeBadRequest           Code = "BAD_REQUEST"
 	CodeInvalidInput         Code = "INVALID_INPUT"
 	CodePayloadTooLarge      Code = "PAYLOAD_TOO_LARGE"
 	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
 
-	// 401/403: Authentication & Authorization
-	CodeUnauthenticated Code = "UNAUTHENTICATED"
-	CodeUnauthorized    Code = "UNAUTHORIZED"
+	// 401/403
+	CodeUnauthorized Code = "UNAUTHORIZED"
+	CodeForbidden    Code = "FORBIDDEN"
 
-	// 405: Method not allowed
+	// 405
 	CodeMethodNotAllowed Code = "METHOD_NOT_ALLOWED"
 
-	// 404/409: Resource State
+	// 404/409
 	CodeNotFound Code = "NOT_FOUND"
 	CodeConflict Code = "CONFLICT"
 	CodeGone     Code = "GONE"
 
-	// 422: Unprocessable entity
+	// 422
 	CodeUnprocessableEntity Code = "UNPROCESSABLE_ENTITY"
 
-	// 429: Rate Limiting
+	// 429
 	CodeTooManyRequests Code = "TOO_MANY_REQUESTS"
 
-	// 500s: Server-side issues
+	// 500s
 	CodeInternal           Code = "INTERNAL"
 	CodeNotImplemented     Code = "NOT_IMPLEMENTED"
 	CodeServiceUnavailable Code = "SERVICE_UNAVAILABLE"
@@ -58,9 +58,9 @@ func (c Code) HTTPStatus() int {
 		return http.StatusRequestEntityTooLarge
 	case CodeUnsupportedMediaType:
 		return http.StatusUnsupportedMediaType
-	case CodeUnauthenticated:
-		return http.StatusUnauthorized
 	case CodeUnauthorized:
+		return http.StatusUnauthorized
+	case CodeForbidden:
 		return http.StatusForbidden
 	case CodeMethodNotAllowed:
 		return http.StatusMethodNotAllowed
@@ -96,9 +96,9 @@ func (c Code) Title() string {
 		return "Payload Too Large"
 	case CodeUnsupportedMediaType:
 		return "Unsupported Media Type"
-	case CodeUnauthenticated:
-		return "Authentication Required"
 	case CodeUnauthorized:
+		return "Authentication Required"
+	case CodeForbidden:
 		return "Permission Denied"
 	case CodeMethodNotAllowed:
 		return "Method Not Allowed"

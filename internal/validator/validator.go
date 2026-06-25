@@ -66,6 +66,7 @@ func New() *Validator {
 	})
 
 	v.RegisterAlias("auth_email", "required,email,max=255")
+	v.RegisterAlias("auth_password", "required,min=12,max=128")
 
 	return &Validator{engine: v}
 }

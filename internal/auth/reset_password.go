@@ -36,7 +36,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	authHeader := r.Header.Get("Authorization")
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token == "" {
-		return apperr.New(apperr.CodeUnauthenticated, "Missing authorization token")
+		return apperr.New(apperr.CodeUnauthorized, "Missing authorization token")
 	}
 
 	// Get JSON
@@ -61,7 +61,7 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 	// Verify the token using the PasswordResetSecret
 	claims, err := s.token.VerifyPasswordReset(tokenStr)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthenticated, ErrInvalidResetToken, apperr.WithErr(err))
+		return apperr.New(apperr.CodeUnauthorized, ErrInvalidResetToken, apperr.WithErr(err))
 	}
 
 	// Fetch user to check current version
@@ -72,7 +72,7 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 
 	// Validate security version
 	if claims.SecurityVersion != userAuth.SecurityVersion {
-		return apperr.New(apperr.CodeUnauthenticated, ErrInvalidResetToken)
+		return apperr.New(apperr.CodeUnauthorized, ErrInvalidResetToken)
 	}
 
 	// Hash the new password

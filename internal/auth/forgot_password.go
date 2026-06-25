@@ -75,7 +75,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return nil
 	}
 
-	// Get user
+	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, email)
 	if err != nil {
 		// Respond ok if not found
