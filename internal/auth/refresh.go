@@ -62,7 +62,6 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 	httpio.RespondOK(w, r, RefreshRes{AccessToken: tokens.AccessToken}, msgRefreshTokenSuccess)
-
 	return nil
 }
 

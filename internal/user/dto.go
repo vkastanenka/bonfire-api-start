@@ -136,6 +136,7 @@ func NewView(row repository.User) View {
 type AuthView struct {
 	ID              uuid.UUID  `json:"id"`
 	Email           string     `json:"email"`
+	Username        string     `json:"username"`
 	PasswordHash    string     `json:"password"`
 	IsTOTPEnabled   bool       `json:"is_totp_enabled"`
 	TOTPSecret      *string    `json:"totp_secret"`
@@ -165,6 +166,7 @@ func NewAuthView(row repository.User) AuthView {
 	return AuthView{
 		ID:              uuid.UUID(row.ID.Bytes),
 		Email:           row.Email,
+		Username:        row.Username,
 		PasswordHash:    row.PasswordHash,
 		IsTOTPEnabled:   row.IsTotpEnabled,
 		TOTPSecret:      totpSecret,

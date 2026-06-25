@@ -4,17 +4,20 @@ import (
 	"bonfire-api/internal/repository"
 	"context"
 	"encoding/json"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // --- EVENT TYPES ---
 
-type RegisterEventPayload struct {
-	UserID   pgtype.UUID `json:"user_id"`
-	Email    string      `json:"email"`
-	Username string      `json:"username"`
-	Token    string      `json:"token"`
+type RegisterPayload struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Token    string `json:"token"`
+}
+
+type ResendVerificationEmailPayload struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Token    string `json:"token"`
 }
 
 type ForgotPasswordPayload struct {
@@ -29,15 +32,21 @@ type OutboxExt interface {
 // --- EVENT CONSTANTS ---
 
 const (
-	eventAuthRegister       = "auth.register"
-	eventAuthForgotPassword = "auth.forgot-password"
+	eventAuthRegister           = "auth.register"
+	eventAuthResendVerification = "auth.resend-verification"
+	eventAuthForgotPassword     = "auth.forgot-password"
 )
 
 // --- EVENT FUNCTIONS ---
 
 // EmitRegister
-func EmitRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
+func EmitRegister(ctx context.Context, db OutboxExt, payload RegisterPayload) error {
 	return emitEvent(ctx, db, eventAuthRegister, payload)
+}
+
+// EmitResendVerification
+func EmitResendVerificationEmail(ctx context.Context, db OutboxExt, payload ResendVerificationEmailPayload) error {
+	return emitEvent(ctx, db, eventAuthResendVerification, payload)
 }
 
 // EmitForgotPassword

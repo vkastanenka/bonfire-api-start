@@ -65,8 +65,15 @@ func New() *Validator {
 		return RgxUsername.MatchString(fl.Field().String())
 	})
 
-	v.RegisterAlias("auth_email", "required,email,max=255")
-	v.RegisterAlias("auth_password", "required,min=12,max=128")
+	// --- Identity Domain ---
+	v.RegisterAlias("identity.email", "required,email,max=255")
+	v.RegisterAlias("identity.username", "required,min=4,max=32,valid_username")
+
+	// --- Security Domain ---
+	v.RegisterAlias("security.password", "required,min=12,max=128")
+
+	// --- Profile ---
+	v.RegisterAlias("profile.display_name", "omitempty,min=3,max=32")
 
 	return &Validator{engine: v}
 }

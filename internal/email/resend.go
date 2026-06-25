@@ -75,6 +75,15 @@ func (m *ResendMailer) SendRegisterEmail(ctx context.Context, emailAddress, user
 	})
 }
 
+func (m *ResendMailer) SendResendVerificationEmail(ctx context.Context, emailAddress, username, token string) error {
+    return m.send(ctx, "resend_verification.html", emailAddress, "Verification Request for Bonfire", map[string]any{
+        "Title":      "Verification Email Requested",
+        "Message":    "We received a request to resend your verification email for your Bonfire account. Use the button below to verify your email address and join the community.",
+        "ActionText": "Verify Email",
+        "ActionLink": fmt.Sprintf("%s/verify?token=%s", m.cfg.FrontendURL, token),
+    })
+}
+
 func (m *ResendMailer) SendPasswordResetEmail(ctx context.Context, emailAddress, resetToken string) error {
 	return m.send(ctx, "forgot_password.html", emailAddress, "Reset your Bonfire password", map[string]any{
 		"Title":      "Password Reset Request",

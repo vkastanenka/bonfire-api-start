@@ -25,6 +25,11 @@ func UserSessionKey(sessionID string) string {
 	return fmt.Sprintf("auth:session:%s", sessionID)
 }
 
+// ResendVerificationCooldownKey restricts how often a user can request a verification email
+func ResendVerificationCooldownKey(email string) string {
+	return fmt.Sprintf("auth:cooldown:resend-verification:%s", email)
+}
+
 // UserPresenceKey tracks if a user is actively connected (Pillar 2)
 func UserPresenceKey(userID string) string {
 	return fmt.Sprintf("presence:user:%s", userID)

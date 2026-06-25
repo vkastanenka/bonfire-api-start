@@ -16,7 +16,7 @@ import (
 // --- FORGOT PASSWORD TYPES ---
 
 type ForgotPasswordReq struct {
-	Email string `json:"email" validate:"auth_email"`
+	Email string `json:"email" validate:"identity.email"`
 }
 
 func (r *ForgotPasswordReq) Sanitize() {
@@ -53,7 +53,6 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 
 	// Respond
 	httpio.RespondOK(w, r, struct{}{}, msgForgotPasswordSuccess)
-
 	return nil
 }
 
@@ -68,10 +67,8 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	cooldownKey := cache.ForgotPasswordCooldownKey(email)
 	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
 	if err != nil {
-		// Fail-Open
 		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
 	} else if onCooldown {
-		// Exit silently
 		return nil
 	}
 

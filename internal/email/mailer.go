@@ -10,13 +10,17 @@ import (
 // Mailer
 type Mailer interface {
 	SendRegisterEmail(ctx context.Context, emailAddress, username, token string) error
+	SendResendVerificationEmail(ctx context.Context, emailAddress, username, token string) error
 	SendPasswordResetEmail(ctx context.Context, emailAddress, resetToken string) error
 }
 
 // NoOpMailer
 type NoOpMailer struct{}
 
-func (n *NoOpMailer) SendRegisterEmail(ctx context.Context, e, u, t string) error   { return nil }
+func (n *NoOpMailer) SendRegisterEmail(ctx context.Context, e, u, t string) error { return nil }
+func (n *NoOpMailer) SendResendVerificationEmail(ctx context.Context, e, u, t string) error {
+	return nil
+}
 func (n *NoOpMailer) SendPasswordResetEmail(ctx context.Context, e, t string) error { return nil }
 
 // Config

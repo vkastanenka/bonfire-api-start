@@ -58,8 +58,8 @@ func newAccountLockedError() error {
 // --- LOGIN TYPES ---
 
 type LoginReq struct {
-	Email    string `json:"email" validate:"auth_email"`
-	Password string `json:"password" validate:"auth_password"`
+	Email    string `json:"email" validate:"identity.email"`
+	Password string `json:"password" validate:"identity.password"`
 }
 
 func (r *LoginReq) Sanitize() {
@@ -107,7 +107,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	// Repond with tokens
 	httpio.SetRefreshTokenCookie(w, tokens.RefreshToken)
 	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, msgLoginSuccess)
-
 	return nil
 }
 

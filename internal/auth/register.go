@@ -10,6 +10,8 @@ import (
 	"bonfire-api/internal/worker"
 	"context"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 // --- REFRESH CONSTANTS ---
@@ -24,7 +26,6 @@ const (
 	errEmailTaken       = "Email taken."
 	errUsernameTaken    = "Username taken."
 	errCredentialsTaken = "Email and/or username taken."
-	ErrHashPassword     = "Hash password failed."
 )
 
 // --- REFRESH ERRORS ---
@@ -49,10 +50,10 @@ func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error
 // --- REGISTER DTOs ---
 
 type RegisterReq struct {
-	Email       string  `json:"email" validate:"required,email,max=255"`
-	DisplayName *string `json:"display_name" validate:"omitempty,min=3,max=32"`
-	Username    string  `json:"username" validate:"required,min=4,max=32,valid_username"`
-	Password    string  `json:"password" validate:"required,min=12,max=128"`
+	Email       string  `json:"email" validate:"identity.email"`
+	DisplayName *string `json:"display_name" validate:"profile.display_name"`
+	Username    string  `json:"username" validate:"identity.username"`
+	Password    string  `json:"password" validate:"security.password"`
 }
 
 func (r *RegisterReq) Sanitize() {
@@ -99,7 +100,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 
 	// Respond
 	httpio.RespondCreated(w, r, data, msgRegisterSuccess)
-
 	return nil
 }
 
@@ -144,6 +144,12 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			return err
 		}
 
+		// Generate token
+		verificationToken, err := s.token.GenerateVerification(uuid.UUID(userRow.ID.Bytes), int(userRow.SecurityVersion))
+		if err != nil {
+			return apperr.NewInternal(err)
+		}
+
 		// Set display name
 		displayName := r.Username
 		if r.DisplayName != nil && *r.DisplayName != "" {
@@ -160,8 +166,10 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		// Create register event
-		err = worker.EmitRegister(persistCtx, qtx, worker.RegisterEventPayload{
-			UserID: userRow.ID,
+		err = worker.EmitRegister(persistCtx, qtx, worker.RegisterPayload{
+			Email:    userRow.Email,
+			Username: userRow.Username,
+			Token:    verificationToken,
 		})
 		if err != nil {
 			return err

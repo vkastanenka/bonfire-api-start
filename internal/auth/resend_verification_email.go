@@ -2,28 +2,41 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
+	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/worker"
 	"context"
+	"log/slog"
 	"net/http"
+	"time"
 )
 
-// --- VERIFY EMAIL CONSTANTS ---
+// --- RESEND VERIFICATION EMAIL TYPES ---
+
+type ResendVerificationEmailReq struct {
+	Email string `json:"email" validate:"identity.email"`
+}
+
+func (r *ResendVerificationEmailReq) Sanitize() {
+	r.Email = sanitize.SanitizeEmail(r.Email)
+}
+
+// --- RESEND VERIFICATION EMAIL CONSTANTS ---
 
 // Messages
 const (
-	MsgResendVerificationEmailSuccess = "resend_verification_email_success"
+	msgResendVerificationEmailSuccess = "resend_verification_email_success"
 )
 
-// Errors
+// Values
 const (
-	ErrAccountVerified = "This account is already verified."
+	resendVerificationEmailTimingWindow = 35 * time.Millisecond
+	resendVerificationEmailCooldown     = 1 * time.Minute
 )
 
-// --- VERIFY EMAIL TYPES ---
-
-type ResendVerificationEmailReq struct {
-	Email string `json:"email" validate:"required,email"`
-}
+// --- RESEND VERIFICATION EMAIL HANDLER ---
 
 func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
@@ -37,56 +50,62 @@ func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request
 		return err
 	}
 
-	// Return a generic 200 OK regardless of whether the email was found or not
-	httpio.RespondOK(w, r, struct{}{}, MsgResendVerificationEmailSuccess)
-
+	// Respond
+	httpio.RespondOK(w, r, struct{}{}, msgResendVerificationEmailSuccess)
 	return nil
 }
 
+// --- RESEND VERIFICATION EMAIL SERVICE ---
+
 func (s *Service) ResendVerificationEmail(ctx context.Context, email string) error {
-	// Get user
-	user, err := s.user.GetByEmail(ctx, email)
+	// Timing attacks defense
+	defer crypto.ConstantWindow(resendVerificationEmailTimingWindow)()
+
+	// Check cooldown
+	cooldownKey := cache.ResendVerificationCooldownKey(email)
+	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
 	if err != nil {
-		if apperr.Is(err, apperr.CodeNotFound) {
+		slog.ErrorContext(ctx, "resend verification cooldown lookup failed", "error", err, "email", email)
+	} else if onCooldown {
+		return nil
+	}
+
+	// Get user auth
+	userAuth, err := s.user.GetAuthByEmail(ctx, email)
+	if err != nil {
+		if apperr.IsNotFound(err) {
 			return nil
 		}
 		return err
 	}
 
-	// Ensure they actually need verification
-	if user.VerifiedAt != nil {
-		return apperr.New(apperr.CodeConflict, ErrAccountVerified)
+	// Check if verified
+	if userAuth.VerifiedAt != nil {
+		return nil
 	}
 
-	// 3. Enforce the Cooldown (e.g., 60 seconds)
-	// if user.LastVerificationSentAt.Valid && time.Since(user.LastVerificationSentAt.Time) < 60*time.Second {
-	// 	return apperr.New(apperr.CodeTooManyRequests, "Please wait a minute before requesting another verification email.")
-	// }
+	// Generate fresh token
+	token, err := s.token.GenerateVerification(userAuth.ID, userAuth.SecurityVersion)
+	if err != nil {
+		return apperr.NewInternal(err)
+	}
 
-	// // 4. Generate a fresh verification token
-	// userID := uuid.UUID(user.ID.Bytes)
-	// tokenStr, err := s.tokenManager.GenerateJWT(userID, s.tokenConfig.VerificationSecret, 24*time.Hour)
-	// if err != nil {
-	// 	return err
-	// }
+	// Persistence boundary
+	persistCtx := context.WithoutCancel(ctx)
 
-	// // 5. Execute Transaction: Update throttle timestamp AND queue the outbox event
-	// return s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
-	// 	if err := qtx.UserUpdateLastVerificationSent(ctx, user.ID); err != nil {
-	// 		return err
-	// 	}
+	// Emit event
+	if err := worker.EmitResendVerificationEmail(persistCtx, s.store, worker.ResendVerificationEmailPayload{
+		Email:    userAuth.Email,
+		Username: userAuth.Username,
+		Token:    token,
+	}); err != nil {
+		return err
+	}
 
-	// 	jsonBytes, _ := json.Marshal(map[string]string{
-	// 		"email":    user.Email,
-	// 		"username": user.Username,
-	// 		"token":    tokenStr,
-	// 	})
+	// Set cooldown
+	if err := s.cache.Set(persistCtx, cooldownKey, true, resendVerificationEmailCooldown); err != nil {
+		slog.WarnContext(persistCtx, "failed to set resend verification cooldown", "error", err, "email", email)
+	}
 
-	// 	_, err = qtx.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
-	// 		EventType: "user.verify_email", // New event type
-	// 		Payload:   jsonBytes,
-	// 	})
-	// 	return err
-	// })
 	return nil
 }

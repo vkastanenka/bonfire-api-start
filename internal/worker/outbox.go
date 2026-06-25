@@ -113,18 +113,21 @@ func (w *OutboxWorker) executeEvent(ctx context.Context, event repository.Outbox
 
 	switch event.EventType {
 	case eventAuthRegister:
-		var payload RegisterEventPayload
+		var payload RegisterPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			executionErr, isFatal = err, true
 			break
 		}
 
-		if !payload.UserID.Valid {
-			executionErr, isFatal = errors.New("invalid or missing user_id in payload"), true
+		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
+
+	case eventAuthResendVerification:
+		var payload ResendVerificationEmailPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			executionErr, isFatal = err, true
 			break
 		}
-
-		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
+		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
 
 	case eventAuthForgotPassword:
 		var payload ForgotPasswordPayload
