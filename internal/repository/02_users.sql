@@ -4,6 +4,11 @@ CREATE TYPE user_role AS ENUM(
     'admin'
 );
 
+CREATE TYPE user_status AS ENUM(
+    'active',
+    'suspended'
+);
+
 CREATE TABLE users(
     -- Primary key
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -19,9 +24,10 @@ CREATE TABLE users(
     totp_secret varchar(255),
     verified_at timestamp with time zone DEFAULT NULL,
     last_verification_sent_at timestamp with time zone DEFAULT NULL,
-    security_version INT NOT NULL DEFAULT 0,
+    security_version int NOT NULL DEFAULT 0,
     -- App logic
     role user_role NOT NULL DEFAULT 'user',
+    status user_status NOT NULL DEFAULT 'active',
     -- Constraints
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),

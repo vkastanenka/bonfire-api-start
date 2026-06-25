@@ -2,11 +2,13 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
 	"net/http"
+	"time"
 )
 
 // --- FORGOT PASSWORD TYPES ---
@@ -21,8 +23,14 @@ func (r *ForgotPasswordReq) Sanitize() {
 
 // --- FORGOT PASSWORD CONSTANTS ---
 
+// Messages
 const (
 	msgForgotPasswordSuccess = "Forgot password flow started. Please check your email for next steps."
+)
+
+// Values
+const (
+	forgotPasswordTimingWindow = 35 * time.Millisecond
 )
 
 // --- FORGOT PASSWORD HANDLER ---
@@ -50,6 +58,9 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
+	// Timing attacks defense
+	defer crypto.ConstantWindow(35 * time.Millisecond)()
+
 	// Get user
 	userAuth, err := s.user.GetAuthByEmail(ctx, email)
 	if err != nil {
@@ -58,6 +69,11 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 			return nil
 		}
 		return err
+	}
+
+	// Allow only active users
+	if !userAuth.IsActive() {
+		return nil
 	}
 
 	// Generate token

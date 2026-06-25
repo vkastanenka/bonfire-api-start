@@ -1,6 +1,10 @@
 package crypto
 
-import "golang.org/x/crypto/bcrypt"
+import (
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
+)
 
 // DummyHash is a pre-calculated valid bcrypt hash used to normalize verification timings.
 // It corresponds to the text "dummy_password" generated at DefaultCost.
@@ -20,4 +24,18 @@ func VerifyPassword(hash, password string) error {
 // DummyVerify consumes equivalent CPU runtime cycles to defeat timing attacks.
 func DummyVerify() {
 	_ = bcrypt.CompareHashAndPassword([]byte(DummyHash), []byte("dummy_password"))
+}
+
+// ConstantWindow measures the time elapsed from its invocation and, when the
+// returned function is executed, delays the execution path to match the target duration.
+// This is used to mitigate side-channel timing attacks on sensitive endpoints.
+func ConstantWindow(target time.Duration) func() {
+	start := time.Now()
+
+	return func() {
+		elapsed := time.Since(start)
+		if elapsed < target {
+			time.Sleep(target - elapsed)
+		}
+	}
 }

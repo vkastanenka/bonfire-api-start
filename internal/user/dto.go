@@ -141,7 +141,12 @@ type AuthView struct {
 	TOTPSecret      *string    `json:"totp_secret"`
 	VerifiedAt      *time.Time `json:"verified_at"`
 	Role            Role       `json:"role"`
+	Status          Status     `json:"status"`
 	SecurityVersion int        `json:"security_version"`
+}
+
+func (a *AuthView) IsActive() bool {
+	return a.Status == "active"
 }
 
 func NewAuthView(row repository.User) AuthView {
@@ -165,6 +170,7 @@ func NewAuthView(row repository.User) AuthView {
 		TOTPSecret:      totpSecret,
 		VerifiedAt:      verifiedAt,
 		Role:            Role(row.Role),
+		Status:          Status(row.Status),
 		SecurityVersion: int(row.SecurityVersion),
 	}
 }

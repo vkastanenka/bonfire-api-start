@@ -47,3 +47,14 @@ const (
 func (r Role) String() string {
 	return string(r)
 }
+
+type Status string
+
+const (
+	StatusActive    Status = "active"
+	StatusSuspended Status = "suspended"
+)
+
+func (r Status) String() string {
+	return string(r)
+}
