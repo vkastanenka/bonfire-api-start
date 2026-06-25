@@ -35,13 +35,13 @@ const (
 
 // --- EVENT FUNCTIONS ---
 
-// EmitAuthRegister
-func EmitAuthRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
+// EmitRegister
+func EmitRegister(ctx context.Context, db OutboxExt, payload RegisterEventPayload) error {
 	return emitEvent(ctx, db, eventAuthRegister, payload)
 }
 
-// EmitAuthForgotPassword
-func EmitAuthForgotPassword(ctx context.Context, db OutboxExt, payload ForgotPasswordPayload) error {
+// EmitForgotPassword
+func EmitForgotPassword(ctx context.Context, db OutboxExt, payload ForgotPasswordPayload) error {
 	return emitEvent(ctx, db, eventAuthForgotPassword, payload)
 }
 

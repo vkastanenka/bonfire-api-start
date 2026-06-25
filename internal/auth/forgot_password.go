@@ -2,11 +2,13 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -31,6 +33,7 @@ const (
 // Values
 const (
 	forgotPasswordTimingWindow = 35 * time.Millisecond
+	forgotPasswordCooldown     = 1 * time.Minute
 )
 
 // --- FORGOT PASSWORD HANDLER ---
@@ -59,7 +62,18 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// Timing attacks defense
-	defer crypto.ConstantWindow(35 * time.Millisecond)()
+	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
+
+	// Check cooldown
+	cooldownKey := cache.ForgotPasswordCooldownKey(email)
+	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
+	if err != nil {
+		// Fail-Open
+		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
+	} else if onCooldown {
+		// Exit silently
+		return nil
+	}
 
 	// Get user
 	userAuth, err := s.user.GetAuthByEmail(ctx, email)
@@ -83,11 +97,20 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	// Emit event
-	if err := worker.EmitAuthForgotPassword(ctx, s.store, worker.ForgotPasswordPayload{
+	if err := worker.EmitForgotPassword(ctx, s.store, worker.ForgotPasswordPayload{
 		Email: email,
 		Token: resetToken,
 	}); err != nil {
 		return err
+	}
+
+	// Generate lock context to ensure cache write
+	lockCtx := context.WithoutCancel(ctx)
+
+	// Set cooldown
+	if err := s.cache.Set(lockCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
+		// Fail-Open
+		slog.WarnContext(ctx, "failed to set forgot password cooldown", "error", err, "email", email)
 	}
 
 	return nil

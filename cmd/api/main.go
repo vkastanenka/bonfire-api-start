@@ -10,6 +10,7 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/bootstrap"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/email"
 	"bonfire-api/internal/health"
@@ -73,13 +74,20 @@ func run() error {
 
 	// Setup helper services
 	val := validator.New()
+	cacheManager := cache.NewManager(rdb)
 	rateLimiter := redis_rate.NewLimiter(rdb)
 	tokenService := token.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.VerificationSecret, cfg.PasswordResetSecret, cfg.PasswordMFASecret)
 
 	// Setup domain services
 	outboxEventsService := outbox.NewService(store)
 	userService := user.NewService(store)
-	authService := auth.NewService(store, tokenService, userService)
+	authService := auth.NewService(
+		store,
+		cacheManager.(cache.Store),
+		tokenService,
+		userService,
+	)
+	// chatService := chat.NewService(chatRepo, appCache.(cache.MessageBus), appCache.(cache.PresenceTracker))
 
 	// Setup background workers
 	mailer := email.NewMailer(email.Config{

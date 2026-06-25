@@ -166,7 +166,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		// Create register event
-		err = worker.EmitAuthRegister(ctx, qtx, worker.RegisterEventPayload{
+		err = worker.EmitRegister(ctx, qtx, worker.RegisterEventPayload{
 			UserID: userRow.ID,
 		})
 		if err != nil {
