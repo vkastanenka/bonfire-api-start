@@ -27,10 +27,11 @@ type Pair struct {
 
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID     uuid.UUID `json:"user_id"`
-	Role       string    `json:"role,omitempty"`
-	IsVerified bool      `json:"ver,omitempty"`
-	SessionID  uuid.UUID `json:"sid,omitempty"`
+	UserID          uuid.UUID `json:"user_id"`
+	SecurityVersion int       `json:"security_version"`
+	Role            string    `json:"role,omitempty"`
+	IsVerified      bool      `json:"ver,omitempty"`
+	SessionID       uuid.UUID `json:"sid,omitempty"`
 }
 
 type Service struct {
@@ -56,13 +57,13 @@ func NewService(accessSecret string, refreshSecret string, verificationSecret st
 // --- TOKEN METHODS ---
 
 // GenerateTokenPair
-func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bool, sessionID uuid.UUID) (Pair, error) {
-	accessToken, err := m.GenerateAccessToken(userID, role, isVerified)
+func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bool, securityVersion int, sessionID uuid.UUID) (Pair, error) {
+	accessToken, err := m.GenerateAccessToken(userID, role, isVerified, securityVersion)
 	if err != nil {
 		return Pair{}, err
 	}
 
-	refreshToken, err := m.GenerateRefreshToken(userID, sessionID)
+	refreshToken, err := m.GenerateRefreshToken(userID, securityVersion, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -74,30 +75,32 @@ func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bo
 }
 
 // GenerateAccessToken
-func (m *Service) GenerateAccessToken(userID uuid.UUID, role string, isVerified bool) (string, error) {
+func (m *Service) GenerateAccessToken(userID uuid.UUID, role string, isVerified bool, securityVersion int) (string, error) {
 	return m.generate(userID, AccessTokenTTL, Claims{
-		Role:       role,
-		IsVerified: isVerified,
+		Role:            role,
+		IsVerified:      isVerified,
+		SecurityVersion: securityVersion,
 	}, m.accessSecret)
 }
 
 // GenerateRefreshToken
-func (m *Service) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
+func (m *Service) GenerateRefreshToken(userID uuid.UUID, securityVersion int, sessionID uuid.UUID) (string, error) {
 	return m.generate(userID, RefreshTokenTTL, Claims{
-		SessionID: sessionID,
+		SessionID:       sessionID,
+		SecurityVersion: securityVersion,
 	}, m.refreshSecret)
 }
 
-func (m *Service) GenerateVerification(userID uuid.UUID) (string, error) {
-	return m.generate(userID, VerificationTokenTTL, Claims{}, m.verificationSecret)
+func (m *Service) GenerateVerification(userID uuid.UUID, securityVersion int) (string, error) {
+	return m.generate(userID, VerificationTokenTTL, Claims{SecurityVersion: securityVersion}, m.verificationSecret)
 }
 
-func (m *Service) GeneratePasswordReset(userID uuid.UUID) (string, error) {
-	return m.generate(userID, PasswordResetTokenTTL, Claims{}, m.passwordResetSecret)
+func (m *Service) GeneratePasswordReset(userID uuid.UUID, securityVersion int) (string, error) {
+	return m.generate(userID, PasswordResetTokenTTL, Claims{SecurityVersion: securityVersion}, m.passwordResetSecret)
 }
 
-func (m *Service) GeneratePasswordMFA(userID uuid.UUID) (string, error) {
-	return m.generate(userID, PasswordMFATokenTTL, Claims{}, m.passwordMFASecret)
+func (m *Service) GeneratePasswordMFA(userID uuid.UUID, securityVersion int) (string, error) {
+	return m.generate(userID, PasswordMFATokenTTL, Claims{SecurityVersion: securityVersion}, m.passwordMFASecret)
 }
 
 func (m *Service) generate(userID uuid.UUID, duration time.Duration, claims Claims, secret []byte) (string, error) {

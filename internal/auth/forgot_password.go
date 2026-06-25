@@ -51,7 +51,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 // ForgotPassword
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// Get user
-	user, err := s.user.GetByEmail(ctx, email)
+	userAuth, err := s.user.GetAuthByEmail(ctx, email)
 	if err != nil {
 		// Respond ok if not found
 		if apperr.IsNotFound(err) {
@@ -61,7 +61,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	// Generate token
-	resetToken, err := s.token.GeneratePasswordReset(user.ID)
+	resetToken, err := s.token.GeneratePasswordReset(userAuth.ID, userAuth.SecurityVersion)
 	if err != nil {
 		return apperr.NewInternal(err)
 	}

@@ -19,7 +19,7 @@ import (
 // OutboxWorker
 type OutboxWorker struct {
 	store        *repository.Queries
-	mailer       email.Mailer
+	mailer       email.Mailer // TODO: Why not pointer?
 	pollInterval time.Duration
 	batchSize    int32
 	wg           sync.WaitGroup

@@ -117,7 +117,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Generate token pair
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, sessionID)
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, sessionID)
 	if err != nil {
 		return RefreshResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}

@@ -134,13 +134,14 @@ func NewView(row repository.User) View {
 }
 
 type AuthView struct {
-	ID            uuid.UUID  `json:"id"`
-	Email         string     `json:"email"`
-	PasswordHash  string     `json:"password"`
-	IsTOTPEnabled bool       `json:"is_totp_enabled"`
-	TOTPSecret    *string    `json:"totp_secret"`
-	VerifiedAt    *time.Time `json:"verified_at"`
-	Role          Role     `json:"role"`
+	ID              uuid.UUID  `json:"id"`
+	Email           string     `json:"email"`
+	PasswordHash    string     `json:"password"`
+	IsTOTPEnabled   bool       `json:"is_totp_enabled"`
+	TOTPSecret      *string    `json:"totp_secret"`
+	VerifiedAt      *time.Time `json:"verified_at"`
+	Role            Role       `json:"role"`
+	SecurityVersion int        `json:"security_version"`
 }
 
 func NewAuthView(row repository.User) AuthView {
@@ -157,13 +158,14 @@ func NewAuthView(row repository.User) AuthView {
 	}
 
 	return AuthView{
-		ID:            uuid.UUID(row.ID.Bytes),
-		Email:         row.Email,
-		PasswordHash:  row.PasswordHash,
-		IsTOTPEnabled: row.IsTotpEnabled,
-		TOTPSecret:    totpSecret,
-		VerifiedAt:    verifiedAt,
-		Role:          Role(row.Role),
+		ID:              uuid.UUID(row.ID.Bytes),
+		Email:           row.Email,
+		PasswordHash:    row.PasswordHash,
+		IsTOTPEnabled:   row.IsTotpEnabled,
+		TOTPSecret:      totpSecret,
+		VerifiedAt:      verifiedAt,
+		Role:            Role(row.Role),
+		SecurityVersion: int(row.SecurityVersion),
 	}
 }
 

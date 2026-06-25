@@ -67,7 +67,7 @@ const userCreate = `-- name: UserCreate :one
 INSERT INTO users(email, username, password_hash)
     VALUES ($1, $2, $3)
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 type UserCreateParams struct {
@@ -93,6 +93,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -130,7 +131,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 func (q *Queries) UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -147,6 +148,7 @@ func (q *Queries) UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, er
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -161,7 +163,7 @@ SET
 WHERE
     id = $2
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 type UserEnableTOTPParams struct {
@@ -183,6 +185,7 @@ func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) 
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -190,7 +193,7 @@ func (q *Queries) UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) 
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 FROM
     users
 WHERE
@@ -212,6 +215,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -219,7 +223,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 
 const userGetByID = `-- name: UserGetByID :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 FROM
     users
 WHERE
@@ -244,6 +248,7 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -251,7 +256,7 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 FROM
     users
 WHERE
@@ -273,6 +278,7 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -280,7 +286,7 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 
 const userList = `-- name: UserList :many
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 FROM
     users
 WHERE ($1::uuid IS NULL
@@ -318,6 +324,7 @@ func (q *Queries) UserList(ctx context.Context, arg UserListParams) ([]User, err
 			&i.TotpSecret,
 			&i.VerifiedAt,
 			&i.LastVerificationSentAt,
+			&i.SecurityVersion,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -332,7 +339,7 @@ func (q *Queries) UserList(ctx context.Context, arg UserListParams) ([]User, err
 
 const userListUnverified = `-- name: UserListUnverified :many
 SELECT
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 FROM
     users
 WHERE
@@ -362,6 +369,7 @@ func (q *Queries) UserListUnverified(ctx context.Context, limit int32) ([]User, 
 			&i.TotpSecret,
 			&i.VerifiedAt,
 			&i.LastVerificationSentAt,
+			&i.SecurityVersion,
 			&i.Role,
 		); err != nil {
 			return nil, err
@@ -383,7 +391,7 @@ WHERE
     id = $1
     AND verified_at IS NULL
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 // ==========================================
@@ -403,6 +411,7 @@ func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, e
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -416,7 +425,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 func (q *Queries) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -433,6 +442,7 @@ func (q *Queries) UserUpdateLastVerificationSent(ctx context.Context, id pgtype.
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err
@@ -442,11 +452,12 @@ const userUpdatePassword = `-- name: UserUpdatePassword :one
 UPDATE
     users
 SET
-    password_hash = $2
+    password_hash = $2,
+    security_version = security_version + 1
 WHERE
     id = $1
 RETURNING
-    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, role
+    id, created_at, updated_at, email, username, password_hash, is_totp_enabled, totp_secret, verified_at, last_verification_sent_at, security_version, role
 `
 
 type UserUpdatePasswordParams struct {
@@ -468,6 +479,7 @@ func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePassword
 		&i.TotpSecret,
 		&i.VerifiedAt,
 		&i.LastVerificationSentAt,
+		&i.SecurityVersion,
 		&i.Role,
 	)
 	return i, err

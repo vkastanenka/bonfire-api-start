@@ -19,6 +19,7 @@ CREATE TABLE users(
     totp_secret varchar(255),
     verified_at timestamp with time zone DEFAULT NULL,
     last_verification_sent_at timestamp with time zone DEFAULT NULL,
+    security_version INT NOT NULL DEFAULT 0,
     -- App logic
     role user_role NOT NULL DEFAULT 'user',
     -- Constraints

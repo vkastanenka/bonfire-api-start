@@ -118,7 +118,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Generate token pair
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, sessionID)
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, sessionID)
 	if err != nil {
 		return LoginResult{}, apperr.New(apperr.CodeInternal, apperr.CodeInternal.Title(), apperr.WithErr(err))
 	}

@@ -106,7 +106,8 @@ RETURNING
 UPDATE
     users
 SET
-    password_hash = $2
+    password_hash = $2,
+    security_version = security_version + 1
 WHERE
     id = $1
 RETURNING
