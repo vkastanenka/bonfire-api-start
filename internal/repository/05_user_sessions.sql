@@ -21,6 +21,8 @@ CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
 
 CREATE INDEX idx_user_sessions_expires_at ON user_sessions(expires_at);
 
+CREATE INDEX idx_user_sessions_is_blocked ON user_sessions(is_blocked);
+
 -- Triggers
 CREATE TRIGGER update_sessions_modtime
     BEFORE UPDATE ON user_sessions

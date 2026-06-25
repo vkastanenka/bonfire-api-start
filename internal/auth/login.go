@@ -184,7 +184,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Create user session
-	_, err = s.CreateUserSession(ctx, CreateUserSessionParams{
+	userSession, err := s.CreateUserSession(ctx, CreateUserSessionParams{
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
@@ -196,6 +196,11 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	if err != nil {
 		return LoginResult{}, err
 	}
+
+	// Add session to cache
+	lockCtx := context.WithoutCancel(ctx)
+	sessionKey := cache.UserSessionKey(userSessionID.String())
+	_ = s.cache.Set(lockCtx, sessionKey, userSession, token.RefreshTokenTTL)
 
 	// Return the tokens
 	return LoginResult{

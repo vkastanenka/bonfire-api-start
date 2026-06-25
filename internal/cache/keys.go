@@ -20,6 +20,11 @@ func LoginLockoutKey(email string) string {
 	return fmt.Sprintf("auth:login:lockout:%s", email)
 }
 
+// UserSessionKey tracks user session metadata for fast retrieval (Pillar 1)
+func UserSessionKey(sessionID string) string {
+	return fmt.Sprintf("auth:session:%s", sessionID)
+}
+
 // UserPresenceKey tracks if a user is actively connected (Pillar 2)
 func UserPresenceKey(userID string) string {
 	return fmt.Sprintf("presence:user:%s", userID)
