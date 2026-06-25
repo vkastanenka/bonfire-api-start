@@ -19,34 +19,40 @@ type contextKey string
 const claimsKey contextKey = "user_claims"
 
 const (
-	ErrMissingAuthHeader = "Missing authorization header."
-	ErrInvalidAuthHeader = "Invalid authorization header format."
-	ErrInvalidToken      = "Invalid or expired access token."
-	ErrMissingAuthCtx    = "Missing authentication context."
-	ErrUnverifiedEmail   = "Unverified email. Please complete verification via your registration email."
+	errMissingAuthHeader = "Missing authorization header."
+	errInvalidAuthHeader = "Invalid authorization header format."
+	errInvalidToken      = "Invalid or expired access token."
+	errMissingAuthCtx    = "Missing authentication context."
+	errUnverifiedEmail   = "Unverified email. Please complete verification via your registration email."
 )
 
 // --- MIDDLEWARE FUNCTIONS ---
 
-// RequireAuth
+// RequireAuth validates the presence and validity of the Bearer access token.
 func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrMissingAuthHeader))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errMissingAuthHeader))
 				return
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" || parts[1] == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeForbidden, ErrInvalidAuthHeader))
+			// Resilient prefix check
+			if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidAuthHeader)) // Patched to CodeUnauthorized
 				return
 			}
 
-			claims, err := tokenSvc.VerifyAccess(parts[1])
+			tokenStr := strings.TrimSpace(authHeader[7:])
+			if tokenStr == "" {
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidAuthHeader))
+				return
+			}
+
+			claims, err := tokenSvc.VerifyAccess(tokenStr)
 			if err != nil {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrInvalidToken))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidToken))
 				return
 			}
 
@@ -57,18 +63,19 @@ func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireVerified
+// RequireVerified blocks authenticated requests if the email has not been confirmed.
 func RequireVerified() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, err := GetClaimsFromContext(r.Context())
 			if err != nil {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeInternal, ErrMissingAuthCtx))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeInternal, errMissingAuthCtx))
 				return
 			}
 
+			// Patched to CodeForbidden because we know identity, but refuse entry
 			if !claims.IsVerified {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, ErrUnverifiedEmail))
+				httpio.RespondError(w, r, apperr.New(apperr.CodeForbidden, errUnverifiedEmail))
 				return
 			}
 
@@ -77,11 +84,11 @@ func RequireVerified() func(http.Handler) http.Handler {
 	}
 }
 
-// GetUserIDFromContext
+// GetClaimsFromContext extracts token claims from the request context.
 func GetClaimsFromContext(ctx context.Context) (*token.Claims, error) {
 	claims, ok := ctx.Value(claimsKey).(*token.Claims)
 	if !ok {
-		return nil, errors.New(ErrMissingAuthCtx)
+		return nil, errors.New(errMissingAuthCtx)
 	}
 	return claims, nil
 }

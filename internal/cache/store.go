@@ -42,3 +42,19 @@ func (m *redisManager) Exists(ctx context.Context, key string) (bool, error) {
 	}
 	return count > 0, nil
 }
+
+// Increment atomically bumps an integer counter key by 1.
+// If the key does not exist, it initializes it at 1 and applies the provided TTL window.
+func (m *redisManager) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	pipe := m.client.Pipeline()
+
+	incrCmd := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, ttl)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	return incrCmd.Val(), nil
+}

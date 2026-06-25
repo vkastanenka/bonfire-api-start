@@ -2,11 +2,13 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/token"
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -24,11 +26,18 @@ const (
 const (
 	errCredentialsInvalid = "Invalid credentials."
 	errAccountInactive    = "Account inactive."
+	errAccountLocked      = "Account locked from too many failed attempts. Please try again later."
+)
+
+// Values
+const (
+	loginMaxAttempts     = 5
+	loginLockoutDuration = 15 * time.Minute
 )
 
 // --- LOGIN ERRORS ---
 
-func NewLoginCredentialsError() error {
+func newLoginCredentialsError() error {
 	return apperr.New(
 		apperr.CodeUnauthorized,
 		errCredentialsInvalid,
@@ -36,6 +45,13 @@ func NewLoginCredentialsError() error {
 			{Name: "email", Reason: errCredentialsInvalid},
 			{Name: "password", Reason: errCredentialsInvalid},
 		}),
+	)
+}
+
+func newAccountLockedError() error {
+	return apperr.New(
+		apperr.CodeForbidden,
+		errAccountLocked,
 	)
 }
 
@@ -99,13 +115,24 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 // Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
+	// Check if account locked
+	lockoutKey := cache.LoginLockoutKey(r.Email)
+	isLocked, err := s.cache.Exists(ctx, lockoutKey)
+	if err != nil {
+		// Fail open cache lookup
+		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", r.Email)
+	} else if isLocked {
+		// Prevent login
+		return LoginResult{}, newAccountLockedError()
+	}
+
 	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
 		// Handle not found
 		if apperr.IsNotFound(err) {
 			crypto.DummyVerifyPassword()
-			return LoginResult{}, NewLoginCredentialsError()
+			return LoginResult{}, newLoginCredentialsError()
 		}
 
 		// Handle rest
@@ -114,12 +141,34 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	// Check password
 	if err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password); err != nil {
-		return LoginResult{}, NewLoginCredentialsError()
+		// Generate lock context to ensure cache write
+		lockCtx := context.WithoutCancel(ctx)
+
+		failureKey := cache.LoginFailuresKey(r.Email)
+		attempts, incrErr := s.cache.Increment(lockCtx, failureKey, 1*time.Hour)
+		if incrErr != nil {
+			// Fail open cache lookup
+			slog.ErrorContext(ctx, "failed to increment login failures", "error", incrErr, "email", r.Email)
+		} else if attempts >= loginMaxAttempts {
+			// Trigger account lockout
+			if lockErr := s.cache.Set(lockCtx, lockoutKey, true, loginLockoutDuration); lockErr != nil {
+				slog.ErrorContext(ctx, "failed to set login lockout", "error", lockErr, "email", r.Email)
+			}
+			return LoginResult{}, newAccountLockedError()
+		}
+
+		return LoginResult{}, newLoginCredentialsError()
 	}
 
 	// Check status
 	if !userAuth.IsActive() {
 		return LoginResult{}, apperr.New(apperr.CodeForbidden, errAccountInactive)
+	}
+
+	// Clear fail count
+	cleanCtx := context.WithoutCancel(ctx)
+	if delErr := s.cache.Delete(cleanCtx, cache.LoginFailuresKey(r.Email)); delErr != nil {
+		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
 	}
 
 	// Generate refresh token

@@ -10,6 +10,16 @@ func ForgotPasswordCooldownKey(email string) string {
 	return fmt.Sprintf("auth:cooldown:forgot-password:%s", email)
 }
 
+// LoginFailuresKey tracks consecutive failed login attempts for an email address
+func LoginFailuresKey(email string) string {
+	return fmt.Sprintf("auth:login:failures:%s", email)
+}
+
+// LoginLockoutKey actively blocks login attempts after exceeding maximum failure thresholds
+func LoginLockoutKey(email string) string {
+	return fmt.Sprintf("auth:login:lockout:%s", email)
+}
+
 // UserPresenceKey tracks if a user is actively connected (Pillar 2)
 func UserPresenceKey(userID string) string {
 	return fmt.Sprintf("presence:user:%s", userID)

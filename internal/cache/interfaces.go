@@ -16,6 +16,7 @@ type Store interface {
 	Get(ctx context.Context, key string, dest interface{}) error
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
+	Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
 }
 
 // PresenceTracker handles ephemeral online/offline states (Pillar 2)
