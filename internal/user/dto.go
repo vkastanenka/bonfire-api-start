@@ -73,8 +73,8 @@ type ListParams struct {
 }
 
 type UpdatePasswordParams struct {
-	ID   uuid.UUID `json:"id"`
-	Hash string    `json:"hash"`
+	ID           uuid.UUID `json:"id"`
+	PasswordHash string    `json:"password_hash"`
 }
 
 type EnableTOTPParams struct {
@@ -148,6 +148,10 @@ type AuthView struct {
 
 func (a *AuthView) IsActive() bool {
 	return a.Status == "active"
+}
+
+func (a *AuthView) IsVerified() bool {
+	return a.VerifiedAt != nil
 }
 
 func NewAuthView(row repository.User) AuthView {

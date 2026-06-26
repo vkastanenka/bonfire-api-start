@@ -161,7 +161,7 @@ func (s *Service) MarkVerified(ctx context.Context, id uuid.UUID) (View, error) 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) (View, error) {
 	row, err := s.store.UserUpdatePassword(ctx, repository.UserUpdatePasswordParams{
 		ID:           pgtype.UUID{Bytes: p.ID, Valid: true},
-		PasswordHash: p.Hash,
+		PasswordHash: p.PasswordHash,
 	})
 	if err != nil {
 		return View{}, apperr.NewDBError(err, Domain)
