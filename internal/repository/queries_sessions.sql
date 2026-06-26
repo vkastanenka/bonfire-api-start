@@ -125,8 +125,7 @@ RETURNING
 -- ==========================================
 -- name: SessionDelete :exec
 DELETE FROM sessions
-WHERE id = $1
-    AND user_id = $2;
+WHERE id = $1;
 
 -- name: SessionDeleteAllExcept :exec
 DELETE FROM sessions

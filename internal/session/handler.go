@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/validator"
@@ -85,14 +84,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 
 // --- Session Handler GetByID GET  ---
 
+type GetByIDPath struct {
+	ID uuid.UUID `path:"id"      validate:"required"`
+}
+
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	idStr := r.PathValue("id")
-	id, err := uuid.Parse(idStr)
+	path, err := httpio.BindPath[GetByIDPath](r, h.validator)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid session id")
+		return err
 	}
 
-	view, err := h.service.GetByID(r.Context(), id)
+	view, err := h.service.GetByID(r.Context(), path.ID)
 	if err != nil {
 		return err
 	}
@@ -103,13 +105,18 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 
 // --- Session Handler GetByRefreshToken GET  ---
 
+type GetByRefreshQuery struct {
+	Token string `form:"token" validate:"required"`
+}
+
 func (h *Handler) GetByRefreshToken(w http.ResponseWriter, r *http.Request) error {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		return apperr.New(apperr.CodeBadRequest, "refresh token query parameter required")
+	// Get Query
+	query, err := httpio.BindQuery[GetByRefreshQuery](r, h.validator)
+	if err != nil {
+		return err
 	}
 
-	view, err := h.service.GetByRefreshToken(r.Context(), token)
+	view, err := h.service.GetByRefreshToken(r.Context(), query.Token)
 	if err != nil {
 		return err
 	}
@@ -124,14 +131,17 @@ func (h *Handler) GetByRefreshToken(w http.ResponseWriter, r *http.Request) erro
 
 // --- Session Handler UpdateLastSeen PATCH  ---
 
+type UpdateLastSeenPath struct {
+	ID uuid.UUID `path:"id"      validate:"required"`
+}
+
 func (h *Handler) UpdateLastSeen(w http.ResponseWriter, r *http.Request) error {
-	idStr := r.PathValue("id")
-	id, err := uuid.Parse(idStr)
+	path, err := httpio.BindPath[UpdateLastSeenPath](r, h.validator)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid session id")
+		return err
 	}
 
-	view, err := h.service.UpdateLastSeen(r.Context(), id)
+	view, err := h.service.UpdateLastSeen(r.Context(), path.ID)
 	if err != nil {
 		return err
 	}
@@ -142,14 +152,17 @@ func (h *Handler) UpdateLastSeen(w http.ResponseWriter, r *http.Request) error {
 
 // --- Session Handler MarkBlocked POST  ---
 
+type MarkBlockedPath struct {
+	ID uuid.UUID `path:"id"      validate:"required"`
+}
+
 func (h *Handler) MarkBlocked(w http.ResponseWriter, r *http.Request) error {
-	idStr := r.PathValue("id")
-	id, err := uuid.Parse(idStr)
+	path, err := httpio.BindPath[MarkBlockedPath](r, h.validator)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid session id")
+		return err
 	}
 
-	view, err := h.service.MarkBlocked(r.Context(), id)
+	view, err := h.service.MarkBlocked(r.Context(), path.ID)
 	if err != nil {
 		return err
 	}
@@ -164,20 +177,17 @@ func (h *Handler) MarkBlocked(w http.ResponseWriter, r *http.Request) error {
 
 // --- Session Handler Delete DELETE  ---
 
+type DeletePath struct {
+	ID uuid.UUID `path:"id"      validate:"required"`
+}
+
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
-	idStr := r.PathValue("id")
-	id, err := uuid.Parse(idStr)
+	path, err := httpio.BindPath[DeletePath](r, h.validator)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid session id")
+		return err
 	}
 
-	userIDStr := r.PathValue("userId")
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid user id")
-	}
-
-	if err := h.service.Delete(r.Context(), id, userID); err != nil {
+	if err := h.service.Delete(r.Context(), path.ID); err != nil {
 		return err
 	}
 
@@ -187,20 +197,19 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
 
 // --- Session Handler DeleteAllExcept DELETE  ---
 
+type DeleteAllExceptQuery = struct {
+	ID     uuid.UUID `form:"id"      validate:"required"`
+	UserID uuid.UUID `form:"user_id"  validate:"required"`
+}
+
 func (h *Handler) DeleteAllExcept(w http.ResponseWriter, r *http.Request) error {
-	userIDStr := r.PathValue("userId")
-	userID, err := uuid.Parse(userIDStr)
+	// Get Query
+	query, err := httpio.BindQuery[DeleteAllExceptQuery](r, h.validator)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid user id")
+		return err
 	}
 
-	exceptIDStr := r.URL.Query().Get("exceptId")
-	exceptID, err := uuid.Parse(exceptIDStr)
-	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid exception session id")
-	}
-
-	if err := h.service.DeleteAllExcept(r.Context(), userID, exceptID); err != nil {
+	if err := h.service.DeleteAllExcept(r.Context(), query.ID, query.UserID); err != nil {
 		return err
 	}
 

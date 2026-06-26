@@ -78,19 +78,13 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 const sessionDelete = `-- name: SessionDelete :exec
 DELETE FROM sessions
 WHERE id = $1
-    AND user_id = $2
 `
-
-type SessionDeleteParams struct {
-	ID     pgtype.UUID `json:"id"`
-	UserID pgtype.UUID `json:"user_id"`
-}
 
 // ==========================================
 // DELETE
 // ==========================================
-func (q *Queries) SessionDelete(ctx context.Context, arg SessionDeleteParams) error {
-	_, err := q.db.Exec(ctx, sessionDelete, arg.ID, arg.UserID)
+func (q *Queries) SessionDelete(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, sessionDelete, id)
 	return err
 }
 

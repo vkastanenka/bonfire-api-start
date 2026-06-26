@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -295,6 +297,71 @@ func DecodeQuery(r *http.Request, dst any) error {
 			}
 		}
 		return apperr.New(apperr.CodeInvalidInput, "Malformed query parameters.", apperr.WithErr(err))
+	}
+
+	return nil
+}
+
+// BindPath extracts URL path variables into a struct, sanitizes, and validates it.
+func BindPath[T any](r *http.Request, validator *validator.Validator) (T, error) {
+	var req T
+	if err := DecodePath(r, &req); err != nil {
+		return req, err
+	}
+
+	if s, ok := any(&req).(Sanitizable); ok {
+		s.Sanitize()
+	}
+
+	if err := validator.ValidateStruct(&req); err != nil {
+		return req, err
+	}
+
+	return req, nil
+}
+
+// DecodePath maps r.PathValue parameters to struct fields via the "path" tag.
+func DecodePath(r *http.Request, dst any) error {
+	val := reflect.ValueOf(dst)
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Struct {
+		return apperr.New(apperr.CodeInternal, "DecodePath destination must be a pointer to a struct.")
+	}
+
+	elem := val.Elem()
+	t := elem.Type()
+	pathValues := make(url.Values)
+
+	// Inspect struct fields for 'path' tags and populate standard url.Values
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("path")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		if pathVal := r.PathValue(tag); pathVal != "" {
+			pathValues.Set(tag, pathVal)
+		}
+	}
+
+	if len(pathValues) == 0 {
+		return nil
+	}
+
+	// Hand off to your optimized go-playground/form decoder for safe parsing/type conversion
+	if err := formDecoder.Decode(dst, pathValues); err != nil {
+		var decodeErrors form.DecodeErrors
+		if errors.As(err, &decodeErrors) {
+			for field, fieldErr := range decodeErrors {
+				return apperr.New(
+					apperr.CodeInvalidInput,
+					"Invalid data type provided in URL path parameters.",
+					apperr.WithErr(fieldErr),
+					apperr.WithInvalidParam(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
+				)
+			}
+		}
+		return apperr.New(apperr.CodeInvalidInput, "Malformed path parameters.", apperr.WithErr(err))
 	}
 
 	return nil

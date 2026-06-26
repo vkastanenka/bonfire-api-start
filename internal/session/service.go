@@ -175,21 +175,18 @@ func (s *Service) MarkBlocked(ctx context.Context, id uuid.UUID) (View, error) {
 // DELETE
 // ==========================================
 
-func (s *Service) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
-	err := s.store.SessionDelete(ctx, repository.SessionDeleteParams{
-		ID:     pgtype.UUID{Bytes: id, Valid: true},
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-	})
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	err := s.store.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return apperr.NewDBError(err)
 	}
 	return nil
 }
 
-func (s *Service) DeleteAllExcept(ctx context.Context, userID uuid.UUID, exceptID uuid.UUID) error {
+func (s *Service) DeleteAllExcept(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
 	err := s.store.SessionDeleteAllExcept(ctx, repository.SessionDeleteAllExceptParams{
+		ID:     pgtype.UUID{Bytes: id, Valid: true},
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		ID:     pgtype.UUID{Bytes: exceptID, Valid: true},
 	})
 	if err != nil {
 		return apperr.NewDBError(err)

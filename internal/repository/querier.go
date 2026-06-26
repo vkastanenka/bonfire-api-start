@@ -54,7 +54,7 @@ type Querier interface {
 	// ==========================================
 	// DELETE
 	// ==========================================
-	SessionDelete(ctx context.Context, arg SessionDeleteParams) error
+	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
 	// ==========================================
 	// GET
