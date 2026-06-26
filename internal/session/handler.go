@@ -103,28 +103,6 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// --- Session Handler GetByRefreshToken GET  ---
-
-type GetByRefreshQuery struct {
-	Token string `form:"token" validate:"required"`
-}
-
-func (h *Handler) GetByRefreshToken(w http.ResponseWriter, r *http.Request) error {
-	// Get Query
-	query, err := httpio.BindQuery[GetByRefreshQuery](r, h.validator)
-	if err != nil {
-		return err
-	}
-
-	view, err := h.service.GetByRefreshToken(r.Context(), query.Token)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, view, "")
-	return nil
-}
-
 // ==========================================
 // UPDATE
 // ==========================================

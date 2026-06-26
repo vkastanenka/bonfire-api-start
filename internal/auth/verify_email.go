@@ -50,16 +50,41 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// Verify refresh token
-	claims, err := s.token.VerifyRefresh(tokenStr)
+	claims, err := s.token.VerifyVerification(tokenStr)
 	if err != nil {
 		return apperr.New(apperr.CodeUnauthorized, ErrInvalidRefreshToken, apperr.WithErr(err))
 	}
 
+	// // 2. Enforce Single-Use via a Cache Blocklist (Prevents replay attacks)
+	// // We use the token's JTI (or a cryptographic hash of the signature if stateless)
+	// usedTokenKey := cache.UsedVerificationTokenKey(claims.TokenID)
+
+	// isUsed, err := s.cache.Exists(ctx, usedTokenKey)
+	// if err != nil {
+	// 	// Fail-closed on security check errors to protect the state transition
+	// 	return apperr.NewInternal(err)
+	// }
+	// if isUsed {
+	// 	return apperr.New(apperr.CodeUnauthorized, ErrInvalidVerifyToken)
+	// }
+
+	// 3. Create non-cancelable context for persistent side effects
+	persistCtx := context.WithoutCancel(ctx)
+
 	// Mark user verification
-	_, err = s.user.MarkVerified(ctx, claims.UserID)
+	_, err = s.user.MarkVerified(persistCtx, claims.UserID)
 	if err != nil {
 		return err
 	}
+
+	// // 5. Consume the token by caching its ID until its original expiration window passes
+	// timeUntilExpiry := time.Until(claims.ExpiresAt)
+	// if timeUntilExpiry > 0 {
+	// 	if cacheErr := s.cache.Set(persistCtx, usedTokenKey, true, timeUntilExpiry); cacheErr != nil {
+	// 		// Log but don't break the user experience; your database update succeeded
+	// 		slog.ErrorContext(ctx, "failed to track consumed email verification token", "error", cacheErr, "token_id", claims.TokenID)
+	// 	}
+	// }
 
 	return nil
 }

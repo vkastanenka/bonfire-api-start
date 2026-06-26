@@ -125,14 +125,6 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 	return NewView(row), nil
 }
 
-func (s *Service) GetByRefreshToken(ctx context.Context, refreshToken string) (View, error) {
-	row, err := s.store.SessionGetByRefreshToken(ctx, refreshToken)
-	if err != nil {
-		return View{}, apperr.NewDBError(err)
-	}
-	return NewView(row), nil
-}
-
 // ==========================================
 // UPDATE
 // ==========================================
