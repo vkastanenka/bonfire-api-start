@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
 	"net/http"
@@ -82,43 +83,43 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	// Get cache session
 	sessionKey := cache.UserSessionKey(claims.SessionID.String())
-	var session UserSessionView
-	err = s.cache.Get(ctx, sessionKey, &session)
+	var sessionView session.View
+	err = s.cache.Get(ctx, sessionKey, &sessionView)
 
 	// Fallback to DB if cache miss
 	if err == cache.ErrCacheMiss {
-		session, err = s.GetUserSessionByID(ctx, claims.SessionID)
+		sessionView, err = s.session.GetByID(ctx, claims.SessionID)
 		if err != nil {
 			return RefreshResult{}, err
 		}
 		// Backfill cache
-		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, session, time.Until(session.ExpiresAt))
+		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
 	} else if err != nil {
 		return RefreshResult{}, err
 	}
 
 	// Check for an un-rotated token
-	if session.RefreshToken != r.RefreshToken {
+	if sessionView.RefreshToken != r.RefreshToken {
 		persistCtx := context.WithoutCancel(ctx)
-		if !session.IsBlocked {
-			_, _ = s.MarkUserSessionBlocked(persistCtx, session.ID)
+		if !sessionView.IsBlocked {
+			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
 	}
 
 	// Check if session blocked
-	if session.IsBlocked {
+	if sessionView.IsBlocked {
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked, apperr.WithErr(err))
 	}
 
 	// Check if session expired
-	if time.Now().After(session.ExpiresAt) {
+	if time.Now().After(sessionView.ExpiresAt) {
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionExpired, apperr.WithErr(err))
 	}
 
 	// Get user
-	userAuth, err := s.user.GetAuthByID(ctx, session.UserID)
+	userAuth, err := s.user.GetAuthByID(ctx, sessionView.UserID)
 	if err != nil {
 		return RefreshResult{}, err
 	}
@@ -126,8 +127,8 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Check if user active
 	if !userAuth.IsActive() {
 		persistCtx := context.WithoutCancel(ctx)
-		if !session.IsBlocked {
-			_, _ = s.MarkUserSessionBlocked(persistCtx, session.ID)
+		if !sessionView.IsBlocked {
+			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked)
@@ -143,8 +144,8 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	persistCtx := context.WithoutCancel(ctx)
 
 	// Update refresh token
-	_, err = s.UpdateUserSessionRefreshToken(persistCtx, UpdateRefreshTokenParams{
-		ID:           session.ID,
+	_, err = s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
+		ID:           sessionView.ID,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
 	})
@@ -153,9 +154,9 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Update cache
-	session.RefreshToken = tokenPair.RefreshToken
-	session.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
-	if err := s.cache.Set(persistCtx, sessionKey, session, time.Until(session.ExpiresAt)); err != nil {
+	sessionView.RefreshToken = tokenPair.RefreshToken
+	sessionView.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
+	if err := s.cache.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
 		_ = s.cache.Delete(persistCtx, sessionKey)
 	}
 

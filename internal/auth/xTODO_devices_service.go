@@ -1,27 +1,24 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/repository"
 	"context"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 /*
 TODO
 */
 
-func (s *Service) RevokeAllOtherSessions(ctx context.Context, userID uuid.UUID, currentSessionID uuid.UUID) error {
-	// You'll need to add DeleteAllSessionsExcept to your interface
-	return s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		ID:     pgtype.UUID{Bytes: currentSessionID, Valid: true},
-	})
-}
+// func (s *Service) RevokeAllOtherSessions(ctx context.Context, userID uuid.UUID, currentSessionID uuid.UUID) error {
+// 	// You'll need to add DeleteAllSessionsExcept to your interface
+// 	return s.store.UserSessionDeleteAllExcept(ctx, repository.UserSessionDeleteAllExceptParams{
+// 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
+// 		ID:     pgtype.UUID{Bytes: currentSessionID, Valid: true},
+// 	})
+// }
 
 type DeviceResponse struct {
 	ID        string    `json:"id"`
@@ -66,17 +63,17 @@ func (s *Service) GetDevices(ctx context.Context, userID uuid.UUID, currentRefre
 	return nil, nil
 }
 
-// RevokeDevice deletes a specific session, ensuring it belongs to the authenticated user.
-func (s *Service) RevokeDevice(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
-	err := s.store.UserSessionDelete(ctx, repository.UserSessionDeleteParams{
-		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-	})
-	if err != nil {
-		return apperr.New(apperr.CodeInternal, "Failed to log out of device.", apperr.WithErr(err))
-	}
-	return nil
-}
+// // RevokeDevice deletes a specific session, ensuring it belongs to the authenticated user.
+// func (s *Service) RevokeDevice(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
+// 	err := s.store.UserSessionDelete(ctx, repository.UserSessionDeleteParams{
+// 		ID:     pgtype.UUID{Bytes: sessionID, Valid: true},
+// 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
+// 	})
+// 	if err != nil {
+// 		return apperr.New(apperr.CodeInternal, "Failed to log out of device.", apperr.WithErr(err))
+// 	}
+// 	return nil
+// }
 
 // RevokeAllOtherDevices deletes all sessions except the one associated with the provided refresh token.
 func (s *Service) RevokeAllOtherDevices(ctx context.Context, userID uuid.UUID, currentRefreshToken string) error {

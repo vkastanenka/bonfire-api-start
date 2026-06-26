@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
 	"log/slog"
@@ -183,7 +184,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Create user session
-	userSession, err := s.CreateUserSession(persistCtx, CreateUserSessionParams{
+	userSession, err := s.session.Create(persistCtx, session.CreateParams{
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,

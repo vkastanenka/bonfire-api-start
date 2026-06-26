@@ -1,17 +1,17 @@
 -- ==========================================
 -- META
 -- ==========================================
--- name: UserSessionCount :one
+-- name: SessionCount :one
 SELECT
     COUNT(*)
 FROM
-    user_sessions;
+    sessions;
 
 -- ==========================================
 -- CREATE
 -- ==========================================
--- name: UserSessionCreate :one
-INSERT INTO user_sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
+-- name: SessionCreate :one
+INSERT INTO sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING
     *;
@@ -19,11 +19,11 @@ RETURNING
 -- ==========================================
 -- LIST
 -- ==========================================
--- name: UserSessionListActiveByUserID :many
+-- name: SessionListActiveByUserID :many
 SELECT
     *
 FROM
-    user_sessions
+    sessions
 WHERE
     user_id = $1
     AND is_blocked = FALSE
@@ -34,20 +34,20 @@ ORDER BY
 -- ==========================================
 -- GET
 -- ==========================================
--- name: UserSessionGetByID :one
+-- name: SessionGetByID :one
 SELECT
     *
 FROM
-    user_sessions
+    sessions
 WHERE
     id = $1
 LIMIT 1;
 
--- name: UserSessionGetByRefreshToken :one
+-- name: SessionGetByRefreshToken :one
 SELECT
     *
 FROM
-    user_sessions
+    sessions
 WHERE
     refresh_token = $1
     AND is_blocked = FALSE
@@ -57,9 +57,9 @@ LIMIT 1;
 -- ==========================================
 -- UPDATE
 -- ==========================================
--- name: UserSessionUpdateRefreshToken :one
+-- name: SessionUpdateRefreshToken :one
 UPDATE
-    user_sessions
+    sessions
 SET
     refresh_token = $2,
     expires_at = $3
@@ -68,9 +68,9 @@ WHERE
 RETURNING
     *;
 
--- name: UserSessionUpdateLastSeen :one
+-- name: SessionUpdateLastSeen :one
 UPDATE
-    user_sessions
+    sessions
 SET
     last_seen_at = CURRENT_TIMESTAMP
 WHERE
@@ -78,9 +78,9 @@ WHERE
 RETURNING
     *;
 
--- name: UserSessionMarkBlocked :one
+-- name: SessionMarkBlocked :one
 UPDATE
-    user_sessions
+    sessions
 SET
     is_blocked = TRUE
 WHERE
@@ -91,17 +91,17 @@ RETURNING
 -- ==========================================
 -- DELETE
 -- ==========================================
--- name: UserSessionDelete :exec
-DELETE FROM user_sessions
+-- name: SessionDelete :exec
+DELETE FROM sessions
 WHERE id = $1
     AND user_id = $2;
 
--- name: UserSessionDeleteAllExcept :exec
-DELETE FROM user_sessions
+-- name: SessionDeleteAllExcept :exec
+DELETE FROM sessions
 WHERE user_id = $1
     AND id != $2;
 
--- name: UserSessionPurgeExpired :exec
-DELETE FROM user_sessions
+-- name: SessionPurgeExpired :exec
+DELETE FROM sessions
 WHERE expires_at <= CURRENT_TIMESTAMP;
 

@@ -43,6 +43,35 @@ type Querier interface {
 	OutboxEventPurgeProcessed(ctx context.Context) error
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	// ==========================================
+	// META
+	// ==========================================
+	SessionCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
+	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	SessionDelete(ctx context.Context, arg SessionDeleteParams) error
+	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
+	// ==========================================
+	// GET
+	// ==========================================
+	SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionGetByRefreshToken(ctx context.Context, refreshToken string) (Session, error)
+	// ==========================================
+	// LIST
+	// ==========================================
+	SessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
+	SessionMarkBlocked(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionPurgeExpired(ctx context.Context) error
+	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
+	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	// ==========================================
 	// META
@@ -116,35 +145,6 @@ type Querier interface {
 	// UPDATE
 	// ==========================================
 	UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) (UserProfile, error)
-	// ==========================================
-	// META
-	// ==========================================
-	UserSessionCount(ctx context.Context) (int64, error)
-	// ==========================================
-	// CREATE
-	// ==========================================
-	UserSessionCreate(ctx context.Context, arg UserSessionCreateParams) (UserSession, error)
-	// ==========================================
-	// DELETE
-	// ==========================================
-	UserSessionDelete(ctx context.Context, arg UserSessionDeleteParams) error
-	UserSessionDeleteAllExcept(ctx context.Context, arg UserSessionDeleteAllExceptParams) error
-	// ==========================================
-	// GET
-	// ==========================================
-	UserSessionGetByID(ctx context.Context, id pgtype.UUID) (UserSession, error)
-	UserSessionGetByRefreshToken(ctx context.Context, refreshToken string) (UserSession, error)
-	// ==========================================
-	// LIST
-	// ==========================================
-	UserSessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]UserSession, error)
-	UserSessionMarkBlocked(ctx context.Context, id pgtype.UUID) (UserSession, error)
-	UserSessionPurgeExpired(ctx context.Context) error
-	UserSessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (UserSession, error)
-	// ==========================================
-	// UPDATE
-	// ==========================================
-	UserSessionUpdateRefreshToken(ctx context.Context, arg UserSessionUpdateRefreshTokenParams) (UserSession, error)
 	UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error)
 	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }

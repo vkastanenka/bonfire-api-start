@@ -17,6 +17,7 @@ import (
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/validator"
@@ -80,10 +81,12 @@ func run() error {
 
 	// Setup domain services
 	outboxEventsService := outbox.NewService(store)
+	sessionService := session.NewService(store)
 	userService := user.NewService(store)
 	authService := auth.NewService(
 		store,
 		cacheManager.(cache.Store),
+		sessionService,
 		tokenService,
 		userService,
 	)

@@ -109,6 +109,19 @@ type OutboxEvent struct {
 	LastError     pgtype.Text        `json:"last_error"`
 }
 
+type Session struct {
+	ID           pgtype.UUID        `json:"id"`
+	UserID       pgtype.UUID        `json:"user_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
+	RefreshToken string             `json:"refresh_token"`
+	IsBlocked    bool               `json:"is_blocked"`
+	ClientIP     netip.Addr         `json:"client_ip"`
+	UserAgent    string             `json:"user_agent"`
+}
+
 type User struct {
 	ID                     pgtype.UUID        `json:"id"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
@@ -136,17 +149,4 @@ type UserProfile struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	DisplayName string             `json:"display_name"`
-}
-
-type UserSession struct {
-	ID           pgtype.UUID        `json:"id"`
-	UserID       pgtype.UUID        `json:"user_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
-	RefreshToken string             `json:"refresh_token"`
-	IsBlocked    bool               `json:"is_blocked"`
-	ClientIP     netip.Addr         `json:"client_ip"`
-	UserAgent    string             `json:"user_agent"`
 }
