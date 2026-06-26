@@ -1,4 +1,4 @@
-CREATE TABLE user_sessions(
+CREATE TABLE sessions(
     -- Identity
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -17,15 +17,15 @@ CREATE TABLE user_sessions(
 );
 
 -- Indexes
-CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 
-CREATE INDEX idx_user_sessions_expires_at ON user_sessions(expires_at);
+CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
-CREATE INDEX idx_user_sessions_is_blocked ON user_sessions(is_blocked);
+CREATE INDEX idx_sessions_is_blocked ON sessions(is_blocked);
 
 -- Triggers
 CREATE TRIGGER update_sessions_modtime
-    BEFORE UPDATE ON user_sessions
+    BEFORE UPDATE ON sessions
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
