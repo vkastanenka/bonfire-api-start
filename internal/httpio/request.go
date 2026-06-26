@@ -14,6 +14,8 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+
+	"github.com/go-playground/form"
 )
 
 // --- REQUEST CONSTANTS ---
@@ -40,8 +42,8 @@ const (
 	ErrUnknownField         = "Unknown field '%s' present in request body."
 
 	// Internal Errors
-	ErrDecode        = "An unexpected parsing error occurred."
-	ErrReqTimeout    = "Request timed out."
+	ErrDecode     = "An unexpected parsing error occurred."
+	ErrReqTimeout = "Request timed out."
 )
 
 // --- REQUEST TYPES ---
@@ -239,6 +241,60 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	// Check for multiple JSON objects
 	if dec.More() {
 		return apperr.New(apperr.CodeInvalidInput, ErrSingleValueRequired)
+	}
+
+	return nil
+}
+
+// Initialize a single, thread-safe form decoder for the package
+var formDecoder = form.NewDecoder()
+
+// --- REQUEST BINDING FUNCTIONS ---
+
+// BindQuery parses query strings into a struct, sanitizes, and validates it.
+// Note: Unlike BindJSON, this does NOT need http.ResponseWriter because query parameters
+// are already parsed into memory by the server and don't stream raw request bytes.
+func BindQuery[T any](r *http.Request, validator *validator.Validator) (T, error) {
+	var req T
+	if err := DecodeQuery(r, &req); err != nil {
+		return req, err
+	}
+
+	// Automagic sanitization hook if the DTO implements Sanitizable
+	if s, ok := any(&req).(Sanitizable); ok {
+		s.Sanitize()
+	}
+
+	// Validate the final populated struct
+	if err := validator.ValidateStruct(&req); err != nil {
+		return req, err
+	}
+
+	return req, nil
+}
+
+// DecodeQuery extracts URL query parameters and unmarshals them into the target destination.
+func DecodeQuery(r *http.Request, dst any) error {
+	// Ensure query parameters are fully parsed by the runtime
+	if err := r.ParseForm(); err != nil {
+		return apperr.New(apperr.CodeInvalidInput, "Failed to parse query parameters.", apperr.WithErr(err))
+	}
+
+	// Map the r.URL.Query() map[string][]string directly to the struct fields
+	if err := formDecoder.Decode(dst, r.URL.Query()); err != nil {
+		var decodeErrors form.DecodeErrors
+		if errors.As(err, &decodeErrors) {
+			// Extract the structural validation breakdown matching your UnmarshalTypeError pattern
+			for field, fieldErr := range decodeErrors {
+				return apperr.New(
+					apperr.CodeInvalidInput,
+					"Invalid data type provided for query parameter(s).",
+					apperr.WithErr(fieldErr),
+					apperr.WithInvalidParam(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
+				)
+			}
+		}
+		return apperr.New(apperr.CodeInvalidInput, "Malformed query parameters.", apperr.WithErr(err))
 	}
 
 	return nil

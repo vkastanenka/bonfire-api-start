@@ -61,10 +61,13 @@ type Querier interface {
 	// ==========================================
 	SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionGetByRefreshToken(ctx context.Context, refreshToken string) (Session, error)
+	SessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
+	SessionListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
 	// ==========================================
 	// LIST
 	// ==========================================
-	SessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
+	SessionListByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
+	SessionListExpiredByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error)
 	SessionMarkBlocked(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionPurgeExpired(ctx context.Context) error
 	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)

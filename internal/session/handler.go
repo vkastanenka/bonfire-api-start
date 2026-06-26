@@ -2,9 +2,11 @@ package session
 
 import (
 	"net/http"
+	"strings"
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/validator"
 
 	"github.com/google/uuid"
@@ -45,20 +47,34 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 // LIST
 // ==========================================
 
-// --- Session Handler ListActiveByUserID GET  ---
+// --- Session Handler List GET  ---
 
-func (h *Handler) ListActiveByUserID(w http.ResponseWriter, r *http.Request) error {
-	userIDStr := r.PathValue("userId")
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid user id")
-	}
+type ListReq struct {
+	UserID uuid.UUID `form:"user_id" validate:"required"`
+	Status string    `form:"status"  validate:"omitempty,oneof=active blocked expired"`
+}
 
-	views, err := h.service.ListActiveByUserID(r.Context(), userID)
+func (r *ListReq) Sanitize() {
+	r.Status = strings.ToLower(sanitize.SanitizeText(r.Status))
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
+	// Get Query
+	req, err := httpio.BindQuery[ListReq](r, h.validator)
 	if err != nil {
 		return err
 	}
 
+	// Call service
+	views, err := h.service.List(r.Context(), ListParams{
+		UserID: req.UserID,
+		Status: req.Status,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Respond
 	httpio.RespondOK(w, r, views, "")
 	return nil
 }

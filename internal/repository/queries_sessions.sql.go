@@ -184,11 +184,139 @@ ORDER BY
     last_seen_at DESC
 `
 
+func (q *Queries) SessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error) {
+	rows, err := q.db.Query(ctx, sessionListActiveByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExpiresAt,
+			&i.LastSeenAt,
+			&i.RefreshToken,
+			&i.IsBlocked,
+			&i.ClientIP,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionListBlockedByUserID = `-- name: SessionListBlockedByUserID :many
+SELECT
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
+FROM
+    sessions
+WHERE
+    user_id = $1
+    AND is_blocked = TRUE
+ORDER BY
+    last_seen_at DESC
+`
+
+func (q *Queries) SessionListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error) {
+	rows, err := q.db.Query(ctx, sessionListBlockedByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExpiresAt,
+			&i.LastSeenAt,
+			&i.RefreshToken,
+			&i.IsBlocked,
+			&i.ClientIP,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionListByUserID = `-- name: SessionListByUserID :many
+SELECT
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
+FROM
+    sessions
+WHERE
+    user_id = $1
+ORDER BY
+    last_seen_at DESC
+`
+
 // ==========================================
 // LIST
 // ==========================================
-func (q *Queries) SessionListActiveByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error) {
-	rows, err := q.db.Query(ctx, sessionListActiveByUserID, userID)
+func (q *Queries) SessionListByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error) {
+	rows, err := q.db.Query(ctx, sessionListByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExpiresAt,
+			&i.LastSeenAt,
+			&i.RefreshToken,
+			&i.IsBlocked,
+			&i.ClientIP,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionListExpiredByUserID = `-- name: SessionListExpiredByUserID :many
+SELECT
+    id, user_id, created_at, updated_at, expires_at, last_seen_at, refresh_token, is_blocked, client_ip, user_agent
+FROM
+    sessions
+WHERE
+    user_id = $1
+    AND expires_at <= CURRENT_TIMESTAMP
+ORDER BY
+    last_seen_at DESC
+`
+
+func (q *Queries) SessionListExpiredByUserID(ctx context.Context, userID pgtype.UUID) ([]Session, error) {
+	rows, err := q.db.Query(ctx, sessionListExpiredByUserID, userID)
 	if err != nil {
 		return nil, err
 	}

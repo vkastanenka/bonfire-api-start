@@ -76,8 +76,32 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 // LIST
 // ==========================================
 
-func (s *Service) ListActiveByUserID(ctx context.Context, userID uuid.UUID) ([]View, error) {
-	rows, err := s.store.SessionListActiveByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+type ListParams struct {
+	UserID uuid.UUID
+	Status string
+}
+
+func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
+	var rows []repository.Session
+	var err error
+
+	if p.UserID == uuid.Nil {
+		return []View{}, nil
+	}
+
+	dbUUID := pgtype.UUID{Bytes: p.UserID, Valid: true}
+
+	switch p.Status {
+	case "active":
+		rows, err = s.store.SessionListActiveByUserID(ctx, dbUUID)
+	case "blocked":
+		rows, err = s.store.SessionListBlockedByUserID(ctx, dbUUID)
+	case "expired":
+		rows, err = s.store.SessionListExpiredByUserID(ctx, dbUUID)
+	default:
+		rows, err = s.store.SessionListByUserID(ctx, dbUUID)
+	}
+
 	if err != nil {
 		return nil, apperr.NewDBError(err)
 	}

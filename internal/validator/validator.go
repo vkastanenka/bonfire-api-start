@@ -66,6 +66,7 @@ func New() *Validator {
 	})
 
 	// --- Identity Domain ---
+	v.RegisterAlias("identity.id", "required,uuid,len=36")
 	v.RegisterAlias("identity.email", "required,email,max=255")
 	v.RegisterAlias("identity.username", "required,min=4,max=32,valid_username")
 

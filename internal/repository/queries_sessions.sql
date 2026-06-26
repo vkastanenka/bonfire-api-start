@@ -19,6 +19,16 @@ RETURNING
 -- ==========================================
 -- LIST
 -- ==========================================
+-- name: SessionListByUserID :many
+SELECT
+    *
+FROM
+    sessions
+WHERE
+    user_id = $1
+ORDER BY
+    last_seen_at DESC;
+
 -- name: SessionListActiveByUserID :many
 SELECT
     *
@@ -28,6 +38,28 @@ WHERE
     user_id = $1
     AND is_blocked = FALSE
     AND expires_at > CURRENT_TIMESTAMP
+ORDER BY
+    last_seen_at DESC;
+
+-- name: SessionListExpiredByUserID :many
+SELECT
+    *
+FROM
+    sessions
+WHERE
+    user_id = $1
+    AND expires_at <= CURRENT_TIMESTAMP
+ORDER BY
+    last_seen_at DESC;
+
+-- name: SessionListBlockedByUserID :many
+SELECT
+    *
+FROM
+    sessions
+WHERE
+    user_id = $1
+    AND is_blocked = TRUE
 ORDER BY
     last_seen_at DESC;
 
