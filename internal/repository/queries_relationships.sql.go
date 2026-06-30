@@ -22,6 +22,9 @@ type RelationshipDeleteParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
+// ==========================================
+// DELETE
+// ==========================================
 func (q *Queries) RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error {
 	_, err := q.db.Exec(ctx, relationshipDelete, arg.User1ID, arg.User2ID)
 	return err
@@ -43,7 +46,7 @@ type RelationshipGetParams struct {
 }
 
 // ==========================================
-// RELATIONSHIPS
+// GET
 // ==========================================
 func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
@@ -78,6 +81,9 @@ type RelationshipUpsertParams struct {
 	ActionUserID pgtype.UUID        `json:"action_user_id"`
 }
 
+// ==========================================
+// UPDATE
+// ==========================================
 func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipUpsert,
 		arg.User1ID,
@@ -95,6 +101,23 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const relationshipsCount = `-- name: RelationshipsCount :one
+SELECT
+    COUNT(*)
+FROM
+    relationships
+`
+
+// ==========================================
+// META
+// ==========================================
+func (q *Queries) RelationshipsCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, relationshipsCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const relationshipsListByUser = `-- name: RelationshipsListByUser :many
@@ -129,7 +152,9 @@ type RelationshipsListByUserRow struct {
 	UserStatus    UserStatus         `json:"user_status"`
 }
 
-// This query fetches the relationship and joins the OTHER user's profile info.
+// ==========================================
+// LIST
+// ==========================================
 func (q *Queries) RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error) {
 	rows, err := q.db.Query(ctx, relationshipsListByUser, arg.ID, arg.Status)
 	if err != nil {

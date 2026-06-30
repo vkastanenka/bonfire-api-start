@@ -68,11 +68,6 @@ func (app *Application) routes() http.Handler {
 			publicAuth.Get("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.GetProfileByUserID))
 			publicAuth.Patch("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.UpdateProfileDisplayName))
 			publicAuth.Delete("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.DeleteProfileByUserID))
-			publicAuth.Get("/users/delete-requests/count", httpio.ToHTTP(app.Handlers.Users.CountDeleteRequests))
-			publicAuth.Post("/users/delete-requests", httpio.ToHTTP(app.Handlers.Users.CreateDeleteRequest))
-			publicAuth.Get("/users/delete-requests/due", httpio.ToHTTP(app.Handlers.Users.ListDeleteRequestsDue))
-			publicAuth.Get("/users/{userId}/delete-request", httpio.ToHTTP(app.Handlers.Users.GetDeleteRequestByUserID))
-			publicAuth.Delete("/users/{userId}/delete-request", httpio.ToHTTP(app.Handlers.Users.DeleteDeleteRequestByUserID))
 
 			// Auth
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))

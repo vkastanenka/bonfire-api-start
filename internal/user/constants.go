@@ -20,7 +20,7 @@ const (
 	GetByEmailOK        = "Get by Email OK."
 	GetByUsernameOK     = "Get by Username OK."
 
-	// user_delete_requests
+	// delete_requests
 	ListDeleteRequestsDueOK    = "List delete requests due OK."
 	GetDeleteRequestByUserIDOK = "Get delete request by user ID OK."
 

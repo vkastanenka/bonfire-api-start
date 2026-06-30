@@ -14,7 +14,7 @@ import (
 // ==========================================
 
 func (s *Service) CountProfiles(ctx context.Context) (int64, error) {
-	count, err := s.store.UserProfileCount(ctx)
+	count, err := s.store.ProfileCount(ctx)
 	if err != nil {
 		return 0, apperr.NewDBError(err, DomainProfile)
 	}
@@ -27,7 +27,7 @@ func (s *Service) CountProfiles(ctx context.Context) (int64, error) {
 
 // Create
 func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (ProfileView, error) {
-	row, err := s.store.UserProfileCreate(ctx, repository.UserProfileCreateParams{
+	row, err := s.store.ProfileCreate(ctx, repository.ProfileCreateParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
 		DisplayName: p.DisplayName,
 	})
@@ -43,7 +43,7 @@ func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (Pro
 
 // GetProfileByUserID
 func (s *Service) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (ProfileView, error) {
-	row, err := s.store.UserProfileGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	row, err := s.store.ProfileGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
 		return ProfileView{}, apperr.NewDBError(err, DomainProfile)
 	}
@@ -56,7 +56,7 @@ func (s *Service) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (Pro
 
 // UpdateProfileDisplayName
 func (s *Service) UpdateProfileDisplayName(ctx context.Context, p UpdateProfileDisplayNameParams) (ProfileView, error) {
-	row, err := s.store.UserProfileUpdateDisplayName(ctx, repository.UserProfileUpdateDisplayNameParams{
+	row, err := s.store.ProfileUpdateDisplayName(ctx, repository.ProfileUpdateDisplayNameParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
 		DisplayName: p.DisplayName,
 	})
@@ -72,7 +72,7 @@ func (s *Service) UpdateProfileDisplayName(ctx context.Context, p UpdateProfileD
 
 // DeleteProfileByUserID
 func (s *Service) DeleteProfileByUserID(ctx context.Context, userID uuid.UUID) error {
-	err := s.store.UserProfileDeleteByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	err := s.store.ProfileDeleteByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
 		return apperr.NewDBError(err, DomainProfile)
 	}

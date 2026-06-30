@@ -156,8 +156,8 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			displayName = *r.DisplayName
 		}
 
-		// Create user profile
-		userProfileRow, err := qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
+		// Create profile
+		profileRow, err := qtx.ProfileCreate(persistCtx, repository.ProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: displayName,
 		})
@@ -177,7 +177,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 
 		result = RegisterResult{
 			User:        user.NewView(userRow),
-			UserProfile: user.NewProfileView(userProfileRow),
+			UserProfile: user.NewProfileView(profileRow),
 		}
 
 		return nil

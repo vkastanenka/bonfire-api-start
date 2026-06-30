@@ -11,6 +11,26 @@ import (
 )
 
 type Querier interface {
+	// ==========================================
+	// META
+	// ==========================================
+	DeleteRequestCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
+	DeleteRequestCreate(ctx context.Context, arg DeleteRequestCreateParams) (DeleteRequest, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	DeleteRequestDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
+	// ==========================================
+	// GET
+	// ==========================================
+	DeleteRequestGetByUserID(ctx context.Context, userID pgtype.UUID) (DeleteRequest, error)
+	// ==========================================
+	// LIST
+	// ==========================================
+	DeleteRequestListDue(ctx context.Context) ([]DeleteRequest, error)
 	// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
 	// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
 	OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error)
@@ -43,13 +63,47 @@ type Querier interface {
 	OutboxEventPurgeProcessed(ctx context.Context) error
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	// ==========================================
+	// META
+	// ==========================================
+	ProfileCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
+	ProfileCreate(ctx context.Context, arg ProfileCreateParams) (Profile, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	ProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
+	// TODO: Not just 1, need to allow many since display name is not unique
+	ProfileGetByDisplayName(ctx context.Context, lower string) (Profile, error)
+	// ==========================================
+	// GET
+	// ==========================================
+	ProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (Profile, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
+	ProfileUpdateDisplayName(ctx context.Context, arg ProfileUpdateDisplayNameParams) (Profile, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	// ==========================================
-	// RELATIONSHIPS
+	// GET
 	// ==========================================
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
+	// ==========================================
+	// UPDATE
+	// ==========================================
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
-	// This query fetches the relationship and joins the OTHER user's profile info.
+	// ==========================================
+	// META
+	// ==========================================
+	RelationshipsCount(ctx context.Context) (int64, error)
+	// ==========================================
+	// LIST
+	// ==========================================
 	RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error)
 	// ==========================================
 	// META
@@ -97,26 +151,6 @@ type Querier interface {
 	// DELETE
 	// ==========================================
 	UserDeleteByID(ctx context.Context, id pgtype.UUID) error
-	// ==========================================
-	// META
-	// ==========================================
-	UserDeleteRequestCount(ctx context.Context) (int64, error)
-	// ==========================================
-	// CREATE
-	// ==========================================
-	UserDeleteRequestCreate(ctx context.Context, arg UserDeleteRequestCreateParams) (UserDeleteRequest, error)
-	// ==========================================
-	// DELETE
-	// ==========================================
-	UserDeleteRequestDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
-	// ==========================================
-	// GET
-	// ==========================================
-	UserDeleteRequestGetByUserID(ctx context.Context, userID pgtype.UUID) (UserDeleteRequest, error)
-	// ==========================================
-	// LIST
-	// ==========================================
-	UserDeleteRequestListDue(ctx context.Context) ([]UserDeleteRequest, error)
 	UserDisableTOTP(ctx context.Context, id pgtype.UUID) (User, error)
 	UserEnableTOTP(ctx context.Context, arg UserEnableTOTPParams) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
@@ -134,28 +168,6 @@ type Querier interface {
 	// UPDATE
 	// ==========================================
 	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
-	// ==========================================
-	// META
-	// ==========================================
-	UserProfileCount(ctx context.Context) (int64, error)
-	// ==========================================
-	// CREATE
-	// ==========================================
-	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
-	// ==========================================
-	// DELETE
-	// ==========================================
-	UserProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
-	// TODO: Not just 1, need to allow many since display name is not unique
-	UserProfileGetByDisplayName(ctx context.Context, lower string) (UserProfile, error)
-	// ==========================================
-	// GET
-	// ==========================================
-	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
-	// ==========================================
-	// UPDATE
-	// ==========================================
-	UserProfileUpdateDisplayName(ctx context.Context, arg UserProfileUpdateDisplayNameParams) (UserProfile, error)
 	UserUpdateLastVerificationSent(ctx context.Context, id pgtype.UUID) (User, error)
 	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }

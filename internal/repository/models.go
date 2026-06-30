@@ -139,6 +139,12 @@ func (ns NullUserStatus) Value() (driver.Value, error) {
 	return string(ns.UserStatus), nil
 }
 
+type DeleteRequest struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
+}
+
 type OutboxEvent struct {
 	ID            pgtype.UUID        `json:"id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
@@ -150,6 +156,13 @@ type OutboxEvent struct {
 	MaxAttempts   int32              `json:"max_attempts"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
 	LastError     pgtype.Text        `json:"last_error"`
+}
+
+type Profile struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DisplayName string             `json:"display_name"`
 }
 
 type Relationship struct {
@@ -188,17 +201,4 @@ type User struct {
 	SecurityVersion        int32              `json:"security_version"`
 	Role                   UserRole           `json:"role"`
 	Status                 UserStatus         `json:"status"`
-}
-
-type UserDeleteRequest struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
-}
-
-type UserProfile struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DisplayName string             `json:"display_name"`
 }

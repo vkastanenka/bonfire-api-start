@@ -113,6 +113,14 @@ func NewInternal(err ...error) error {
 	return New(CodeInternal, CodeInternal.Title())
 }
 
+// NewUnauthorized
+func NewUnauthorized(err ...error) error {
+	if len(err) > 0 && err[0] != nil {
+		return New(CodeInternal, CodeInternal.Title(), WithErr(err[0]))
+	}
+	return New(CodeInternal, CodeInternal.Title())
+}
+
 // --- APPERR FUNCTIONS ---
 
 // Is

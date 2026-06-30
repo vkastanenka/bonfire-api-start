@@ -1,33 +1,16 @@
 -- ==========================================
--- RELATIONSHIPS
+-- META
 -- ==========================================
--- name: RelationshipGet :one
+-- name: RelationshipsCount :one
 SELECT
-    *
+    COUNT(*)
 FROM
-    relationships
-WHERE
-    user1_id = $1
-    AND user2_id = $2;
+    relationships;
 
--- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, status, action_user_id)
-    VALUES ($1, $2, $3, $4)
-ON CONFLICT (user1_id, user2_id)
-    DO UPDATE SET
-        status = EXCLUDED.status,
-        action_user_id = EXCLUDED.action_user_id,
-        updated_at = CURRENT_TIMESTAMP
-    RETURNING
-        *;
-
--- name: RelationshipDelete :exec
-DELETE FROM relationships
-WHERE user1_id = $1
-    AND user2_id = $2;
-
+-- ==========================================
+-- LIST
+-- ==========================================
 -- name: RelationshipsListByUser :many
--- This query fetches the relationship and joins the OTHER user's profile info.
 SELECT
     r.status,
     r.action_user_id,
@@ -43,4 +26,38 @@ FROM
 WHERE (r.user1_id = $1
     OR r.user2_id = $1)
 AND r.status = $2;
+
+-- ==========================================
+-- GET
+-- ==========================================
+-- name: RelationshipGet :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    user1_id = $1
+    AND user2_id = $2;
+
+-- ==========================================
+-- UPDATE
+-- ==========================================
+-- name: RelationshipUpsert :one
+INSERT INTO relationships(user1_id, user2_id, status, action_user_id)
+    VALUES ($1, $2, $3, $4)
+ON CONFLICT (user1_id, user2_id)
+    DO UPDATE SET
+        status = EXCLUDED.status,
+        action_user_id = EXCLUDED.action_user_id,
+        updated_at = CURRENT_TIMESTAMP
+    RETURNING
+        *;
+
+-- ==========================================
+-- DELETE
+-- ==========================================
+-- name: RelationshipDelete :exec
+DELETE FROM relationships
+WHERE user1_id = $1
+    AND user2_id = $2;
 

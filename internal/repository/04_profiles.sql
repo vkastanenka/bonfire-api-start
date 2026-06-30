@@ -1,4 +1,4 @@
-CREATE TABLE user_profiles(
+CREATE TABLE profiles(
     -- Primary key
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     -- Audit
@@ -11,11 +11,11 @@ CREATE TABLE user_profiles(
 );
 
 -- Indexes
-CREATE INDEX idx_user_profiles_display_name ON user_profiles(lower(display_name));
+CREATE INDEX idx_profiles_display_name ON profiles(lower(display_name));
 
 -- Triggers
-CREATE TRIGGER update_user_profiles_modtime
-    BEFORE UPDATE ON user_profiles
+CREATE TRIGGER update_profiles_modtime
+    BEFORE UPDATE ON profiles
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 

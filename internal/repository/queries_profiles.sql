@@ -1,17 +1,17 @@
 -- ==========================================
 -- META
 -- ==========================================
--- name: UserProfileCount :one
+-- name: ProfileCount :one
 SELECT
     COUNT(*)
 FROM
-    user_profiles;
+    profiles;
 
 -- ==========================================
 -- CREATE
 -- ==========================================
--- name: UserProfileCreate :one
-INSERT INTO user_profiles(user_id, display_name)
+-- name: ProfileCreate :one
+INSERT INTO profiles(user_id, display_name)
     VALUES ($1, $2)
 RETURNING
     *;
@@ -19,21 +19,21 @@ RETURNING
 -- ==========================================
 -- GET
 -- ==========================================
--- name: UserProfileGetByUserID :one
+-- name: ProfileGetByUserID :one
 SELECT
     *
 FROM
-    user_profiles
+    profiles
 WHERE
     user_id = $1
 LIMIT 1;
 
 -- TODO: Not just 1, need to allow many since display name is not unique
--- name: UserProfileGetByDisplayName :one
+-- name: ProfileGetByDisplayName :one
 SELECT
     *
 FROM
-    user_profiles
+    profiles
 WHERE
     lower(display_name) = lower($1)
 LIMIT 1;
@@ -41,9 +41,9 @@ LIMIT 1;
 -- ==========================================
 -- UPDATE
 -- ==========================================
--- name: UserProfileUpdateDisplayName :one
+-- name: ProfileUpdateDisplayName :one
 UPDATE
-    user_profiles
+    profiles
 SET
     display_name = $2
 WHERE
@@ -54,7 +54,7 @@ RETURNING
 -- ==========================================
 -- DELETE
 -- ==========================================
--- name: UserProfileDeleteByUserID :exec
-DELETE FROM user_profiles
+-- name: ProfileDeleteByUserID :exec
+DELETE FROM profiles
 WHERE user_id = $1;
 

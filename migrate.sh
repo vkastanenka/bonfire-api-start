@@ -4,8 +4,8 @@ FILES=(
   "internal/repository/00_init.sql"
   "internal/repository/01_outbox_events.sql"
   "internal/repository/02_users.sql"
-  "internal/repository/03_user_delete_requests.sql"
-  "internal/repository/04_user_profiles.sql"
+  "internal/repository/03_delete_requests.sql"
+  "internal/repository/04_profiles.sql"
   "internal/repository/05_sessions.sql"
   "internal/repository/06_relationships.sql"
 )

@@ -1,17 +1,17 @@
 -- ==========================================
 -- META
 -- ==========================================
--- name: UserDeleteRequestCount :one
+-- name: DeleteRequestCount :one
 SELECT
     COUNT(*)
 FROM
-    user_delete_requests;
+    delete_requests;
 
 -- ==========================================
 -- CREATE
 -- ==========================================
--- name: UserDeleteRequestCreate :one
-INSERT INTO user_delete_requests(user_id, scheduled_at)
+-- name: DeleteRequestCreate :one
+INSERT INTO delete_requests(user_id, scheduled_at)
     VALUES ($1, $2)
 RETURNING
     *;
@@ -19,11 +19,11 @@ RETURNING
 -- ==========================================
 -- LIST
 -- ==========================================
--- name: UserDeleteRequestListDue :many
+-- name: DeleteRequestListDue :many
 SELECT
     *
 FROM
-    user_delete_requests
+    delete_requests
 WHERE
     scheduled_at <= CURRENT_TIMESTAMP
 ORDER BY
@@ -32,11 +32,11 @@ ORDER BY
 -- ==========================================
 -- GET
 -- ==========================================
--- name: UserDeleteRequestGetByUserID :one
+-- name: DeleteRequestGetByUserID :one
 SELECT
     *
 FROM
-    user_delete_requests
+    delete_requests
 WHERE
     user_id = $1
 LIMIT 1;
@@ -44,7 +44,7 @@ LIMIT 1;
 -- ==========================================
 -- DELETE
 -- ==========================================
--- name: UserDeleteRequestDeleteByUserID :exec
-DELETE FROM user_delete_requests
+-- name: DeleteRequestDeleteByUserID :exec
+DELETE FROM delete_requests
 WHERE user_id = $1;
 

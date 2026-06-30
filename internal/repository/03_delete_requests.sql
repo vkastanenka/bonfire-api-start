@@ -1,4 +1,4 @@
-CREATE TABLE user_delete_requests(
+CREATE TABLE delete_requests(
     -- Primary key
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     -- Audit metadata
@@ -9,5 +9,5 @@ CREATE TABLE user_delete_requests(
 );
 
 -- Indexes
-CREATE INDEX idx_delete_requests_scheduled_at ON user_delete_requests(scheduled_at);
+CREATE INDEX idx_delete_requests_scheduled_at ON delete_requests(scheduled_at);
 
