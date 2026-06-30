@@ -27,17 +27,6 @@ type CreateReq struct {
 	Password string `json:"password" validate:"required,min=12,max=128"`
 }
 
-// user_profiles
-
-type CreateProfileReq struct {
-	UserID      string `json:"user_id" validate:"required,uuid"`
-	DisplayName string `json:"display_name" validate:"required,min=3,max=32"`
-}
-
-type UpdateProfileDisplayNameReq struct {
-	DisplayName string `json:"display_name" validate:"required,min=3,max=32"`
-}
-
 // ==========================================
 // SERVICES
 // ==========================================
@@ -80,18 +69,6 @@ type EnableTOTPParams struct {
 type CreateDeleteRequestParams struct {
 	UserID      uuid.UUID `json:"user_id"`
 	ScheduledAt time.Time `json:"scheduled_at"`
-}
-
-// user_profiles
-
-type CreateProfileParams struct {
-	UserID      uuid.UUID
-	DisplayName string
-}
-
-type UpdateProfileDisplayNameParams struct {
-	UserID      uuid.UUID
-	DisplayName string
 }
 
 // ==========================================
@@ -171,25 +148,5 @@ func NewAuthView(row repository.User) AuthView {
 		Role:            Role(row.Role),
 		Status:          Status(row.Status),
 		SecurityVersion: int(row.SecurityVersion),
-	}
-}
-
-// delete_requests
-
-// profiles
-
-type ProfileView struct {
-	UserID      uuid.UUID `json:"user_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	DisplayName string    `json:"display_name"`
-}
-
-func NewProfileView(row repository.Profile) ProfileView {
-	return ProfileView{
-		UserID:      uuid.UUID(row.UserID.Bytes),
-		CreatedAt:   row.CreatedAt.Time,
-		UpdatedAt:   row.UpdatedAt.Time,
-		DisplayName: row.DisplayName,
 	}
 }

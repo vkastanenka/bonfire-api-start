@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/profile"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/user"
@@ -73,8 +74,8 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User        user.View        `json:"user"`
-	UserProfile user.ProfileView `json:"user_profile"`
+	User        user.View    `json:"user"`
+	Profile profile.View `json:"profile"`
 }
 
 // --- REGISTER HANDLER ---
@@ -177,7 +178,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 
 		result = RegisterResult{
 			User:        user.NewView(userRow),
-			UserProfile: user.NewProfileView(profileRow),
+			Profile: profile.NewView(profileRow),
 		}
 
 		return nil

@@ -1,4 +1,4 @@
-package delete_request
+package deletion
 
 import (
 	"net/http"
@@ -8,7 +8,7 @@ import (
 	"bonfire-api/internal/validator"
 )
 
-// --- delete_request handler ---
+// --- deletion handler ---
 
 type Handler struct {
 	service   *Service
@@ -23,7 +23,7 @@ func NewHandler(service *Service, validator *validator.Validator) *Handler {
 // META
 // ==========================================
 
-// --- delete_request handler Count ---
+// --- deletion handler Count ---
 
 type CountRes struct {
 	Count int64 `json:"count"`
@@ -43,7 +43,7 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 // CREATE
 // ==========================================
 
-// --- delete_request handler Create ---
+// --- deletion handler Create ---
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
@@ -64,7 +64,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 // LIST
 // ==========================================
 
-// --- delete_request handler ListDue ---
+// --- deletion handler ListDue ---
 
 func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) error {
 	views, err := h.service.ListDue(r.Context())
@@ -80,7 +80,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) error {
 // GET
 // ==========================================
 
-// --- delete_request handler GetByUserID  ---
+// --- deletion handler GetByUserID  ---
 
 func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
@@ -101,7 +101,7 @@ func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 // DELETE
 // ==========================================
 
-// --- delete_request handler Delete  ---
+// --- deletion handler Delete  ---
 
 func (h *Handler) DeleteByUserID(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())

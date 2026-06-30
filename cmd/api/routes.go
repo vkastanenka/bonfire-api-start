@@ -63,11 +63,6 @@ func (app *Application) routes() http.Handler {
 			publicAuth.Get("/users/email/{email}", httpio.ToHTTP(app.Handlers.Users.GetByEmail))
 			publicAuth.Delete("/users/email/{email}", httpio.ToHTTP(app.Handlers.Users.DeleteByEmail))
 			publicAuth.Get("/users/username/{username}", httpio.ToHTTP(app.Handlers.Users.GetByUsername))
-			publicAuth.Get("/users/profiles/count", httpio.ToHTTP(app.Handlers.Users.CountProfiles))
-			publicAuth.Post("/users/profiles", httpio.ToHTTP(app.Handlers.Users.CreateProfile))
-			publicAuth.Get("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.GetProfileByUserID))
-			publicAuth.Patch("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.UpdateProfileDisplayName))
-			publicAuth.Delete("/users/{userId}/profile", httpio.ToHTTP(app.Handlers.Users.DeleteProfileByUserID))
 
 			// Auth
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))

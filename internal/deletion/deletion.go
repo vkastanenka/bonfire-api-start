@@ -1,4 +1,4 @@
-package delete_request
+package deletion
 
 import (
 	"time"
@@ -8,11 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- delete_request constants ---
+// --- deletion constants ---
 
 const GracePeriod = 7 * 24 * time.Hour
 
-// --- delete_request View ---
+// --- deletion View ---
 
 type View struct {
 	UserID      uuid.UUID `json:"user_id"`

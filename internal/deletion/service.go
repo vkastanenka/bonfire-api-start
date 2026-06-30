@@ -1,4 +1,4 @@
-package delete_request
+package deletion
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// --- delete_request service ---
+// --- deletion service ---
 
 type Service struct {
 	store repository.Store
@@ -29,7 +29,7 @@ func NewService(
 // META
 // ==========================================
 
-// --- delete_request service Count ---
+// --- deletion service Count ---
 
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.DeleteRequestCount(ctx)
@@ -43,7 +43,7 @@ func (s *Service) Count(ctx context.Context) (int64, error) {
 // CREATE
 // ==========================================
 
-// --- delete_request service Create ---
+// --- deletion service Create ---
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.DeleteRequestCreate(ctx, repository.DeleteRequestCreateParams{
@@ -60,7 +60,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 // LIST
 // ==========================================
 
-// --- delete_request service ListDue ---
+// --- deletion service ListDue ---
 
 func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 	rows, err := s.store.DeleteRequestListDue(ctx)
@@ -80,7 +80,7 @@ func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 // GET
 // ==========================================
 
-// --- delete_request service GetByUserID ---
+// --- deletion service GetByUserID ---
 
 func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.DeleteRequestGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
@@ -94,7 +94,7 @@ func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, erro
 // DELETE
 // ==========================================
 
-// --- delete_request service DeleteByUserID ---
+// --- deletion service DeleteByUserID ---
 
 func (s *Service) DeleteByUserID(ctx context.Context, id uuid.UUID) error {
 	err := s.store.DeleteRequestDeleteByUserID(ctx, pgtype.UUID{Bytes: id, Valid: true})
