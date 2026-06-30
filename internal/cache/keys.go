@@ -35,6 +35,11 @@ func UserPresenceKey(userID string) string {
 	return fmt.Sprintf("presence:user:%s", userID)
 }
 
+// UserStatusKey tracks if a user's status
+func UserStatusKey(userID string) string {
+	return fmt.Sprintf("status:user:%s", userID)
+}
+
 // GuildEventChannel routes real-time chat messages to servers (Pillar 3)
 func GuildEventChannel(guildID string) string {
 	return fmt.Sprintf("events:guild:%s", guildID)
