@@ -2,6 +2,7 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/token"
 	"bonfire-api/internal/validator"
 	"context"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/form"
+	"github.com/google/uuid"
 )
 
 // --- REQUEST CONSTANTS ---
@@ -46,6 +48,9 @@ const (
 	// Internal Errors
 	ErrDecode     = "An unexpected parsing error occurred."
 	ErrReqTimeout = "Request timed out."
+
+	// Auth Ctx
+	errMissingAuthCtx = "Missing authentication context."
 )
 
 // --- REQUEST TYPES ---
@@ -58,6 +63,12 @@ type ClientMeta struct {
 type Sanitizable interface {
 	Sanitize()
 }
+
+type ContextKey string
+
+// --- REQUEST CONSTANTS ---
+
+const ClaimsKey ContextKey = "user_claims"
 
 // --- REQUEST METADATA FUNCTIONS ---
 
@@ -104,6 +115,26 @@ func GetClientMeta(r *http.Request, trustProxy bool) ClientMeta {
 		IP:        GetClientIP(r, trustProxy),
 		UserAgent: r.UserAgent(),
 	}
+}
+
+// --- REQUEST AUTH FUNCTIONS ---
+
+// GetCtxClaims extracts token claims from the request context.
+func GetCtxClaims(ctx context.Context) (*token.Claims, error) {
+	claims, ok := ctx.Value(ClaimsKey).(*token.Claims)
+	if !ok {
+		return nil, errors.New(errMissingAuthCtx)
+	}
+	return claims, nil
+}
+
+// GetCtxUserID
+func GetCtxUserID(ctx context.Context) (uuid.UUID, error) {
+	claims, err := GetCtxClaims(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return claims.UserID, nil
 }
 
 // --- REQUEST QUERY FUNCTIONS ---

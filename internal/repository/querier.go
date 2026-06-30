@@ -43,6 +43,14 @@ type Querier interface {
 	OutboxEventPurgeProcessed(ctx context.Context) error
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
+	// ==========================================
+	// RELATIONSHIPS
+	// ==========================================
+	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
+	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
+	// This query fetches the relationship and joins the OTHER user's profile info.
+	RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error)
 	// ==========================================
 	// META
 	// ==========================================

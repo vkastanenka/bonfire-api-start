@@ -12,6 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type RelationshipStatus string
+
+const (
+	RelationshipStatusPending RelationshipStatus = "pending"
+	RelationshipStatusFriends RelationshipStatus = "friends"
+	RelationshipStatusBlocked RelationshipStatus = "blocked"
+)
+
+func (e *RelationshipStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RelationshipStatus(s)
+	case string:
+		*e = RelationshipStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RelationshipStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRelationshipStatus struct {
+	RelationshipStatus RelationshipStatus `json:"relationship_status"`
+	Valid              bool               `json:"valid"` // Valid is true if RelationshipStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRelationshipStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RelationshipStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RelationshipStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRelationshipStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RelationshipStatus), nil
+}
+
 type UserRole string
 
 const (
@@ -107,6 +150,15 @@ type OutboxEvent struct {
 	MaxAttempts   int32              `json:"max_attempts"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
 	LastError     pgtype.Text        `json:"last_error"`
+}
+
+type Relationship struct {
+	User1ID      pgtype.UUID        `json:"user1_id"`
+	User2ID      pgtype.UUID        `json:"user2_id"`
+	Status       RelationshipStatus `json:"status"`
+	ActionUserID pgtype.UUID        `json:"action_user_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Session struct {

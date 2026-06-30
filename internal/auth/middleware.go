@@ -5,18 +5,11 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/token"
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 )
 
-// --- MIDDLEWARE TYPES ---
-
-type contextKey string
-
 // --- MIDDLEWARE CONSTANTS ---
-
-const claimsKey contextKey = "user_claims"
 
 const (
 	errMissingAuthHeader = "Missing authorization header."
@@ -57,7 +50,7 @@ func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 			}
 
 			// Inject into context
-			ctx := context.WithValue(r.Context(), claimsKey, claims)
+			ctx := context.WithValue(r.Context(), httpio.ClaimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -67,7 +60,7 @@ func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 func RequireVerified() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, err := GetClaimsFromContext(r.Context())
+			claims, err := httpio.GetCtxClaims(r.Context())
 			if err != nil {
 				httpio.RespondError(w, r, apperr.New(apperr.CodeInternal, errMissingAuthCtx))
 				return
@@ -82,13 +75,4 @@ func RequireVerified() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// GetClaimsFromContext extracts token claims from the request context.
-func GetClaimsFromContext(ctx context.Context) (*token.Claims, error) {
-	claims, ok := ctx.Value(claimsKey).(*token.Claims)
-	if !ok {
-		return nil, errors.New(errMissingAuthCtx)
-	}
-	return claims, nil
 }
