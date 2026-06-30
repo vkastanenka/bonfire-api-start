@@ -32,7 +32,12 @@ func (q *Queries) RelationshipDelete(ctx context.Context, arg RelationshipDelete
 
 const relationshipGet = `-- name: RelationshipGet :one
 SELECT
-    user1_id, user2_id, status, action_user_id, created_at, updated_at
+    user1_id,
+    user2_id,
+    action_user_id,
+    status,
+    created_at,
+    updated_at
 FROM
     relationships
 WHERE
@@ -54,8 +59,8 @@ func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
-		&i.Status,
 		&i.ActionUserID,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -71,7 +76,12 @@ ON CONFLICT (user1_id, user2_id)
         action_user_id = EXCLUDED.action_user_id,
         updated_at = CURRENT_TIMESTAMP
     RETURNING
-        user1_id, user2_id, status, action_user_id, created_at, updated_at
+        user1_id,
+        user2_id,
+        action_user_id,
+        status,
+        created_at,
+        updated_at
 `
 
 type RelationshipUpsertParams struct {
@@ -95,8 +105,8 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
-		&i.Status,
 		&i.ActionUserID,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -130,16 +140,28 @@ SELECT
     u.status AS user_status
 FROM
     relationships r
-    JOIN users u ON (u.id = r.user1_id
-            OR u.id = r.user2_id)
-        AND u.id != $1
-WHERE (r.user1_id = $1
-    OR r.user2_id = $1)
-AND r.status = $2
+    JOIN users u ON u.id = r.user2_id
+WHERE
+    r.user1_id = $1
+    AND r.status = $2
+UNION ALL
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+    u.id AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = r.user1_id
+WHERE
+    r.user2_id = $1
+    AND r.status = $2
 `
 
 type RelationshipsListByUserParams struct {
-	ID     pgtype.UUID        `json:"id"`
+	UserID pgtype.UUID        `json:"user_id"`
 	Status RelationshipStatus `json:"status"`
 }
 
@@ -156,7 +178,7 @@ type RelationshipsListByUserRow struct {
 // LIST
 // ==========================================
 func (q *Queries) RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error) {
-	rows, err := q.db.Query(ctx, relationshipsListByUser, arg.ID, arg.Status)
+	rows, err := q.db.Query(ctx, relationshipsListByUser, arg.UserID, arg.Status)
 	if err != nil {
 		return nil, err
 	}

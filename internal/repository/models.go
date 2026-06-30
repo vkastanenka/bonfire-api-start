@@ -168,8 +168,8 @@ type Profile struct {
 type Relationship struct {
 	User1ID      pgtype.UUID        `json:"user1_id"`
 	User2ID      pgtype.UUID        `json:"user2_id"`
-	Status       RelationshipStatus `json:"status"`
 	ActionUserID pgtype.UUID        `json:"action_user_id"`
+	Status       RelationshipStatus `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }

@@ -64,13 +64,6 @@ type EnableTOTPParams struct {
 	Secret string    `json:"secret"`
 }
 
-// delete_requests
-
-type CreateDeleteRequestParams struct {
-	UserID      uuid.UUID `json:"user_id"`
-	ScheduledAt time.Time `json:"scheduled_at"`
-}
-
 // ==========================================
 // VIEWS
 // ==========================================
