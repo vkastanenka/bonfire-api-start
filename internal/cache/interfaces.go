@@ -21,11 +21,12 @@ type Store interface {
 
 // PresenceTracker handles ephemeral online/offline states (Pillar 2)
 type PresenceTracker interface {
-	Heartbeat(ctx context.Context, userID string) error
-	GetPresence(ctx context.Context, userID string) (bool, error)
-	GetBulkPresence(ctx context.Context, userIDs []string) (map[string]bool, error)
+    Heartbeat(ctx context.Context, userID string) error
+    SetStatus(ctx context.Context, userID string, status ActivityStatus) error
+    GetStatus(ctx context.Context, userID string) (ActivityStatus, error)
+    GetActivity(ctx context.Context, userID string) (ActivityStatus, error)
+    GetBulkActivity(ctx context.Context, userIDs []string) (map[string]ActivityStatus, error)
 }
-
 // MessageBus handles real-time distributed events (Pillar 3)
 type MessageBus interface {
 	Publish(ctx context.Context, channel string, payload interface{}) error
