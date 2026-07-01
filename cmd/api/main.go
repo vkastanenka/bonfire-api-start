@@ -16,6 +16,7 @@ import (
 	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
+	"bonfire-api/internal/message"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
@@ -81,6 +82,7 @@ func run() error {
 	tokenService := token.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.VerificationSecret, cfg.PasswordResetSecret, cfg.PasswordMFASecret)
 
 	// Setup domain services
+	messageService := message.NewService(store)
 	outboxEventsService := outbox.NewService(store)
 	sessionService := session.NewService(store)
 	userService := user.NewService(store)
@@ -94,7 +96,7 @@ func run() error {
 	// chatService := chat.NewService(chatRepo, appCache.(cache.MessageBus), appCache.(cache.PresenceTracker))
 
 	// Setup real-time gateway core
-	gatewayHub := gateway.NewHub(cacheManager, store)
+	gatewayHub := gateway.NewHub(cacheManager, store, messageService)
 	go gatewayHub.Run(ctx) // Spawns background pubsub engine loop natively
 	gatewayHandler := gateway.NewHandler(gatewayHub)
 
