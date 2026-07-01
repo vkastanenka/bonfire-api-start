@@ -31,6 +31,15 @@ type Querier interface {
 	// LIST
 	// ==========================================
 	DeleteRequestListDue(ctx context.Context) ([]DeleteRequest, error)
+	// ==========================================
+	// CHAT MEMBERS
+	// ==========================================
+	IsUserInConversation(ctx context.Context, arg IsUserInConversationParams) (bool, error)
+	// ==========================================
+	// MESSAGES
+	// ==========================================
+	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
+	MessageListByConversation(ctx context.Context, conversationID pgtype.UUID) ([]Message, error)
 	// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
 	// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
 	OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error)
