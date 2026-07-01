@@ -165,7 +165,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, apperr.New(apperr.CodeForbidden, errAccountInactive)
 	}
 
-	// Generate refresh token
+	// Generate session id
 	userSessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err)
@@ -177,11 +177,8 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, apperr.NewInternal(err)
 	}
 
-	// Clear fail count
+	// Create persist context
 	persistCtx := context.WithoutCancel(ctx)
-	if delErr := s.cache.Delete(persistCtx, cache.LoginFailuresKey(r.Email)); delErr != nil {
-		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
-	}
 
 	// Create user session
 	userSession, err := s.session.Create(persistCtx, session.CreateParams{
@@ -200,6 +197,11 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	// Add session to cache
 	sessionKey := cache.UserSessionKey(userSessionID.String())
 	_ = s.cache.Set(persistCtx, sessionKey, userSession, token.RefreshTokenTTL)
+
+	// Clear login failures
+	if delErr := s.cache.Delete(persistCtx, cache.LoginFailuresKey(r.Email)); delErr != nil {
+		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
+	}
 
 	// Return the tokens
 	return LoginResult{
