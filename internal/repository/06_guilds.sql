@@ -63,7 +63,7 @@ CREATE TABLE guild_roles(
     permissions bigint NOT NULL DEFAULT 0,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT check_hex_color_format CHECK (banner_color ~* '^#[A-Fa-f0-9]{6}$')
+    CONSTRAINT check_hex_color_format CHECK (color_hex ~* '^#[A-Fa-f0-9]{6}$')
 );
 
 CREATE INDEX idx_guild_roles_guild ON guild_roles(guild_id);
@@ -80,6 +80,8 @@ CREATE TABLE guild_member_roles(
     guild_id uuid NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id uuid NOT NULL REFERENCES guild_roles(id) ON DELETE CASCADE,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     PRIMARY KEY (guild_id, user_id, role_id),
     FOREIGN KEY (guild_id, user_id) REFERENCES guild_members(guild_id, user_id) ON DELETE CASCADE
 );
