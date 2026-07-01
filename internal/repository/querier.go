@@ -38,11 +38,28 @@ type Querier interface {
 	DeleteRequestListDue(ctx context.Context) ([]DeleteRequest, error)
 	// Checks to see if an active type 1 (DM) channel exists between two specified users
 	FindSharedDMChannel(ctx context.Context, arg FindSharedDMChannelParams) (pgtype.UUID, error)
+	GetEffectivePermissions(ctx context.Context, arg GetEffectivePermissionsParams) (int64, error)
+	// ==========================================
+	// GUILDS
+	// ==========================================
+	GuildCreate(ctx context.Context, ownerID pgtype.UUID) (Guild, error)
+	GuildDelete(ctx context.Context, id pgtype.UUID) error
+	GuildGetFull(ctx context.Context, id pgtype.UUID) (GuildGetFullRow, error)
+	GuildListMembers(ctx context.Context, guildID pgtype.UUID) ([]GuildListMembersRow, error)
+	GuildListRoles(ctx context.Context, guildID pgtype.UUID) ([]GuildRole, error)
+	// ==========================================
+	// GUILD MEMBERS
+	// ==========================================
+	GuildMemberAdd(ctx context.Context, arg GuildMemberAddParams) error
+	GuildMemberRemove(ctx context.Context, arg GuildMemberRemoveParams) error
+	GuildProfileCreate(ctx context.Context, arg GuildProfileCreateParams) (GuildProfile, error)
 	// ==========================================
 	// CREATE
 	// ==========================================
 	InsertMessage(ctx context.Context, arg InsertMessageParams) (Message, error)
 	IsUserInChannel(ctx context.Context, arg IsUserInChannelParams) (bool, error)
+	MemberAssignRole(ctx context.Context, arg MemberAssignRoleParams) error
+	MemberRemoveRole(ctx context.Context, arg MemberRemoveRoleParams) error
 	// ==========================================
 	// DELETE
 	// ==========================================
@@ -134,6 +151,12 @@ type Querier interface {
 	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	// ==========================================
+	// ROLES & PERMISSIONS
+	// ==========================================
+	RoleCreate(ctx context.Context, arg RoleCreateParams) (GuildRole, error)
+	RoleDelete(ctx context.Context, arg RoleDeleteParams) error
+	RoleUpdate(ctx context.Context, arg RoleUpdateParams) (GuildRole, error)
 	// ==========================================
 	// META
 	// ==========================================

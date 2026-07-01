@@ -118,6 +118,47 @@ type DeleteRequest struct {
 	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
 }
 
+type Guild struct {
+	ID        pgtype.UUID        `json:"id"`
+	OwnerID   pgtype.UUID        `json:"owner_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GuildMember struct {
+	GuildID   pgtype.UUID        `json:"guild_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GuildMemberRole struct {
+	GuildID pgtype.UUID `json:"guild_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+	RoleID  pgtype.UUID `json:"role_id"`
+}
+
+type GuildProfile struct {
+	GuildID     pgtype.UUID        `json:"guild_id"`
+	Name        string             `json:"name"`
+	IconUrl     pgtype.Text        `json:"icon_url"`
+	BannerHex   pgtype.Text        `json:"banner_hex"`
+	Description pgtype.Text        `json:"description"`
+	Visibility  int16              `json:"visibility"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GuildRole struct {
+	ID          pgtype.UUID        `json:"id"`
+	GuildID     pgtype.UUID        `json:"guild_id"`
+	Name        string             `json:"name"`
+	ColorHex    pgtype.Text        `json:"color_hex"`
+	Permissions int64              `json:"permissions"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Message struct {
 	ID        pgtype.UUID        `json:"id"`
 	ChannelID pgtype.UUID        `json:"channel_id"`

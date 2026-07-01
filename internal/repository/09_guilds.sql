@@ -26,7 +26,7 @@ CREATE TABLE guild_profiles(
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     CONSTRAINT check_valid_visibility CHECK (visibility IN (0, 1)),
-    CONSTRAINT check_hex_color_format CHECK (banner_color ~* '^#[A-Fa-f0-9]{6}$')
+    CONSTRAINT check_hex_color_format CHECK (banner_hex ~* '^#[A-Fa-f0-9]{6}$')
 );
 
 CREATE TRIGGER update_guild_profiles_modtime
