@@ -12,9 +12,22 @@ import (
 )
 
 type Client struct {
-	UserID uuid.UUID
-	Conn   *websocket.Conn
-	Send   chan []byte
+	UserID   uuid.UUID
+	Conn     *websocket.Conn
+	Send     chan []byte
+	isClosed bool
+	mu       sync.Mutex
+}
+
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.isClosed {
+		c.isClosed = true
+		// Simply close the network socket. This instantly forces writePump and readPump
+		// loops to error out and exit naturally without creating a "send on closed channel" panic risk.
+		_ = c.Conn.Close()
+	}
 }
 
 type Hub struct {
@@ -38,26 +51,23 @@ func NewHub(cache cache.Manager, store repository.Store) *Hub {
 }
 
 func (h *Hub) Run(ctx context.Context) {
-	// Start the Redis Pub/Sub listener background worker
 	go h.listenRedisPresence(ctx)
 
 	for {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
-			// If user has an old session open, close it cleanly first
 			if oldClient, exists := h.clients[client.UserID]; exists {
-				close(oldClient.Send)
-				oldClient.Conn.Close()
+				oldClient.Close()
 			}
 			h.clients[client.UserID] = client
 			h.mu.Unlock()
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, exists := h.clients[client.UserID]; exists {
+			if current, exists := h.clients[client.UserID]; exists && current == client {
 				delete(h.clients, client.UserID)
-				close(client.Send)
+				client.Close()
 			}
 			h.mu.Unlock()
 		}

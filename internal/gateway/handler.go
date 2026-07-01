@@ -55,39 +55,40 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (c *Client) writePump() {
-	defer c.Conn.Close()
+	// If Send channel is closed by client.Close(), the loop terminates cleanly
 	for message := range c.Send {
 		_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-			return
+			break
 		}
 	}
+	c.Close()
 }
 
 func (c *Client) readPump(ctx context.Context, hub *Hub) {
 	defer func() {
 		hub.unregister <- c
-		c.Conn.Close()
+		c.Close()
 	}()
 
-	c.Conn.SetReadLimit(512) // Restrict body payload sizes strictly
+	c.Conn.SetReadLimit(512)
 	_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
-	// Configure connection to reset deadlines upon successful pong verifications
 	c.Conn.SetPongHandler(func(string) error {
 		_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		_ = hub.cache.Heartbeat(ctx, c.UserID.String()) // Keep state green in Redis cache automatically
+		go func() {
+			// Build a short-lived standalone context for the independent I/O task
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_ = hub.cache.Heartbeat(timeoutCtx, c.UserID.String())
+		}()
 		return nil
 	})
 
 	for {
-		_, msg, err := c.Conn.ReadMessage()
+		_, _, err := c.Conn.ReadMessage()
 		if err != nil {
 			break
 		}
-
-		// If client prefers signaling updates over WebSocket wires rather than standard REST,
-		// parse incoming client text frames here.
-		_ = msg
 	}
 }

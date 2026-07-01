@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// Binds a distinct user identity to a targeted channel access group
+	AddChannelMember(ctx context.Context, arg AddChannelMemberParams) error
+	// Spins up the foundation shell container for a message feed
+	CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error)
 	// ==========================================
 	// META
 	// ==========================================
@@ -31,15 +35,8 @@ type Querier interface {
 	// LIST
 	// ==========================================
 	DeleteRequestListDue(ctx context.Context) ([]DeleteRequest, error)
-	// ==========================================
-	// CHAT MEMBERS
-	// ==========================================
-	IsUserInConversation(ctx context.Context, arg IsUserInConversationParams) (bool, error)
-	// ==========================================
-	// MESSAGES
-	// ==========================================
-	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
-	MessageListByConversation(ctx context.Context, conversationID pgtype.UUID) ([]Message, error)
+	// Checks to see if an active type 1 (DM) channel exists between two specified users
+	FindSharedDMChannel(ctx context.Context, arg FindSharedDMChannelParams) (pgtype.UUID, error)
 	// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
 	// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
 	OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error)
@@ -98,10 +95,12 @@ type Querier interface {
 	// DELETE
 	// ==========================================
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
+	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) (int16, error)
 	// ==========================================
 	// GET
 	// ==========================================
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
+	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error)
 	// ==========================================
 	// UPDATE
 	// ==========================================
@@ -110,13 +109,13 @@ type Querier interface {
 	// META
 	// ==========================================
 	RelationshipsCount(ctx context.Context) (int64, error)
-	RelationshipsListBlockedByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListBlockedByUserRow, error)
+	RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	// ==========================================
 	// LIST
 	// ==========================================
-	RelationshipsListByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListByUserRow, error)
-	RelationshipsListFriendsByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListFriendsByUserRow, error)
-	RelationshipsListPendingByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListPendingByUserRow, error)
+	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	// ==========================================
 	// META
 	// ==========================================

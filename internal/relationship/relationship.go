@@ -11,10 +11,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- relationship ActivityProvider ---
+// --- relationship Type ---
 
-type ActivityProvider interface {
-	GetBulkActivity(ctx context.Context, userIDs []string) (map[string]presence.Activity, error)
+type Type int16
+
+const (
+	TypePending Type = 0
+	TypeFriends Type = 1
+	TypeBlocked Type = 2
+)
+
+func (t Type) String() string {
+	switch t {
+	case TypePending:
+		return "pending"
+	case TypeFriends:
+		return "friends"
+	case TypeBlocked:
+		return "blocked"
+	default:
+		return "unknown"
+	}
 }
 
 // --- relationship Status ---
@@ -23,49 +40,49 @@ type Status string
 
 const (
 	StatusAll     Status = "all"
-	StatusPending Status = "pending"
 	StatusFriends Status = "friends"
-	StatusBlocked Status = "blocked"
 	StatusOnline  Status = "online"
+	StatusPending Status = "pending"
+	StatusBlocked Status = "blocked"
 )
 
-// --- relationship Views ---
+// --- relationship PresenceProvider ---
+
+type PresenceProvider interface {
+	GetBulkActivity(ctx context.Context, userIDs []string) (map[string]presence.Activity, error)
+}
+
+// --- relationship View ---
 
 type View struct {
-	User1ID      uuid.UUID `json:"user1_id"`
-	User2ID      uuid.UUID `json:"user2_id"`
-	ActionUserID uuid.UUID `json:"action_user_id"`
-	Status       Status    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
+	PeerID      uuid.UUID         `json:"peer_id"`
+	Username    string            `json:"username"`
+	DisplayName string            `json:"display_name"`
+	AvatarURL   string            `json:"avatar_url"`
+	ActorID     uuid.UUID         `json:"actor_id"`
+	Type        string            `json:"type"`
+	Activity    presence.Activity `json:"activity"`
+	ChannelID   *uuid.UUID        `json:"channel_id,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
-func NewView(row repository.Relationship) View {
-	return View{
-		User1ID:      uuid.UUID(row.User1ID.Bytes),
-		User2ID:      uuid.UUID(row.User2ID.Bytes),
-		ActionUserID: uuid.UUID(row.ActionUserID.Bytes),
-		Status:       Status(row.Status),
-		CreatedAt:    row.CreatedAt.Time,
+func NewView(row repository.RelationshipPerspective, activity presence.Activity) View {
+	var channelID *uuid.UUID
+	if row.ChannelID.Valid {
+		id := uuid.UUID(row.ChannelID.Bytes)
+		channelID = &id
 	}
-}
 
-type UserView struct {
-	UserID       uuid.UUID         `json:"user_id"`
-	Username     string            `json:"username"`
-	ActionUserID uuid.UUID         `json:"action_user_id"`
-	Status       Status            `json:"status"`
-	Activity     presence.Activity `json:"activity"`
-	CreatedAt    time.Time         `json:"created_at"`
-}
-
-func NewUserView(row repository.RelationshipsListByUserRow, activity presence.Activity) UserView {
-	return UserView{
-		UserID:       row.RelatedUserID.Bytes,
-		Username:     row.Username,
-		ActionUserID: row.ActionUserID.Bytes,
-		Status:       Status(row.Status),
-		Activity:     presence.Activity(row.Status),
-		CreatedAt:    row.CreatedAt.Time,
+	return View{
+		PeerID:      uuid.UUID(row.PeerID.Bytes),
+		Username:    row.Username,
+		DisplayName: row.DisplayName,
+		AvatarURL:   row.AvatarUrl.String,
+		ActorID:     uuid.UUID(row.ActorID.Bytes),
+		Type:        Type(row.Type).String(),
+		Activity:    activity,
+		ChannelID:   channelID,
+		CreatedAt:   row.CreatedAt.Time,
 	}
 }
 

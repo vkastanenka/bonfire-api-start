@@ -32,7 +32,7 @@ const profileCreate = `-- name: ProfileCreate :one
 INSERT INTO profiles(user_id, display_name)
     VALUES ($1, $2)
 RETURNING
-    user_id, created_at, updated_at, display_name
+    user_id, created_at, updated_at, display_name, avatar_url
 `
 
 type ProfileCreateParams struct {
@@ -51,6 +51,7 @@ func (q *Queries) ProfileCreate(ctx context.Context, arg ProfileCreateParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -70,7 +71,7 @@ func (q *Queries) ProfileDeleteByUserID(ctx context.Context, userID pgtype.UUID)
 
 const profileGetByDisplayName = `-- name: ProfileGetByDisplayName :one
 SELECT
-    user_id, created_at, updated_at, display_name
+    user_id, created_at, updated_at, display_name, avatar_url
 FROM
     profiles
 WHERE
@@ -87,13 +88,14 @@ func (q *Queries) ProfileGetByDisplayName(ctx context.Context, lower string) (Pr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
 
 const profileGetByUserID = `-- name: ProfileGetByUserID :one
 SELECT
-    user_id, created_at, updated_at, display_name
+    user_id, created_at, updated_at, display_name, avatar_url
 FROM
     profiles
 WHERE
@@ -112,6 +114,7 @@ func (q *Queries) ProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
@@ -124,7 +127,7 @@ SET
 WHERE
     user_id = $1
 RETURNING
-    user_id, created_at, updated_at, display_name
+    user_id, created_at, updated_at, display_name, avatar_url
 `
 
 type ProfileUpdateDisplayNameParams struct {
@@ -143,6 +146,7 @@ func (q *Queries) ProfileUpdateDisplayName(ctx context.Context, arg ProfileUpdat
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }

@@ -12,49 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type RelationshipStatus string
-
-const (
-	RelationshipStatusPending RelationshipStatus = "pending"
-	RelationshipStatusFriends RelationshipStatus = "friends"
-	RelationshipStatusBlocked RelationshipStatus = "blocked"
-)
-
-func (e *RelationshipStatus) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = RelationshipStatus(s)
-	case string:
-		*e = RelationshipStatus(s)
-	default:
-		return fmt.Errorf("unsupported scan type for RelationshipStatus: %T", src)
-	}
-	return nil
-}
-
-type NullRelationshipStatus struct {
-	RelationshipStatus RelationshipStatus `json:"relationship_status"`
-	Valid              bool               `json:"valid"` // Valid is true if RelationshipStatus is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullRelationshipStatus) Scan(value interface{}) error {
-	if value == nil {
-		ns.RelationshipStatus, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.RelationshipStatus.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullRelationshipStatus) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.RelationshipStatus), nil
-}
-
 type UserRole string
 
 const (
@@ -139,29 +96,26 @@ func (ns NullUserStatus) Value() (driver.Value, error) {
 	return string(ns.UserStatus), nil
 }
 
-type Chat struct {
+type Channel struct {
 	ID        pgtype.UUID        `json:"id"`
-	Type      string             `json:"type"`
+	Type      int16              `json:"type"`
+	GuildID   pgtype.UUID        `json:"guild_id"`
+	Name      pgtype.Text        `json:"name"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
-type ChatMember struct {
-	ConversationID pgtype.UUID `json:"conversation_id"`
-	UserID         pgtype.UUID `json:"user_id"`
+type ChannelMember struct {
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type DeleteRequest struct {
 	UserID      pgtype.UUID        `json:"user_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
-}
-
-type Message struct {
-	ID             pgtype.UUID        `json:"id"`
-	ConversationID pgtype.UUID        `json:"conversation_id"`
-	AuthorID       pgtype.UUID        `json:"author_id"`
-	Content        string             `json:"content"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type OutboxEvent struct {
@@ -182,15 +136,30 @@ type Profile struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
 }
 
 type Relationship struct {
-	User1ID      pgtype.UUID        `json:"user1_id"`
-	User2ID      pgtype.UUID        `json:"user2_id"`
-	ActionUserID pgtype.UUID        `json:"action_user_id"`
-	Status       RelationshipStatus `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Type      int16              `json:"type"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RelationshipPerspective struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	PeerID      pgtype.UUID        `json:"peer_id"`
+	Type        int16              `json:"type"`
+	ActorID     pgtype.UUID        `json:"actor_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Username    string             `json:"username"`
+	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	UserStatus  UserStatus         `json:"user_status"`
+	ChannelID   pgtype.UUID        `json:"channel_id"`
 }
 
 type Session struct {

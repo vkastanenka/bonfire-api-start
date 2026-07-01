@@ -27,6 +27,14 @@ func (app *Application) routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(customMiddleware.Cors(app.Config))
 	r.Use(customMiddleware.SecurityHeaders)
+
+	r.Group(func(ws chi.Router) {
+		// Protect your real-time gateway using your existing token guardrail
+		ws.Use(auth.RequireAuth(app.Services.Token))
+
+		ws.Get("/api/v1/gateway", httpio.ToHTTP(app.Handlers.Gateway.ServeWS))
+	})
+
 	r.Use(middleware.Timeout(15 * time.Second))
 
 	// Swagger docs

@@ -13,6 +13,7 @@ import (
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/email"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/outbox"
@@ -92,6 +93,11 @@ func run() error {
 	)
 	// chatService := chat.NewService(chatRepo, appCache.(cache.MessageBus), appCache.(cache.PresenceTracker))
 
+	// Setup real-time gateway core
+	gatewayHub := gateway.NewHub(cacheManager, store)
+	go gatewayHub.Run(ctx) // Spawns background pubsub engine loop natively
+	gatewayHandler := gateway.NewHandler(gatewayHub)
+
 	// Setup background workers
 	mailer := email.NewMailer(email.Config{
 		ResendAPIKey: cfg.ResendApiKey,
@@ -120,11 +126,13 @@ func run() error {
 			Health       *health.Handler
 			OutboxEvents *outbox.Handler
 			Users        *user.Handler
+			Gateway      *gateway.Handler
 		}{
 			Auth:         authHandler,
 			Health:       healthHandler,
 			OutboxEvents: outboxEventsHandler,
 			Users:        userHandler,
+			Gateway:      gatewayHandler,
 		},
 		Services: struct {
 			Token *token.Service

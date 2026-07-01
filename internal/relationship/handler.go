@@ -81,7 +81,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 // --- relationship handler SendFriendRequestPath  ---
 
 type SendFriendRequestPath struct {
-	ID uuid.UUID `path:"id"      validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) error {
@@ -95,8 +95,11 @@ func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
+	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
 	if err := h.service.SendFriendRequest(r.Context(), SendFriendRequestParams{
-		ActorID: userID, TargetID: path.ID}); err != nil {
+		ActorID: userID,
+		PeerID:  path.ID,
+	}); err != nil {
 		return err
 	}
 
@@ -107,7 +110,7 @@ func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) erro
 // --- relationship handler AcceptFriendRequest  ---
 
 type AcceptFriendRequestPath struct {
-	ID uuid.UUID `path:"id"      validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) error {
@@ -121,8 +124,11 @@ func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 
+	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
 	if err := h.service.AcceptFriendRequest(r.Context(), AcceptFriendRequestParams{
-		ActorID: userID, TargetID: path.ID}); err != nil {
+		ActorID: userID,
+		PeerID:  path.ID,
+	}); err != nil {
 		return err
 	}
 
@@ -133,7 +139,7 @@ func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) er
 // --- relationship handler Block  ---
 
 type BlockPath struct {
-	ID uuid.UUID `path:"id"      validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
@@ -147,8 +153,11 @@ func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
 	if err := h.service.Block(r.Context(), BlockParams{
-		ActorID: userID, TargetID: path.ID}); err != nil {
+		ActorID: userID,
+		PeerID:  path.ID,
+	}); err != nil {
 		return err
 	}
 
@@ -163,7 +172,7 @@ func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
 // --- relationship handler Delete  ---
 
 type DeletePath struct {
-	ID uuid.UUID `path:"id"      validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
@@ -177,8 +186,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
 	if err := h.service.Delete(r.Context(), DeleteParams{
-		ActorID: userID, TargetID: path.ID}); err != nil {
+		ActorID: userID,
+		PeerID:  path.ID,
+	}); err != nil {
 		return err
 	}
 

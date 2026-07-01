@@ -9,6 +9,7 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/token"
@@ -30,6 +31,7 @@ type Application struct {
 		Health       *health.Handler
 		OutboxEvents *outbox.Handler
 		Users        *user.Handler
+		Gateway      *gateway.Handler
 	}
 	Services struct {
 		Token *token.Service

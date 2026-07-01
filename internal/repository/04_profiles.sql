@@ -6,6 +6,7 @@ CREATE TABLE profiles(
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     -- App logic
     display_name varchar(32) NOT NULL,
+    avatar_url varchar(255),
     -- Constraints
     CONSTRAINT display_name_length CHECK (char_length(display_name) >= 3)
 );
