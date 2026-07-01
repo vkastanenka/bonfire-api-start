@@ -1,15 +1,16 @@
 -- name: FindSharedDMChannel :one
 -- Checks to see if an active type 1 (DM) channel exists between two specified users
 SELECT
-    c.id
+    cm1.channel_id
 FROM
-    channels c
-    JOIN channel_members cm1 ON c.id = cm1.channel_id
-    JOIN channel_members cm2 ON c.id = cm2.channel_id
+    channel_members cm1
+    JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+    JOIN channels c ON cm1.channel_id = c.id
 WHERE
     c.type = 1
     AND cm1.user_id = $1
     AND cm2.user_id = $2
+    AND cm1.user_id != cm2.user_id
 LIMIT 1;
 
 -- name: CreateChannel :one
@@ -23,4 +24,13 @@ RETURNING
 -- Binds a distinct user identity to a targeted channel access group
 INSERT INTO channel_members(channel_id, user_id)
     VALUES ($1, $2);
+
+-- name: ChannelGetByID :one
+SELECT
+    *
+FROM
+    channels
+WHERE
+    id = $1
+LIMIT 1;
 

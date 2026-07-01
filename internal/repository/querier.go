@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	// Binds a distinct user identity to a targeted channel access group
 	AddChannelMember(ctx context.Context, arg AddChannelMemberParams) error
+	ChannelGetByID(ctx context.Context, id pgtype.UUID) (Channel, error)
 	// Spins up the foundation shell container for a message feed
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error)
 	// ==========================================

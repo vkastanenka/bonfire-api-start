@@ -27,6 +27,30 @@ func (q *Queries) AddChannelMember(ctx context.Context, arg AddChannelMemberPara
 	return err
 }
 
+const channelGetByID = `-- name: ChannelGetByID :one
+SELECT
+    id, type, guild_id, name, created_at, updated_at
+FROM
+    channels
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) ChannelGetByID(ctx context.Context, id pgtype.UUID) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelGetByID, id)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.GuildID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createChannel = `-- name: CreateChannel :one
 INSERT INTO channels(type, name, guild_id)
     VALUES ($1, $2, $3)
@@ -57,15 +81,16 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 
 const findSharedDMChannel = `-- name: FindSharedDMChannel :one
 SELECT
-    c.id
+    cm1.channel_id
 FROM
-    channels c
-    JOIN channel_members cm1 ON c.id = cm1.channel_id
-    JOIN channel_members cm2 ON c.id = cm2.channel_id
+    channel_members cm1
+    JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+    JOIN channels c ON cm1.channel_id = c.id
 WHERE
     c.type = 1
     AND cm1.user_id = $1
     AND cm2.user_id = $2
+    AND cm1.user_id != cm2.user_id
 LIMIT 1
 `
 
@@ -77,7 +102,7 @@ type FindSharedDMChannelParams struct {
 // Checks to see if an active type 1 (DM) channel exists between two specified users
 func (q *Queries) FindSharedDMChannel(ctx context.Context, arg FindSharedDMChannelParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, findSharedDMChannel, arg.UserID, arg.UserID_2)
-	var id pgtype.UUID
-	err := row.Scan(&id)
-	return id, err
+	var channel_id pgtype.UUID
+	err := row.Scan(&channel_id)
+	return channel_id, err
 }
