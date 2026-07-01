@@ -130,40 +130,93 @@ func (q *Queries) RelationshipsCount(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const relationshipsListBlockedByUser = `-- name: RelationshipsListBlockedByUser :many
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+(
+        CASE WHEN r.user1_id = $1 THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = CASE WHEN r.user1_id = $1 THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = $1
+    OR r.user2_id = $1)
+AND r.status = 'blocked'
+AND r.action_user_id = $1
+`
+
+type RelationshipsListBlockedByUserRow struct {
+	Status        RelationshipStatus `json:"status"`
+	ActionUserID  pgtype.UUID        `json:"action_user_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	RelatedUserID pgtype.UUID        `json:"related_user_id"`
+	Username      string             `json:"username"`
+	UserStatus    UserStatus         `json:"user_status"`
+}
+
+func (q *Queries) RelationshipsListBlockedByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListBlockedByUserRow, error) {
+	rows, err := q.db.Query(ctx, relationshipsListBlockedByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RelationshipsListBlockedByUserRow
+	for rows.Next() {
+		var i RelationshipsListBlockedByUserRow
+		if err := rows.Scan(
+			&i.Status,
+			&i.ActionUserID,
+			&i.CreatedAt,
+			&i.RelatedUserID,
+			&i.Username,
+			&i.UserStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const relationshipsListByUser = `-- name: RelationshipsListByUser :many
 SELECT
     r.status,
     r.action_user_id,
     r.created_at,
-    u.id AS related_user_id,
+(
+        CASE WHEN r.user1_id = $1 THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
     u.username,
     u.status AS user_status
 FROM
     relationships r
-    JOIN users u ON u.id = r.user2_id
-WHERE
-    r.user1_id = $1
-    AND r.status = $2
-UNION ALL
-SELECT
-    r.status,
-    r.action_user_id,
-    r.created_at,
-    u.id AS related_user_id,
-    u.username,
-    u.status AS user_status
-FROM
-    relationships r
-    JOIN users u ON u.id = r.user1_id
-WHERE
-    r.user2_id = $1
-    AND r.status = $2
+    JOIN users u ON u.id = CASE WHEN r.user1_id = $1 THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = $1
+    OR r.user2_id = $1)
+AND (r.status != 'blocked'::relationship_status
+    OR r.action_user_id = $1)
 `
-
-type RelationshipsListByUserParams struct {
-	UserID pgtype.UUID        `json:"user_id"`
-	Status RelationshipStatus `json:"status"`
-}
 
 type RelationshipsListByUserRow struct {
 	Status        RelationshipStatus `json:"status"`
@@ -177,8 +230,8 @@ type RelationshipsListByUserRow struct {
 // ==========================================
 // LIST
 // ==========================================
-func (q *Queries) RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error) {
-	rows, err := q.db.Query(ctx, relationshipsListByUser, arg.UserID, arg.Status)
+func (q *Queries) RelationshipsListByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListByUserRow, error) {
+	rows, err := q.db.Query(ctx, relationshipsListByUser, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +239,128 @@ func (q *Queries) RelationshipsListByUser(ctx context.Context, arg Relationships
 	var items []RelationshipsListByUserRow
 	for rows.Next() {
 		var i RelationshipsListByUserRow
+		if err := rows.Scan(
+			&i.Status,
+			&i.ActionUserID,
+			&i.CreatedAt,
+			&i.RelatedUserID,
+			&i.Username,
+			&i.UserStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipsListFriendsByUser = `-- name: RelationshipsListFriendsByUser :many
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+(
+        CASE WHEN r.user1_id = $1 THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = CASE WHEN r.user1_id = $1 THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = $1
+    OR r.user2_id = $1)
+AND r.status = 'friends'
+`
+
+type RelationshipsListFriendsByUserRow struct {
+	Status        RelationshipStatus `json:"status"`
+	ActionUserID  pgtype.UUID        `json:"action_user_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	RelatedUserID pgtype.UUID        `json:"related_user_id"`
+	Username      string             `json:"username"`
+	UserStatus    UserStatus         `json:"user_status"`
+}
+
+func (q *Queries) RelationshipsListFriendsByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListFriendsByUserRow, error) {
+	rows, err := q.db.Query(ctx, relationshipsListFriendsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RelationshipsListFriendsByUserRow
+	for rows.Next() {
+		var i RelationshipsListFriendsByUserRow
+		if err := rows.Scan(
+			&i.Status,
+			&i.ActionUserID,
+			&i.CreatedAt,
+			&i.RelatedUserID,
+			&i.Username,
+			&i.UserStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipsListPendingByUser = `-- name: RelationshipsListPendingByUser :many
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+(
+        CASE WHEN r.user1_id = $1 THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = CASE WHEN r.user1_id = $1 THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = $1
+    OR r.user2_id = $1)
+AND r.status = 'pending'
+`
+
+type RelationshipsListPendingByUserRow struct {
+	Status        RelationshipStatus `json:"status"`
+	ActionUserID  pgtype.UUID        `json:"action_user_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	RelatedUserID pgtype.UUID        `json:"related_user_id"`
+	Username      string             `json:"username"`
+	UserStatus    UserStatus         `json:"user_status"`
+}
+
+func (q *Queries) RelationshipsListPendingByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListPendingByUserRow, error) {
+	rows, err := q.db.Query(ctx, relationshipsListPendingByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RelationshipsListPendingByUserRow
+	for rows.Next() {
+		var i RelationshipsListPendingByUserRow
 		if err := rows.Scan(
 			&i.Status,
 			&i.ActionUserID,

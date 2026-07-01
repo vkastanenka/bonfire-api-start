@@ -15,29 +15,98 @@ SELECT
     r.status,
     r.action_user_id,
     r.created_at,
-    u.id AS related_user_id,
+(
+        CASE WHEN r.user1_id = @user_id THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
     u.username,
     u.status AS user_status
 FROM
     relationships r
-    JOIN users u ON u.id = r.user2_id
-WHERE
-    r.user1_id = @user_id
-    AND r.status = @status
-UNION ALL
+    JOIN users u ON u.id = CASE WHEN r.user1_id = @user_id THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = @user_id
+    OR r.user2_id = @user_id)
+AND (r.status != 'blocked'::relationship_status
+    OR r.action_user_id = @user_id);
+
+-- name: RelationshipsListPendingByUser :many
 SELECT
     r.status,
     r.action_user_id,
     r.created_at,
-    u.id AS related_user_id,
+(
+        CASE WHEN r.user1_id = @user_id THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
     u.username,
     u.status AS user_status
 FROM
     relationships r
-    JOIN users u ON u.id = r.user1_id
-WHERE
-    r.user2_id = @user_id
-    AND r.status = @status;
+    JOIN users u ON u.id = CASE WHEN r.user1_id = @user_id THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = @user_id
+    OR r.user2_id = @user_id)
+AND r.status = 'pending';
+
+-- name: RelationshipsListFriendsByUser :many
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+(
+        CASE WHEN r.user1_id = @user_id THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = CASE WHEN r.user1_id = @user_id THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = @user_id
+    OR r.user2_id = @user_id)
+AND r.status = 'friends';
+
+-- name: RelationshipsListBlockedByUser :many
+SELECT
+    r.status,
+    r.action_user_id,
+    r.created_at,
+(
+        CASE WHEN r.user1_id = @user_id THEN
+            r.user2_id
+        ELSE
+            r.user1_id
+        END)::uuid AS related_user_id,
+    u.username,
+    u.status AS user_status
+FROM
+    relationships r
+    JOIN users u ON u.id = CASE WHEN r.user1_id = @user_id THEN
+        r.user2_id
+    ELSE
+        r.user1_id
+    END
+WHERE (r.user1_id = @user_id
+    OR r.user2_id = @user_id)
+AND r.status = 'blocked'
+AND r.action_user_id = @user_id;
 
 -- ==========================================
 -- GET

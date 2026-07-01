@@ -42,6 +42,39 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 }
 
 // ==========================================
+// LIST
+// ==========================================
+
+// --- relationship handler List ---
+
+type ListQuery struct {
+	Status Status `query:"status"`
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httpio.GetCtxUserID(r.Context())
+	if err != nil {
+		return apperr.NewUnauthorized(err)
+	}
+
+	query, err := httpio.BindQuery[ListQuery](r, h.validator)
+	if err != nil {
+		return err
+	}
+
+	views, err := h.service.List(r.Context(), ListParams{
+		UserID: userID,
+		Status: query.Status,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, views, "")
+	return nil
+}
+
+// ==========================================
 // UPSERT / UPDATE
 // ==========================================
 
@@ -103,7 +136,6 @@ type BlockPath struct {
 	ID uuid.UUID `path:"id"      validate:"required"`
 }
 
-// Block POST /users/{id}/block
 func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {

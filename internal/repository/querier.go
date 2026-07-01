@@ -101,10 +101,13 @@ type Querier interface {
 	// META
 	// ==========================================
 	RelationshipsCount(ctx context.Context) (int64, error)
+	RelationshipsListBlockedByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListBlockedByUserRow, error)
 	// ==========================================
 	// LIST
 	// ==========================================
-	RelationshipsListByUser(ctx context.Context, arg RelationshipsListByUserParams) ([]RelationshipsListByUserRow, error)
+	RelationshipsListByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListByUserRow, error)
+	RelationshipsListFriendsByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListFriendsByUserRow, error)
+	RelationshipsListPendingByUser(ctx context.Context, userID pgtype.UUID) ([]RelationshipsListPendingByUserRow, error)
 	// ==========================================
 	// META
 	// ==========================================

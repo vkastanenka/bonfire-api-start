@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -13,14 +14,17 @@ import (
 // --- relationship service ---
 
 type Service struct {
-	store repository.Store
+	store    repository.Store
+	presence *presence.Service
 }
 
 func NewService(
 	store repository.Store,
+	presence *presence.Service,
 ) *Service {
 	return &Service{
-		store: store,
+		store:    store,
+		presence: presence,
 	}
 }
 
@@ -49,15 +53,131 @@ type ListParams struct {
 	Status Status
 }
 
-func (s *Service) List(ctx context.Context, userID uuid.UUID, status repository.RelationshipStatus) ([]repository.RelationshipsListByUserRow, error) {
-	rows, err := s.store.RelationshipsListByUser(ctx, repository.RelationshipsListByUserParams{
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		Status: status,
-	})
-	if err != nil {
-		return nil, apperr.NewDBError(err)
+func (s *Service) List(ctx context.Context, p ListParams) ([]UserView, error) {
+	if p.UserID == uuid.Nil {
+		return []UserView{}, nil
 	}
-	return rows, nil
+
+	dbUUID := pgtype.UUID{Bytes: p.UserID, Valid: true}
+	var views []UserView
+
+	switch p.Status {
+	case StatusFriends, StatusOnline:
+		rows, err := s.store.RelationshipsListFriendsByUser(ctx, dbUUID)
+		if err != nil {
+			return nil, apperr.NewDBError(err)
+		}
+		if len(rows) == 0 {
+			return []UserView{}, nil
+		}
+
+		// 1. Bulk-fetch real-time activities from Redis
+		userIDs := make([]string, len(rows))
+		for i, row := range rows {
+			userIDs[i] = uuid.UUID(row.RelatedUserID.Bytes).String()
+		}
+
+		realtimeStatuses, err := s.presence.GetBulkActivity(ctx, userIDs)
+		if err != nil {
+			realtimeStatuses = map[string]presence.Activity{}
+		}
+
+		// 2. Resolve final presence state and map results
+		for _, row := range rows {
+			idStr := uuid.UUID(row.RelatedUserID.Bytes).String()
+
+			// Resolution pipeline: Check Redis activity first, fallback to DB default status
+			finalActivity := presence.Activity(row.UserStatus)
+			if redisStatus, exists := realtimeStatuses[idStr]; exists {
+				finalActivity = redisStatus
+			}
+
+			// If specific filter requested, prune offline friends early
+			if p.Status == StatusOnline && finalActivity == presence.StatusOffline {
+				continue
+			}
+
+			views = append(views, UserView{
+				UserID:       row.RelatedUserID.Bytes,
+				Username:     row.Username,
+				ActionUserID: row.ActionUserID.Bytes,
+				Status:       Status(row.Status),
+				Activity:     finalActivity,
+				CreatedAt:    row.CreatedAt.Time,
+			})
+		}
+
+	case StatusBlocked:
+		rows, err := s.store.RelationshipsListBlockedByUser(ctx, dbUUID)
+		if err != nil {
+			return nil, apperr.NewDBError(err)
+		}
+		for _, row := range rows {
+			// Privacy Guardrail: Blocked users should always resolve as completely offline
+			// to avoid leaking online status data across mutual servers or cached profiles.
+			views = append(views, UserView{
+				UserID:       row.RelatedUserID.Bytes,
+				Username:     row.Username,
+				ActionUserID: row.ActionUserID.Bytes,
+				Status:       Status(row.Status),
+				Activity:     presence.StatusOffline,
+				CreatedAt:    row.CreatedAt.Time,
+			})
+		}
+
+	case StatusPending:
+		rows, err := s.store.RelationshipsListPendingByUser(ctx, dbUUID)
+		if err != nil {
+			return nil, apperr.NewDBError(err)
+		}
+		for _, row := range rows {
+			views = append(views, UserView{
+				UserID:       row.RelatedUserID.Bytes,
+				Username:     row.Username,
+				ActionUserID: row.ActionUserID.Bytes,
+				Status:       Status(row.Status),
+				Activity:     presence.Activity(row.UserStatus),
+				CreatedAt:    row.CreatedAt.Time,
+			})
+		}
+
+	case StatusAll, "":
+		rows, err := s.store.RelationshipsListByUser(ctx, dbUUID)
+		if err != nil {
+			return nil, apperr.NewDBError(err)
+		}
+		if len(rows) == 0 {
+			return []UserView{}, nil
+		}
+
+		// 1. Bulk-fetch real-time activities from Redis
+		userIDs := make([]string, len(rows))
+		for i, row := range rows {
+			userIDs[i] = uuid.UUID(row.RelatedUserID.Bytes).String()
+		}
+		realtimeStatuses, _ := s.presence.GetBulkActivity(ctx, userIDs)
+
+		// 2. Map rows safely using the dedicated NewUserView constructor
+		for _, row := range rows {
+			idStr := uuid.UUID(row.RelatedUserID.Bytes).String()
+
+			finalActivity := presence.Activity(row.UserStatus)
+			if redisStatus, exists := realtimeStatuses[idStr]; exists {
+				finalActivity = redisStatus
+			}
+
+			views = append(views, NewUserView(row, finalActivity))
+		}
+
+	default:
+		return nil, apperr.New(apperr.CodeBadRequest, "invalid relationship status filter")
+	}
+
+	if views == nil {
+		views = []UserView{}
+	}
+
+	return views, nil
 }
 
 // ==========================================

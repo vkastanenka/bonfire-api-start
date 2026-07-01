@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"time"
 
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -14,12 +15,14 @@ import (
 type Status string
 
 const (
+	StatusAll     Status = "all"
 	StatusPending Status = "pending"
 	StatusFriends Status = "friends"
 	StatusBlocked Status = "blocked"
+	StatusOnline  Status = "online"
 )
 
-// --- relationship View ---
+// --- relationship Views ---
 
 type View struct {
 	User1ID      uuid.UUID `json:"user1_id"`
@@ -35,6 +38,26 @@ func NewView(row repository.Relationship) View {
 		User2ID:      uuid.UUID(row.User2ID.Bytes),
 		ActionUserID: uuid.UUID(row.ActionUserID.Bytes),
 		Status:       Status(row.Status),
+		CreatedAt:    row.CreatedAt.Time,
+	}
+}
+
+type UserView struct {
+	UserID       uuid.UUID         `json:"user_id"`
+	Username     string            `json:"username"`
+	ActionUserID uuid.UUID         `json:"action_user_id"`
+	Status       Status            `json:"status"`
+	Activity     presence.Activity `json:"activity"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+func NewUserView(row repository.RelationshipsListByUserRow, activity presence.Activity) UserView {
+	return UserView{
+		UserID:       row.RelatedUserID.Bytes,
+		Username:     row.Username,
+		ActionUserID: row.ActionUserID.Bytes,
+		Status:       Status(row.Status),
+		Activity:     presence.Activity(row.Status),
 		CreatedAt:    row.CreatedAt.Time,
 	}
 }
