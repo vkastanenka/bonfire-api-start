@@ -9,6 +9,7 @@ FILES=(
   "internal/repository/05_sessions.sql"
   "internal/repository/06_channels.sql"
   "internal/repository/07_relationships.sql"
+  "internal/repository/08_messaged.sql"
 )
 
 echo "Applying migrations to database..."

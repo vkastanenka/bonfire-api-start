@@ -118,6 +118,14 @@ type DeleteRequest struct {
 	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
 }
 
+type Message struct {
+	ID        pgtype.UUID        `json:"id"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Content   string             `json:"content"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type OutboxEvent struct {
 	ID            pgtype.UUID        `json:"id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`

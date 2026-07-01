@@ -38,6 +38,23 @@ type Querier interface {
 	DeleteRequestListDue(ctx context.Context) ([]DeleteRequest, error)
 	// Checks to see if an active type 1 (DM) channel exists between two specified users
 	FindSharedDMChannel(ctx context.Context, arg FindSharedDMChannelParams) (pgtype.UUID, error)
+	// ==========================================
+	// CREATE
+	// ==========================================
+	InsertMessage(ctx context.Context, arg InsertMessageParams) (Message, error)
+	IsUserInChannel(ctx context.Context, arg IsUserInChannelParams) (bool, error)
+	// ==========================================
+	// DELETE
+	// ==========================================
+	MessageDelete(ctx context.Context, id pgtype.UUID) error
+	// ==========================================
+	// GET
+	// ==========================================
+	MessageGetByID(ctx context.Context, id pgtype.UUID) (Message, error)
+	// ==========================================
+	// LIST
+	// ==========================================
+	MessageListByChannel(ctx context.Context, arg MessageListByChannelParams) ([]Message, error)
 	// Uses a CTE to lock rows and immediately push next_attempt_at into the future.
 	// This creates a "visibility timeout" so if the worker crashes, the events will naturally retry.
 	OutboxEventAcquireBatch(ctx context.Context, limit int32) ([]OutboxEvent, error)

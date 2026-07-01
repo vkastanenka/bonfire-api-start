@@ -106,3 +106,27 @@ func (q *Queries) FindSharedDMChannel(ctx context.Context, arg FindSharedDMChann
 	err := row.Scan(&channel_id)
 	return channel_id, err
 }
+
+const isUserInChannel = `-- name: IsUserInChannel :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members
+        WHERE
+            channel_id = $1
+            AND user_id = $2)
+`
+
+type IsUserInChannelParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) IsUserInChannel(ctx context.Context, arg IsUserInChannelParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isUserInChannel, arg.ChannelID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

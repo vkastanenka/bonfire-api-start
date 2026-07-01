@@ -34,3 +34,14 @@ WHERE
     id = $1
 LIMIT 1;
 
+-- name: IsUserInChannel :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members
+        WHERE
+            channel_id = $1
+            AND user_id = $2);
+
