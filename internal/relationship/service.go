@@ -2,12 +2,14 @@ package relationship
 
 import (
 	"context"
+	"errors"
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -15,13 +17,10 @@ import (
 
 type Service struct {
 	store    repository.Store
-	presence *presence.Service
+	presence ActivityProvider
 }
 
-func NewService(
-	store repository.Store,
-	presence *presence.Service,
-) *Service {
+func NewService(store repository.Store, presence ActivityProvider) *Service {
 	return &Service{
 		store:    store,
 		presence: presence,
@@ -202,39 +201,40 @@ func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestPara
 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
 	})
-	if err != nil {
-		return apperr.NewDBError(err)
-	}
 
-	switch relRow.Status {
-	case repository.RelationshipStatusFriends:
-		return apperr.New(apperr.CodeBadRequest, "already friends")
-	case repository.RelationshipStatusBlocked:
-		return apperr.New(apperr.CodeForbidden, "cannot interact with this user")
-	case repository.RelationshipStatusPending:
-		if relRow.ActionUserID.Bytes != p.ActorID {
+	// Handle the case where no relationship exists yet
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
 				User1ID:      pgtype.UUID{Bytes: u1, Valid: true},
 				User2ID:      pgtype.UUID{Bytes: u2, Valid: true},
 				ActionUserID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-				Status:       repository.RelationshipStatusFriends,
+				Status:       repository.RelationshipStatusPending,
 			})
 			if err != nil {
 				return apperr.NewDBError(err)
 			}
 			return nil
 		}
-		return apperr.New(apperr.CodeBadRequest, "request already pending")
+		return apperr.NewDBError(err)
 	}
 
-	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
-		User1ID:      pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID:      pgtype.UUID{Bytes: u2, Valid: true},
-		ActionUserID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-		Status:       repository.RelationshipStatusPending,
-	})
-	if err != nil {
-		return apperr.NewDBError(err)
+	// State machine constraints for existing records
+	switch relRow.Status {
+	case repository.RelationshipStatusFriends:
+		return apperr.New(apperr.CodeBadRequest, "already friends")
+	case repository.RelationshipStatusBlocked:
+		// Generic response prevents leaking if A blocked B, or B blocked A
+		return apperr.New(apperr.CodeForbidden, "cannot interact with this user")
+	case repository.RelationshipStatusPending:
+		if relRow.ActionUserID.Bytes != p.ActorID {
+			// The other person sent a request, so accept it implicitly instead of failing
+			return s.AcceptFriendRequest(ctx, AcceptFriendRequestParams{
+				ActorID:  p.ActorID,
+				TargetID: p.TargetID,
+			})
+		}
+		return apperr.New(apperr.CodeBadRequest, "friend request already pending")
 	}
 
 	return nil
@@ -287,14 +287,34 @@ type BlockParams struct {
 }
 
 func (s *Service) Block(ctx context.Context, p BlockParams) error {
+	if p.ActorID == p.TargetID {
+		return apperr.New(apperr.CodeBadRequest, "cannot block yourself")
+	}
+
 	u1, u2 := orderUUIDs(p.ActorID, p.TargetID)
 
-	_, err := s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
+	rel, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
+		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+	})
+
+	// Prevent overwriting someone else's block
+	if err == nil && rel.Status == repository.RelationshipStatusBlocked {
+		if rel.ActionUserID.Bytes != p.ActorID {
+			// Treat it as successful on the client, but do nothing in the DB to hide the block state
+			return nil
+		}
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return apperr.NewDBError(err)
+	}
+
+	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
 		User1ID:      pgtype.UUID{Bytes: u1, Valid: true},
 		User2ID:      pgtype.UUID{Bytes: u2, Valid: true},
 		ActionUserID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
 		Status:       repository.RelationshipStatusBlocked,
 	})
+
 	if err != nil {
 		return apperr.NewDBError(err)
 	}
@@ -316,10 +336,27 @@ type DeleteParams struct {
 func (s *Service) Delete(ctx context.Context, p DeleteParams) error {
 	u1, u2 := orderUUIDs(p.ActorID, p.TargetID)
 
-	err := s.store.RelationshipDelete(ctx, repository.RelationshipDeleteParams{
+	rel, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
 	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // Idempotent: already deleted/doesn't exist
+		}
+		return apperr.NewDBError(err)
+	}
+
+	// Security check: If it's a block, only the blocker can unblock
+	if rel.Status == repository.RelationshipStatusBlocked && rel.ActionUserID.Bytes != p.ActorID {
+		return apperr.New(apperr.CodeForbidden, "cannot modify this relationship")
+	}
+
+	err = s.store.RelationshipDelete(ctx, repository.RelationshipDeleteParams{
+		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+	})
+
 	if err != nil {
 		return apperr.NewDBError(err)
 	}

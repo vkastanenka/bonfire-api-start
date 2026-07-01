@@ -2,6 +2,7 @@ package relationship
 
 import (
 	"bytes"
+	"context"
 	"time"
 
 	"bonfire-api/internal/presence"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// --- relationship ActivityProvider ---
+
+type ActivityProvider interface {
+	GetBulkActivity(ctx context.Context, userIDs []string) (map[string]presence.Activity, error)
+}
 
 // --- relationship Status ---
 
