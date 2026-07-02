@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/profile"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/sanitize"
@@ -41,10 +42,10 @@ func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error
 		params = append(params, apperr.InvalidParam{Name: "username", Reason: errUsernameTaken})
 	}
 
-	return apperr.New(
-		apperr.CodeConflict,
+	return apperr.NewConflict(
 		errCredentialsTaken,
-		apperr.WithInvalidParams(params),
+		nil,
+		apperr.Params(params),
 	)
 }
 
@@ -117,7 +118,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		Username: r.Username,
 	})
 	if err != nil {
-		return RegisterResult{}, apperr.NewDBError(err)
+		return RegisterResult{}, postgres.NewError(postgres.EntityUser, err)
 	}
 
 	// Cleanly handle conflict
@@ -142,7 +143,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return err
+			return postgres.NewError(postgres.EntityUser, err)
 		}
 
 		// Generate token
@@ -163,7 +164,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return err
+			return postgres.NewError(postgres.EntityProfile, err)
 		}
 
 		// Create register event
@@ -173,7 +174,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			Token:    verificationToken,
 		})
 		if err != nil {
-			return err
+			return postgres.NewError(postgres.EntityOutboxEvent, err)
 		}
 
 		result = RegisterResult{
@@ -186,7 +187,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 
 	// Handle tx errors
 	if txErr != nil {
-		return RegisterResult{}, apperr.NewDBError(txErr)
+		return RegisterResult{}, txErr
 	}
 
 	// Return result

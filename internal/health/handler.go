@@ -11,23 +11,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// --- HANDLER CONSTANTS ---
-
-// Errors
-const (
-	ErrDBCheck    = "Database connection check failed."
-	ErrRedisCheck = "Redis connection check failed."
-)
-
-// --- HANDLER TYPES ---
-
 // Handler
 type Handler struct {
 	db    *pgxpool.Pool
 	redis *redis.Client
 }
-
-// --- HANDLER INITIALIZATION ---
 
 // NewHandler
 func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
@@ -37,8 +25,6 @@ func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
 	}
 }
 
-// --- HANDLER METHODS ---
-
 // Check performs validation
 func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	// 2 second max deadline
@@ -47,20 +33,12 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 
 	// Verify PostgreSQL Connectivity
 	if err := h.db.Ping(ctx); err != nil {
-		return apperr.New(
-			apperr.CodeInternal,
-			ErrDBCheck,
-			apperr.WithErr(err),
-		)
+		return apperr.NewInternal(err)
 	}
 
 	// Verify Redis Connectivity
 	if err := h.redis.Ping(ctx).Err(); err != nil {
-		return apperr.New(
-			apperr.CodeInternal,
-			ErrRedisCheck,
-			apperr.WithErr(err),
-		)
+		return apperr.NewInternal(err)
 	}
 
 	httpio.RespondOK(w, r, struct{}{}, "Healthy.")

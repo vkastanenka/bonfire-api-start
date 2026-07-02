@@ -2,9 +2,9 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/redis"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
@@ -39,13 +39,11 @@ const (
 // --- LOGIN ERRORS ---
 
 func newLoginCredentialsError() error {
-	return apperr.New(
-		apperr.CodeUnauthorized,
+	return apperr.NewUnauthorized(
 		errCredentialsInvalid,
-		apperr.WithInvalidParams([]apperr.InvalidParam{
-			{Name: "email", Reason: errCredentialsInvalid},
-			{Name: "password", Reason: errCredentialsInvalid},
-		}),
+		nil,
+		apperr.Param("email", errCredentialsInvalid),
+		apperr.Param("password", errCredentialsInvalid),
 	)
 }
 

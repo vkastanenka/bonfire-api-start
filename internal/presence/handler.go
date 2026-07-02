@@ -28,7 +28,7 @@ func NewHandler(service *Service, validator *validator.Validator) *Handler {
 func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	if err := h.service.Heartbeat(r.Context(), userID.String()); err != nil {
@@ -48,7 +48,7 @@ type UpdateStatusReq struct {
 func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	req, err := httpio.BindJSON[UpdateStatusReq](w, r, h.validator)
@@ -81,7 +81,7 @@ type GetActivityRes struct {
 func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	status, err := h.service.GetActivity(r.Context(), userID.String())
@@ -108,7 +108,7 @@ type GetUserActivityRes struct {
 func (h *Handler) GetUserActivity(w http.ResponseWriter, r *http.Request) error {
 	_, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	path, err := httpio.BindPath[GetUserActivityPath](r, h.validator)
@@ -141,7 +141,7 @@ type BulkActivityRes struct {
 func (h *Handler) GetBulkActivity(w http.ResponseWriter, r *http.Request) error {
 	_, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	req, err := httpio.BindJSON[BulkActivityReq](w, r, h.validator)

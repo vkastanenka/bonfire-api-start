@@ -191,14 +191,14 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	// Check for "Content-Type" header
 	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
 	if ct == "" {
-		return apperr.New(apperr.CodeUnsupportedMediaType, ErrUnsupportedMediaType)
+		return apperr.NewUnsupportedMediaType(ErrUnsupportedMediaType, nil)
 	}
 
 	// Check for "application/json" header prefix, otherwise attempt parse
 	if !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		mediaType, _, err := mime.ParseMediaType(ct)
 		if err != nil || mediaType != "application/json" {
-			return apperr.New(apperr.CodeUnsupportedMediaType, ErrUnsupportedMediaType, apperr.WithErr(err))
+			return apperr.NewUnsupportedMediaType(ErrUnsupportedMediaType, err)
 		}
 	}
 
@@ -216,11 +216,11 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		if r.Context().Err() != nil {
 			switch {
 			case errors.Is(r.Context().Err(), context.Canceled):
-				return apperr.New(apperr.CodeClientClosedRequest, ErrClientClosedConnection, apperr.WithErr(r.Context().Err()))
+				return apperr.NewClientClosedRequest(ErrClientClosedConnection, r.Context().Err())
 			case errors.Is(r.Context().Err(), context.DeadlineExceeded):
-				return apperr.New(apperr.CodeRequestTimeout, ErrReqTimeout, apperr.WithErr(r.Context().Err()))
+				return apperr.NewRequestTimeout(ErrReqTimeout, r.Context().Err())
 			default:
-				return apperr.New(apperr.CodeClientClosedRequest, ErrClientClosedConnection, apperr.WithErr(r.Context().Err()))
+				return apperr.NewClientClosedRequest(ErrClientClosedConnection, r.Context().Err())
 			}
 		}
 
@@ -231,19 +231,19 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		switch {
 		// Check if payload is too large
 		case errors.As(err, &maxBytesErr):
-			return apperr.New(apperr.CodePayloadTooLarge, ErrPayloadTooLarge, apperr.WithErr(err))
+			return apperr.NewPayloadTooLarge(ErrPayloadTooLarge, err)
 
 		// Check if JSON body is empty
 		case errors.Is(err, io.EOF):
-			return apperr.New(apperr.CodeInvalidInput, ErrEmptyBody, apperr.WithErr(err))
+			return apperr.NewInvalidInput(ErrEmptyBody, err)
 
 		// Check if JSON is malformed
 		case errors.As(err, &syntaxErr):
-			return apperr.New(apperr.CodeInvalidInput, ErrMalformedJSON, apperr.WithErr(err))
+			return apperr.NewInvalidInput(ErrMalformedJSON, err)
 
 		// Check if JSON is truncated
 		case errors.Is(err, io.ErrUnexpectedEOF):
-			return apperr.New(apperr.CodeInvalidInput, ErrTruncatedJSON, apperr.WithErr(err))
+			return apperr.NewInvalidInput(ErrTruncatedJSON, err)
 
 		// Check if JSON field types are valid
 		case errors.As(err, &unmarshalTypeErr):
@@ -252,22 +252,21 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 				fieldName = "field"
 			}
 
-			return apperr.New(
-				apperr.CodeInvalidInput,
+			return apperr.NewInvalidInput(
 				ErrInvalidFieldType,
-				apperr.WithErr(err),
-				apperr.WithInvalidParam(fieldName, fmt.Sprintf(ErrFieldTypeExpectation, unmarshalTypeErr.Type)),
+				err,
+				apperr.Param(fieldName, fmt.Sprintf(ErrFieldTypeExpectation, unmarshalTypeErr.Type)),
 			)
 
 		// Check if JSON has unknown fields
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
 			fieldName = strings.Trim(fieldName, `"`)
-			return apperr.New(apperr.CodeInvalidInput, fmt.Sprintf(ErrUnknownField, fieldName), apperr.WithErr(err))
+			return apperr.NewInvalidInput(fmt.Sprintf(ErrUnknownField, fieldName), err)
 
 		// Handle other errors
 		default:
-			return apperr.New(apperr.CodeInternal, ErrDecode, apperr.WithErr(err))
+			return apperr.NewInternal(err)
 		}
 	}
 
@@ -310,7 +309,7 @@ func BindQuery[T any](r *http.Request, validator *validator.Validator) (T, error
 func DecodeQuery(r *http.Request, dst any) error {
 	// Ensure query parameters are fully parsed by the runtime
 	if err := r.ParseForm(); err != nil {
-		return apperr.New(apperr.CodeInvalidInput, "Failed to parse query parameters.", apperr.WithErr(err))
+		return apperr.NewInvalidInput("Failed to parse query parameters.", err)
 	}
 
 	// Map the r.URL.Query() map[string][]string directly to the struct fields
@@ -319,15 +318,14 @@ func DecodeQuery(r *http.Request, dst any) error {
 		if errors.As(err, &decodeErrors) {
 			// Extract the structural validation breakdown matching your UnmarshalTypeError pattern
 			for field, fieldErr := range decodeErrors {
-				return apperr.New(
-					apperr.CodeInvalidInput,
+				return apperr.NewInvalidInput(
 					"Invalid data type provided for query parameter(s).",
-					apperr.WithErr(fieldErr),
-					apperr.WithInvalidParam(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
+					err,
+					apperr.Param(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
 				)
 			}
 		}
-		return apperr.New(apperr.CodeInvalidInput, "Malformed query parameters.", apperr.WithErr(err))
+		return apperr.NewInvalidInput("Malformed query parameters.", err)
 	}
 
 	return nil
@@ -384,15 +382,14 @@ func DecodePath(r *http.Request, dst any) error {
 		var decodeErrors form.DecodeErrors
 		if errors.As(err, &decodeErrors) {
 			for field, fieldErr := range decodeErrors {
-				return apperr.New(
-					apperr.CodeInvalidInput,
+				return apperr.NewInvalidInput(
 					"Invalid data type provided in URL path parameters.",
-					apperr.WithErr(fieldErr),
-					apperr.WithInvalidParam(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
+					fieldErr,
+					apperr.Param(field, fmt.Sprintf("Must be a valid type: %v", fieldErr)),
 				)
 			}
 		}
-		return apperr.New(apperr.CodeInvalidInput, "Malformed path parameters.", apperr.WithErr(err))
+		return apperr.NewInvalidInput("Malformed path parameters.", err)
 	}
 
 	return nil

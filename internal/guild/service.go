@@ -1,7 +1,7 @@
 package guild
 
 import (
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -21,7 +21,7 @@ func NewService(store repository.Store) *Service {
 func (s *Service) GetFull(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.GuildGetFull(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityGuild, err)
 	}
 	return NewView(row), nil
 }
@@ -33,7 +33,7 @@ func (s *Service) GetEffectivePermissions(ctx context.Context, guildID, userID u
 		UserID:  pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil {
-		return 0, apperr.NewDBError(err)
+		return 0, postgres.NewError(postgres.EntityGuild, err)
 	}
 	return perm, nil
 }
@@ -42,7 +42,7 @@ func (s *Service) GetEffectivePermissions(ctx context.Context, guildID, userID u
 func (s *Service) ListMembers(ctx context.Context, guildID uuid.UUID) ([]MemberView, error) {
 	rows, err := s.store.GuildListMembers(ctx, pgtype.UUID{Bytes: guildID, Valid: true})
 	if err != nil {
-		return nil, apperr.NewDBError(err)
+		return nil, postgres.NewError(postgres.EntityGuild, err)
 	}
 
 	members := make([]MemberView, len(rows))

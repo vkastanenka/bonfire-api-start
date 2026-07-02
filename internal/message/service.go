@@ -2,6 +2,7 @@ package message
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -26,7 +27,7 @@ func (s *Service) PostMessage(ctx context.Context, userID uuid.UUID, p SendReq) 
 		UserID:    pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil || !isMember {
-		return View{}, apperr.New(apperr.CodeForbidden, "you are not a member of this channel")
+		return View{}, apperr.NewForbidden("you are not a member of this channel", err)
 	}
 
 	// 2. Persist
@@ -36,7 +37,7 @@ func (s *Service) PostMessage(ctx context.Context, userID uuid.UUID, p SendReq) 
 		Content:   p.Content,
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityMessage, err)
 	}
 
 	return NewView(row), nil
@@ -50,7 +51,7 @@ func (s *Service) GetMessages(ctx context.Context, channelID uuid.UUID, limit, o
 		Offset:    offset,
 	})
 	if err != nil {
-		return nil, apperr.NewDBError(err)
+		return nil, postgres.NewError(postgres.EntityMessage, err)
 	}
 
 	views := make([]View, len(rows))

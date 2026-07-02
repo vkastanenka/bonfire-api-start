@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -34,7 +34,7 @@ func NewService(
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.DeleteRequestCount(ctx)
 	if err != nil {
-		return 0, apperr.NewDBError(err)
+		return 0, postgres.NewError(postgres.EntityDeleteRequest, err)
 	}
 	return count, nil
 }
@@ -51,7 +51,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 		ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(GracePeriod), Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityDeleteRequest, err)
 	}
 	return NewView(row), nil
 }
@@ -65,7 +65,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 	rows, err := s.store.DeleteRequestListDue(ctx)
 	if err != nil {
-		return nil, apperr.NewDBError(err)
+		return nil, postgres.NewError(postgres.EntityDeleteRequest, err)
 	}
 
 	views := make([]View, len(rows))
@@ -85,7 +85,7 @@ func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.DeleteRequestGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityDeleteRequest, err)
 	}
 	return NewView(row), nil
 }
@@ -99,7 +99,7 @@ func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, erro
 func (s *Service) DeleteByUserID(ctx context.Context, id uuid.UUID) error {
 	err := s.store.DeleteRequestDeleteByUserID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return apperr.NewDBError(err)
+		return postgres.NewError(postgres.EntityDeleteRequest, err)
 	}
 	return nil
 }

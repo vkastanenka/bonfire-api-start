@@ -28,7 +28,7 @@ type ProblemDetails struct {
 
 // MapToProblemDetails extracts core error data and hydrates request contextual fields safely
 func MapToProblemDetails(r *http.Request, err *apperr.Error) (int, ProblemDetails) {
-	status := err.Code.HTTPStatus()
+	status := err.Code.Status()
 
 	detail := err.Detail
 	if err.Code == apperr.CodeInternal {

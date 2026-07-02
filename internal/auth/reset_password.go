@@ -56,7 +56,7 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 	// Verify the token using the PasswordResetSecret
 	claims, err := s.token.VerifyPasswordReset(tokenStr)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthorized, errInvalidResetToken, apperr.WithErr(err))
+		return apperr.NewUnauthorized(errInvalidResetToken, err)
 	}
 
 	// Fetch user to check current version
@@ -72,7 +72,7 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 
 	// Validate security version
 	if claims.SecurityVersion != userAuth.SecurityVersion {
-		return apperr.New(apperr.CodeUnauthorized, errInvalidResetToken)
+		return apperr.NewUnauthorized(errInvalidResetToken, nil)
 	}
 
 	// Hash the new password

@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 	"context"
 	"errors"
@@ -40,13 +41,13 @@ func (s *Service) FindOrCreateDM(ctx context.Context, p CreateDMParams) (View, e
 		// If your SQLC generated method expects pgtype.UUID, this works:
 		row, err := s.store.ChannelGetByID(ctx, channelID)
 		if err != nil {
-			return View{}, apperr.NewDBError(err)
+			return View{}, postgres.NewError(postgres.EntityChannel, err)
 		}
 		return NewView(row), nil
 	}
 
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityChannel, err)
 	}
 
 	// 2. Atomic Provisioning
@@ -77,7 +78,7 @@ func (s *Service) FindOrCreateDM(ctx context.Context, p CreateDMParams) (View, e
 	})
 
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityChannel, err)
 	}
 
 	return NewView(newChannel), nil

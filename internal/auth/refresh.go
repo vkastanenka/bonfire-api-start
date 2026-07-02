@@ -2,8 +2,8 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/redis"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
@@ -49,7 +49,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
 	cookie, err := r.Cookie(httpio.RefreshTokenCookie)
 	if err != nil {
-		return apperr.New(apperr.CodeUnauthorized, errMissingRefreshToken, apperr.WithErr(err))
+		return apperr.NewUnauthorized(errMissingRefreshToken, err)
 	}
 
 	// Rotate access token
@@ -73,12 +73,12 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Check old token
 	claims, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionInvalid, err)
 	}
 
 	// Check session
 	if claims.SessionID.String() == "" {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionMalformed, apperr.WithErr(err))
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionMalformed, err)
 	}
 
 	// Get redis session
@@ -105,17 +105,17 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.redis.Delete(persistCtx, sessionKey)
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionInvalid, err)
 	}
 
 	// Check if session blocked
 	if sessionView.IsBlocked {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked, apperr.WithErr(err))
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionBlocked, err)
 	}
 
 	// Check if session expired
 	if time.Now().After(sessionView.ExpiresAt) {
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionExpired, apperr.WithErr(err))
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionExpired, err)
 	}
 
 	// Get user
@@ -131,7 +131,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.redis.Delete(persistCtx, sessionKey)
-		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked)
+		return RefreshResult{}, apperr.NewUnauthorized(errSessionBlocked, nil)
 	}
 
 	// Generate token pair

@@ -9,6 +9,48 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Entity represents an explicit database domain resource.
+type Entity int
+
+const (
+	EntityResource Entity = iota
+	EntityUser
+	EntityProfile
+	EntityOutboxEvent
+	EntityChannel
+	EntityDeleteRequest
+	EntityGuild
+	EntityMessage
+	EntityRelationship
+	EntitySession
+)
+
+// String converts the Entity enum into its user-facing readable label.
+func (e Entity) String() string {
+	switch e {
+	case EntityUser:
+		return "user"
+	case EntityProfile:
+		return "profile"
+	case EntityOutboxEvent:
+		return "outbox_event"
+	case EntityChannel:
+		return "channel"
+	case EntityDeleteRequest:
+		return "delete_request"
+	case EntityGuild:
+		return "guild"
+	case EntityMessage:
+		return "message"
+	case EntityRelationship:
+		return "relationship"
+	case EntitySession:
+		return "session"
+	default:
+		return "resource"
+	}
+}
+
 // NewPool parses a connection URL, configures connection pool,
 // initializes the pool, and verifies connectivity with a ping.
 func NewPool(ctx context.Context, connStr string) (*pgxpool.Pool, error) {

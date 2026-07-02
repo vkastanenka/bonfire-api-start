@@ -5,129 +5,166 @@ import (
 	"strings"
 )
 
-// --- CODE CONSTANTS ---
-
-const (
-	// 400s
-	CodeBadRequest           Code = "BAD_REQUEST"
-	CodeInvalidInput         Code = "INVALID_INPUT"
-	CodePayloadTooLarge      Code = "PAYLOAD_TOO_LARGE"
-	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
-
-	// 401/403
-	CodeUnauthorized Code = "UNAUTHORIZED"
-	CodeForbidden    Code = "FORBIDDEN"
-
-	// 405
-	CodeMethodNotAllowed Code = "METHOD_NOT_ALLOWED"
-
-	// 404/409
-	CodeNotFound Code = "NOT_FOUND"
-	CodeConflict Code = "CONFLICT"
-	CodeGone     Code = "GONE"
-
-	// 422
-	CodeUnprocessableEntity Code = "UNPROCESSABLE_ENTITY"
-
-	// 429
-	CodeTooManyRequests Code = "TOO_MANY_REQUESTS"
-
-	// 500s
-	CodeInternal           Code = "INTERNAL"
-	CodeNotImplemented     Code = "NOT_IMPLEMENTED"
-	CodeServiceUnavailable Code = "SERVICE_UNAVAILABLE"
-
-	// Connectivity
-	CodeRequestTimeout      Code = "REQUEST_TIMEOUT"
-	CodeClientClosedRequest Code = "CLIENT_CLOSED_REQUEST"
-)
-
-// --- CODE TYPES ---
-
-// Code
 type Code string
 
-// --- CODE METHODS ---
+const (
+	CodeBadRequest           Code = "BAD_REQUEST"            // 400 Bad Request
+	CodeInvalidInput         Code = "INVALID_INPUT"          // 400 Bad Request (Validation specific)
+	CodeUnauthorized         Code = "UNAUTHORIZED"           // 401 Unauthorized (Fallback alignment)
+	CodeForbidden            Code = "FORBIDDEN"              // 403 Forbidden (Authenticated, but lacked permissions)
+	CodeNotFound             Code = "NOT_FOUND"              // 404 Not Found
+	CodeMethodNotAllowed     Code = "METHOD_NOT_ALLOWED"     // 405 Method Not Allowed
+	CodeConflict             Code = "CONFLICT"               // 409 Conflict (State or resource duplication)
+	CodeGone                 Code = "GONE"                   // 410 Gone (Permanently deleted)
+	CodePreconditionFailed   Code = "PRECONDITION_FAILED"    // 412 Precondition Failed (ETag/Optimistic concurrency match failure)
+	CodePayloadTooLarge      Code = "PAYLOAD_TOO_LARGE"      // 413 Payload Too Large
+	CodeUnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE" // 415 Unsupported Media Type
+	CodeUnprocessableEntity  Code = "UNPROCESSABLE_ENTITY"   // 422 Unprocessable Entity (Semantic business logic rules)
+	CodeTooManyRequests      Code = "TOO_MANY_REQUESTS"      // 429 Too Many Requests (Rate limiting triggered)
+	CodeInternal             Code = "INTERNAL"               // 500 Internal Server Error
+	CodeNotImplemented       Code = "NOT_IMPLEMENTED"        // 501 Not Implemented
+	CodeBadGateway           Code = "BAD_GATEWAY"            // 502 Bad Gateway (Downstream third-party/microservice failure)
+	CodeServiceUnavailable   Code = "SERVICE_UNAVAILABLE"    // 503 Service Unavailable
+	CodeGatewayTimeout       Code = "GATEWAY_TIMEOUT"        // 504 Gateway Timeout (Downstream third-party/microservice timeout)
+	CodeRequestTimeout       Code = "REQUEST_TIMEOUT"        // 408 Request Timeout (Your request/DB operation deadline expired)
+	CodeClientClosedRequest  Code = "CLIENT_CLOSED_REQUEST"  // 499 Client Closed Request (Non-standard Nginx/Envoy disconnect)
+)
 
-// HTTPStatus returns the corresponding standard HTTP status code
-func (c Code) HTTPStatus() int {
-	switch c {
-	case CodeBadRequest, CodeInvalidInput:
-		return http.StatusBadRequest
-	case CodePayloadTooLarge:
-		return http.StatusRequestEntityTooLarge
-	case CodeUnsupportedMediaType:
-		return http.StatusUnsupportedMediaType
-	case CodeUnauthorized:
-		return http.StatusUnauthorized
-	case CodeForbidden:
-		return http.StatusForbidden
-	case CodeMethodNotAllowed:
-		return http.StatusMethodNotAllowed
-	case CodeNotFound:
-		return http.StatusNotFound
-	case CodeConflict:
-		return http.StatusConflict
-	case CodeGone:
-		return http.StatusGone
-	case CodeUnprocessableEntity:
-		return http.StatusUnprocessableEntity
-	case CodeTooManyRequests:
-		return http.StatusTooManyRequests
-	case CodeInternal, CodeNotImplemented, CodeServiceUnavailable:
-		return http.StatusInternalServerError
-	case CodeRequestTimeout:
-		return http.StatusRequestTimeout
-	case CodeClientClosedRequest:
-		return 499 // Non-standard but common Nginx status for client disconnects
-	default:
-		return http.StatusInternalServerError
-	}
+type codeMetadata struct {
+	status      int
+	title       string
+	description string
 }
 
-// Title provides the generic, static description for the error classification
+// codesRegistry organizes code values
+var codesRegistry = map[Code]codeMetadata{
+	CodeBadRequest: {
+		status:      http.StatusBadRequest,
+		title:       "Bad Request",
+		description: "The request payload or syntax is malformed.",
+	},
+	CodeInvalidInput: {
+		status:      http.StatusBadRequest,
+		title:       "Invalid Input Data",
+		description: "One or more fields failed validation rules.",
+	},
+	CodeUnauthorized: {
+		status:      http.StatusUnauthorized,
+		title:       "Unauthorized Access",
+		description: "The provided credentials are invalid or expired.",
+	},
+	CodeForbidden: {
+		status:      http.StatusForbidden,
+		title:       "Permission Denied",
+		description: "You lack the required permissions for this action.",
+	},
+	CodeNotFound: {
+		status:      http.StatusNotFound,
+		title:       "Resource Not Found",
+		description: "The requested resource could not be found.",
+	},
+	CodeMethodNotAllowed: {
+		status:      http.StatusMethodNotAllowed,
+		title:       "Method Not Allowed",
+		description: "The HTTP method is not supported for this path.",
+	},
+	CodeConflict: {
+		status:      http.StatusConflict,
+		title:       "Resource Conflict",
+		description: "The operation conflicted with the current state of a resource.",
+	},
+	CodeGone: {
+		status:      http.StatusGone,
+		title:       "Resource No Longer Available",
+		description: "The requested resource has been permanently deleted.",
+	},
+	CodePreconditionFailed: {
+		status:      http.StatusPreconditionFailed,
+		title:       "Precondition Failed",
+		description: "Target resource state has changed. Please refresh and retry.",
+	},
+	CodePayloadTooLarge: {
+		status:      http.StatusRequestEntityTooLarge,
+		title:       "Payload Too Large",
+		description: "The request body exceeds the maximum size limit.",
+	},
+	CodeUnsupportedMediaType: {
+		status:      http.StatusUnsupportedMediaType,
+		title:       "Unsupported Media Type",
+		description: "Content-Type must be application/json.",
+	},
+	CodeUnprocessableEntity: {
+		status:      http.StatusUnprocessableEntity,
+		title:       "Unprocessable Entity",
+		description: "The request is valid but breaks semantic business logic rules.",
+	},
+	CodeTooManyRequests: {
+		status:      http.StatusTooManyRequests,
+		title:       "Too Many Requests",
+		description: "Rate limit exceeded. Please slow down.",
+	},
+	CodeInternal: {
+		status:      http.StatusInternalServerError,
+		title:       "Internal Server Error",
+		description: "An unexpected condition occurred on our servers.",
+	},
+	CodeNotImplemented: {
+		status:      http.StatusInternalServerError,
+		title:       "Feature Not Implemented",
+		description: "This server capability is not yet supported.",
+	},
+	CodeBadGateway: {
+		status:      http.StatusBadGateway,
+		title:       "Bad Gateway",
+		description: "An upstream dependency returned an invalid response.",
+	},
+	CodeServiceUnavailable: {
+		status:      http.StatusInternalServerError,
+		title:       "Service Temporarily Unavailable",
+		description: "The server is temporarily down for maintenance or overloaded.",
+	},
+	CodeGatewayTimeout: {
+		status:      http.StatusGatewayTimeout,
+		title:       "Gateway Timeout",
+		description: "An upstream dependency failed to respond in time.",
+	},
+	CodeRequestTimeout: {
+		status:      http.StatusRequestTimeout,
+		title:       "Request Timeout",
+		description: "The execution timeout deadline was exceeded.",
+	},
+	CodeClientClosedRequest: {
+		status:      499,
+		title:       "Client Closed Connection",
+		description: "The client disconnected before processing completed.",
+	},
+}
+
+// Status returns the error HTTP status code.
+func (c Code) Status() int {
+	if meta, ok := codesRegistry[c]; ok {
+		return meta.status
+	}
+	return http.StatusInternalServerError
+}
+
+// Title returns the generic error title.
 func (c Code) Title() string {
-	switch c {
-	case CodeBadRequest:
-		return "Bad Request"
-	case CodeInvalidInput:
-		return "Invalid Input Data"
-	case CodePayloadTooLarge:
-		return "Payload Too Large"
-	case CodeUnsupportedMediaType:
-		return "Unsupported Media Type"
-	case CodeUnauthorized:
-		return "Authentication Required"
-	case CodeForbidden:
-		return "Permission Denied"
-	case CodeMethodNotAllowed:
-		return "Method Not Allowed"
-	case CodeNotFound:
-		return "Resource Not Found"
-	case CodeConflict:
-		return "Resource Conflict"
-	case CodeGone:
-		return "Resource No Longer Available"
-	case CodeUnprocessableEntity:
-		return "Unprocessable Entity"
-	case CodeTooManyRequests:
-		return "Too Many Requests"
-	case CodeInternal:
-		return "Internal Server Error"
-	case CodeNotImplemented:
-		return "Feature Not Implemented"
-	case CodeServiceUnavailable:
-		return "Service Temporarily Unavailable"
-	case CodeRequestTimeout:
-		return "Request Timeout"
-	case CodeClientClosedRequest:
-		return "Client Closed Connection"
-	default:
-		return "An Unexpected Error Occurred"
+	if meta, ok := codesRegistry[c]; ok {
+		return meta.title
 	}
+	return "An Unexpected Error Occurred"
 }
 
-// Slug transforms the code string into a lowercase URL segment for docs linking
+// Description returns the generic error description.
+func (c Code) Description() string {
+	if meta, ok := codesRegistry[c]; ok {
+		return meta.description
+	}
+	return "An internal server error occurred while processing your request."
+}
+
+// Slug transforms the code string into a lowercase URL.
 func (c Code) Slug() string {
 	return strings.ToLower(strings.ReplaceAll(string(c), "_", "-"))
 }

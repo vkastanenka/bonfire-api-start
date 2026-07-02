@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"time"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -35,7 +35,7 @@ func NewService(
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.SessionCount(ctx)
 	if err != nil {
-		return 0, apperr.NewDBError(err)
+		return 0, postgres.NewError(postgres.EntitySession, err)
 	}
 	return count, nil
 }
@@ -67,7 +67,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntitySession, err)
 	}
 	return NewView(row), nil
 }
@@ -103,7 +103,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 	}
 
 	if err != nil {
-		return nil, apperr.NewDBError(err)
+		return nil, postgres.NewError(postgres.EntitySession, err)
 	}
 
 	views := make([]View, len(rows))
@@ -120,7 +120,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.SessionGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntitySession, err)
 	}
 	return NewView(row), nil
 }
@@ -142,7 +142,7 @@ func (s *Service) UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenPa
 		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntitySession, err)
 	}
 	return NewView(row), nil
 }
@@ -150,7 +150,7 @@ func (s *Service) UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenPa
 func (s *Service) UpdateLastSeen(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.SessionUpdateLastSeen(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntitySession, err)
 	}
 	return NewView(row), nil
 }
@@ -158,7 +158,7 @@ func (s *Service) UpdateLastSeen(ctx context.Context, id uuid.UUID) (View, error
 func (s *Service) MarkBlocked(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.SessionMarkBlocked(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntitySession, err)
 	}
 	return NewView(row), nil
 }
@@ -170,7 +170,7 @@ func (s *Service) MarkBlocked(ctx context.Context, id uuid.UUID) (View, error) {
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	err := s.store.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return apperr.NewDBError(err)
+		return postgres.NewError(postgres.EntitySession, err)
 	}
 	return nil
 }
@@ -181,7 +181,7 @@ func (s *Service) DeleteAllExcept(ctx context.Context, id uuid.UUID, userID uuid
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil {
-		return apperr.NewDBError(err)
+		return postgres.NewError(postgres.EntitySession, err)
 	}
 	return nil
 }
@@ -189,7 +189,7 @@ func (s *Service) DeleteAllExcept(ctx context.Context, id uuid.UUID, userID uuid
 func (s *Service) PurgeExpired(ctx context.Context) error {
 	err := s.store.SessionPurgeExpired(ctx)
 	if err != nil {
-		return apperr.NewDBError(err)
+		return postgres.NewError(postgres.EntitySession, err)
 	}
 	return nil
 }

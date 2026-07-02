@@ -101,7 +101,7 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 	// Handle invalid validator arg
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return apperr.New(apperr.CodeInternal, ErrInvalidTarget, apperr.WithErr(err))
+		return apperr.NewInternal(err)
 	}
 
 	// Handle validation failures
@@ -129,16 +129,15 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 		}
 
 		// Return error with all validation errors
-		return apperr.New(
-			apperr.CodeInvalidInput,
+		return apperr.NewInvalidInput(
 			ErrValidationFailed,
-			apperr.WithInvalidParams(invalidParams),
-			apperr.WithErr(err),
+			err,
+			apperr.Params(invalidParams),
 		)
 	}
 
 	// Unexpected error fallback
-	return apperr.New(apperr.CodeInternal, ErrUnknownValidation, apperr.WithErr(err))
+	return apperr.NewInternal(err)
 }
 
 // msgForFieldError returns an error message for a failed validation tag.

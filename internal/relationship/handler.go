@@ -54,7 +54,7 @@ type ListQuery struct {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	query, err := httpio.BindQuery[ListQuery](r, h.validator)
@@ -87,7 +87,7 @@ type SendFriendRequestPath struct {
 func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	path, err := httpio.BindPath[SendFriendRequestPath](r, h.validator)
@@ -116,7 +116,7 @@ type AcceptFriendRequestPath struct {
 func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	path, err := httpio.BindPath[AcceptFriendRequestPath](r, h.validator)
@@ -145,7 +145,7 @@ type BlockPath struct {
 func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	path, err := httpio.BindPath[BlockPath](r, h.validator)
@@ -178,7 +178,7 @@ type DeletePath struct {
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized(err)
+		return apperr.NewUnauthorized("", err)
 	}
 
 	path, err := httpio.BindPath[DeletePath](r, h.validator)

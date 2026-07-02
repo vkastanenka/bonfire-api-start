@@ -3,7 +3,7 @@ package profile
 import (
 	"context"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -33,7 +33,7 @@ func NewService(
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.ProfileCount(ctx)
 	if err != nil {
-		return 0, apperr.NewDBError(err)
+		return 0, postgres.NewError(postgres.EntityProfile, err)
 	}
 	return count, nil
 }
@@ -55,7 +55,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		DisplayName: p.DisplayName,
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityProfile, err)
 	}
 	return NewView(row), nil
 }
@@ -69,7 +69,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.ProfileGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityProfile, err)
 	}
 	return NewView(row), nil
 }
@@ -91,7 +91,7 @@ func (s *Service) UpdateDisplayName(ctx context.Context, p UpdateDisplayNamePara
 		DisplayName: p.DisplayName,
 	})
 	if err != nil {
-		return View{}, apperr.NewDBError(err)
+		return View{}, postgres.NewError(postgres.EntityProfile, err)
 	}
 	return NewView(row), nil
 }
@@ -105,7 +105,7 @@ func (s *Service) UpdateDisplayName(ctx context.Context, p UpdateDisplayNamePara
 func (s *Service) DeleteByUserID(ctx context.Context, id uuid.UUID) error {
 	err := s.store.ProfileDeleteByUserID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return apperr.NewDBError(err)
+		return postgres.NewError(postgres.EntityProfile, err)
 	}
 	return nil
 }
