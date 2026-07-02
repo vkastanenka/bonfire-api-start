@@ -51,10 +51,10 @@ func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error
 // --- REGISTER DTOs ---
 
 type RegisterReq struct {
-	Email       string  `json:"email" validate:"identity.email"`
-	DisplayName *string `json:"display_name" validate:"profile.display_name"`
-	Username    string  `json:"username" validate:"identity.username"`
-	Password    string  `json:"password" validate:"security.password"`
+	Email       string  `json:"email" validate:"identity_email"`
+	DisplayName *string `json:"display_name" validate:"profile_display_name"`
+	Username    string  `json:"username" validate:"identity_username"`
+	Password    string  `json:"password" validate:"security_password"`
 }
 
 func (r *RegisterReq) Sanitize() {
@@ -74,7 +74,7 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User        user.View    `json:"user"`
+	User    user.View    `json:"user"`
 	Profile profile.View `json:"profile"`
 }
 
@@ -177,7 +177,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		result = RegisterResult{
-			User:        user.NewView(userRow),
+			User:    user.NewView(userRow),
 			Profile: profile.NewView(profileRow),
 		}
 

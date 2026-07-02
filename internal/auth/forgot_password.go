@@ -16,7 +16,7 @@ import (
 // --- FORGOT PASSWORD TYPES ---
 
 type ForgotPasswordReq struct {
-	Email string `json:"email" validate:"identity.email"`
+	Email string `json:"email" validate:"identity_email"`
 }
 
 func (r *ForgotPasswordReq) Sanitize() {

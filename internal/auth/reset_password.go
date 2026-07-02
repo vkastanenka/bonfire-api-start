@@ -15,7 +15,7 @@ import (
 
 type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
-	NewPassword string `json:"new_password" validate:"security.password"`
+	NewPassword string `json:"new_password" validate:"security_password"`
 }
 
 // --- RESET PASSWORD CONSTANTS ---

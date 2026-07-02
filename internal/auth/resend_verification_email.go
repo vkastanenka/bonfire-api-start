@@ -16,7 +16,7 @@ import (
 // --- RESEND VERIFICATION EMAIL TYPES ---
 
 type ResendVerificationEmailReq struct {
-	Email string `json:"email" validate:"identity.email"`
+	Email string `json:"email" validate:"identity_email"`
 }
 
 func (r *ResendVerificationEmailReq) Sanitize() {

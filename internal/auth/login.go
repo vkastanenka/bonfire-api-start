@@ -59,8 +59,8 @@ func newAccountLockedError() error {
 // --- LOGIN TYPES ---
 
 type LoginReq struct {
-	Email    string `json:"email" validate:"identity.email"`
-	Password string `json:"password" validate:"identity.password"`
+	Email    string `json:"email" validate:"identity_email"`
+	Password string `json:"password" validate:"identity_password"`
 }
 
 func (r *LoginReq) Sanitize() {

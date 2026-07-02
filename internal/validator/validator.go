@@ -66,15 +66,16 @@ func New() *Validator {
 	})
 
 	// --- Identity Domain ---
-	v.RegisterAlias("identity.id", "required,uuid,len=36")
-	v.RegisterAlias("identity.email", "required,email,max=255")
-	v.RegisterAlias("identity.username", "required,min=4,max=32,valid_username")
+	v.RegisterAlias("identity_id", "required,uuid,len=36")
+	v.RegisterAlias("identity_email", "required,email,max=255")
+	v.RegisterAlias("identity_username", "required,min=4,max=32,valid_username")
+	v.RegisterAlias("identity_password", "required,min=12,max=128")
 
 	// --- Security Domain ---
-	v.RegisterAlias("security.password", "required,min=12,max=128")
+	v.RegisterAlias("security_password", "required,min=12,max=128")
 
 	// --- Profile ---
-	v.RegisterAlias("profile.display_name", "omitempty,min=3,max=32")
+	v.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
 
 	return &Validator{engine: v}
 }
