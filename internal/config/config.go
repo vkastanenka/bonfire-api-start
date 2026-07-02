@@ -96,7 +96,7 @@ func (c *Config) normalizeEnv() {
 	}
 }
 
-// String prevent leaks of sensitive credentialsif the configuration is ever printed to stdout/logs.
+// String prevent leaks of sensitive credentials if the configuration is ever printed to stdout/logs.
 func (c *Config) String() string {
 	return fmt.Sprintf(
 		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",

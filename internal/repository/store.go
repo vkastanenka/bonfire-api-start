@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,26 +35,31 @@ func (s *SQLStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
 	// Begin transaction
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		slog.Error("failed to begin transaction", "error", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	// Route queries through transaction
 	qtx := s.WithTx(tx)
 
-	// Pass transaction queries to callback function
+	// Pass transaction queries to callback
 	err = fn(qtx)
 	if err != nil {
-		if rbErr := tx.Rollback(ctx); rbErr != nil {
-			slog.Error("tx rollback failed", "original_error", err, "rollback_error", rbErr)
-			return fmt.Errorf("tx error: %v, rollback error: %v", err, rbErr)
+		// Define rollback ctx and release resources
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		rbErr := tx.Rollback(rollbackCtx)
+		cancel()
+
+		if rbErr != nil {
+			slog.Error("transaction rollback failed entirely", "original_error", err, "rollback_error", rbErr)
+			return fmt.Errorf("tx error: %w, rollback error: %v", err, rbErr)
 		}
+
+		// Return err on rollback success
 		return err
 	}
 
-	// Commit transaction
+	// Commit tx
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("failed to commit transaction", "error", err)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
