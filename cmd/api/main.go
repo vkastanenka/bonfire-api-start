@@ -39,7 +39,10 @@ import (
 // @BasePath  /api/v1
 func main() {
 	// Configure global slog instance
-	logger.InitLogger()
+	logger.Init(logger.Config{
+		Level:     slog.LevelInfo,
+		AddSource: true, // TODO: app.Config.Env == "development",
+	})
 
 	// Execute in run() to respect defers
 	if err := run(); err != nil {

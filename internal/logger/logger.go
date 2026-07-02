@@ -5,18 +5,23 @@ import (
 	"os"
 )
 
-// initLogger configures the global slog instance. It wraps a standard JSON
-// handler with custom middleware to automatically inject request-scoped data
-// (such as trace IDs) into all log entries.
-func InitLogger() {
+// Config holds the settings for the wrapper.
+type Config struct {
+	Level     slog.Level
+	AddSource bool
+}
+
+// Init configures the global slog instance.
+// It wraps a slog JSON handler to inject request data into all log entries.
+func Init(cfg Config) {
 	// Create the JSON handler
 	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     slog.LevelInfo,
-		AddSource: true, // Set to true only for local debugging
+		Level:     cfg.Level,
+		AddSource: cfg.AddSource,
 	})
 
 	// Wrap with the context handler
-	handler := NewContextHandler(jsonHandler)
+	handler := NewHandler(jsonHandler)
 
 	// Set new default
 	slog.SetDefault(slog.New(handler))
