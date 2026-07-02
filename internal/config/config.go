@@ -3,13 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 )
 
 // Config holds all application configuration variables.
-// Struct tags define the environment variable mapping, requirements, and defaults.
 type Config struct {
 	AppEnv               string   `env:"APP_ENV" envDefault:"development"`
 	Port                 string   `env:"PORT" envDefault:":8080"`
@@ -28,24 +29,53 @@ type Config struct {
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" envDefault:"true"`
 }
 
-// Load parses environment variables into the Config struct.
+// Load parses and validates environment variables into the Config struct.
 func Load() (*Config, error) {
-	// Load env
-	godotenv.Load()
+	// Attempt to load .env file; ignore failure if it doesn't exist
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to load .env file: %w", err)
+	}
 
 	var cfg Config
 
-	// Parse env
+	// Parse environment variables into struct
 	if err := env.Parse(&cfg); err != nil {
-		return nil, fmt.Errorf("configuration error: %w", err)
+		return nil, fmt.Errorf("configuration parsing error: %w", err)
 	}
 
-	// Complex validation
-	if cfg.ResendApiKey != "" {
-		if cfg.EmailFromAddress == "" || cfg.FrontendURL == "" {
-			return nil, errors.New("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when using Resend")
-		}
+	// Sanitize
+	cfg.normalizePort()
+
+	// Validate
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("configuration validation error: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// validate enforces business constraints.
+func (c *Config) validate() error {
+	if c.ResendApiKey != "" {
+		if c.EmailFromAddress == "" || c.FrontendURL == "" {
+			return errors.New("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when RESEND_API_KEY is provided")
+		}
+	}
+	return nil
+}
+
+// normalizePort ensures the port always starts with a colon, handling both "8080" and ":8080"
+func (c *Config) normalizePort() {
+	c.Port = strings.TrimSpace(c.Port)
+	if c.Port != "" && !strings.HasPrefix(c.Port, ":") {
+		c.Port = ":" + c.Port
+	}
+}
+
+// String prevent leaks of sensitive credentialsif the configuration is ever printed to stdout/logs.
+func (c *Config) String() string {
+	return fmt.Sprintf(
+		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",
+		c.AppEnv, c.Port, c.CORSAllowedOrigins,
+	)
 }
