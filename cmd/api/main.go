@@ -46,7 +46,7 @@ func main() {
 
 	// Execute in run() to respect defers
 	if err := run(); err != nil {
-		slog.Error("startup failed", "error", err)
+		slog.Error("startup failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
@@ -55,6 +55,9 @@ func main() {
 func run() error {
 	// Init config
 	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
 
 	// Define ctx
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
