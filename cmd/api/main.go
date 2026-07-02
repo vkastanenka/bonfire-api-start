@@ -41,7 +41,7 @@ func main() {
 	// Setup global slog instance
 	logger.Init(logger.Config{
 		Level:     slog.LevelInfo,
-		AddSource: cfg.AppEnv == "development",
+		AddSource: cfg.IsDevelopment(),
 	})
 
 	// Execute run()

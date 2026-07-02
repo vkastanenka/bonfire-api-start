@@ -29,6 +29,21 @@ type Config struct {
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" envDefault:"true"`
 }
 
+// IsDevelopment returns true if the application is running in development.
+func (c *Config) IsDevelopment() bool {
+	return c.AppEnv == "development"
+}
+
+// IsStaging returns true if the application is running in staging.
+func (c *Config) IsStaging() bool {
+	return c.AppEnv == "staging"
+}
+
+// IsProduction returns true if the application is running in production.
+func (c *Config) IsProduction() bool {
+	return c.AppEnv == "production"
+}
+
 // Load parses and validates environment variables into the Config struct.
 func Load() (*Config, error) {
 	// Attempt to load .env file; ignore failure if it doesn't exist
@@ -45,6 +60,7 @@ func Load() (*Config, error) {
 
 	// Sanitize
 	cfg.normalizePort()
+	cfg.normalizeEnv()
 
 	// Validate
 	if err := cfg.validate(); err != nil {
@@ -69,6 +85,14 @@ func (c *Config) normalizePort() {
 	c.Port = strings.TrimSpace(c.Port)
 	if c.Port != "" && !strings.HasPrefix(c.Port, ":") {
 		c.Port = ":" + c.Port
+	}
+}
+
+// normalizeEnv normalizes the environment string once at boot time
+func (c *Config) normalizeEnv() {
+	c.AppEnv = strings.ToLower(strings.TrimSpace(c.AppEnv))
+	if c.AppEnv == "" {
+		c.AppEnv = "development"
 	}
 }
 

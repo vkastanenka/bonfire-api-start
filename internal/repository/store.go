@@ -9,19 +9,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store defines the interface for all database operations
+// Store defines the interface for all database operations.
 type Store interface {
 	Querier
 	ExecTx(ctx context.Context, fn func(*Queries) error) error
 }
 
-// SQLStore provides a repository implementation
+// SQLStore provides a repository implementation.
 type SQLStore struct {
 	db *pgxpool.Pool
 	*Queries
 }
 
-// NewStore initializes a new SQLStore
+// NewStore initializes a new SQLStore.
 func NewStore(db *pgxpool.Pool) *SQLStore {
 	return &SQLStore{
 		db:      db,
