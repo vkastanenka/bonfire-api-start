@@ -80,7 +80,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// normalizePort ensures the port always starts with a colon, handling both "8080" and ":8080"
+// normalizePort ensures the port always starts with a colon, handling both "8080" and ":8080".
 func (c *Config) normalizePort() {
 	c.Port = strings.TrimSpace(c.Port)
 	if c.Port != "" && !strings.HasPrefix(c.Port, ":") {
@@ -88,7 +88,7 @@ func (c *Config) normalizePort() {
 	}
 }
 
-// normalizeEnv normalizes the environment string once at boot time
+// normalizeEnv normalizes the environment string.
 func (c *Config) normalizeEnv() {
 	c.AppEnv = strings.ToLower(strings.TrimSpace(c.AppEnv))
 	if c.AppEnv == "" {
@@ -96,7 +96,7 @@ func (c *Config) normalizeEnv() {
 	}
 }
 
-// String prevent leaks of sensitive credentials if the configuration is ever printed to stdout/logs.
+// String prevent leaks of sensitive credentials if the config is ever printed.
 func (c *Config) String() string {
 	return fmt.Sprintf(
 		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",
