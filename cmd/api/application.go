@@ -9,9 +9,6 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/health"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 
@@ -27,11 +24,8 @@ type Application struct {
 	Redis       *redis.Client
 	RateLimiter *redis_rate.Limiter
 	Handlers    struct {
-		Auth         *auth.Handler
-		Health       *health.Handler
-		OutboxEvents *outbox.Handler
-		Users        *user.Handler
-		Gateway      *gateway.Handler
+		Auth  *auth.Handler
+		Users *user.Handler
 	}
 	Services struct {
 		Token *token.Service

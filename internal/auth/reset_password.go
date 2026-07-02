@@ -2,9 +2,9 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
@@ -94,13 +94,13 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 	}
 
 	// Clear Brute-Force State (Lifts any active login bans/counters)
-	failureKey := cache.LoginFailuresKey(userAuth.Email)
-	lockoutKey := cache.LoginLockoutKey(userAuth.Email)
+	failureKey := redis.LoginFailuresKey(userAuth.Email)
+	lockoutKey := redis.LoginLockoutKey(userAuth.Email)
 
-	if err := s.cache.Delete(persistCtx, failureKey); err != nil {
+	if err := s.redis.Delete(persistCtx, failureKey); err != nil {
 		slog.WarnContext(persistCtx, "failed to clear login failures on password reset", "error", err, "email", userAuth.Email)
 	}
-	if err := s.cache.Delete(persistCtx, lockoutKey); err != nil {
+	if err := s.redis.Delete(persistCtx, lockoutKey); err != nil {
 		slog.WarnContext(persistCtx, "failed to lift login lockout on password reset", "error", err, "email", userAuth.Email)
 	}
 

@@ -1,21 +1,21 @@
 package presence
 
 import (
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 	"context"
 )
 
 // --- presence service ---
 
 type Service struct {
-	cache cache.Manager
+	redis redis.Manager
 }
 
 func NewService(
-	cache cache.Manager,
+	redis redis.Manager,
 ) *Service {
 	return &Service{
-		cache: cache,
+		redis: redis,
 	}
 }
 
@@ -26,7 +26,7 @@ func (s *Service) Heartbeat(
 	userID string,
 ) error {
 
-	return s.cache.Heartbeat(ctx, userID)
+	return s.redis.Heartbeat(ctx, userID)
 }
 
 // --- presence service GetActivity ---
@@ -36,18 +36,17 @@ func (s *Service) GetActivity(
 	userID string,
 ) (Activity, error) {
 
-	return s.cache.GetActivity(ctx, userID)
+	return s.redis.GetActivity(ctx, userID)
 }
 
 // --- presence service GetBulkActivity ---
-
 
 func (s *Service) GetBulkActivity(
 	ctx context.Context,
 	userIDs []string,
 ) (map[string]Activity, error) {
 
-	return s.cache.GetBulkActivity(ctx, userIDs)
+	return s.redis.GetBulkActivity(ctx, userIDs)
 }
 
 // --- presence service UpdateStatus ---
@@ -65,7 +64,7 @@ func (s *Service) UpdateStatus(
 	status Activity,
 ) error {
 
-	if err := s.cache.SetStatus(ctx, userID, status); err != nil {
+	if err := s.redis.SetStatus(ctx, userID, status); err != nil {
 		return err
 	}
 
@@ -74,7 +73,7 @@ func (s *Service) UpdateStatus(
 		Status: status,
 	}
 
-	return s.cache.Publish(
+	return s.redis.Publish(
 		ctx,
 		PresenceUpdatedChannel,
 		event,

@@ -2,7 +2,7 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
@@ -81,19 +81,19 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionMalformed, apperr.WithErr(err))
 	}
 
-	// Get cache session
-	sessionKey := cache.UserSessionKey(claims.SessionID.String())
+	// Get redis session
+	sessionKey := redis.UserSessionKey(claims.SessionID.String())
 	var sessionView session.View
-	err = s.cache.Get(ctx, sessionKey, &sessionView)
+	err = s.redis.Get(ctx, sessionKey, &sessionView)
 
-	// Fallback to DB if cache miss
-	if err == cache.ErrCacheMiss {
+	// Fallback to DB if redis miss
+	if err == redis.ErrCacheMiss {
 		sessionView, err = s.session.GetByID(ctx, claims.SessionID)
 		if err != nil {
 			return RefreshResult{}, err
 		}
-		// Backfill cache
-		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
+		// Backfill redis
+		_ = s.redis.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
 	} else if err != nil {
 		return RefreshResult{}, err
 	}
@@ -104,7 +104,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.cache.Delete(persistCtx, sessionKey)
+		_ = s.redis.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionInvalid, apperr.WithErr(err))
 	}
 
@@ -130,7 +130,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.cache.Delete(persistCtx, sessionKey)
+		_ = s.redis.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.New(apperr.CodeUnauthorized, errSessionBlocked)
 	}
 
@@ -153,11 +153,11 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	// Update cache
+	// Update redis
 	sessionView.RefreshToken = tokenPair.RefreshToken
 	sessionView.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
-	if err := s.cache.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
-		_ = s.cache.Delete(persistCtx, sessionKey)
+	if err := s.redis.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
+		_ = s.redis.Delete(persistCtx, sessionKey)
 	}
 
 	// Return new tokens
