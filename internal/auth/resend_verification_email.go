@@ -87,7 +87,7 @@ func (s *Service) ResendVerificationEmail(ctx context.Context, email string) err
 	// Generate fresh token
 	token, err := s.token.GenerateVerification(userAuth.ID, userAuth.SecurityVersion)
 	if err != nil {
-		return apperr.NewInternal(err)
+		return apperr.NewInternal(err, "")
 	}
 
 	// Persistence boundary

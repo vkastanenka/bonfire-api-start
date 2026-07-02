@@ -40,16 +40,16 @@ const (
 
 func newLoginCredentialsError() error {
 	return apperr.NewUnauthorized(
-		errCredentialsInvalid,
 		nil,
+		errCredentialsInvalid,
 		apperr.Param("email", errCredentialsInvalid),
 		apperr.Param("password", errCredentialsInvalid),
 	)
 }
 
 func newAccountLockedError() error {
-	return apperr.New(
-		apperr.CodeForbidden,
+	return apperr.NewForbidden(
+		nil,
 		errAccountLocked,
 	)
 }
@@ -160,19 +160,19 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	// Check status
 	if !userAuth.IsActive() {
-		return LoginResult{}, apperr.New(apperr.CodeForbidden, errAccountInactive)
+		return LoginResult{}, apperr.NewForbidden(nil, errAccountInactive)
 	}
 
 	// Generate session id
 	userSessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
 	// Generate token pair
 	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, userSessionID)
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
 	// Create persist context

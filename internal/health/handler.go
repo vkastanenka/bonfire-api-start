@@ -33,12 +33,12 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 
 	// Verify PostgreSQL Connectivity
 	if err := h.db.Ping(ctx); err != nil {
-		return apperr.NewInternal(err)
+		return apperr.NewInternal(err, "")
 	}
 
 	// Verify Redis Connectivity
 	if err := h.redis.Ping(ctx).Err(); err != nil {
-		return apperr.NewInternal(err)
+		return apperr.NewInternal(err, "")
 	}
 
 	httpio.RespondOK(w, r, struct{}{}, "Healthy.")

@@ -48,7 +48,7 @@ func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized("", err)
+		return apperr.NewUnauthorized(err, "")
 	}
 
 	row, err := h.service.Create(r.Context(), userID)
@@ -85,7 +85,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized("", err)
+		return apperr.NewUnauthorized(err, "")
 	}
 
 	view, err := h.service.GetByUserID(r.Context(), userID)
@@ -106,7 +106,7 @@ func (h *Handler) GetByUserID(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) DeleteByUserID(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized("", err)
+		return apperr.NewUnauthorized(err, "")
 	}
 
 	if err := h.service.DeleteByUserID(r.Context(), userID); err != nil {

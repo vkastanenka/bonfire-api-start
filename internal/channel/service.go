@@ -27,7 +27,7 @@ type CreateDMParams struct {
 
 func (s *Service) FindOrCreateDM(ctx context.Context, p CreateDMParams) (View, error) {
 	if p.ActorID == p.PeerID {
-		return View{}, apperr.New(apperr.CodeBadRequest, "cannot create a DM channel with yourself")
+		return View{}, apperr.NewBadRequest(nil, "cannot create a DM channel with yourself")
 	}
 
 	// 1. Check for existing symmetric relationship

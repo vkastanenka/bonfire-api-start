@@ -90,7 +90,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// Generate token
 	resetToken, err := s.token.GeneratePasswordReset(userAuth.ID, userAuth.SecurityVersion)
 	if err != nil {
-		return apperr.NewInternal(err)
+		return apperr.NewInternal(err, "")
 	}
 
 	// Generate persist ctx for writes

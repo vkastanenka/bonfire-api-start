@@ -4,32 +4,27 @@ import (
 	"fmt"
 )
 
-// InvalidParam
+// InvalidParam represents a single field validation failure.
 type InvalidParam struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
 
-// Error
+// Error represents a structured domain-specific application failure.
 type Error struct {
-	Code          Code
-	Detail        string
-	InvalidParams []InvalidParam
-	Err           error
+	Code          Code           `json:"code"`
+	Detail        string         `json:"detail"`
+	InvalidParams []InvalidParam `json:"invalid_params,omitempty"`
+	Err           error          `json:"-"`
 }
 
-// ErrorOption
+// ErrorOption defines a functional option configuration pattern.
 type ErrorOption func(*Error)
 
-// Constants
-const (
-	BaseDocURL = "https://api.bonfire.com/errors"
-)
-
-// Assert compile-time correctness for the error interface assignment
+// Assert compile-time correctness for the native error interface assignment.
 var _ error = (*Error)(nil)
 
-// Error converts the internal model values to an explicit debugging line string for console logs
+// Error converts the domain error into a descriptive string for logging engines.
 func (e *Error) Error() string {
 	if e.Err != nil {
 		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Detail, e.Err)
@@ -53,8 +48,8 @@ func (e *Error) Is(target error) bool {
 	return false
 }
 
-// New initializes a structured domain error with fallbacks and custom options.
-func New(code Code, detail string, opts ...ErrorOption) error {
+// build initializes a structured domain error with fallbacks and custom options.
+func build(code Code, err error, detail string, opts ...ErrorOption) error {
 	if detail == "" {
 		detail = code.Description()
 	}
@@ -62,6 +57,7 @@ func New(code Code, detail string, opts ...ErrorOption) error {
 	e := &Error{
 		Code:   code,
 		Detail: detail,
+		Err:    err,
 	}
 
 	for _, opt := range opts {
@@ -79,14 +75,17 @@ func Err(err error) ErrorOption {
 	}
 }
 
-// Param appends a single invalid field validation context.
+// Param constructs and appends a single invalid field validation context.
 func Param(name, reason string) ErrorOption {
 	return func(e *Error) {
-		e.InvalidParams = append(e.InvalidParams, InvalidParam{Name: name, Reason: reason})
+		e.InvalidParams = append(e.InvalidParams, InvalidParam{
+			Name:   name,
+			Reason: reason,
+		})
 	}
 }
 
-// Params appends a pre-collected slice of invalid fields.
+// Params appends a pre-collected slice of invalid fields directly.
 func Params(params []InvalidParam) ErrorOption {
 	return func(e *Error) {
 		if len(params) > 0 {

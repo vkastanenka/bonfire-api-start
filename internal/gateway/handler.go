@@ -23,7 +23,7 @@ func NewHandler(hub *Hub) *Handler {
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized("", err)
+		return apperr.NewUnauthorized(err, "")
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

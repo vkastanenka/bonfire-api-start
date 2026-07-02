@@ -49,7 +49,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	// Check refresh token
 	cookie, err := r.Cookie(httpio.RefreshTokenCookie)
 	if err != nil {
-		return apperr.NewUnauthorized(errMissingRefreshToken, err)
+		return apperr.NewUnauthorized(err, errMissingRefreshToken)
 	}
 
 	// Rotate access token
@@ -73,12 +73,12 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Check old token
 	claims, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionInvalid, err)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
 	}
 
 	// Check session
 	if claims.SessionID.String() == "" {
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionMalformed, err)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionMalformed)
 	}
 
 	// Get redis session
@@ -105,17 +105,17 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.redis.Delete(persistCtx, sessionKey)
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionInvalid, err)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
 	}
 
 	// Check if session blocked
 	if sessionView.IsBlocked {
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionBlocked, err)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionBlocked)
 	}
 
 	// Check if session expired
 	if time.Now().After(sessionView.ExpiresAt) {
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionExpired, err)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionExpired)
 	}
 
 	// Get user
@@ -131,13 +131,13 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
 		_ = s.redis.Delete(persistCtx, sessionKey)
-		return RefreshResult{}, apperr.NewUnauthorized(errSessionBlocked, nil)
+		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionBlocked, nil)
 	}
 
 	// Generate token pair
 	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, string(userAuth.Role), userAuth.VerifiedAt != nil, userAuth.SecurityVersion, claims.SessionID)
 	if err != nil {
-		return RefreshResult{}, apperr.NewInternal(err)
+		return RefreshResult{}, apperr.NewInternal(err, "")
 	}
 
 	// Generate persist ctx for writes

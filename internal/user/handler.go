@@ -75,7 +75,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	if cursorStr != "" {
 		parsed, err := uuid.Parse(cursorStr)
 		if err != nil {
-			return apperr.New(apperr.CodeBadRequest, ErrInvalidCursor)
+			return apperr.NewBadRequest(err, ErrInvalidCursor)
 		}
 		cursor = &parsed
 	}
@@ -128,7 +128,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
+		return apperr.NewBadRequest(err, ErrInvalidID)
 	}
 
 	row, err := h.service.GetByID(r.Context(), id)
@@ -144,7 +144,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
 	email := r.PathValue("email")
 	if email == "" {
-		return apperr.New(apperr.CodeBadRequest, "email required")
+		return apperr.NewBadRequest(nil, "email required")
 	}
 
 	row, err := h.service.GetByEmail(r.Context(), email)
@@ -160,7 +160,7 @@ func (h *Handler) GetByEmail(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) GetByUsername(w http.ResponseWriter, r *http.Request) error {
 	username := r.PathValue("username")
 	if username == "" {
-		return apperr.New(apperr.CodeBadRequest, "username required")
+		return apperr.NewBadRequest(nil, "username required")
 	}
 
 	row, err := h.service.GetByUsername(r.Context(), username)
@@ -180,7 +180,7 @@ func (h *Handler) GetByUsername(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, "invalid id")
+		return apperr.NewBadRequest(err, "invalid id")
 	}
 
 	if err := h.service.DeleteByID(r.Context(), id); err != nil {
@@ -195,7 +195,7 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) DeleteByEmail(w http.ResponseWriter, r *http.Request) error {
 	email := r.PathValue("email")
 	if email == "" {
-		return apperr.New(apperr.CodeBadRequest, "email required")
+		return apperr.NewBadRequest(nil, "email required")
 	}
 
 	if err := h.service.DeleteByEmail(r.Context(), email); err != nil {

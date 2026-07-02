@@ -57,7 +57,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	if cursorStr != "" {
 		parsed, err := uuid.Parse(cursorStr)
 		if err != nil {
-			return apperr.New(apperr.CodeBadRequest, ErrInvalidCursor)
+			return apperr.NewBadRequest(err, ErrInvalidCursor)
 		}
 		cursor = &parsed
 	}
@@ -93,7 +93,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
+		return apperr.NewBadRequest(err, ErrInvalidID)
 	}
 
 	row, err := h.service.GetByID(r.Context(), id)
@@ -114,7 +114,7 @@ func (h *Handler) ResetAttempts(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
+		return apperr.NewBadRequest(err, ErrInvalidID)
 	}
 
 	row, err := h.service.ResetAttempts(r.Context(), id)
@@ -135,7 +135,7 @@ func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return apperr.New(apperr.CodeBadRequest, ErrInvalidID)
+		return apperr.NewBadRequest(err, ErrInvalidID)
 	}
 
 	if err := h.service.DeleteByID(r.Context(), id); err != nil {

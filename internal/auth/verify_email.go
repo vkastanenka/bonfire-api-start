@@ -52,7 +52,7 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// Verify refresh token
 	claims, err := s.token.VerifyVerification(tokenStr)
 	if err != nil {
-		return apperr.NewUnauthorized(ErrInvalidRefreshToken, err)
+		return apperr.NewUnauthorized(err, ErrInvalidRefreshToken)
 	}
 
 	// // 2. Enforce Single-Use via a Cache Blocklist (Prevents replay attacks)

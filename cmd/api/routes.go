@@ -41,12 +41,12 @@ func (app *Application) routes() http.Handler {
 
 	// Global fallback for missing endpoints (404)
 	r.NotFound(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
-		return apperr.New(apperr.CodeNotFound, "The requested API endpoint does not exist.")
+		return apperr.NewNotFound(nil, "The requested API endpoint does not exist.")
 	}))
 
 	// Global fallback for bad verbs (405)
 	r.MethodNotAllowed(httpio.ToHTTP(func(w http.ResponseWriter, r *http.Request) error {
-		return apperr.New(apperr.CodeMethodNotAllowed, "HTTP method not allowed for this endpoint.")
+		return apperr.NewNotFound(nil, "HTTP method not allowed for this endpoint.")
 	}))
 
 	return r

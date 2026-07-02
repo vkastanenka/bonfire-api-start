@@ -73,7 +73,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 	case StatusAll, "":
 		rows, err = s.store.RelationshipsListByUserID(ctx, dbUUID)
 	default:
-		return nil, apperr.New(apperr.CodeBadRequest, "invalid relationship status filter")
+		return nil, apperr.NewBadRequest(nil, "invalid relationship status filter")
 	}
 
 	if err != nil {
@@ -141,7 +141,7 @@ type SendFriendRequestParams struct {
 
 func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestParams) error {
 	if p.ActorID == p.PeerID {
-		return apperr.New(apperr.CodeBadRequest, "cannot add yourself as a friend")
+		return apperr.NewBadRequest(nil, "cannot add yourself as a friend")
 	}
 
 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
@@ -171,11 +171,11 @@ func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestPara
 	// 2. State machine constraints for existing records
 	switch relRow.Type {
 	case 1: // 1 = Friends
-		return apperr.New(apperr.CodeBadRequest, "already friends")
+		return apperr.NewBadRequest(nil, "already friends")
 
 	case 2: // 2 = Blocked
 		// Generic response preserves the privacy shield by obfuscating who blocked whom
-		return apperr.New(apperr.CodeForbidden, "cannot interact with this user")
+		return apperr.NewForbidden(nil, "cannot interact with this user")
 
 	case 0: // 0 = Pending
 		if uuid.UUID(relRow.ActorID.Bytes) != p.ActorID {
@@ -186,7 +186,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestPara
 				PeerID:  p.PeerID,
 			})
 		}
-		return apperr.New(apperr.CodeBadRequest, "friend request already pending")
+		return apperr.NewBadRequest(nil, "friend request already pending")
 	}
 
 	return nil
@@ -210,19 +210,19 @@ func (s *Service) AcceptFriendRequest(ctx context.Context, p AcceptFriendRequest
 	if err != nil {
 		// Clean handling: if no row exists, there's obviously no request to accept
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperr.New(apperr.CodeBadRequest, "no pending request to accept")
+			return apperr.NewBadRequest(err, "no pending request to accept")
 		}
 		return postgres.NewError(postgres.EntityRelationship, err)
 	}
 
 	// 2. State check: Verify the current relationship is actually pending (0)
 	if rel.Type != 0 { // 0 = Pending
-		return apperr.New(apperr.CodeBadRequest, "no pending request to accept")
+		return apperr.NewBadRequest(nil, "no pending request to accept")
 	}
 
 	// 3. Direction check: Ensure the user accepting isn't the one who sent it
 	if uuid.UUID(rel.ActorID.Bytes) == p.ActorID {
-		return apperr.New(apperr.CodeForbidden, "cannot accept your own request")
+		return apperr.NewBadRequest(err, "cannot accept your own request")
 	}
 
 	// 4. Update the row to friends (1). The actor_id becomes the user who accepted.
@@ -248,7 +248,7 @@ type BlockParams struct {
 
 func (s *Service) Block(ctx context.Context, p BlockParams) error {
 	if p.ActorID == p.PeerID {
-		return apperr.New(apperr.CodeBadRequest, "cannot block yourself")
+		return apperr.NewBadRequest(nil, "cannot block yourself")
 	}
 
 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
@@ -322,7 +322,7 @@ func (s *Service) Delete(ctx context.Context, p DeleteParams) error {
 				return postgres.NewError(postgres.EntityRelationship, fallbackErr)
 			}
 			// Row exists but wasn't deleted by the query condition -> foreign block guardrail caught it
-			return apperr.New(apperr.CodeForbidden, "cannot modify this relationship")
+			return apperr.NewForbidden(err, "cannot modify this relationship")
 		}
 		return postgres.NewError(postgres.EntityRelationship, err)
 	}

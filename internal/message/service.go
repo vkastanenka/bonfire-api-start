@@ -27,7 +27,7 @@ func (s *Service) PostMessage(ctx context.Context, userID uuid.UUID, p SendReq) 
 		UserID:    pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil || !isMember {
-		return View{}, apperr.NewForbidden("you are not a member of this channel", err)
+		return View{}, apperr.NewForbidden(err, "you are not a member of this channel")
 	}
 
 	// 2. Persist

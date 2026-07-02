@@ -1,12 +1,15 @@
 package apperr
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
 
+// Code defines the internal domain classification key for application errors.
 type Code string
 
+// Constants.
 const (
 	CodeBadRequest           Code = "BAD_REQUEST"            // 400 Bad Request
 	CodeInvalidInput         Code = "INVALID_INPUT"          // 400 Bad Request (Validation specific)
@@ -30,13 +33,14 @@ const (
 	CodeClientClosedRequest  Code = "CLIENT_CLOSED_REQUEST"  // 499 Client Closed Request (Non-standard Nginx/Envoy disconnect)
 )
 
+// codeMetadata stores the explicit HTTP presentation mapping and static defaults for a classification code.
 type codeMetadata struct {
 	status      int
 	title       string
 	description string
 }
 
-// codesRegistry organizes code values
+// codesRegistry organizes code values.
 var codesRegistry = map[Code]codeMetadata{
 	CodeBadRequest: {
 		status:      http.StatusBadRequest,
@@ -167,4 +171,13 @@ func (c Code) Description() string {
 // Slug transforms the code string into a lowercase URL.
 func (c Code) Slug() string {
 	return strings.ToLower(strings.ReplaceAll(string(c), "_", "-"))
+}
+
+// IsCode verifies if an abstract error unwraps to an apperr matching a target Code.
+func IsCode(err error, code Code) bool {
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr.Code == code
+	}
+	return false
 }

@@ -27,25 +27,25 @@ func RequireAuth(tokenSvc *token.Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errMissingAuthHeader))
+				httpio.RespondError(w, r, apperr.NewUnauthorized(nil, errMissingAuthHeader))
 				return
 			}
 
 			// Resilient prefix check
 			if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidAuthHeader)) // Patched to CodeUnauthorized
+				httpio.RespondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
 				return
 			}
 
 			tokenStr := strings.TrimSpace(authHeader[7:])
 			if tokenStr == "" {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidAuthHeader))
+				httpio.RespondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
 				return
 			}
 
 			claims, err := tokenSvc.VerifyAccess(tokenStr)
 			if err != nil {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeUnauthorized, errInvalidToken))
+				httpio.RespondError(w, r, apperr.NewUnauthorized(err, errInvalidToken))
 				return
 			}
 
@@ -62,13 +62,13 @@ func RequireVerified() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, err := httpio.GetCtxClaims(r.Context())
 			if err != nil {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeInternal, errMissingAuthCtx))
+				httpio.RespondError(w, r, apperr.NewInternal(err, errMissingAuthCtx))
 				return
 			}
 
 			// Patched to CodeForbidden because we know identity, but refuse entry
 			if !claims.IsVerified {
-				httpio.RespondError(w, r, apperr.New(apperr.CodeForbidden, errUnverifiedEmail))
+				httpio.RespondError(w, r, apperr.NewForbidden(nil, errUnverifiedEmail))
 				return
 			}
 

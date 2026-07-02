@@ -32,21 +32,17 @@ const (
 
 // --- REFRESH ERRORS ---
 
-func NewRegisterConflictError(emailAvailable bool, usernameAvailable bool) error {
-	var params []apperr.InvalidParam
+func NewRegisterConflictError(emailAvailable, usernameAvailable bool) error {
+    var opts []apperr.ErrorOption
 
-	if !emailAvailable {
-		params = append(params, apperr.InvalidParam{Name: "email", Reason: errEmailTaken})
-	}
-	if !usernameAvailable {
-		params = append(params, apperr.InvalidParam{Name: "username", Reason: errUsernameTaken})
-	}
+    if !emailAvailable {
+        opts = append(opts, apperr.Param("email", errEmailTaken))
+    }
+    if !usernameAvailable {
+        opts = append(opts, apperr.Param("username", errUsernameTaken))
+    }
 
-	return apperr.NewConflict(
-		errCredentialsTaken,
-		nil,
-		apperr.Params(params),
-	)
+    return apperr.NewConflict(nil, errCredentialsTaken, opts...)
 }
 
 // --- REGISTER DTOs ---
@@ -129,7 +125,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 	// Hash password
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 	passwordHash := string(hashedPasswordBytes)
 
@@ -149,7 +145,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		// Generate token
 		verificationToken, err := s.token.GenerateVerification(uuid.UUID(userRow.ID.Bytes), int(userRow.SecurityVersion))
 		if err != nil {
-			return apperr.NewInternal(err)
+			return apperr.NewInternal(err, "")
 		}
 
 		// Set display name

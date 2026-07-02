@@ -20,7 +20,7 @@ func NewError(entity Entity, err error) error {
 
 	// Intercept "Not Found" exceptions
 	if errors.Is(err, pgx.ErrNoRows) {
-		return apperr.NewNotFound(fmt.Sprintf("%s could not be found.", name), err)
+		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", name))
 	}
 
 	// Inspect specific structural PostgreSQL constraints
@@ -28,26 +28,26 @@ func NewError(entity Entity, err error) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
-			return apperr.NewConflict(fmt.Sprintf("A conflict occurred. This %s already exists.", name), err)
+			return apperr.NewConflict(err, fmt.Sprintf("A conflict occurred. This %s already exists.", name))
 		case "23503": // foreign_key_violation
-			return apperr.NewInvalidInput(fmt.Sprintf("A referenced %s record does not exist.", name), err)
+			return apperr.NewInvalidInput(err, fmt.Sprintf("A referenced %s record does not exist.", name))
 		case "23502": // not_null_violation
-			return apperr.NewInvalidInput("A required field is missing.", err)
+			return apperr.NewInvalidInput(err, "A required field is missing.")
 		case "23514": // check_violation
-			return apperr.NewInvalidInput("The provided data failed validation rules.", err)
+			return apperr.NewInvalidInput(err, "The provided data failed validation rules.")
 		case "22001": // string_data_right_truncation
-			return apperr.NewInvalidInput("A provided text field exceeds the maximum allowed length.", err)
+			return apperr.NewInvalidInput(err, "A provided text field exceeds the maximum allowed length.")
 		case "22003": // numeric_value_out_of_range
-			return apperr.NewInvalidInput("A provided number is out of the acceptable range.", err)
+			return apperr.NewInvalidInput(err, "A provided number is out of the acceptable range.")
 		case "22P02": // invalid_text_representation (e.g., bad UUIDs)
-			return apperr.NewInvalidInput("The data format is invalid or malformed.", err)
+			return apperr.NewInvalidInput(err, "The data format is invalid or malformed.")
 		case "40001", "40P01": // serialization_failure & deadlock_detected
-			return apperr.NewConflict("A resource conflict occurred. Please retry your request.", err)
+			return apperr.NewConflict(err, "A resource conflict occurred. Please retry your request.")
 		case "57014": // query_canceled
-			return apperr.NewRequestTimeout("The database operation timed out or was canceled.", err)
+			return apperr.NewRequestTimeout(err, "The database operation timed out or was canceled.")
 		}
 	}
 
 	// Default fallback
-	return apperr.NewInternal(err)
+	return apperr.NewInternal(err, "")
 }

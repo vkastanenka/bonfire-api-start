@@ -27,7 +27,7 @@ type CreateDMReq struct {
 func (h *Handler) CreateDM(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
-		return apperr.NewUnauthorized("", err)
+		return apperr.NewUnauthorized(err, "")
 	}
 
 	body, err := httpio.BindJSON[CreateDMReq](w, r, h.validator)
