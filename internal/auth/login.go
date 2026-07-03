@@ -85,7 +85,7 @@ type LoginRes struct {
 // Login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[LoginReq](w, r, h.validator)
+	req, err := httpio.BindJSON[LoginReq](w, r)
 	if err != nil {
 		return err
 	}

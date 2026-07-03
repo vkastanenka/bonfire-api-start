@@ -35,7 +35,7 @@ const (
 // ResetPassword
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[ResetPasswordRequest](w, r, h.validator)
+	req, err := httpio.BindJSON[ResetPasswordRequest](w, r)
 	if err != nil {
 		return err
 	}

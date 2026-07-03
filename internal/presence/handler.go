@@ -3,7 +3,6 @@ package presence
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/validator"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -12,14 +11,12 @@ import (
 // --- presence handler ---
 
 type Handler struct {
-	service   *Service
-	validator *validator.Validator
+	service *Service
 }
 
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
+func NewHandler(service *Service) *Handler {
 	return &Handler{
-		service:   service,
-		validator: validator,
+		service: service,
 	}
 }
 
@@ -51,7 +48,7 @@ func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) error {
 		return apperr.NewUnauthorized(err, "")
 	}
 
-	req, err := httpio.BindJSON[UpdateStatusReq](w, r, h.validator)
+	req, err := httpio.BindJSON[UpdateStatusReq](w, r)
 	if err != nil {
 		return err
 	}
@@ -111,7 +108,7 @@ func (h *Handler) GetUserActivity(w http.ResponseWriter, r *http.Request) error 
 		return apperr.NewUnauthorized(err, "")
 	}
 
-	path, err := httpio.BindPath[GetUserActivityPath](r, h.validator)
+	path, err := httpio.BindPath[GetUserActivityPath](r)
 	if err != nil {
 		return err
 	}
@@ -144,7 +141,7 @@ func (h *Handler) GetBulkActivity(w http.ResponseWriter, r *http.Request) error 
 		return apperr.NewUnauthorized(err, "")
 	}
 
-	req, err := httpio.BindJSON[BulkActivityReq](w, r, h.validator)
+	req, err := httpio.BindJSON[BulkActivityReq](w, r)
 	if err != nil {
 		return err
 	}

@@ -40,7 +40,7 @@ const (
 
 func (h *Handler) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[ResendVerificationEmailReq](w, r, h.validator)
+	req, err := httpio.BindJSON[ResendVerificationEmailReq](w, r)
 	if err != nil {
 		return err
 	}

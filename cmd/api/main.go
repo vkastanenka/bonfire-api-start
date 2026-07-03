@@ -16,7 +16,6 @@ import (
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/validator"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -93,7 +92,6 @@ func run(cfg *config.Config) error {
 	store := repository.NewStore(pdbPool)
 
 	// Setup helper services
-	val := validator.New()
 	redisManager := redis.NewManager(rdbClient)
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
 	tokenService := token.NewService(
@@ -116,8 +114,8 @@ func run(cfg *config.Config) error {
 	)
 
 	// Setup presentation layer
-	authHandler := auth.NewHandler(authService, val)
-	userHandler := user.NewHandler(userService, val)
+	authHandler := auth.NewHandler(authService)
+	userHandler := user.NewHandler(userService)
 
 	// Setup application container
 	app := &Application{

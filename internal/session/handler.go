@@ -6,7 +6,6 @@ import (
 
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
-	"bonfire-api/internal/validator"
 
 	"github.com/google/uuid"
 )
@@ -14,12 +13,11 @@ import (
 // --- Session Handler ---
 
 type Handler struct {
-	service   *Service
-	validator *validator.Validator
+	service *Service
 }
 
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 // ==========================================
@@ -59,7 +57,7 @@ func (r *ListReq) Sanitize() {
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
 	// Get Query
-	req, err := httpio.BindQuery[ListReq](r, h.validator)
+	req, err := httpio.BindQuery[ListReq](r)
 	if err != nil {
 		return err
 	}
@@ -89,7 +87,7 @@ type GetByIDPath struct {
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[GetByIDPath](r, h.validator)
+	path, err := httpio.BindPath[GetByIDPath](r)
 	if err != nil {
 		return err
 	}
@@ -114,7 +112,7 @@ type UpdateLastSeenPath struct {
 }
 
 func (h *Handler) UpdateLastSeen(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[UpdateLastSeenPath](r, h.validator)
+	path, err := httpio.BindPath[UpdateLastSeenPath](r)
 	if err != nil {
 		return err
 	}
@@ -135,7 +133,7 @@ type MarkBlockedPath struct {
 }
 
 func (h *Handler) MarkBlocked(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[MarkBlockedPath](r, h.validator)
+	path, err := httpio.BindPath[MarkBlockedPath](r)
 	if err != nil {
 		return err
 	}
@@ -160,7 +158,7 @@ type DeletePath struct {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[DeletePath](r, h.validator)
+	path, err := httpio.BindPath[DeletePath](r)
 	if err != nil {
 		return err
 	}
@@ -182,7 +180,7 @@ type DeleteAllExceptQuery = struct {
 
 func (h *Handler) DeleteAllExcept(w http.ResponseWriter, r *http.Request) error {
 	// Get Query
-	query, err := httpio.BindQuery[DeleteAllExceptQuery](r, h.validator)
+	query, err := httpio.BindQuery[DeleteAllExceptQuery](r)
 	if err != nil {
 		return err
 	}

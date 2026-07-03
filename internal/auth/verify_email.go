@@ -30,7 +30,7 @@ type VerifyEmailReq struct {
 // VerifyEmail handles incoming verification tokens sent from the frontend client.
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[VerifyEmailReq](w, r, h.validator)
+	req, err := httpio.BindJSON[VerifyEmailReq](w, r)
 	if err != nil {
 		return err
 	}

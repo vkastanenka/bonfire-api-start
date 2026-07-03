@@ -79,7 +79,7 @@ type RegisterResult struct {
 // Register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
-	reqData, err := httpio.BindJSON[RegisterReq](w, r, h.validator)
+	reqData, err := httpio.BindJSON[RegisterReq](w, r)
 	if err != nil {
 		return err
 	}

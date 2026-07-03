@@ -1,18 +1,9 @@
 package auth
 
-import (
-	"bonfire-api/internal/validator"
-)
-
-// --- HANDLER TYPES ---
-
 type Handler struct {
-	service   *Service
-	validator *validator.Validator
+	service *Service
 }
 
-// --- HANDLER INITIALIZATION ---
-
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }

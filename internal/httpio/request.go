@@ -3,7 +3,6 @@ package httpio
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/token"
-	"bonfire-api/internal/validator"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,11 +14,78 @@ import (
 	"net/netip"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-playground/form"
+	goValidator "github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+)
+
+// --- PACKAGE ENGINE CORE ---
+
+var (
+	formDecoder = form.NewDecoder()
+	validator   = goValidator.New()
+	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
+)
+
+// init configures our shared, thread-safe engines at application startup
+func init() {
+	// 1. Setup Tag Resolution to look for JSON names instead of Go Struct Field Names
+	validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		// Check JSON first (most common for request bodies)
+		if tag := fld.Tag.Get("json"); tag != "" && tag != "-" {
+			if idx := strings.IndexByte(tag, ','); idx != -1 {
+				return tag[:idx]
+			}
+			return tag
+		}
+
+		// Fallback to form tags (for BindQuery)
+		if tag := fld.Tag.Get("form"); tag != "" && tag != "-" {
+			return tag
+		}
+
+		// Fallback to path tags (for BindPath)
+		if tag := fld.Tag.Get("path"); tag != "" && tag != "-" {
+			return tag
+		}
+
+		return ""
+	})
+
+	// 2. Register Custom Logic Rules
+	validator.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
+		return rgxUsername.MatchString(fl.Field().String())
+	})
+
+	// 3. Register Domain Aliases
+	validator.RegisterAlias("identity_id", "required,uuid,len=36")
+	validator.RegisterAlias("identity_email", "required,email,max=255")
+	validator.RegisterAlias("identity_username", "required,min=4,max=32,valid_username")
+	validator.RegisterAlias("identity_password", "required,min=12,max=128")
+	validator.RegisterAlias("security_password", "required,min=12,max=128")
+	validator.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
+}
+
+// --- PRIVATIZED VALIDATION ERROR TEXTS ---
+
+const (
+	errValidationFailed       = "Validation failed for the request payload."
+	errRequired               = "This field is required."
+	errWhitespace             = "This field cannot consist entirely of whitespace."
+	errEmail                  = "Invalid email format."
+	errAlphanum               = "Must contain only letters and numbers."
+	errUsername               = "Must contain only letters, numbers, underscores, or periods."
+	errMinString              = "Must be at least %s characters long."
+	errMinNumeric             = "Must be %s or greater."
+	errMinCollection          = "Must contain at least %s items."
+	errMaxString              = "Cannot be longer than %s characters."
+	errMaxNumeric             = "Must be %s or less."
+	errMaxCollection          = "Cannot contain more than %s items."
+	errInvalidConstraintValue = "Invalid value for constraint: %s"
 )
 
 // --- REQUEST CONSTANTS ---
@@ -166,7 +232,7 @@ func GetQueryString(r *http.Request, key string, defaultValue string) string {
 // --- REQUEST BINDING FUNCTIONS ---
 
 // BindJSON
-func BindJSON[T any](w http.ResponseWriter, r *http.Request, validator *validator.Validator) (T, error) {
+func BindJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	var req T
 	if err := DecodeJSON(w, r, &req); err != nil {
 		return req, err
@@ -176,11 +242,113 @@ func BindJSON[T any](w http.ResponseWriter, r *http.Request, validator *validato
 		s.Sanitize()
 	}
 
-	if err := validator.ValidateStruct(&req); err != nil {
+	if err := validate(&req); err != nil {
 		return req, err
 	}
 
 	return req, nil
+}
+
+// validate validators a struct and maps failures to custom application errors.
+func validate(s interface{}) error {
+	// Validate struct with core engine and exit early when valid
+	err := validator.Struct(s)
+	if err == nil {
+		return nil
+	}
+
+	// Handle invalid validator arg
+	var invalidValidationError *goValidator.InvalidValidationError
+	if errors.As(err, &invalidValidationError) {
+		return apperr.NewInternal(err, "")
+	}
+
+	// Handle validation failures
+	var validationErrors goValidator.ValidationErrors
+	if errors.As(err, &validationErrors) {
+		invalidParams := make([]apperr.InvalidParam, 0, len(validationErrors))
+
+		// Loop through each validation failure
+		for _, fieldErr := range validationErrors {
+			ns := fieldErr.StructNamespace()
+			var jsonPath string
+
+			// Extract a clean field path by removing the root struct name (e.g., "User.Age" -> "Age")
+			if idx := strings.Index(ns, "."); idx != -1 {
+				jsonPath = ns[idx+1:]
+			} else {
+				jsonPath = fieldErr.Field()
+			}
+
+			// Append field and its error message to the list
+			invalidParams = append(invalidParams, apperr.InvalidParam{
+				Name:   jsonPath,
+				Reason: msgForFieldError(fieldErr),
+			})
+		}
+
+		// Return error with all validation errors
+		return apperr.NewInvalidInput(
+			err,
+			errValidationFailed,
+			apperr.Params(invalidParams),
+		)
+	}
+
+	// Unexpected error fallback
+	return apperr.NewInternal(err, "")
+}
+
+// msgForFieldError returns an error message for a failed validation tag.
+func msgForFieldError(err goValidator.FieldError) string {
+	// Custom handling for empty/whitespace string edge-cases caught by 'required'
+	if err.Tag() == "required" {
+		val := err.Value()
+
+		// Guard against raw nil interface values before checking reflect.TypeOf(val)
+		if val != nil && reflect.TypeOf(val).Kind() == reflect.Ptr {
+			sv := reflect.ValueOf(val)
+			if !sv.IsNil() {
+				val = sv.Elem().Interface()
+			}
+		}
+
+		// Check if the value is a string consisting only of whitespace characters
+		if valStr, ok := val.(string); ok {
+			if len(valStr) > 0 && strings.TrimSpace(valStr) == "" {
+				return errWhitespace
+			}
+		}
+		return errRequired
+	}
+
+	// Map validation tags to their error messages
+	switch err.Tag() {
+	case "email":
+		return errEmail
+	case "alphanum":
+		return errAlphanum
+	case "valid_username":
+		return errUsername
+	case "min":
+		return formatRangeMessage(err, errMinString, errMinNumeric, errMinCollection)
+	case "max":
+		return formatRangeMessage(err, errMaxString, errMaxNumeric, errMaxCollection)
+	default:
+		return fmt.Sprintf(errInvalidConstraintValue, err.Tag())
+	}
+}
+
+// formatRangeMessage formats range errors based on the field's data type.
+func formatRangeMessage(err goValidator.FieldError, stringTmpl, numericTmpl, collectionTmpl string) string {
+	switch err.Kind() {
+	case reflect.String:
+		return fmt.Sprintf(stringTmpl, err.Param())
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return fmt.Sprintf(collectionTmpl, err.Param())
+	default:
+		return fmt.Sprintf(numericTmpl, err.Param())
+	}
 }
 
 // DecodeJSON
@@ -278,15 +446,12 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	return nil
 }
 
-// Initialize a single, thread-safe form decoder for the package
-var formDecoder = form.NewDecoder()
-
 // --- REQUEST BINDING FUNCTIONS ---
 
-// BindQuery parses query strings into a struct, sanitizes, and validates it.
+// BindQuery parses query strings into a struct, sanitizes, and validators it.
 // Note: Unlike BindJSON, this does NOT need http.ResponseWriter because query parameters
 // are already parsed into memory by the server and don't stream raw request bytes.
-func BindQuery[T any](r *http.Request, validator *validator.Validator) (T, error) {
+func BindQuery[T any](r *http.Request) (T, error) {
 	var req T
 	if err := DecodeQuery(r, &req); err != nil {
 		return req, err
@@ -298,7 +463,7 @@ func BindQuery[T any](r *http.Request, validator *validator.Validator) (T, error
 	}
 
 	// Validate the final populated struct
-	if err := validator.ValidateStruct(&req); err != nil {
+	if err := validate(&req); err != nil {
 		return req, err
 	}
 
@@ -331,8 +496,8 @@ func DecodeQuery(r *http.Request, dst any) error {
 	return nil
 }
 
-// BindPath extracts URL path variables into a struct, sanitizes, and validates it.
-func BindPath[T any](r *http.Request, validator *validator.Validator) (T, error) {
+// BindPath extracts URL path variables into a struct, sanitizes, and validators it.
+func BindPath[T any](r *http.Request) (T, error) {
 	var req T
 	if err := DecodePath(r, &req); err != nil {
 		return req, err
@@ -342,7 +507,7 @@ func BindPath[T any](r *http.Request, validator *validator.Validator) (T, error)
 		s.Sanitize()
 	}
 
-	if err := validator.ValidateStruct(&req); err != nil {
+	if err := validate(&req); err != nil {
 		return req, err
 	}
 

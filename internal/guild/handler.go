@@ -2,19 +2,17 @@ package guild
 
 import (
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/validator"
 	"net/http"
 
 	"github.com/google/uuid"
 )
 
 type Handler struct {
-	service   *Service
-	validator *validator.Validator
+	service *Service
 }
 
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 type GetGuildPath struct {
@@ -22,7 +20,7 @@ type GetGuildPath struct {
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[GetGuildPath](r, h.validator)
+	path, err := httpio.BindPath[GetGuildPath](r)
 	if err != nil {
 		return err
 	}
@@ -42,7 +40,7 @@ type GetPermissionsPath struct {
 }
 
 func (h *Handler) GetPermissions(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[GetPermissionsPath](r, h.validator)
+	path, err := httpio.BindPath[GetPermissionsPath](r)
 	if err != nil {
 		return err
 	}

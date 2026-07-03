@@ -3,7 +3,6 @@ package user
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/validator"
 	"net/http"
 	"strconv"
 
@@ -11,12 +10,11 @@ import (
 )
 
 type Handler struct {
-	service   *Service
-	validator *validator.Validator
+	service *Service
 }
 
-func NewHandler(service *Service, validator *validator.Validator) *Handler {
-	return &Handler{service: service, validator: validator}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 // ==========================================

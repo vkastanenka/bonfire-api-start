@@ -2,9 +2,9 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/redis"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
@@ -41,7 +41,7 @@ const (
 // ForgotPassword
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[ForgotPasswordReq](w, r, h.validator)
+	req, err := httpio.BindJSON[ForgotPasswordReq](w, r)
 	if err != nil {
 		return err
 	}
