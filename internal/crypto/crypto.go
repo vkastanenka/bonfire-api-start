@@ -1,41 +1,26 @@
 package crypto
 
 import (
-	"time"
+	"errors"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-// DummyHash is a pre-calculated valid bcrypt hash used to normalize verification timings.
-// It corresponds to the text "dummy_password" generated at DefaultCost.
-const DummyHash = "$2a$10$3v3vWwA1pbe6T63H/SHeS.U6zL77Wby0b9lD8nE1m5f6X2xWby0b9"
+var dummyHash = []byte("$2a$10$784.8J6lZ.tYQvH4y.44Z.L33Wby0b9lD8nE1m5f6X2xWby0b9")
+var dummyPass = []byte("dummy_password")
 
-// HashPassword generates a secure bcrypt hash of a plain text string.
 func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
-
-// VerifyPassword compares a bcrypt hash against its plain-text candidate.
-func VerifyPassword(hash, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-}
-
-// DummyVerifyPassword consumes equivalent CPU runtime cycles to defeat timing attacks.
-func DummyVerifyPassword() {
-	_ = bcrypt.CompareHashAndPassword([]byte(DummyHash), []byte("dummy_password"))
-}
-
-// ConstantWindow measures the time elapsed from its invocation and, when the
-// returned function is executed, delays the execution path to match the target duration.
-// This is used to mitigate side-channel timing attacks on sensitive endpoints.
-func ConstantWindow(target time.Duration) func() {
-	start := time.Now()
-
-	return func() {
-		elapsed := time.Since(start)
-		if elapsed < target {
-			time.Sleep(target - elapsed)
-		}
+	if len(password) == 0 {
+		return "", errors.New("password cannot be empty")
 	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(hash), err
+}
+
+func ComparePassword(hashedPassword string, password string) error {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	if err != nil && errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+		_ = bcrypt.CompareHashAndPassword(dummyHash, dummyPass)
+	}
+	return err
 }

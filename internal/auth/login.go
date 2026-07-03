@@ -116,7 +116,6 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	if err != nil {
 		// Handle not found
 		if apperr.IsNotFound(err) {
-			crypto.DummyVerifyPassword()
 			return LoginResult{}, newLoginCredentialsError()
 		}
 
@@ -125,7 +124,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Check password
-	if err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password); err != nil {
+	if err = crypto.ComparePassword(userAuth.PasswordHash, r.Password); err != nil {
 		return LoginResult{}, newLoginCredentialsError()
 	}
 
