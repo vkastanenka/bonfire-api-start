@@ -10,19 +10,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store defines the interface for all database operations.
 type Store interface {
 	Querier
 	ExecTx(ctx context.Context, fn func(*Queries) error) error
 }
 
-// SQLStore provides a repository implementation.
 type SQLStore struct {
 	db *pgxpool.Pool
 	*Queries
 }
 
-// NewStore initializes a new SQLStore.
 func NewStore(db *pgxpool.Pool) *SQLStore {
 	return &SQLStore{
 		db:      db,
@@ -30,21 +27,16 @@ func NewStore(db *pgxpool.Pool) *SQLStore {
 	}
 }
 
-// ExecTx executes operations inside a transaction block.
 func (s *SQLStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
-	// Begin transaction
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	// Route queries through transaction
 	qtx := s.WithTx(tx)
 
-	// Pass transaction queries to callback
 	err = fn(qtx)
 	if err != nil {
-		// Define rollback ctx and release resources
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		rbErr := tx.Rollback(rollbackCtx)
 		cancel()
@@ -54,11 +46,9 @@ func (s *SQLStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
 			return fmt.Errorf("tx error: %w, rollback error: %v", err, rbErr)
 		}
 
-		// Return err on rollback success
 		return err
 	}
 
-	// Commit tx
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}

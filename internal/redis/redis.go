@@ -9,7 +9,6 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// Config holds the env params for the client.
 type Config struct {
 	ConnString      string
 	PoolSize        int
@@ -18,7 +17,6 @@ type Config struct {
 	ConnMaxLifetime time.Duration
 }
 
-// NewClient parses a configuration, sets up the client, and verifies connectivity.
 func NewClient(ctx context.Context, cfg Config) (*goredis.Client, error) {
 	if cfg.ConnString == "" {
 		return nil, fmt.Errorf("redis connection string cannot be empty")

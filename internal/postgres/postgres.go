@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Config holds the env params for the connection pool.
 type Config struct {
 	ConnString      string
 	MaxConns        int32
@@ -19,7 +18,6 @@ type Config struct {
 	HealthCheck     time.Duration
 }
 
-// NewPool parses a configuration, sets up the connection pool, and verifies connectivity.
 func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	if cfg.ConnString == "" {
 		return nil, fmt.Errorf("postgres connection string cannot be empty")
