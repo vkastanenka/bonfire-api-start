@@ -63,7 +63,14 @@ func run(cfg *config.Config) error {
 	defer stop()
 
 	// Setup postgres
-	pdbPool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
+	pdbPool, err := postgres.NewPool(ctx, postgres.Config{
+		ConnString:      cfg.DatabaseURL,
+		MaxConns:        cfg.DBMaxConns,
+		MinConns:        cfg.DBMinConns,
+		MaxConnLifetime: cfg.DBMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+		HealthCheck:     cfg.DBHealthCheck,
+	})
 	if err != nil {
 		return err
 	}

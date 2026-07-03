@@ -9,11 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// config.MaxConns = 25
-// config.MinConns = 2
-// config.MaxConnLifetime = 1 * time.Hour
-// config.MaxConnIdleTime = 30 * time.Minute
-
 // Config holds the env params for the connection pool.
 type Config struct {
 	ConnString      string
