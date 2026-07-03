@@ -15,8 +15,6 @@ import (
 type Config struct {
 	AppEnv               string        `env:"APP_ENV" envDefault:"development"`
 	Port                 string        `env:"PORT" envDefault:":8080"`
-	DatabaseURL          string        `env:"DATABASE_URL,required"`
-	RedisURL             string        `env:"REDIS_URL,required"`
 	AccessSecret         string        `env:"JWT_ACCESS_SECRET,required"`
 	RefreshSecret        string        `env:"JWT_REFRESH_SECRET,required"`
 	VerificationSecret   string        `env:"JWT_VERIFICATION_SECRET,required"`
@@ -28,11 +26,17 @@ type Config struct {
 	EmailOverrideTo      string        `env:"EMAIL_OVERRIDE_TO"`
 	CORSAllowedOrigins   []string      `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173"`
 	CORSAllowCredentials bool          `env:"CORS_ALLOW_CREDENTIALS" envDefault:"true"`
+	DatabaseURL          string        `env:"DATABASE_URL,required"`
 	DBMaxConns           int32         `env:"DB_MAX_CONNS" envDefault:"25"`
 	DBMinConns           int32         `env:"DB_MIN_CONNS" envDefault:"2"`
 	DBMaxConnLifetime    time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"1h"`
 	DBMaxConnIdleTime    time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"30m"`
 	DBHealthCheck        time.Duration `env:"DB_HEALTH_CHECK" envDefault:"1m"`
+	RedisURL             string        `env:"REDIS_URL,required"`
+	RedisPoolSize        int           `env:"REDIS_POOL_SIZE" envDefault:"20"`
+	RedisMinIdleConns    int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"2"`
+	RedisConnMaxIdleTime time.Duration `env:"REDIS_CONN_MAX_IDLE_TIME" envDefault:"30m"`
+	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
 // IsDevelopment returns true if the application is running in development.

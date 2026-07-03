@@ -77,19 +77,25 @@ func run(cfg *config.Config) error {
 	defer pdbPool.Close()
 
 	// Setup redis
-	rdb, err := redis.NewClient(ctx, cfg.RedisURL)
+	rdbClient, err := redis.NewClient(ctx, redis.Config{
+		ConnString:      cfg.RedisURL,
+		PoolSize:        cfg.RedisPoolSize,
+		MinIdleConns:    cfg.RedisMinIdleConns,
+		ConnMaxIdleTime: cfg.RedisConnMaxIdleTime,
+		ConnMaxLifetime: cfg.RedisConnMaxLifetime,
+	})
 	if err != nil {
 		return err
 	}
-	defer rdb.Close()
+	defer rdbClient.Close()
 
 	// Setup data layer
 	store := repository.NewStore(pdbPool)
 
 	// Setup helper services
 	val := validator.New()
-	redisManager := redis.NewManager(rdb)
-	rateLimiter := redis_rate.NewLimiter(rdb)
+	redisManager := redis.NewManager(rdbClient)
+	rateLimiter := redis_rate.NewLimiter(rdbClient)
 	tokenService := token.NewService(
 		cfg.AccessSecret,
 		cfg.RefreshSecret,
@@ -117,7 +123,7 @@ func run(cfg *config.Config) error {
 	app := &Application{
 		Config:      cfg,
 		DB:          pdbPool,
-		Redis:       rdb,
+		Redis:       rdbClient,
 		RateLimiter: rateLimiter,
 		Handlers: struct {
 			Auth  *auth.Handler
