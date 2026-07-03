@@ -2,7 +2,6 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
-	customMiddleware "bonfire-api/internal/middleware"
 	"fmt"
 	"net/http"
 	"time"
@@ -50,7 +49,7 @@ func MapToProblemDetails(r *http.Request, err *apperr.Error) (int, ProblemDetail
 		InvalidParams: err.InvalidParams,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		ReqID:         reqID,
-		TraceID:       customMiddleware.GetTraceID(r.Context()),
+		TraceID:       GetTraceID(r.Context()),
 	}
 
 	return status, payload

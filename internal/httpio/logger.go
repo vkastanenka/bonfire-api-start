@@ -1,4 +1,4 @@
-package middleware
+package httpio
 
 import (
 	"log/slog"
@@ -8,20 +8,16 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func LoggingMiddleware(next http.Handler) http.Handler {
+func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Wrap the standard ResponseWriter
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-		// Process the request downstream
 		next.ServeHTTP(ww, r)
 
-		// Calculate request length
 		latency := time.Since(start)
 
-		// Determine log level based on the HTTP status code
 		status := ww.Status()
 		logFn := slog.InfoContext
 
@@ -31,7 +27,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			logFn = slog.WarnContext
 		}
 
-		// Log entry per request completion
 		logFn(r.Context(), "http request processed",
 			"method", r.Method,
 			"path", r.URL.Path,
