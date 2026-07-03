@@ -1,14 +1,13 @@
--- Types
 CREATE TABLE users(
     -- Primary key
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    -- Core identity
+    -- Core
     email CITEXT NOT NULL UNIQUE,
     username CITEXT NOT NULL UNIQUE,
-    -- Auth / security
+    -- Auth
     verified_at timestamp with time zone DEFAULT NULL,
     security_version int NOT NULL DEFAULT 0,
-    -- Audit metadata
+    -- Metadata
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     -- Constraints
@@ -17,19 +16,24 @@ CREATE TABLE users(
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire'))
 );
 
--- Indexes
-CREATE INDEX idx_users_unverified ON users(created_at)
-WHERE
-    verified_at IS NULL;
+CREATE INDEX idx_users_email ON users(email);
 
-CREATE INDEX idx_users_role ON users(ROLE);
+CREATE INDEX idx_users_username ON users(username);
 
--- Triggers
 CREATE TRIGGER update_users_modtime
     BEFORE UPDATE ON users
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
+-- CREATE TABLE user_standings(
+--     id varchar(32) PRIMARY KEY,
+--     description text NOT NULL
+-- );
+-- INSERT INTO user_standings(id, description)
+-- VALUES
+--     ('active', 'User has full application access'),
+-- ('suspended', 'Account locked due to security/moderation enforcement'),
+-- ('deactivated', 'Account self-terminated by the user');
 -- -- Types
 -- CREATE TYPE user_status AS ENUM(
 --     'active',
