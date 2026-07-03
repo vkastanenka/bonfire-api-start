@@ -93,7 +93,7 @@ func run(cfg *config.Config) error {
 
 	// Setup app services
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
-	redisService := redis.NewManager(rdbClient)
+	redisManager := redis.NewManager(rdbClient)
 	tokenService := token.NewService(
 		cfg.AccessSecret,
 		cfg.RefreshSecret,
@@ -107,7 +107,7 @@ func run(cfg *config.Config) error {
 	userService := user.NewService(store)
 	authService := auth.NewService(
 		store,
-		redisService.(redis.Store),
+		redisManager.(redis.Store),
 		sessionService,
 		tokenService,
 		userService,
@@ -171,7 +171,7 @@ func run(cfg *config.Config) error {
 
 // 	// Setup helper services
 // 	val := validator.New()
-// 	redisService := redis.NewManager(rdb)
+// 	redisManager := redis.NewManager(rdb)
 // 	rateLimiter := redis_rate.NewLimiter(rdb)
 // 	tokenService := token.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.VerificationSecret, cfg.PasswordResetSecret, cfg.PasswordMFASecret)
 
@@ -182,14 +182,14 @@ func run(cfg *config.Config) error {
 // 	userService := user.NewService(store)
 // 	authService := auth.NewService(
 // 		store,
-// 		redisService.(redis.Store),
+// 		redisManager.(redis.Store),
 // 		sessionService,
 // 		tokenService,
 // 		userService,
 // 	)
 
 // 	// Setup real-time gateway core
-// 	gatewayHub := gateway.NewHub(redisService, store, messageService)
+// 	gatewayHub := gateway.NewHub(redisManager, store, messageService)
 // 	go gatewayHub.Run(ctx) // Spawns background pubsub engine loop natively
 // 	gatewayHandler := gateway.NewHandler(gatewayHub)
 
