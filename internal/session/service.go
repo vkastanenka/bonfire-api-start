@@ -11,8 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Store interface {
+	repository.Querier
+}
+
 type Service struct {
-	store repository.Store
+	store Store
 }
 
 func NewService(
