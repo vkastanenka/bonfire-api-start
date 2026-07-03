@@ -9,19 +9,21 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-type ActivityStatus string
+// Presence represents the computed, real-time visibility state of a user session.
+type Presence string
 
 const (
-	StatusOnline    ActivityStatus = "online"
-	StatusBusy      ActivityStatus = "busy"
-	StatusDND       ActivityStatus = "dnd"
-	StatusInvisible ActivityStatus = "invisible"
-	StatusOffline   ActivityStatus = "offline"
+	PresenceOnline    Presence = "online"
+	PresenceOffline   Presence = "offline"
+	PresenceIdle      Presence = "idle"
+	PresenceBusy      Presence = "busy"
+	PresenceDND       Presence = "dnd"
+	PresenceInvisible Presence = "invisible"
 )
 
-func (s ActivityStatus) Valid() bool {
+func (s Presence) Valid() bool {
 	switch s {
-	case StatusOnline, StatusBusy, StatusDND, StatusInvisible:
+	case PresenceOnline, PresenceIdle, PresenceBusy, PresenceDND, PresenceInvisible:
 		return true
 	}
 	return false
@@ -34,26 +36,26 @@ func (m *manager) Heartbeat(ctx context.Context, userID string) error {
 	return m.client.Set(ctx, key, "1", presenceTTL).Err()
 }
 
-func (m *manager) SetStatus(ctx context.Context, userID string, status ActivityStatus) error {
+func (m *manager) SetStatus(ctx context.Context, userID string, status Presence) error {
 	if !status.Valid() {
 		return fmt.Errorf("invalid activity status")
 	}
 	return m.client.Set(ctx, StatusUserKey(userID), string(status), 0).Err()
 }
 
-func (m *manager) GetStatus(ctx context.Context, userID string) (ActivityStatus, error) {
+func (m *manager) GetStatus(ctx context.Context, userID string) (Presence, error) {
 	value, err := m.client.Get(ctx, StatusUserKey(userID)).Result()
 	if errors.Is(err, goredis.Nil) { // Fixed: Using explicit goredis alias
-		return StatusOnline, nil
+		return PresenceOnline, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return ActivityStatus(value), nil
+	return Presence(value), nil
 }
 
-func (m *manager) GetActivity(ctx context.Context, userID string) (ActivityStatus, error) {
-	online, err := m.getPresence(ctx, userID)
+func (m *manager) GetPresence(ctx context.Context, userID string) (Presence, error) {
+	_, err := m.getPresence(ctx, userID)
 	if err != nil {
 		return "", err
 	}
@@ -63,60 +65,60 @@ func (m *manager) GetActivity(ctx context.Context, userID string) (ActivityStatu
 		return "", err
 	}
 
-	if status == StatusInvisible || !online {
-		return StatusOffline, nil
-	}
+	// if status == StatusInvisible || !online {
+	// 	return StatusOffline, nil
+	// }
 
 	return status, nil
 }
 
-func (m *manager) GetBulkActivity(ctx context.Context, userIDs []string) (map[string]ActivityStatus, error) {
-	if len(userIDs) == 0 {
-		return map[string]ActivityStatus{}, nil
-	}
+func (m *manager) GetBulkPresence(ctx context.Context, userIDs []string) (map[string]Presence, error) {
+	// if len(userIDs) == 0 {
+	// 	return map[string]Presence{}, nil
+	// }
 
-	presenceKeys := make([]string, len(userIDs))
-	statusKeys := make([]string, len(userIDs))
+	// presenceKeys := make([]string, len(userIDs))
+	// statusKeys := make([]string, len(userIDs))
 
-	for i, id := range userIDs {
-		presenceKeys[i] = PresenceUserKey(id)
-		statusKeys[i] = StatusUserKey(id)
-	}
+	// for i, id := range userIDs {
+	// 	presenceKeys[i] = PresenceUserKey(id)
+	// 	statusKeys[i] = StatusUserKey(id)
+	// }
 
-	presences, err := m.client.MGet(ctx, presenceKeys...).Result()
-	if err != nil {
-		return nil, err
-	}
+	// presences, err := m.client.MGet(ctx, presenceKeys...).Result()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	statuses, err := m.client.MGet(ctx, statusKeys...).Result()
-	if err != nil {
-		return nil, err
-	}
+	// statuses, err := m.client.MGet(ctx, statusKeys...).Result()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	activities := make(map[string]ActivityStatus, len(userIDs))
+	// activities := make(map[string]Presence, len(userIDs))
 
-	for i, id := range userIDs {
-		online := presences[i] != nil
-		status := StatusOnline
+	// for i, id := range userIDs {
+	// 	online := presences[i] != nil
+	// 	status := PresenceOnline
 
-		if statuses[i] != nil {
-			if value, ok := statuses[i].(string); ok {
-				s := ActivityStatus(value)
-				if s.Valid() {
-					status = s
-				}
-			}
-		}
+	// 	if statuses[i] != nil {
+	// 		if value, ok := statuses[i].(string); ok {
+	// 			s := Presence(value)
+	// 			if s.Valid() {
+	// 				status = s
+	// 			}
+	// 		}
+	// 	}
 
-		switch {
-		case status == StatusInvisible || !online:
-			activities[id] = StatusOffline
-		default:
-			activities[id] = status
-		}
-	}
+	// 	switch {
+	// 	case status == StatusInvisible || !online:
+	// 		activities[id] = StatusOffline
+	// 	default:
+	// 		activities[id] = status
+	// 	}
+	// }
 
-	return activities, nil
+	return nil, nil
 }
 
 // unexported helper method for local checks

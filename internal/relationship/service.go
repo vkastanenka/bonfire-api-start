@@ -1,330 +1,317 @@
 package relationship
 
-import (
-	"context"
-	"errors"
+// // --- relationship service ---
 
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/repository"
+// type Service struct {
+// 	store    repository.Store
+// 	presence PresenceProvider
+// }
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-)
+// func NewService(store repository.Store, presence PresenceProvider) *Service {
+// 	return &Service{
+// 		store:    store,
+// 		presence: presence,
+// 	}
+// }
 
-// --- relationship service ---
+// // ==========================================
+// // META
+// // ==========================================
 
-type Service struct {
-	store    repository.Store
-	presence PresenceProvider
-}
+// // --- relationship service Count ---
 
-func NewService(store repository.Store, presence PresenceProvider) *Service {
-	return &Service{
-		store:    store,
-		presence: presence,
-	}
-}
+// func (s *Service) Count(ctx context.Context) (int64, error) {
+// 	count, err := s.store.RelationshipsCount(ctx)
+// 	if err != nil {
+// 		return 0, repository.NewError(err, repository.DomainRelationship)
+// 	}
+// 	return count, nil
+// }
 
-// ==========================================
-// META
-// ==========================================
+// // ==========================================
+// // LIST
+// // ==========================================
 
-// --- relationship service Count ---
+// // --- relationship service List ---
 
-func (s *Service) Count(ctx context.Context) (int64, error) {
-	count, err := s.store.RelationshipsCount(ctx)
-	if err != nil {
-		return 0, repository.NewError(err, repository.DomainRelationship)
-	}
-	return count, nil
-}
+// type ListParams struct {
+// 	UserID uuid.UUID
+// 	Status Status
+// }
 
-// ==========================================
-// LIST
-// ==========================================
+// func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
+// 	if p.UserID == uuid.Nil {
+// 		return []View{}, nil
+// 	}
 
-// --- relationship service List ---
+// 	dbUUID := pgtype.UUID{Bytes: p.UserID, Valid: true}
+// 	var rows []repository.RelationshipPerspective
+// 	var err error
 
-type ListParams struct {
-	UserID uuid.UUID
-	Status Status
-}
+// 	// 1. Route to the optimized view target based on the filter criteria
+// 	switch p.Status {
+// 	case StatusFriends, StatusOnline:
+// 		rows, err = s.store.RelationshipsListFriendsByUserID(ctx, dbUUID)
+// 	case StatusBlocked:
+// 		rows, err = s.store.RelationshipsListBlockedByUserID(ctx, dbUUID)
+// 	case StatusPending:
+// 		rows, err = s.store.RelationshipsListPendingByUserID(ctx, dbUUID)
+// 	case StatusAll, "":
+// 		rows, err = s.store.RelationshipsListByUserID(ctx, dbUUID)
+// 	default:
+// 		return nil, apperr.NewBadRequest(nil, "invalid relationship status filter")
+// 	}
 
-func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
-	if p.UserID == uuid.Nil {
-		return []View{}, nil
-	}
+// 	if err != nil {
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			return []View{}, nil
+// 		}
+// 		return nil, repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-	dbUUID := pgtype.UUID{Bytes: p.UserID, Valid: true}
-	var rows []repository.RelationshipPerspective
-	var err error
+// 	if len(rows) == 0 {
+// 		return []View{}, nil
+// 	}
 
-	// 1. Route to the optimized view target based on the filter criteria
-	switch p.Status {
-	case StatusFriends, StatusOnline:
-		rows, err = s.store.RelationshipsListFriendsByUserID(ctx, dbUUID)
-	case StatusBlocked:
-		rows, err = s.store.RelationshipsListBlockedByUserID(ctx, dbUUID)
-	case StatusPending:
-		rows, err = s.store.RelationshipsListPendingByUserID(ctx, dbUUID)
-	case StatusAll, "":
-		rows, err = s.store.RelationshipsListByUserID(ctx, dbUUID)
-	default:
-		return nil, apperr.NewBadRequest(nil, "invalid relationship status filter")
-	}
+// 	// 2. Hydrate presence details and compile down to public views
+// 	return s.hydratePerspectivesPipeline(ctx, rows, p.Status)
+// }
 
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return []View{}, nil
-		}
-		return nil, repository.NewError(err, repository.DomainRelationship)
-	}
+// // Hydration and processing pipeline
+// func (s *Service) hydratePerspectivesPipeline(ctx context.Context, rows []repository.RelationshipPerspective, filter Status) ([]View, error) {
+// 	peerIDs := make([]string, len(rows))
+// 	for i, row := range rows {
+// 		peerIDs[i] = uuid.UUID(row.PeerID.Bytes).String()
+// 	}
 
-	if len(rows) == 0 {
-		return []View{}, nil
-	}
+// 	realtimeStatuses, err := s.presence.GetBulkActivity(ctx, peerIDs)
+// 	if err != nil {
+// 		realtimeStatuses = map[string]presence.Activity{}
+// 	}
 
-	// 2. Hydrate presence details and compile down to public views
-	return s.hydratePerspectivesPipeline(ctx, rows, p.Status)
-}
+// 	views := make([]View, 0, len(rows))
 
-// Hydration and processing pipeline
-func (s *Service) hydratePerspectivesPipeline(ctx context.Context, rows []repository.RelationshipPerspective, filter Status) ([]View, error) {
-	peerIDs := make([]string, len(rows))
-	for i, row := range rows {
-		peerIDs[i] = uuid.UUID(row.PeerID.Bytes).String()
-	}
+// 	for _, row := range rows {
+// 		peerIDStr := uuid.UUID(row.PeerID.Bytes).String()
 
-	realtimeStatuses, err := s.presence.GetBulkActivity(ctx, peerIDs)
-	if err != nil {
-		realtimeStatuses = map[string]presence.Activity{}
-	}
+// 		finalActivity := presence.Activity(row.UserStatus)
+// 		if redisStatus, exists := realtimeStatuses[peerIDStr]; exists {
+// 			finalActivity = redisStatus
+// 		}
 
-	views := make([]View, 0, len(rows))
+// 		switch filter {
+// 		case StatusOnline:
+// 			if finalActivity == presence.StatusOffline || finalActivity == presence.StatusInvisible {
+// 				continue
+// 			}
+// 		case StatusBlocked:
+// 			finalActivity = presence.StatusOffline
+// 		}
 
-	for _, row := range rows {
-		peerIDStr := uuid.UUID(row.PeerID.Bytes).String()
+// 		views = append(views, NewView(row, finalActivity))
+// 	}
 
-		finalActivity := presence.Activity(row.UserStatus)
-		if redisStatus, exists := realtimeStatuses[peerIDStr]; exists {
-			finalActivity = redisStatus
-		}
+// 	return views, nil
+// }
 
-		switch filter {
-		case StatusOnline:
-			if finalActivity == presence.StatusOffline || finalActivity == presence.StatusInvisible {
-				continue
-			}
-		case StatusBlocked:
-			finalActivity = presence.StatusOffline
-		}
+// // ==========================================
+// // UPSERT / UPDATE
+// // ==========================================
 
-		views = append(views, NewView(row, finalActivity))
-	}
+// // --- relationship service SendFriendRequest ---
 
-	return views, nil
-}
+// type SendFriendRequestParams struct {
+// 	ActorID uuid.UUID
+// 	PeerID  uuid.UUID
+// }
 
-// ==========================================
-// UPSERT / UPDATE
-// ==========================================
+// func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestParams) error {
+// 	if p.ActorID == p.PeerID {
+// 		return apperr.NewBadRequest(nil, "cannot add yourself as a friend")
+// 	}
 
-// --- relationship service SendFriendRequest ---
+// 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
 
-type SendFriendRequestParams struct {
-	ActorID uuid.UUID
-	PeerID  uuid.UUID
-}
+// 	relRow, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 	})
 
-func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestParams) error {
-	if p.ActorID == p.PeerID {
-		return apperr.NewBadRequest(nil, "cannot add yourself as a friend")
-	}
+// 	// 1. Handle the case where no relationship exists yet
+// 	if err != nil {
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
+// 				User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 				User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 				Type:    0, // 0 = Pending
+// 				ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
+// 			})
+// 			if err != nil {
+// 				return repository.NewError(err, repository.DomainRelationship)
+// 			}
+// 			return nil
+// 		}
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
+// 	// 2. State machine constraints for existing records
+// 	switch relRow.Type {
+// 	case 1: // 1 = Friends
+// 		return apperr.NewBadRequest(nil, "already friends")
 
-	relRow, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-	})
+// 	case 2: // 2 = Blocked
+// 		// Generic response preserves the privacy shield by obfuscating who blocked whom
+// 		return apperr.NewForbidden(nil, "cannot interact with this user")
 
-	// 1. Handle the case where no relationship exists yet
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
-				User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-				User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-				Type:    0, // 0 = Pending
-				ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-			})
-			if err != nil {
-				return repository.NewError(err, repository.DomainRelationship)
-			}
-			return nil
-		}
-		return repository.NewError(err, repository.DomainRelationship)
-	}
+// 	case 0: // 0 = Pending
+// 		if uuid.UUID(relRow.ActorID.Bytes) != p.ActorID {
+// 			// Implicit Match: The other person already sent a request to the actor.
+// 			// Instead of failing, auto-upgrade the connection to friends by executing an accept.
+// 			return s.AcceptFriendRequest(ctx, AcceptFriendRequestParams{
+// 				ActorID: p.ActorID,
+// 				PeerID:  p.PeerID,
+// 			})
+// 		}
+// 		return apperr.NewBadRequest(nil, "friend request already pending")
+// 	}
 
-	// 2. State machine constraints for existing records
-	switch relRow.Type {
-	case 1: // 1 = Friends
-		return apperr.NewBadRequest(nil, "already friends")
+// 	return nil
+// }
 
-	case 2: // 2 = Blocked
-		// Generic response preserves the privacy shield by obfuscating who blocked whom
-		return apperr.NewForbidden(nil, "cannot interact with this user")
+// // --- relationship service AcceptFriendRequest ---
 
-	case 0: // 0 = Pending
-		if uuid.UUID(relRow.ActorID.Bytes) != p.ActorID {
-			// Implicit Match: The other person already sent a request to the actor.
-			// Instead of failing, auto-upgrade the connection to friends by executing an accept.
-			return s.AcceptFriendRequest(ctx, AcceptFriendRequestParams{
-				ActorID: p.ActorID,
-				PeerID:  p.PeerID,
-			})
-		}
-		return apperr.NewBadRequest(nil, "friend request already pending")
-	}
+// type AcceptFriendRequestParams struct {
+// 	ActorID uuid.UUID
+// 	PeerID  uuid.UUID
+// }
 
-	return nil
-}
+// func (s *Service) AcceptFriendRequest(ctx context.Context, p AcceptFriendRequestParams) error {
+// 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
 
-// --- relationship service AcceptFriendRequest ---
+// 	// 1. Fetch current relationship state
+// 	rel, err := s.store.RelationshipGetForUpdate(ctx, repository.RelationshipGetForUpdateParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 	})
+// 	if err != nil {
+// 		// Clean handling: if no row exists, there's obviously no request to accept
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			return apperr.NewBadRequest(err, "no pending request to accept")
+// 		}
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-type AcceptFriendRequestParams struct {
-	ActorID uuid.UUID
-	PeerID  uuid.UUID
-}
+// 	// 2. State check: Verify the current relationship is actually pending (0)
+// 	if rel.Type != 0 { // 0 = Pending
+// 		return apperr.NewBadRequest(nil, "no pending request to accept")
+// 	}
 
-func (s *Service) AcceptFriendRequest(ctx context.Context, p AcceptFriendRequestParams) error {
-	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
+// 	// 3. Direction check: Ensure the user accepting isn't the one who sent it
+// 	if uuid.UUID(rel.ActorID.Bytes) == p.ActorID {
+// 		return apperr.NewBadRequest(err, "cannot accept your own request")
+// 	}
 
-	// 1. Fetch current relationship state
-	rel, err := s.store.RelationshipGetForUpdate(ctx, repository.RelationshipGetForUpdateParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-	})
-	if err != nil {
-		// Clean handling: if no row exists, there's obviously no request to accept
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperr.NewBadRequest(err, "no pending request to accept")
-		}
-		return repository.NewError(err, repository.DomainRelationship)
-	}
+// 	// 4. Update the row to friends (1). The actor_id becomes the user who accepted.
+// 	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 		Type:    1, // 1 = Friends
+// 		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
+// 	})
+// 	if err != nil {
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-	// 2. State check: Verify the current relationship is actually pending (0)
-	if rel.Type != 0 { // 0 = Pending
-		return apperr.NewBadRequest(nil, "no pending request to accept")
-	}
+// 	return nil
+// }
 
-	// 3. Direction check: Ensure the user accepting isn't the one who sent it
-	if uuid.UUID(rel.ActorID.Bytes) == p.ActorID {
-		return apperr.NewBadRequest(err, "cannot accept your own request")
-	}
+// // --- relationship service Block ---
 
-	// 4. Update the row to friends (1). The actor_id becomes the user who accepted.
-	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-		Type:    1, // 1 = Friends
-		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-	})
-	if err != nil {
-		return repository.NewError(err, repository.DomainRelationship)
-	}
+// type BlockParams struct {
+// 	ActorID uuid.UUID
+// 	PeerID  uuid.UUID
+// }
 
-	return nil
-}
+// func (s *Service) Block(ctx context.Context, p BlockParams) error {
+// 	if p.ActorID == p.PeerID {
+// 		return apperr.NewBadRequest(nil, "cannot block yourself")
+// 	}
 
-// --- relationship service Block ---
+// 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
 
-type BlockParams struct {
-	ActorID uuid.UUID
-	PeerID  uuid.UUID
-}
+// 	// 1. Fetch current relationship state
+// 	rel, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 	})
 
-func (s *Service) Block(ctx context.Context, p BlockParams) error {
-	if p.ActorID == p.PeerID {
-		return apperr.NewBadRequest(nil, "cannot block yourself")
-	}
+// 	// 2. Privacy Shield: Prevent overwriting an existing block
+// 	// If a block (2) already exists, and the current actor is NOT the person who
+// 	// initiated it, it means the peer blocked them first. We return nil to
+// 	// fake a success, masking the active block state from the caller.
+// 	if err == nil && rel.Type == 2 {
+// 		if uuid.UUID(rel.ActorID.Bytes) != p.ActorID {
+// 			return nil
+// 		}
+// 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
+// 	// 3. Upsert the relationship to a blocked state owned by the actor
+// 	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 		Type:    2, // 2 = Blocked
+// 		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
+// 	})
+// 	if err != nil {
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-	// 1. Fetch current relationship state
-	rel, err := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-	})
+// 	return nil
+// }
 
-	// 2. Privacy Shield: Prevent overwriting an existing block
-	// If a block (2) already exists, and the current actor is NOT the person who
-	// initiated it, it means the peer blocked them first. We return nil to
-	// fake a success, masking the active block state from the caller.
-	if err == nil && rel.Type == 2 {
-		if uuid.UUID(rel.ActorID.Bytes) != p.ActorID {
-			return nil
-		}
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return repository.NewError(err, repository.DomainRelationship)
-	}
+// // ==========================================
+// // DELETE
+// // ==========================================
 
-	// 3. Upsert the relationship to a blocked state owned by the actor
-	_, err = s.store.RelationshipUpsert(ctx, repository.RelationshipUpsertParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-		Type:    2, // 2 = Blocked
-		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-	})
-	if err != nil {
-		return repository.NewError(err, repository.DomainRelationship)
-	}
+// // --- relationship service Delete ---
 
-	return nil
-}
+// type DeleteParams struct {
+// 	ActorID uuid.UUID
+// 	PeerID  uuid.UUID
+// }
 
-// ==========================================
-// DELETE
-// ==========================================
+// func (s *Service) Delete(ctx context.Context, p DeleteParams) error {
+// 	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
 
-// --- relationship service Delete ---
+// 	// Single roundtrip atomic execution. Deletes the relation safely
+// 	// ONLY if it isn't a block, OR if it IS a block owned by the caller.
+// 	_, err := s.store.RelationshipDeleteVerified(ctx, repository.RelationshipDeleteVerifiedParams{
+// 		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
+// 	})
 
-type DeleteParams struct {
-	ActorID uuid.UUID
-	PeerID  uuid.UUID
-}
+// 	if err != nil {
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			// To determine if it failed because it never existed (OK) or because
+// 			// it was a foreign block (Forbidden), verify if the raw record actually exists.
+// 			_, fallbackErr := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
+// 				User1ID: pgtype.UUID{Bytes: u1, Valid: true},
+// 				User2ID: pgtype.UUID{Bytes: u2, Valid: true},
+// 			})
+// 			if fallbackErr != nil {
+// 				if errors.Is(fallbackErr, pgx.ErrNoRows) {
+// 					return nil // Idempotent: Row didn't exist anyway
+// 				}
+// 				return repository.NewError(fallbackErr, repository.DomainRelationship)
+// 			}
+// 			// Row exists but wasn't deleted by the query condition -> foreign block guardrail caught it
+// 			return apperr.NewForbidden(err, "cannot modify this relationship")
+// 		}
+// 		return repository.NewError(err, repository.DomainRelationship)
+// 	}
 
-func (s *Service) Delete(ctx context.Context, p DeleteParams) error {
-	u1, u2 := orderUUIDs(p.ActorID, p.PeerID)
-
-	// Single roundtrip atomic execution. Deletes the relation safely
-	// ONLY if it isn't a block, OR if it IS a block owned by the caller.
-	_, err := s.store.RelationshipDeleteVerified(ctx, repository.RelationshipDeleteVerifiedParams{
-		User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-		User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
-	})
-
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// To determine if it failed because it never existed (OK) or because
-			// it was a foreign block (Forbidden), verify if the raw record actually exists.
-			_, fallbackErr := s.store.RelationshipGet(ctx, repository.RelationshipGetParams{
-				User1ID: pgtype.UUID{Bytes: u1, Valid: true},
-				User2ID: pgtype.UUID{Bytes: u2, Valid: true},
-			})
-			if fallbackErr != nil {
-				if errors.Is(fallbackErr, pgx.ErrNoRows) {
-					return nil // Idempotent: Row didn't exist anyway
-				}
-				return repository.NewError(fallbackErr, repository.DomainRelationship)
-			}
-			// Row exists but wasn't deleted by the query condition -> foreign block guardrail caught it
-			return apperr.NewForbidden(err, "cannot modify this relationship")
-		}
-		return repository.NewError(err, repository.DomainRelationship)
-	}
-
-	return nil
-}
+// 	return nil
+// }

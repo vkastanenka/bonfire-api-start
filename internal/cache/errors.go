@@ -14,7 +14,7 @@ type Domain string
 
 const (
 	DomainAuth      Domain = "auth"
-	ResourcPresence Domain = "presence"
+	DomainPresence  Domain = "presence"
 	DomainStatus    Domain = "status"
 	DomainEvents    Domain = "events"
 	DomainRateLimit Domain = "rate_limit"
@@ -47,6 +47,9 @@ func NewError(err error, resource Domain) error {
 	// Intercept Redis Timeouts / Context Cancellations
 	if errors.Is(err, context.DeadlineExceeded) {
 		return apperr.NewRequestTimeout(err, "The cache operation timed out.")
+	}
+	if errors.Is(err, context.Canceled) {
+		return apperr.NewInvalidInput(err, "The cache transaction was aborted by the client.")
 	}
 
 	// Default fallback for connection drops or broker failures

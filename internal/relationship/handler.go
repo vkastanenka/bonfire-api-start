@@ -1,197 +1,188 @@
 package relationship
 
-import (
-	"net/http"
+// // --- relationship handler ---
 
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/httpio"
+// type Handler struct {
+// 	service *Service
+// }
 
-	"github.com/google/uuid"
-)
+// func NewHandler(service *Service) *Handler {
+// 	return &Handler{service: service}
+// }
 
-// --- relationship handler ---
+// // ==========================================
+// // META
+// // ==========================================
 
-type Handler struct {
-	service *Service
-}
+// // --- relationship handler Count ---
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
-}
+// type CountRes struct {
+// 	Count int64 `json:"count"`
+// }
 
-// ==========================================
-// META
-// ==========================================
+// func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
+// 	count, err := h.service.Count(r.Context())
+// 	if err != nil {
+// 		return err
+// 	}
 
-// --- relationship handler Count ---
+// 	httpio.RespondOK(w, r, CountRes{Count: count}, "")
+// 	return nil
+// }
 
-type CountRes struct {
-	Count int64 `json:"count"`
-}
+// // ==========================================
+// // LIST
+// // ==========================================
 
-func (h *Handler) Count(w http.ResponseWriter, r *http.Request) error {
-	count, err := h.service.Count(r.Context())
-	if err != nil {
-		return err
-	}
+// // --- relationship handler List ---
 
-	httpio.RespondOK(w, r, CountRes{Count: count}, "")
-	return nil
-}
+// type ListQuery struct {
+// 	Status Status `query:"status"`
+// }
 
-// ==========================================
-// LIST
-// ==========================================
+// func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- relationship handler List ---
+// 	query, err := httpio.BindQuery[ListQuery](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-type ListQuery struct {
-	Status Status `query:"status"`
-}
+// 	views, err := h.service.List(r.Context(), ListParams{
+// 		UserID: userID,
+// 		Status: query.Status,
+// 	})
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondOK(w, r, views, "")
+// 	return nil
+// }
 
-	query, err := httpio.BindQuery[ListQuery](r)
-	if err != nil {
-		return err
-	}
+// // ==========================================
+// // UPSERT / UPDATE
+// // ==========================================
 
-	views, err := h.service.List(r.Context(), ListParams{
-		UserID: userID,
-		Status: query.Status,
-	})
-	if err != nil {
-		return err
-	}
+// // --- relationship handler SendFriendRequestPath  ---
 
-	httpio.RespondOK(w, r, views, "")
-	return nil
-}
+// type SendFriendRequestPath struct {
+// 	ID uuid.UUID `path:"id" validate:"required"`
+// }
 
-// ==========================================
-// UPSERT / UPDATE
-// ==========================================
+// func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- relationship handler SendFriendRequestPath  ---
+// 	path, err := httpio.BindPath[SendFriendRequestPath](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-type SendFriendRequestPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
-}
+// 	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
+// 	if err := h.service.SendFriendRequest(r.Context(), SendFriendRequestParams{
+// 		ActorID: userID,
+// 		PeerID:  path.ID,
+// 	}); err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }
 
-	path, err := httpio.BindPath[SendFriendRequestPath](r)
-	if err != nil {
-		return err
-	}
+// // --- relationship handler AcceptFriendRequest  ---
 
-	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
-	if err := h.service.SendFriendRequest(r.Context(), SendFriendRequestParams{
-		ActorID: userID,
-		PeerID:  path.ID,
-	}); err != nil {
-		return err
-	}
+// type AcceptFriendRequestPath struct {
+// 	ID uuid.UUID `path:"id" validate:"required"`
+// }
 
-	httpio.RespondNoContent(w)
-	return nil
-}
+// func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- relationship handler AcceptFriendRequest  ---
+// 	path, err := httpio.BindPath[AcceptFriendRequestPath](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-type AcceptFriendRequestPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
-}
+// 	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
+// 	if err := h.service.AcceptFriendRequest(r.Context(), AcceptFriendRequestParams{
+// 		ActorID: userID,
+// 		PeerID:  path.ID,
+// 	}); err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }
 
-	path, err := httpio.BindPath[AcceptFriendRequestPath](r)
-	if err != nil {
-		return err
-	}
+// // --- relationship handler Block  ---
 
-	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
-	if err := h.service.AcceptFriendRequest(r.Context(), AcceptFriendRequestParams{
-		ActorID: userID,
-		PeerID:  path.ID,
-	}); err != nil {
-		return err
-	}
+// type BlockPath struct {
+// 	ID uuid.UUID `path:"id" validate:"required"`
+// }
 
-	httpio.RespondNoContent(w)
-	return nil
-}
+// func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- relationship handler Block  ---
+// 	path, err := httpio.BindPath[BlockPath](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-type BlockPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
-}
+// 	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
+// 	if err := h.service.Block(r.Context(), BlockParams{
+// 		ActorID: userID,
+// 		PeerID:  path.ID,
+// 	}); err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) Block(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }
 
-	path, err := httpio.BindPath[BlockPath](r)
-	if err != nil {
-		return err
-	}
+// // ==========================================
+// // DELETE
+// // ==========================================
 
-	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
-	if err := h.service.Block(r.Context(), BlockParams{
-		ActorID: userID,
-		PeerID:  path.ID,
-	}); err != nil {
-		return err
-	}
+// // --- relationship handler Delete  ---
 
-	httpio.RespondNoContent(w)
-	return nil
-}
+// type DeletePath struct {
+// 	ID uuid.UUID `path:"id" validate:"required"`
+// }
 
-// ==========================================
-// DELETE
-// ==========================================
+// func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- relationship handler Delete  ---
+// 	path, err := httpio.BindPath[DeletePath](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-type DeletePath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
-}
+// 	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
+// 	if err := h.service.Delete(r.Context(), DeleteParams{
+// 		ActorID: userID,
+// 		PeerID:  path.ID,
+// 	}); err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
-
-	path, err := httpio.BindPath[DeletePath](r)
-	if err != nil {
-		return err
-	}
-
-	// Fixed: Changed TargetID to PeerID to match updated Service struct definitions
-	if err := h.service.Delete(r.Context(), DeleteParams{
-		ActorID: userID,
-		PeerID:  path.ID,
-	}); err != nil {
-		return err
-	}
-
-	httpio.RespondNoContent(w)
-	return nil
-}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }

@@ -11,7 +11,8 @@ type manager struct {
 
 // NewManager binds a live connection pool to our application capability layers.
 func NewManager(client *goredis.Client) Manager {
-	return &manager{
-		client: client,
-	}
+	return nil
+	// return &manager{
+	// 	client: client,
+	// }
 }

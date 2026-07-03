@@ -1,164 +1,156 @@
 package presence
 
-import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/httpio"
-	"net/http"
+// // --- presence handler ---
 
-	"github.com/google/uuid"
-)
+// type Handler struct {
+// 	service *Service
+// }
 
-// --- presence handler ---
+// func NewHandler(service *Service) *Handler {
+// 	return &Handler{
+// 		service: service,
+// 	}
+// }
 
-type Handler struct {
-	service *Service
-}
+// // --- presence handler Heartbeat ---
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{
-		service: service,
-	}
-}
+// func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-// --- presence handler Heartbeat ---
+// 	if err := h.service.Heartbeat(r.Context(), userID.String()); err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }
 
-	if err := h.service.Heartbeat(r.Context(), userID.String()); err != nil {
-		return err
-	}
+// // --- presence handler UpdateStatus ---
 
-	httpio.RespondNoContent(w)
-	return nil
-}
+// type UpdateStatusReq struct {
+// 	Status Activity `json:"status" validate:"required"`
+// }
 
-// --- presence handler UpdateStatus ---
+// func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-type UpdateStatusReq struct {
-	Status Activity `json:"status" validate:"required"`
-}
+// 	req, err := httpio.BindJSON[UpdateStatusReq](w, r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	if !req.Status.Valid() {
+// 		return apperr.NewBadRequest(nil, "invalid activity status")
+// 	}
 
-	req, err := httpio.BindJSON[UpdateStatusReq](w, r)
-	if err != nil {
-		return err
-	}
+// 	if err := h.service.UpdateStatus(
+// 		r.Context(),
+// 		userID.String(),
+// 		req.Status,
+// 	); err != nil {
+// 		return err
+// 	}
 
-	if !req.Status.Valid() {
-		return apperr.NewBadRequest(nil, "invalid activity status")
-	}
+// 	httpio.RespondNoContent(w)
+// 	return nil
+// }
 
-	if err := h.service.UpdateStatus(
-		r.Context(),
-		userID.String(),
-		req.Status,
-	); err != nil {
-		return err
-	}
+// // --- presence handler GetActivity ---
 
-	httpio.RespondNoContent(w)
-	return nil
-}
+// type GetActivityRes struct {
+// 	Status Activity `json:"status"`
+// }
 
-// --- presence handler GetActivity ---
+// func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) error {
+// 	userID, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-type GetActivityRes struct {
-	Status Activity `json:"status"`
-}
+// 	status, err := h.service.GetActivity(r.Context(), userID.String())
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	httpio.RespondOK(w, r, GetActivityRes{
+// 		Status: status,
+// 	}, "")
+// 	return nil
+// }
 
-	status, err := h.service.GetActivity(r.Context(), userID.String())
-	if err != nil {
-		return err
-	}
+// // --- presence handler GetUserActivity ---
 
-	httpio.RespondOK(w, r, GetActivityRes{
-		Status: status,
-	}, "")
-	return nil
-}
+// type GetUserActivityPath struct {
+// 	ID uuid.UUID `path:"id" validate:"required"`
+// }
 
-// --- presence handler GetUserActivity ---
+// type GetUserActivityRes struct {
+// 	Status Activity `json:"status"`
+// }
 
-type GetUserActivityPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
-}
+// func (h *Handler) GetUserActivity(w http.ResponseWriter, r *http.Request) error {
+// 	_, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-type GetUserActivityRes struct {
-	Status Activity `json:"status"`
-}
+// 	path, err := httpio.BindPath[GetUserActivityPath](r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) GetUserActivity(w http.ResponseWriter, r *http.Request) error {
-	_, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	status, err := h.service.GetActivity(r.Context(), path.ID.String())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	path, err := httpio.BindPath[GetUserActivityPath](r)
-	if err != nil {
-		return err
-	}
+// 	httpio.RespondOK(w, r, GetUserActivityRes{
+// 		Status: status,
+// 	}, "")
 
-	status, err := h.service.GetActivity(r.Context(), path.ID.String())
-	if err != nil {
-		return err
-	}
+// 	return nil
+// }
 
-	httpio.RespondOK(w, r, GetUserActivityRes{
-		Status: status,
-	}, "")
+// // --- presence handler GetBulkActivity ---
 
-	return nil
-}
+// type BulkActivityReq struct {
+// 	UserIDs []uuid.UUID `json:"user_ids" validate:"required"`
+// }
 
-// --- presence handler GetBulkActivity ---
+// type BulkActivityRes struct {
+// 	Statuses map[string]Activity `json:"statuses"`
+// }
 
-type BulkActivityReq struct {
-	UserIDs []uuid.UUID `json:"user_ids" validate:"required"`
-}
+// func (h *Handler) GetBulkActivity(w http.ResponseWriter, r *http.Request) error {
+// 	_, err := httpio.GetCtxUserID(r.Context())
+// 	if err != nil {
+// 		return apperr.NewUnauthorized(err, "")
+// 	}
 
-type BulkActivityRes struct {
-	Statuses map[string]Activity `json:"statuses"`
-}
+// 	req, err := httpio.BindJSON[BulkActivityReq](w, r)
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (h *Handler) GetBulkActivity(w http.ResponseWriter, r *http.Request) error {
-	_, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return apperr.NewUnauthorized(err, "")
-	}
+// 	userIDs := make([]string, len(req.UserIDs))
+// 	for i, id := range req.UserIDs {
+// 		userIDs[i] = id.String()
+// 	}
 
-	req, err := httpio.BindJSON[BulkActivityReq](w, r)
-	if err != nil {
-		return err
-	}
+// 	statuses, err := h.service.GetBulkActivity(r.Context(), userIDs)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	userIDs := make([]string, len(req.UserIDs))
-	for i, id := range req.UserIDs {
-		userIDs[i] = id.String()
-	}
+// 	httpio.RespondOK(w, r, BulkActivityRes{
+// 		Statuses: statuses,
+// 	}, "")
 
-	statuses, err := h.service.GetBulkActivity(r.Context(), userIDs)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, BulkActivityRes{
-		Statuses: statuses,
-	}, "")
-
-	return nil
-}
+// 	return nil
+// }
