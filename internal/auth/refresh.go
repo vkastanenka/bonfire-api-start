@@ -82,9 +82,9 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Get redis session
-	sessionKey := cache.AuthSessionKey(claims.SessionID.String())
+	// sessionKey := cache.AuthSessionKey(claims.SessionID.String())
 	var sessionView session.View
-	err = s.cache.Get(ctx, sessionKey, &sessionView)
+	// err = s.cache.Get(ctx, sessionKey, &sessionView)
 
 	// Fallback to DB if redis miss
 	if err == cache.ErrCacheMiss {
@@ -93,10 +93,11 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 			return RefreshResult{}, err
 		}
 		// Backfill redis
-		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
-	} else if err != nil {
-		return RefreshResult{}, err
+		// _ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
 	}
+	// else if err != nil {
+	// 	return RefreshResult{}, err
+	// }
 
 	// Check for an un-rotated token
 	if sessionView.RefreshToken != r.RefreshToken {
@@ -104,7 +105,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.cache.Delete(persistCtx, sessionKey)
+		// _ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
 	}
 
@@ -130,7 +131,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.cache.Delete(persistCtx, sessionKey)
+		// _ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionBlocked, nil)
 	}
 
@@ -156,9 +157,9 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Update redis
 	sessionView.RefreshToken = tokenPair.RefreshToken
 	sessionView.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
-	if err := s.cache.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
-		_ = s.cache.Delete(persistCtx, sessionKey)
-	}
+	// if err := s.cache.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
+	// 	_ = s.cache.Delete(persistCtx, sessionKey)
+	// }
 
 	// Return new tokens
 	return RefreshResult{

@@ -2,14 +2,12 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -113,16 +111,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 
 // Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
-	// Check if account locked
-	lockoutKey := cache.AuthLoginLockoutKey(r.Email)
-	isLocked, err := s.cache.Exists(ctx, lockoutKey)
-	if err != nil {
-		// Fail open cache lookup
-		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", r.Email)
-	} else if isLocked {
-		// Prevent login
-		return LoginResult{}, newAccountLockedError()
-	}
+	// // Check if account locked
+	// lockoutKey := cache.AuthLoginLockoutKey(r.Email)
+	// isLocked, err := s.cache.Exists(ctx, lockoutKey)
+	// if err != nil {
+	// 	// Fail open cache lookup
+	// 	slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", r.Email)
+	// } else if isLocked {
+	// 	// Prevent login
+	// 	return LoginResult{}, newAccountLockedError()
+	// }
 
 	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
@@ -139,21 +137,21 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	// Check password
 	if err = crypto.VerifyPassword(userAuth.PasswordHash, r.Password); err != nil {
-		// Generate lock context to ensure cache write
-		persistCtx := context.WithoutCancel(ctx)
+		// // Generate lock context to ensure cache write
+		// persistCtx := context.WithoutCancel(ctx)
 
-		failureKey := cache.AuthLoginFailuresKey(r.Email)
-		attempts, incrErr := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
-		if incrErr != nil {
-			// Fail open cache lookup
-			slog.ErrorContext(ctx, "failed to increment login failures", "error", incrErr, "email", r.Email)
-		} else if attempts >= loginMaxAttempts {
-			// Trigger account lockout
-			if lockErr := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); lockErr != nil {
-				slog.ErrorContext(ctx, "failed to set login lockout", "error", lockErr, "email", r.Email)
-			}
-			return LoginResult{}, newAccountLockedError()
-		}
+		// failureKey := cache.AuthLoginFailuresKey(r.Email)
+		// attempts, incrErr := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
+		// if incrErr != nil {
+		// 	// Fail open cache lookup
+		// 	slog.ErrorContext(ctx, "failed to increment login failures", "error", incrErr, "email", r.Email)
+		// } else if attempts >= loginMaxAttempts {
+		// 	// Trigger account lockout
+		// 	if lockErr := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); lockErr != nil {
+		// 		slog.ErrorContext(ctx, "failed to set login lockout", "error", lockErr, "email", r.Email)
+		// 	}
+		// 	return LoginResult{}, newAccountLockedError()
+		// }
 
 		return LoginResult{}, newLoginCredentialsError()
 	}
@@ -179,7 +177,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	persistCtx := context.WithoutCancel(ctx)
 
 	// Create user session
-	userSession, err := s.session.Create(persistCtx, session.CreateParams{
+	_, err = s.session.Create(persistCtx, session.CreateParams{
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
@@ -192,14 +190,14 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	// Add session to cache
-	sessionKey := cache.AuthSessionKey(userSessionID.String())
-	_ = s.cache.Set(persistCtx, sessionKey, userSession, token.RefreshTokenTTL)
+	// // Add session to cache
+	// sessionKey := cache.AuthSessionKey(userSessionID.String())
+	// _ = s.cache.Set(persistCtx, sessionKey, userSession, token.RefreshTokenTTL)
 
-	// Clear login failures
-	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(r.Email)); delErr != nil {
-		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
-	}
+	// // Clear login failures
+	// if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(r.Email)); delErr != nil {
+	// 	slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
+	// }
 
 	// Return the tokens
 	return LoginResult{

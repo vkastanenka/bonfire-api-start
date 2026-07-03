@@ -2,13 +2,11 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -64,13 +62,13 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
 	// Check cooldown
-	cooldownKey := cache.AuthCooldownForgotPasswordKey(email)
-	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
-	if err != nil {
-		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
-	} else if onCooldown {
-		return nil
-	}
+	// cooldownKey := cache.AuthCooldownForgotPasswordKey(email)
+	// onCooldown, err := s.cache.Exists(ctx, cooldownKey)
+	// if err != nil {
+	// 	slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
+	// } else if onCooldown {
+	// 	return nil
+	// }
 
 	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, email)
@@ -104,11 +102,11 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	// Set cooldown
-	if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
-		// Fail-Open
-		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
-	}
+	// // Set cooldown
+	// if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
+	// 	// Fail-Open
+	// 	slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
+	// }
 
 	return nil
 }

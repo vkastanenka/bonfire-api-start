@@ -2,13 +2,11 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/worker"
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -61,14 +59,14 @@ func (s *Service) ResendVerificationEmail(ctx context.Context, email string) err
 	// Timing attacks defense
 	defer crypto.ConstantWindow(resendVerificationEmailTimingWindow)()
 
-	// Check cooldown
-	cooldownKey := cache.AuthCooldownResendVerificationKey(email)
-	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
-	if err != nil {
-		slog.ErrorContext(ctx, "resend verification cooldown lookup failed", "error", err, "email", email)
-	} else if onCooldown {
-		return nil
-	}
+	// // Check cooldown
+	// cooldownKey := cache.AuthCooldownResendVerificationKey(email)
+	// onCooldown, err := s.cache.Exists(ctx, cooldownKey)
+	// if err != nil {
+	// 	slog.ErrorContext(ctx, "resend verification cooldown lookup failed", "error", err, "email", email)
+	// } else if onCooldown {
+	// 	return nil
+	// }
 
 	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, email)
@@ -102,10 +100,10 @@ func (s *Service) ResendVerificationEmail(ctx context.Context, email string) err
 		return err
 	}
 
-	// Set cooldown
-	if err := s.cache.Set(persistCtx, cooldownKey, true, resendVerificationEmailCooldown); err != nil {
-		slog.WarnContext(persistCtx, "failed to set resend verification cooldown", "error", err, "email", email)
-	}
+	// // Set cooldown
+	// if err := s.cache.Set(persistCtx, cooldownKey, true, resendVerificationEmailCooldown); err != nil {
+	// 	slog.WarnContext(persistCtx, "failed to set resend verification cooldown", "error", err, "email", email)
+	// }
 
 	return nil
 }
