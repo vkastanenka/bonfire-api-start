@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // Config holds the env params for the client.
@@ -19,7 +19,7 @@ type Config struct {
 }
 
 // NewClient parses a configuration, sets up the client, and verifies connectivity.
-func NewClient(ctx context.Context, cfg Config) (*redis.Client, error) {
+func NewClient(ctx context.Context, cfg Config) (*goredis.Client, error) {
 	if cfg.ConnString == "" {
 		return nil, fmt.Errorf("redis connection string cannot be empty")
 	}
@@ -27,7 +27,7 @@ func NewClient(ctx context.Context, cfg Config) (*redis.Client, error) {
 	start := time.Now()
 	slog.Info("initializing redis client pool")
 
-	opt, err := redis.ParseURL(cfg.ConnString)
+	opt, err := goredis.ParseURL(cfg.ConnString)
 	if err != nil {
 		return nil, fmt.Errorf("invalid redis url: %w", err)
 	}
@@ -45,7 +45,7 @@ func NewClient(ctx context.Context, cfg Config) (*redis.Client, error) {
 		opt.ConnMaxLifetime = cfg.ConnMaxLifetime
 	}
 
-	rdb := redis.NewClient(opt)
+	rdb := goredis.NewClient(opt)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

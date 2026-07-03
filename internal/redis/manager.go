@@ -1,21 +1,18 @@
+// internal/redis/manager.go
 package redis
 
 import (
-	"errors"
-
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
-// ErrCacheMiss is returned when a key is not found, standardizing the error across the app.
-var ErrCacheMiss = errors.New("cache: key not found")
-
-type redisManager struct {
-	client *redis.Client
+// manager is private to prevent external instantiation without our constructor.
+type manager struct {
+	client *goredis.Client
 }
 
-// NewManager creates our application-level Redis wrapper.
-func NewManager(client *redis.Client) Manager {
-	return &redisManager{
+// NewManager binds a live connection pool to our application capability layers.
+func NewManager(client *goredis.Client) Manager {
+	return &manager{
 		client: client,
 	}
 }

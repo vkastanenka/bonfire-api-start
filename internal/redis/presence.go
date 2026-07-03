@@ -1,11 +1,13 @@
+// internal/redis/presence.go
 package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type ActivityStatus string
@@ -20,74 +22,39 @@ const (
 
 func (s ActivityStatus) Valid() bool {
 	switch s {
-	case StatusOnline,
-		StatusBusy,
-		StatusDND,
-		StatusInvisible:
+	case StatusOnline, StatusBusy, StatusDND, StatusInvisible:
 		return true
 	}
-
 	return false
 }
 
-// Pillar 2: Heartbeats
-// This is heavily optimized for a chat application.
-// Notice the GetBulkPresence function: in Discord, when you load a server, you need to know the online status of 1,000 members immediately.
-// We use Redis MGET to fetch them all in a single lightning-fast query.
-
-// presenceTTL is how long a user remains "Online" without sending a heartbeat.
 const presenceTTL = 30 * time.Second
 
-func (m *redisManager) Heartbeat(ctx context.Context, userID string) error {
-	key := UserPresenceKey(userID)
-	// Sets the value to "1" and resets the 30-second expiration timer
+func (m *manager) Heartbeat(ctx context.Context, userID string) error {
+	key := PresenceUserKey(userID)
 	return m.client.Set(ctx, key, "1", presenceTTL).Err()
 }
 
-func (m *redisManager) SetStatus(
-	ctx context.Context,
-	userID string,
-	status ActivityStatus,
-) error {
+func (m *manager) SetStatus(ctx context.Context, userID string, status ActivityStatus) error {
 	if !status.Valid() {
 		return fmt.Errorf("invalid activity status")
 	}
-
-	return m.client.Set(
-		ctx,
-		UserStatusKey(userID),
-		status,
-		0,
-	).Err()
+	return m.client.Set(ctx, StatusUserKey(userID), string(status), 0).Err()
 }
 
-func (m *redisManager) GetStatus(
-	ctx context.Context,
-	userID string,
-) (ActivityStatus, error) {
-
-	value, err := m.client.Get(
-		ctx,
-		UserStatusKey(userID),
-	).Result()
-
-	if err == redis.Nil {
+func (m *manager) GetStatus(ctx context.Context, userID string) (ActivityStatus, error) {
+	value, err := m.client.Get(ctx, StatusUserKey(userID)).Result()
+	if errors.Is(err, goredis.Nil) { // Fixed: Using explicit goredis alias
 		return StatusOnline, nil
 	}
-
 	if err != nil {
 		return "", err
 	}
-
 	return ActivityStatus(value), nil
 }
 
-func (m *redisManager) GetActivity(
-	ctx context.Context,
-	userID string,
-) (ActivityStatus, error) {
-
-	online, err := m.GetPresence(ctx, userID)
+func (m *manager) GetActivity(ctx context.Context, userID string) (ActivityStatus, error) {
+	online, err := m.getPresence(ctx, userID)
 	if err != nil {
 		return "", err
 	}
@@ -97,21 +64,14 @@ func (m *redisManager) GetActivity(
 		return "", err
 	}
 
-	if status == StatusInvisible {
-		return StatusOffline, nil
-	}
-
-	if !online {
+	if status == StatusInvisible || !online {
 		return StatusOffline, nil
 	}
 
 	return status, nil
 }
 
-func (m *redisManager) GetBulkActivity(
-	ctx context.Context,
-	userIDs []string,
-) (map[string]ActivityStatus, error) {
+func (m *manager) GetBulkActivity(ctx context.Context, userIDs []string) (map[string]ActivityStatus, error) {
 	if len(userIDs) == 0 {
 		return map[string]ActivityStatus{}, nil
 	}
@@ -120,8 +80,8 @@ func (m *redisManager) GetBulkActivity(
 	statusKeys := make([]string, len(userIDs))
 
 	for i, id := range userIDs {
-		presenceKeys[i] = UserPresenceKey(id)
-		statusKeys[i] = UserStatusKey(id)
+		presenceKeys[i] = PresenceUserKey(id)
+		statusKeys[i] = StatusUserKey(id)
 	}
 
 	presences, err := m.client.MGet(ctx, presenceKeys...).Result()
@@ -138,8 +98,6 @@ func (m *redisManager) GetBulkActivity(
 
 	for i, id := range userIDs {
 		online := presences[i] != nil
-
-		// Default status if none has been explicitly set.
 		status := StatusOnline
 
 		if statuses[i] != nil {
@@ -152,12 +110,8 @@ func (m *redisManager) GetBulkActivity(
 		}
 
 		switch {
-		case status == StatusInvisible:
+		case status == StatusInvisible || !online:
 			activities[id] = StatusOffline
-
-		case !online:
-			activities[id] = StatusOffline
-
 		default:
 			activities[id] = status
 		}
@@ -166,14 +120,15 @@ func (m *redisManager) GetBulkActivity(
 	return activities, nil
 }
 
-func (m *redisManager) GetPresence(ctx context.Context, userID string) (bool, error) {
-	key := UserPresenceKey(userID)
+// unexported helper method for local checks
+func (m *manager) getPresence(ctx context.Context, userID string) (bool, error) {
+	key := PresenceUserKey(userID)
 	err := m.client.Get(ctx, key).Err()
-	if err == redis.Nil {
-		return false, nil // Key expired, user is offline
+	if errors.Is(err, goredis.Nil) { // Fixed: Using explicit goredis alias
+		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return true, nil // Key exists, user is online
+	return true, nil
 }

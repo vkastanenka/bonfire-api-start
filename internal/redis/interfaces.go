@@ -1,16 +1,14 @@
+// internal/redis/interfaces.go
 package redis
 
 import (
 	"context"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
-// This file defines what your application can do with Redis.
-// Your service layers will rely on these interfaces, not the raw Redis client.
-
-// Store handles standard temporary data storage (Pillar 1)
+// Store handles standard temporary data storage
 type Store interface {
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
 	Get(ctx context.Context, key string, dest interface{}) error
@@ -19,22 +17,22 @@ type Store interface {
 	Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
 }
 
-// PresenceTracker handles ephemeral online/offline states (Pillar 2)
+// PresenceTracker handles ephemeral online/offline states
 type PresenceTracker interface {
-    Heartbeat(ctx context.Context, userID string) error
-    SetStatus(ctx context.Context, userID string, status ActivityStatus) error
-    GetStatus(ctx context.Context, userID string) (ActivityStatus, error)
-    GetActivity(ctx context.Context, userID string) (ActivityStatus, error)
-    GetBulkActivity(ctx context.Context, userIDs []string) (map[string]ActivityStatus, error)
-}
-// MessageBus handles real-time distributed events (Pillar 3)
-type MessageBus interface {
-	Publish(ctx context.Context, channel string, payload interface{}) error
-	// Returns a raw pubsub client for now. As you scale, you can wrap this further.
-	Subscribe(ctx context.Context, channel string) *redis.PubSub
+	Heartbeat(ctx context.Context, userID string) error
+	SetStatus(ctx context.Context, userID string, status ActivityStatus) error
+	GetStatus(ctx context.Context, userID string) (ActivityStatus, error)
+	GetActivity(ctx context.Context, userID string) (ActivityStatus, error)
+	GetBulkActivity(ctx context.Context, userIDs []string) (map[string]ActivityStatus, error)
 }
 
-// Manager is the master interface that implements all Redis capabilities.
+// MessageBus handles real-time distributed events
+type MessageBus interface {
+	Publish(ctx context.Context, channel string, payload interface{}) error
+	Subscribe(ctx context.Context, channel string) *goredis.PubSub
+}
+
+// Manager unifies all Redis interfaces.
 type Manager interface {
 	Store
 	PresenceTracker

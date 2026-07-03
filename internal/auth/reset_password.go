@@ -94,8 +94,8 @@ func (s *Service) ResetPassword(ctx context.Context, tokenStr string, newPasswor
 	}
 
 	// Clear Brute-Force State (Lifts any active login bans/counters)
-	failureKey := redis.LoginFailuresKey(userAuth.Email)
-	lockoutKey := redis.LoginLockoutKey(userAuth.Email)
+	failureKey := redis.AuthLoginFailuresKey(userAuth.Email)
+	lockoutKey := redis.AuthLoginLockoutKey(userAuth.Email)
 
 	if err := s.redis.Delete(persistCtx, failureKey); err != nil {
 		slog.WarnContext(persistCtx, "failed to clear login failures on password reset", "error", err, "email", userAuth.Email)

@@ -114,7 +114,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 // Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	// Check if account locked
-	lockoutKey := redis.LoginLockoutKey(r.Email)
+	lockoutKey := redis.AuthLoginLockoutKey(r.Email)
 	isLocked, err := s.redis.Exists(ctx, lockoutKey)
 	if err != nil {
 		// Fail open redis lookup
@@ -142,7 +142,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		// Generate lock context to ensure redis write
 		persistCtx := context.WithoutCancel(ctx)
 
-		failureKey := redis.LoginFailuresKey(r.Email)
+		failureKey := redis.AuthLoginFailuresKey(r.Email)
 		attempts, incrErr := s.redis.Increment(persistCtx, failureKey, 1*time.Hour)
 		if incrErr != nil {
 			// Fail open redis lookup
@@ -193,11 +193,11 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Add session to redis
-	sessionKey := redis.UserSessionKey(userSessionID.String())
+	sessionKey := redis.AuthSessionKey(userSessionID.String())
 	_ = s.redis.Set(persistCtx, sessionKey, userSession, token.RefreshTokenTTL)
 
 	// Clear login failures
-	if delErr := s.redis.Delete(persistCtx, redis.LoginFailuresKey(r.Email)); delErr != nil {
+	if delErr := s.redis.Delete(persistCtx, redis.AuthLoginFailuresKey(r.Email)); delErr != nil {
 		slog.WarnContext(ctx, "failed to clear login failures redis", "error", delErr, "email", r.Email)
 	}
 

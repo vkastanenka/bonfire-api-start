@@ -82,7 +82,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Get redis session
-	sessionKey := redis.UserSessionKey(claims.SessionID.String())
+	sessionKey := redis.AuthSessionKey(claims.SessionID.String())
 	var sessionView session.View
 	err = s.redis.Get(ctx, sessionKey, &sessionView)
 

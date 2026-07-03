@@ -64,7 +64,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
 	// Check cooldown
-	cooldownKey := redis.ForgotPasswordCooldownKey(email)
+	cooldownKey := redis.AuthCooldownForgotPasswordKey(email)
 	onCooldown, err := s.redis.Exists(ctx, cooldownKey)
 	if err != nil {
 		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)

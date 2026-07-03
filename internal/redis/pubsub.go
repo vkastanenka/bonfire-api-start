@@ -1,16 +1,14 @@
+// internal/redis/pubsub.go
 package redis
 
 import (
 	"context"
 	"encoding/json"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
-// Pillar 3: Message Routing
-// This automatically handles the JSON conversion of your complex WebSocket payloads before throwing them onto the Redis event bus.
-
-func (m *redisManager) Publish(ctx context.Context, channel string, payload interface{}) error {
+func (m *manager) Publish(ctx context.Context, channel string, payload interface{}) error {
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -18,6 +16,6 @@ func (m *redisManager) Publish(ctx context.Context, channel string, payload inte
 	return m.client.Publish(ctx, channel, bytes).Err()
 }
 
-func (m *redisManager) Subscribe(ctx context.Context, channel string) *redis.PubSub {
+func (m *manager) Subscribe(ctx context.Context, channel string) *goredis.PubSub {
 	return m.client.Subscribe(ctx, channel)
 }

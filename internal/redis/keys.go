@@ -2,45 +2,42 @@ package redis
 
 import "fmt"
 
-// Hardcoded strings like "user:online:123" scattered across your app will cause bugs.
-// By defining them here as pure functions, your IDE will catch typos, and you guarantee perfect namespacing.
-
-// ForgotPasswordCooldownKey restricts password reset emails (Pillar 1)
-func ForgotPasswordCooldownKey(email string) string {
+// AuthCooldownForgotPassword restricts password reset emails.
+func AuthCooldownForgotPasswordKey(email string) string {
 	return fmt.Sprintf("auth:cooldown:forgot-password:%s", email)
 }
 
-// LoginFailuresKey tracks consecutive failed login attempts for an email address
-func LoginFailuresKey(email string) string {
+// AuthLoginFailuresKey tracks consecutive failed login attempts.
+func AuthLoginFailuresKey(email string) string {
 	return fmt.Sprintf("auth:login:failures:%s", email)
 }
 
-// LoginLockoutKey actively blocks login attempts after exceeding maximum failure thresholds
-func LoginLockoutKey(email string) string {
+// AuthLoginLockoutKey actively blocks login attempts after exceeding failure thresholds.
+func AuthLoginLockoutKey(email string) string {
 	return fmt.Sprintf("auth:login:lockout:%s", email)
 }
 
-// UserSessionKey tracks user session metadata for fast retrieval (Pillar 1)
-func UserSessionKey(sessionID string) string {
+// AuthSessionKey tracks user session metadata for fast retrieval.
+func AuthSessionKey(sessionID string) string {
 	return fmt.Sprintf("auth:session:%s", sessionID)
 }
 
-// ResendVerificationCooldownKey restricts how often a user can request a verification email
-func ResendVerificationCooldownKey(email string) string {
+// AuthCooldownResendVerificationKey restricts how often a user can request a verification email.
+func AuthCooldownResendVerificationKey(email string) string {
 	return fmt.Sprintf("auth:cooldown:resend-verification:%s", email)
 }
 
-// UserPresenceKey tracks if a user is actively connected (Pillar 2)
-func UserPresenceKey(userID string) string {
+// PresenceUserKey tracks if a user is actively connected.
+func PresenceUserKey(userID string) string {
 	return fmt.Sprintf("presence:user:%s", userID)
 }
 
-// UserStatusKey tracks if a user's status
-func UserStatusKey(userID string) string {
+// StatusUserKey tracks a user's custom status choice.
+func StatusUserKey(userID string) string {
 	return fmt.Sprintf("status:user:%s", userID)
 }
 
-// GuildEventChannel routes real-time chat messages to servers (Pillar 3)
-func GuildEventChannel(guildID string) string {
+// EventsGuildKey routes real-time chat messages to servers.
+func EventsGuildKey(guildID string) string {
 	return fmt.Sprintf("events:guild:%s", guildID)
 }

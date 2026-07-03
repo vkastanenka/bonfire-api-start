@@ -62,7 +62,7 @@ func (s *Service) ResendVerificationEmail(ctx context.Context, email string) err
 	defer crypto.ConstantWindow(resendVerificationEmailTimingWindow)()
 
 	// Check cooldown
-	cooldownKey := redis.ResendVerificationCooldownKey(email)
+	cooldownKey := redis.AuthCooldownResendVerificationKey(email)
 	onCooldown, err := s.redis.Exists(ctx, cooldownKey)
 	if err != nil {
 		slog.ErrorContext(ctx, "resend verification cooldown lookup failed", "error", err, "email", email)
