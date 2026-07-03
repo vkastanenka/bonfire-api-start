@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/profile"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/sanitize"
@@ -33,16 +32,16 @@ const (
 // --- REFRESH ERRORS ---
 
 func NewRegisterConflictError(emailAvailable, usernameAvailable bool) error {
-    var opts []apperr.ErrorOption
+	var opts []apperr.ErrorOption
 
-    if !emailAvailable {
-        opts = append(opts, apperr.Param("email", errEmailTaken))
-    }
-    if !usernameAvailable {
-        opts = append(opts, apperr.Param("username", errUsernameTaken))
-    }
+	if !emailAvailable {
+		opts = append(opts, apperr.Param("email", errEmailTaken))
+	}
+	if !usernameAvailable {
+		opts = append(opts, apperr.Param("username", errUsernameTaken))
+	}
 
-    return apperr.NewConflict(nil, errCredentialsTaken, opts...)
+	return apperr.NewConflict(nil, errCredentialsTaken, opts...)
 }
 
 // --- REGISTER DTOs ---
@@ -114,7 +113,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		Username: r.Username,
 	})
 	if err != nil {
-		return RegisterResult{}, postgres.NewError(postgres.EntityUser, err)
+		return RegisterResult{}, repository.NewError(err, repository.ResourceUser)
 	}
 
 	// Cleanly handle conflict
@@ -139,7 +138,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return postgres.NewError(postgres.EntityUser, err)
+			return repository.NewError(err, repository.ResourceUser)
 		}
 
 		// Generate token
@@ -160,7 +159,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return postgres.NewError(postgres.EntityProfile, err)
+			return repository.NewError(err, repository.ResourceProfile)
 		}
 
 		// Create register event
@@ -170,7 +169,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			Token:    verificationToken,
 		})
 		if err != nil {
-			return postgres.NewError(postgres.EntityOutboxEvent, err)
+			return repository.NewError(err, repository.ResourceOutboxEvent)
 		}
 
 		result = RegisterResult{

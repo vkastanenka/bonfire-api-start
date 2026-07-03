@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 
@@ -37,7 +36,7 @@ func NewService(store repository.Store, presence PresenceProvider) *Service {
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.RelationshipsCount(ctx)
 	if err != nil {
-		return 0, postgres.NewError(postgres.EntityRelationship, err)
+		return 0, repository.NewError(err, repository.ResourceRelationship)
 	}
 	return count, nil
 }
@@ -80,7 +79,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return []View{}, nil
 		}
-		return nil, postgres.NewError(postgres.EntityRelationship, err)
+		return nil, repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	if len(rows) == 0 {
@@ -161,11 +160,11 @@ func (s *Service) SendFriendRequest(ctx context.Context, p SendFriendRequestPara
 				ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
 			})
 			if err != nil {
-				return postgres.NewError(postgres.EntityRelationship, err)
+				return repository.NewError(err, repository.ResourceRelationship)
 			}
 			return nil
 		}
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	// 2. State machine constraints for existing records
@@ -212,7 +211,7 @@ func (s *Service) AcceptFriendRequest(ctx context.Context, p AcceptFriendRequest
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperr.NewBadRequest(err, "no pending request to accept")
 		}
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	// 2. State check: Verify the current relationship is actually pending (0)
@@ -233,7 +232,7 @@ func (s *Service) AcceptFriendRequest(ctx context.Context, p AcceptFriendRequest
 		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
 	})
 	if err != nil {
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	return nil
@@ -268,7 +267,7 @@ func (s *Service) Block(ctx context.Context, p BlockParams) error {
 			return nil
 		}
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	// 3. Upsert the relationship to a blocked state owned by the actor
@@ -279,7 +278,7 @@ func (s *Service) Block(ctx context.Context, p BlockParams) error {
 		ActorID: pgtype.UUID{Bytes: p.ActorID, Valid: true},
 	})
 	if err != nil {
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	return nil
@@ -319,12 +318,12 @@ func (s *Service) Delete(ctx context.Context, p DeleteParams) error {
 				if errors.Is(fallbackErr, pgx.ErrNoRows) {
 					return nil // Idempotent: Row didn't exist anyway
 				}
-				return postgres.NewError(postgres.EntityRelationship, fallbackErr)
+				return repository.NewError(fallbackErr, repository.ResourceRelationship)
 			}
 			// Row exists but wasn't deleted by the query condition -> foreign block guardrail caught it
 			return apperr.NewForbidden(err, "cannot modify this relationship")
 		}
-		return postgres.NewError(postgres.EntityRelationship, err)
+		return repository.NewError(err, repository.ResourceRelationship)
 	}
 
 	return nil

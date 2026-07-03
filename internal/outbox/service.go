@@ -1,7 +1,6 @@
 package outbox
 
 import (
-	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -29,7 +28,7 @@ func NewService(store Store) *Service {
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.OutboxEventCount(ctx)
 	if err != nil {
-		return 0, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return 0, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return count, nil
 }
@@ -45,7 +44,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		Payload:   p.Payload,
 	})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -66,7 +65,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 		Limit:   p.Limit,
 	})
 	if err != nil {
-		return nil, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return nil, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 
 	views := make([]View, len(rows))
@@ -80,7 +79,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 func (s *Service) AcquireBatch(ctx context.Context, limit int32) ([]View, error) {
 	rows, err := s.store.OutboxEventAcquireBatch(ctx, limit)
 	if err != nil {
-		return nil, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return nil, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 
 	views := make([]View, len(rows))
@@ -98,7 +97,7 @@ func (s *Service) AcquireBatch(ctx context.Context, limit int32) ([]View, error)
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.OutboxEventGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -111,7 +110,7 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 func (s *Service) MarkProcessed(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -123,7 +122,7 @@ func (s *Service) RecordFailure(ctx context.Context, p RecordFailureParams) (Vie
 		LastError: pgtype.Text{String: p.Error, Valid: true},
 	})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -132,7 +131,7 @@ func (s *Service) RecordFailure(ctx context.Context, p RecordFailureParams) (Vie
 func (s *Service) ResetAttempts(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -144,7 +143,7 @@ func (s *Service) MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) (V
 		LastError: pgtype.Text{String: p.Error, Valid: true},
 	})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityOutboxEvent, err)
+		return View{}, repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return NewView(row), nil
 }
@@ -157,14 +156,14 @@ func (s *Service) DeleteByID(ctx context.Context, id uuid.UUID) error {
 	pgID := pgtype.UUID{Bytes: id, Valid: true}
 	err := s.store.OutboxEventDeleteByID(ctx, pgID)
 	if err != nil {
-		return postgres.NewError(postgres.EntityOutboxEvent, err)
+		return repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return nil
 }
 
 func (s *Service) PurgeProcessed(ctx context.Context) error {
 	if err := s.store.OutboxEventPurgeProcessed(ctx); err != nil {
-		return postgres.NewError(postgres.EntityOutboxEvent, err)
+		return repository.NewError(err, repository.ResourceOutboxEvent)
 	}
 	return nil
 }

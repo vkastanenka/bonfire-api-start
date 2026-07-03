@@ -2,7 +2,6 @@ package message
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -37,7 +36,7 @@ func (s *Service) PostMessage(ctx context.Context, userID uuid.UUID, p SendReq) 
 		Content:   p.Content,
 	})
 	if err != nil {
-		return View{}, postgres.NewError(postgres.EntityMessage, err)
+		return View{}, repository.NewError(err, repository.ResourceMessage)
 	}
 
 	return NewView(row), nil
@@ -51,7 +50,7 @@ func (s *Service) GetMessages(ctx context.Context, channelID uuid.UUID, limit, o
 		Offset:    offset,
 	})
 	if err != nil {
-		return nil, postgres.NewError(postgres.EntityMessage, err)
+		return nil, repository.NewError(err, repository.ResourceMessage)
 	}
 
 	views := make([]View, len(rows))
