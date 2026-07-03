@@ -25,6 +25,12 @@ type Config struct {
 	EmailFromAddress     string        `env:"EMAIL_FROM_ADDRESS"`
 	FrontendURL          string        `env:"FRONTEND_URL"`
 	EmailOverrideTo      string        `env:"EMAIL_OVERRIDE_TO"`
+	RequestTimeout       time.Duration `env:"HTTP_REQUEST_TIMEOUT" envDefault:"10s"`
+	ServerWriteTimeout   time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"20s"`
+	ServerReadTimeout    time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"5s"`
+	ShutdownTimeout      time.Duration `env:"HTTP_SHUTDOWN_TIMEOUT" envDefault:"5s"`
+	AuthRateLimit        int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	AuthRateWindow       time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
 	CORSAllowedOrigins   []string      `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173"`
 	CORSAllowCredentials bool          `env:"CORS_ALLOW_CREDENTIALS" envDefault:"true"`
 	DatabaseURL          string        `env:"DATABASE_URL,required"`
@@ -38,14 +44,6 @@ type Config struct {
 	RedisMinIdleConns    int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"2"`
 	RedisConnMaxIdleTime time.Duration `env:"REDIS_CONN_MAX_IDLE_TIME" envDefault:"30m"`
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
-}
-
-// String prevent leaks of sensitive credentials if the config is ever printed.
-func (c *Config) String() string {
-	return fmt.Sprintf(
-		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",
-		c.AppEnv, c.Port, c.CORSAllowedOrigins,
-	)
 }
 
 // IsDevelopment returns true if the application is running in development.

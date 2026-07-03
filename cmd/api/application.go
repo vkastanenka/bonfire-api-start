@@ -31,8 +31,8 @@ func (app *Application) Serve(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              app.Config.Port,
 		Handler:           app.routes(),
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      20 * time.Second,
+		ReadTimeout:       app.Config.ServerReadTimeout,
+		WriteTimeout:      app.Config.ServerWriteTimeout,
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 		MaxHeaderBytes:    1 * 1024 * 1024,

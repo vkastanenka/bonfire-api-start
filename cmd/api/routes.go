@@ -28,8 +28,8 @@ func (app *Application) routes() http.Handler {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Group(func(publicAuth chi.Router) {
 			publicAuth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
-				Limit:  5,
-				Window: time.Minute,
+				Limit:  app.Config.AuthRateLimit,
+				Window: app.Config.AuthRateWindow,
 				Scope:  httpio.RateLimitScopePublic,
 			}))
 
