@@ -36,7 +36,7 @@ func (s *Service) PostMessage(ctx context.Context, userID uuid.UUID, p SendReq) 
 		Content:   p.Content,
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceMessage)
+		return View{}, repository.NewError(err, repository.DomainMessage)
 	}
 
 	return NewView(row), nil
@@ -50,7 +50,7 @@ func (s *Service) GetMessages(ctx context.Context, channelID uuid.UUID, limit, o
 		Offset:    offset,
 	})
 	if err != nil {
-		return nil, repository.NewError(err, repository.ResourceMessage)
+		return nil, repository.NewError(err, repository.DomainMessage)
 	}
 
 	views := make([]View, len(rows))

@@ -1,5 +1,4 @@
-// internal/redis/manager.go
-package redis
+package cache
 
 import (
 	goredis "github.com/redis/go-redis/v9"

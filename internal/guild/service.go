@@ -20,7 +20,7 @@ func NewService(store repository.Store) *Service {
 func (s *Service) GetFull(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.GuildGetFull(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceGuild)
+		return View{}, repository.NewError(err, repository.DomainGuild)
 	}
 	return NewView(row), nil
 }
@@ -32,7 +32,7 @@ func (s *Service) GetEffectivePermissions(ctx context.Context, guildID, userID u
 		UserID:  pgtype.UUID{Bytes: userID, Valid: true},
 	})
 	if err != nil {
-		return 0, repository.NewError(err, repository.ResourceGuild)
+		return 0, repository.NewError(err, repository.DomainGuild)
 	}
 	return perm, nil
 }
@@ -41,7 +41,7 @@ func (s *Service) GetEffectivePermissions(ctx context.Context, guildID, userID u
 func (s *Service) ListMembers(ctx context.Context, guildID uuid.UUID) ([]MemberView, error) {
 	rows, err := s.store.GuildListMembers(ctx, pgtype.UUID{Bytes: guildID, Valid: true})
 	if err != nil {
-		return nil, repository.NewError(err, repository.ResourceGuild)
+		return nil, repository.NewError(err, repository.DomainGuild)
 	}
 
 	members := make([]MemberView, len(rows))

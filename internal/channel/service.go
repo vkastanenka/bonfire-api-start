@@ -40,13 +40,13 @@ func (s *Service) FindOrCreateDM(ctx context.Context, p CreateDMParams) (View, e
 		// If your SQLC generated method expects pgtype.UUID, this works:
 		row, err := s.store.ChannelGetByID(ctx, channelID)
 		if err != nil {
-			return View{}, repository.NewError(err, repository.ResourceChannel)
+			return View{}, repository.NewError(err, repository.DomainChannel)
 		}
 		return NewView(row), nil
 	}
 
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return View{}, repository.NewError(err, repository.ResourceChannel)
+		return View{}, repository.NewError(err, repository.DomainChannel)
 	}
 
 	// 2. Atomic Provisioning
@@ -77,7 +77,7 @@ func (s *Service) FindOrCreateDM(ctx context.Context, p CreateDMParams) (View, e
 	})
 
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceChannel)
+		return View{}, repository.NewError(err, repository.DomainChannel)
 	}
 
 	return NewView(newChannel), nil

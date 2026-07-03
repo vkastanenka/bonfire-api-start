@@ -1,5 +1,4 @@
-// internal/redis/store.go
-package redis
+package cache
 
 import (
 	"context"

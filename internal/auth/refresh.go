@@ -2,8 +2,8 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
@@ -82,18 +82,18 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	}
 
 	// Get redis session
-	sessionKey := redis.AuthSessionKey(claims.SessionID.String())
+	sessionKey := cache.AuthSessionKey(claims.SessionID.String())
 	var sessionView session.View
-	err = s.redis.Get(ctx, sessionKey, &sessionView)
+	err = s.cache.Get(ctx, sessionKey, &sessionView)
 
 	// Fallback to DB if redis miss
-	if err == redis.ErrCacheMiss {
+	if err == cache.ErrCacheMiss {
 		sessionView, err = s.session.GetByID(ctx, claims.SessionID)
 		if err != nil {
 			return RefreshResult{}, err
 		}
 		// Backfill redis
-		_ = s.redis.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
+		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionView, time.Until(sessionView.ExpiresAt))
 	} else if err != nil {
 		return RefreshResult{}, err
 	}
@@ -104,7 +104,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.redis.Delete(persistCtx, sessionKey)
+		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
 	}
 
@@ -130,7 +130,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		if !sessionView.IsBlocked {
 			_, _ = s.session.MarkBlocked(persistCtx, sessionView.ID)
 		}
-		_ = s.redis.Delete(persistCtx, sessionKey)
+		_ = s.cache.Delete(persistCtx, sessionKey)
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionBlocked, nil)
 	}
 
@@ -156,8 +156,8 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	// Update redis
 	sessionView.RefreshToken = tokenPair.RefreshToken
 	sessionView.ExpiresAt = time.Now().Add(token.RefreshTokenTTL)
-	if err := s.redis.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
-		_ = s.redis.Delete(persistCtx, sessionKey)
+	if err := s.cache.Set(persistCtx, sessionKey, sessionView, time.Until(sessionView.ExpiresAt)); err != nil {
+		_ = s.cache.Delete(persistCtx, sessionKey)
 	}
 
 	// Return new tokens

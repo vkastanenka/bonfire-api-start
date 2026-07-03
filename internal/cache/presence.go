@@ -1,5 +1,4 @@
-// internal/redis/presence.go
-package redis
+package cache
 
 import (
 	"context"

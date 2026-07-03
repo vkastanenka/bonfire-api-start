@@ -9,22 +9,22 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Resource represents an explicit database domain resource.
-type Resource string
+// Domain represents an explicit database domain resource.
+type Domain string
 
 const (
-	ResourceChannel       Resource = "channel"
-	ResourceDeleteRequest Resource = "delete_request"
-	ResourceGuild         Resource = "guild"
-	ResourceMessage       Resource = "message"
-	ResourceOutboxEvent   Resource = "outbox_event"
-	ResourceProfile       Resource = "profile"
-	ResourceRelationship  Resource = "relationship"
-	ResourceSession       Resource = "session"
-	ResourceUser          Resource = "user"
+	DomainChannel       Domain = "channel"
+	DomainDeleteRequest Domain = "delete_request"
+	DomainGuild         Domain = "guild"
+	DomainMessage       Domain = "message"
+	DomainOutboxEvent   Domain = "outbox_event"
+	DomainProfile       Domain = "profile"
+	DomainRelationship  Domain = "relationship"
+	DomainSession       Domain = "session"
+	DomainUser          Domain = "user"
 )
 
-func (r Resource) String() string {
+func (r Domain) String() string {
 	return string(r)
 }
 
@@ -38,7 +38,7 @@ func IsNotFoundError(err error) bool {
 }
 
 // NewError converts native pgx/postgres driver faults into domain apperr classifications.
-func NewError(err error, resource Resource) error {
+func NewError(err error, domain Domain) error {
 	if err == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func NewError(err error, resource Resource) error {
 
 	// Intercept "Not Found" exceptions
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", resource))
+		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", domain))
 	}
 
 	// Inspect specific structural PostgreSQL constraints
@@ -59,9 +59,9 @@ func NewError(err error, resource Resource) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
-			return apperr.NewConflict(err, fmt.Sprintf("A conflict occurred. This %s already exists.", resource))
+			return apperr.NewConflict(err, fmt.Sprintf("A conflict occurred. This %s already exists.", domain))
 		case "23503": // foreign_key_violation
-			return apperr.NewInvalidInput(err, fmt.Sprintf("A referenced %s record does not exist.", resource))
+			return apperr.NewInvalidInput(err, fmt.Sprintf("A referenced %s record does not exist.", domain))
 		case "23502": // not_null_violation
 			return apperr.NewInvalidInput(err, "A required field is missing.")
 		case "23514": // check_violation

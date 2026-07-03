@@ -1,15 +1,17 @@
 package presence
 
-import "bonfire-api/internal/redis"
+import (
+	"bonfire-api/internal/cache"
+)
 
 // --- presence types ---
 
-type Activity = redis.ActivityStatus
+type Activity = cache.ActivityStatus
 
 const (
-	StatusOnline    = redis.StatusOnline
-	StatusBusy      = redis.StatusBusy
-	StatusDND       = redis.StatusDND
-	StatusInvisible = redis.StatusInvisible
-	StatusOffline   = redis.StatusOffline
+	StatusOnline    = cache.StatusOnline
+	StatusBusy      = cache.StatusBusy
+	StatusDND       = cache.StatusDND
+	StatusInvisible = cache.StatusInvisible
+	StatusOffline   = cache.StatusOffline
 )

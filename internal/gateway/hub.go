@@ -1,8 +1,8 @@
 package gateway
 
 import (
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/message"
-	"bonfire-api/internal/redis"
 	"bonfire-api/internal/repository"
 	"context"
 	"sync"
@@ -20,17 +20,17 @@ type Hub struct {
 	rooms      map[uuid.UUID]map[uuid.UUID]bool // ChannelID -> map[UserID]bool
 	msgService *message.Service
 
-	redis redis.Manager
+	cache cache.Manager
 	store repository.Store
 }
 
-func NewHub(redis redis.Manager, store repository.Store, msgService *message.Service) *Hub {
+func NewHub(cache cache.Manager, store repository.Store, msgService *message.Service) *Hub {
 	return &Hub{
 		clients:    make(map[uuid.UUID]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		rooms:      make(map[uuid.UUID]map[uuid.UUID]bool),
-		redis:      redis,
+		cache:      cache,
 		store:      store,
 		msgService: msgService,
 	}

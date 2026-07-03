@@ -28,7 +28,7 @@ func NewService(store Store) *Service {
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.OutboxEventCount(ctx)
 	if err != nil {
-		return 0, repository.NewError(err, repository.ResourceUser)
+		return 0, repository.NewError(err, repository.DomainUser)
 	}
 	return count, nil
 }
@@ -40,7 +40,7 @@ func (s *Service) CheckAvailability(ctx context.Context, p CheckAvailabilityPara
 		Username: p.Username,
 	})
 	if err != nil {
-		return CheckAvailabilityResult{Email: false, Username: false}, repository.NewError(err, repository.ResourceUser)
+		return CheckAvailabilityResult{Email: false, Username: false}, repository.NewError(err, repository.DomainUser)
 	}
 	return CheckAvailabilityResult{Email: row.EmailAvailable, Username: row.UsernameAvailable}, nil
 }
@@ -56,7 +56,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		PasswordHash: p.Password,
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -76,7 +76,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 		Limit:   p.Limit,
 	})
 	if err != nil {
-		return nil, repository.NewError(err, repository.ResourceUser)
+		return nil, repository.NewError(err, repository.DomainUser)
 	}
 
 	views := make([]View, len(rows))
@@ -89,7 +89,7 @@ func (s *Service) List(ctx context.Context, p ListParams) ([]View, error) {
 func (s *Service) ListUnverified(ctx context.Context, limit int32) ([]View, error) {
 	rows, err := s.store.UserListUnverified(ctx, limit)
 	if err != nil {
-		return nil, repository.NewError(err, repository.ResourceUser)
+		return nil, repository.NewError(err, repository.DomainUser)
 	}
 
 	views := make([]View, len(rows))
@@ -108,7 +108,7 @@ func (s *Service) ListUnverified(ctx context.Context, limit int32) ([]View, erro
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.UserGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -116,7 +116,7 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
 func (s *Service) GetByEmail(ctx context.Context, email string) (View, error) {
 	row, err := s.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -124,7 +124,7 @@ func (s *Service) GetByEmail(ctx context.Context, email string) (View, error) {
 func (s *Service) GetByUsername(ctx context.Context, username string) (View, error) {
 	row, err := s.store.UserGetByUsername(ctx, username)
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -132,7 +132,7 @@ func (s *Service) GetByUsername(ctx context.Context, username string) (View, err
 func (s *Service) GetAuthByID(ctx context.Context, id uuid.UUID) (AuthView, error) {
 	row, err := s.store.UserGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ResourceUser)
+		return AuthView{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewAuthView(row), nil
 }
@@ -140,7 +140,7 @@ func (s *Service) GetAuthByID(ctx context.Context, id uuid.UUID) (AuthView, erro
 func (s *Service) GetAuthByEmail(ctx context.Context, email string) (AuthView, error) {
 	row, err := s.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ResourceUser)
+		return AuthView{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewAuthView(row), nil
 }
@@ -152,7 +152,7 @@ func (s *Service) GetAuthByEmail(ctx context.Context, email string) (AuthView, e
 func (s *Service) MarkVerified(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -163,7 +163,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) (V
 		PasswordHash: p.PasswordHash,
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -171,7 +171,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) (V
 func (s *Service) UpdateLastVerificationSent(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.UserUpdateLastVerificationSent(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -182,7 +182,7 @@ func (s *Service) EnableTOTP(ctx context.Context, p EnableTOTPParams) (View, err
 		TotpSecret: pgtype.Text{String: p.Secret, Valid: true},
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -190,7 +190,7 @@ func (s *Service) EnableTOTP(ctx context.Context, p EnableTOTPParams) (View, err
 func (s *Service) DisableTOTP(ctx context.Context, id uuid.UUID) (View, error) {
 	row, err := s.store.UserDisableTOTP(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceUser)
+		return View{}, repository.NewError(err, repository.DomainUser)
 	}
 	return NewView(row), nil
 }
@@ -202,7 +202,7 @@ func (s *Service) DisableTOTP(ctx context.Context, id uuid.UUID) (View, error) {
 func (s *Service) DeleteByID(ctx context.Context, id uuid.UUID) error {
 	err := s.store.UserDeleteByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return repository.NewError(err, repository.ResourceUser)
+		return repository.NewError(err, repository.DomainUser)
 	}
 	return nil
 }
@@ -210,7 +210,7 @@ func (s *Service) DeleteByID(ctx context.Context, id uuid.UUID) error {
 func (s *Service) DeleteByEmail(ctx context.Context, email string) error {
 	err := s.store.UserDeleteByEmail(ctx, email)
 	if err != nil {
-		return repository.NewError(err, repository.ResourceUser)
+		return repository.NewError(err, repository.DomainUser)
 	}
 	return nil
 }

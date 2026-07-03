@@ -10,7 +10,7 @@ import (
 )
 
 func (h *Hub) listenRedisPresence(ctx context.Context) {
-	pubsub := h.redis.Subscribe(ctx, presence.PresenceUpdatedChannel)
+	pubsub := h.cache.Subscribe(ctx, presence.PresenceUpdatedChannel)
 	defer pubsub.Close()
 	ch := pubsub.Channel()
 

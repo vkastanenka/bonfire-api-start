@@ -33,7 +33,7 @@ func NewService(
 func (s *Service) Count(ctx context.Context) (int64, error) {
 	count, err := s.store.DeleteRequestCount(ctx)
 	if err != nil {
-		return 0, repository.NewError(err, repository.ResourceDeleteRequest)
+		return 0, repository.NewError(err, repository.DomainDeleteRequest)
 	}
 	return count, nil
 }
@@ -50,7 +50,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 		ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(GracePeriod), Valid: true},
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceDeleteRequest)
+		return View{}, repository.NewError(err, repository.DomainDeleteRequest)
 	}
 	return NewView(row), nil
 }
@@ -64,7 +64,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID) (View, error) {
 func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 	rows, err := s.store.DeleteRequestListDue(ctx)
 	if err != nil {
-		return nil, repository.NewError(err, repository.ResourceDeleteRequest)
+		return nil, repository.NewError(err, repository.DomainDeleteRequest)
 	}
 
 	views := make([]View, len(rows))
@@ -84,7 +84,7 @@ func (s *Service) ListDue(ctx context.Context) ([]View, error) {
 func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, error) {
 	row, err := s.store.DeleteRequestGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ResourceDeleteRequest)
+		return View{}, repository.NewError(err, repository.DomainDeleteRequest)
 	}
 	return NewView(row), nil
 }
@@ -98,7 +98,7 @@ func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (View, erro
 func (s *Service) DeleteByUserID(ctx context.Context, id uuid.UUID) error {
 	err := s.store.DeleteRequestDeleteByUserID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return repository.NewError(err, repository.ResourceDeleteRequest)
+		return repository.NewError(err, repository.DomainDeleteRequest)
 	}
 	return nil
 }

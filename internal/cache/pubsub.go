@@ -1,5 +1,4 @@
-// internal/redis/pubsub.go
-package redis
+package cache
 
 import (
 	"context"

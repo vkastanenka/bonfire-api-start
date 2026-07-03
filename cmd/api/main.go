@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/postgres"
@@ -93,7 +94,7 @@ func run(cfg *config.Config) error {
 
 	// Setup app services
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
-	redisManager := redis.NewManager(rdbClient)
+	cacheManager := cache.NewManager(rdbClient)
 	tokenService := token.NewService(
 		cfg.AccessSecret,
 		cfg.RefreshSecret,
@@ -107,7 +108,7 @@ func run(cfg *config.Config) error {
 	userService := user.NewService(store)
 	authService := auth.NewService(
 		store,
-		redisManager.(redis.Store),
+		cacheManager.(cache.Store),
 		sessionService,
 		tokenService,
 		userService,

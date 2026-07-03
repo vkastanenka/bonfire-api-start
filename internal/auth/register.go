@@ -113,7 +113,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		Username: r.Username,
 	})
 	if err != nil {
-		return RegisterResult{}, repository.NewError(err, repository.ResourceUser)
+		return RegisterResult{}, repository.NewError(err, repository.DomainUser)
 	}
 
 	// Cleanly handle conflict
@@ -138,7 +138,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.ResourceUser)
+			return repository.NewError(err, repository.DomainUser)
 		}
 
 		// Generate token
@@ -159,7 +159,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.ResourceProfile)
+			return repository.NewError(err, repository.DomainProfile)
 		}
 
 		// Create register event
@@ -169,7 +169,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			Token:    verificationToken,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.ResourceOutboxEvent)
+			return repository.NewError(err, repository.DomainOutboxEvent)
 		}
 
 		result = RegisterResult{
