@@ -52,7 +52,7 @@ func (app *Application) Serve(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			slog.Info("shutting down core API server")
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), app.Config.ShutdownTimeout)
 			defer cancel()
 			shutdownError <- srv.Shutdown(shutdownCtx)
 		case <-serverDone:

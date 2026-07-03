@@ -72,8 +72,6 @@ func run(cfg *config.Config) error {
 	}
 	defer rdbClient.Close()
 
-	store := repository.NewStore(pdbPool)
-	rateLimiter := redis_rate.NewLimiter(rdbClient)
 	tokenManager, err := token.NewManager(token.Config{
 		AccessSecret:  cfg.AccessSecret,
 		RefreshSecret: cfg.RefreshSecret,
@@ -82,6 +80,8 @@ func run(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	store := repository.NewStore(pdbPool)
+	rateLimiter := redis_rate.NewLimiter(rdbClient)
 
 	sessionService := session.NewService(store)
 	userService := user.NewService(store)
