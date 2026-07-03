@@ -9,7 +9,6 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/token"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,9 +23,6 @@ type Application struct {
 	RateLimiter *redis_rate.Limiter
 	Handlers    struct {
 		Auth *auth.Handler
-	}
-	Services struct {
-		Token *token.Service
 	}
 }
 

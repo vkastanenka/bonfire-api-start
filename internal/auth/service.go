@@ -8,23 +8,20 @@ import (
 )
 
 type Service struct {
-	store repository.Store
-	// cache   cache.Store
+	store   repository.Store
 	session *session.Service
-	token   *token.Service
+	token   *token.Manager
 	user    *user.Service
 }
 
 func NewService(
 	store repository.Store,
-	// cache cache.Store,
 	session *session.Service,
-	token *token.Service,
+	token *token.Manager,
 	user *user.Service,
 ) *Service {
 	return &Service{
-		store: store,
-		// cache:   cache,
+		store:   store,
 		session: session,
 		token:   token,
 		user:    user,

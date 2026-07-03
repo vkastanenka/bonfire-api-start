@@ -136,7 +136,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	}
 
 	// Generate token pair
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, "", false, 0, userSessionID)
+	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, userSessionID)
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}

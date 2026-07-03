@@ -2,68 +2,83 @@ package token
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// --- TOKEN CONSTANTS ---
-
-const (
-	AccessTokenTTL        = 15 * time.Minute
-	RefreshTokenTTL       = 7 * 24 * time.Hour
-	VerificationTokenTTL  = 1 * time.Hour
-	PasswordResetTokenTTL = 15 * time.Minute
-	PasswordMFATokenTTL   = 5 * time.Minute
-)
-
-// --- TOKEN TYPES ---
-
-type Pair struct {
-	AccessToken  string
-	RefreshToken string
-}
+type Type string
 
 type Claims struct {
-	UserID          uuid.UUID `json:"user_id"`
-	SecurityVersion int       `json:"security_version"`
-	Role            string    `json:"role,omitempty"`
-	IsVerified      bool      `json:"ver,omitempty"`
-	SessionID       uuid.UUID `json:"sid,omitempty"`
+	UserID    uuid.UUID `json:"uid"`
+	SessionID uuid.UUID `json:"sid,omitempty"`
+	Type      Type      `json:"typ"`
 	jwt.RegisteredClaims
 }
 
-type Service struct {
-	accessSecret        []byte
-	refreshSecret       []byte
-	verificationSecret  []byte
-	passwordResetSecret []byte
-	passwordMFASecret   []byte
+type Config struct {
+	AccessSecret  string
+	RefreshSecret string
+	Issuer        string
 }
 
-// --- TOKEN INITIALIZATION ---
+type Pair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
 
-func NewService(accessSecret string, refreshSecret string, verificationSecret string, passwordResetSecret string, passwordMFASecret string) *Service {
-	return &Service{
-		accessSecret:        []byte(accessSecret),
-		refreshSecret:       []byte(refreshSecret),
-		verificationSecret:  []byte(verificationSecret),
-		passwordResetSecret: []byte(passwordResetSecret),
-		passwordMFASecret:   []byte(passwordMFASecret),
+type Manager struct {
+	issuer  string
+	secrets map[Type][]byte
+}
+
+const (
+	TypeAccess  Type = "access"
+	TypeRefresh Type = "refresh"
+)
+
+const (
+	AccessTokenTTL  = 15 * time.Minute
+	RefreshTokenTTL = 7 * 24 * time.Hour
+)
+
+var (
+	ErrTokenExpired          = errors.New("token has expired")
+	ErrTokenMalformed        = errors.New("token is malformed")
+	ErrTokenSignatureInvalid = errors.New("token signature is invalid")
+	ErrTokenInvalid          = errors.New("token is invalid")
+	ErrIssuerMismatch        = errors.New("token issuer is invalid")
+	ErrTypeMismatch          = errors.New("token type mismatch")
+	ErrInternal              = errors.New("internal cryptographic error")
+)
+
+func NewManager(cfg Config) (*Manager, error) {
+	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" {
+		return nil, fmt.Errorf("token manager initialization failed: critical secrets cannot be empty")
 	}
+
+	if cfg.Issuer == "" {
+		cfg.Issuer = "bonfire-api"
+	}
+
+	return &Manager{
+		issuer: cfg.Issuer,
+		secrets: map[Type][]byte{
+			TypeAccess:  []byte(cfg.AccessSecret),
+			TypeRefresh: []byte(cfg.RefreshSecret),
+		},
+	}, nil
 }
 
-// --- TOKEN METHODS ---
-
-// GenerateTokenPair
-func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bool, securityVersion int, sessionID uuid.UUID) (Pair, error) {
-	accessToken, err := m.GenerateAccessToken(userID, role, isVerified, securityVersion)
+func (m *Manager) GenerateTokenPair(userID uuid.UUID, sessionID uuid.UUID) (Pair, error) {
+	accessToken, err := m.GenerateAccessToken(userID)
 	if err != nil {
 		return Pair{}, err
 	}
 
-	refreshToken, err := m.GenerateRefreshToken(userID, securityVersion, sessionID)
+	refreshToken, err := m.GenerateRefreshToken(userID, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -74,86 +89,87 @@ func (m *Service) GenerateTokenPair(userID uuid.UUID, role string, isVerified bo
 	}, nil
 }
 
-// GenerateAccessToken
-func (m *Service) GenerateAccessToken(userID uuid.UUID, role string, isVerified bool, securityVersion int) (string, error) {
-	return m.generate(userID, AccessTokenTTL, Claims{
-		Role:            role,
-		IsVerified:      isVerified,
-		SecurityVersion: securityVersion,
-	}, m.accessSecret)
+func (m *Manager) GenerateAccessToken(userID uuid.UUID) (string, error) {
+	return m.generate(userID, TypeAccess, AccessTokenTTL, Claims{})
 }
 
-// GenerateRefreshToken
-func (m *Service) GenerateRefreshToken(userID uuid.UUID, securityVersion int, sessionID uuid.UUID) (string, error) {
-	return m.generate(userID, RefreshTokenTTL, Claims{
-		SessionID:       sessionID,
-		SecurityVersion: securityVersion,
-	}, m.refreshSecret)
+func (m *Manager) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
+	return m.generate(userID, TypeRefresh, RefreshTokenTTL, Claims{
+		SessionID: sessionID,
+	})
 }
 
-func (m *Service) GenerateVerification(userID uuid.UUID, securityVersion int) (string, error) {
-	return m.generate(userID, VerificationTokenTTL, Claims{SecurityVersion: securityVersion}, m.verificationSecret)
+func (m *Manager) VerifyAccess(tokenStr string) (*Claims, error) {
+	return m.verify(tokenStr, TypeAccess)
 }
 
-func (m *Service) GeneratePasswordReset(userID uuid.UUID, securityVersion int) (string, error) {
-	return m.generate(userID, PasswordResetTokenTTL, Claims{SecurityVersion: securityVersion}, m.passwordResetSecret)
+func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
+	return m.verify(tokenStr, TypeRefresh)
 }
 
-func (m *Service) GeneratePasswordMFA(userID uuid.UUID, securityVersion int) (string, error) {
-	return m.generate(userID, PasswordMFATokenTTL, Claims{SecurityVersion: securityVersion}, m.passwordMFASecret)
-}
+func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, claims Claims) (string, error) {
+	secret, exists := m.secrets[tokenType]
+	if !exists || len(secret) == 0 {
+		return "", fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenType)
+	}
 
-func (m *Service) generate(userID uuid.UUID, duration time.Duration, claims Claims, secret []byte) (string, error) {
+	now := time.Now()
 	claims.UserID = userID
+	claims.Type = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
 		ID:        uuid.NewString(),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
-		Issuer:    "bonfire-api",
+		IssuedAt:  jwt.NewNumericDate(now),
+		NotBefore: jwt.NewNumericDate(now),
+		ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		Issuer:    m.issuer,
 	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(secret)
+	signedToken, err := token.SignedString(secret)
+	if err != nil {
+		return "", fmt.Errorf("%w: signing failed: %v", ErrInternal, err)
+	}
+
+	return signedToken, nil
 }
 
-func (m *Service) VerifyAccess(tokenString string) (*Claims, error) {
-	return m.verify(tokenString, m.accessSecret)
-}
+func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
+	secret, exists := m.secrets[expectedType]
+	if !exists || len(secret) == 0 {
+		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, expectedType)
+	}
 
-func (m *Service) VerifyRefresh(tokenString string) (*Claims, error) {
-	return m.verify(tokenString, m.refreshSecret)
-}
-
-func (m *Service) VerifyVerification(tokenString string) (*Claims, error) {
-	return m.verify(tokenString, m.verificationSecret)
-}
-
-func (m *Service) VerifyPasswordReset(tokenString string) (*Claims, error) {
-	return m.verify(tokenString, m.passwordResetSecret)
-}
-
-func (m *Service) VerifyPasswordMFA(tokenString string) (*Claims, error) {
-	return m.verify(tokenString, m.passwordMFASecret)
-}
-
-func (m *Service) verify(tokenString string, secret []byte) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+			return nil, fmt.Errorf("unexpected signing algorithm variant: %v", t.Header["alg"])
 		}
 		return secret, nil
 	})
 
-	if err != nil || !token.Valid {
-		return nil, errors.New("invalid token")
+	if err != nil {
+		switch {
+		case errors.Is(err, jwt.ErrTokenExpired):
+			return nil, fmt.Errorf("%w: %v", ErrTokenExpired, err)
+		case errors.Is(err, jwt.ErrTokenMalformed):
+			return nil, fmt.Errorf("%w: %v", ErrTokenMalformed, err)
+		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+			return nil, fmt.Errorf("%w: %v", ErrTokenSignatureInvalid, err)
+		default:
+			return nil, fmt.Errorf("%w: %v", ErrTokenInvalid, err)
+		}
 	}
 
 	claims, ok := token.Claims.(*Claims)
-	if !ok {
-		return nil, errors.New("invalid claims format")
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("%w: claims structure corrupt or invalid", ErrTokenInvalid)
 	}
 
-	if claims.Issuer != "bonfire-api" {
-		return nil, errors.New("invalid issuer")
+	if claims.Issuer != m.issuer {
+		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, m.issuer, claims.Issuer)
+	}
+
+	if claims.Type != expectedType {
+		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrTypeMismatch, expectedType, claims.Type)
 	}
 
 	return claims, nil

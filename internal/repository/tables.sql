@@ -49,10 +49,6 @@ CREATE TABLE sessions(
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     refresh_token text NOT NULL UNIQUE,
     expires_at timestamp with time zone NOT NULL,
-    last_seen_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_blocked boolean NOT NULL DEFAULT FALSE,
-    client_ip inet NOT NULL,
-    user_agent text NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
@@ -60,10 +56,6 @@ CREATE TABLE sessions(
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-
-CREATE INDEX idx_sessions_blocked ON sessions(refresh_token)
-WHERE
-    is_blocked = TRUE;
 
 CREATE TRIGGER update_sessions_modtime
     BEFORE UPDATE ON sessions

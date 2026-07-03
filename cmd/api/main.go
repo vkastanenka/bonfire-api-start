@@ -91,17 +91,18 @@ func run(cfg *config.Config) error {
 	}
 	defer rdbClient.Close()
 
-	// Setup cache
+	// Setup rate limiter
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
 
-	// Setup app services
-	tokenService := token.NewService(
-		cfg.AccessSecret,
-		cfg.RefreshSecret,
-		cfg.VerificationSecret,
-		cfg.PasswordResetSecret,
-		cfg.PasswordMFASecret,
-	)
+	// Setup app managers
+	tokenManager, err := token.NewManager(token.Config{
+		AccessSecret:  cfg.AccessSecret,
+		RefreshSecret: cfg.RefreshSecret,
+		Issuer:        cfg.TokenIssuer,
+	})
+	if err != nil {
+		return err
+	}
 
 	// Setup domain services
 	sessionService := session.NewService(store)
@@ -109,7 +110,7 @@ func run(cfg *config.Config) error {
 	authService := auth.NewService(
 		store,
 		sessionService,
-		tokenService,
+		tokenManager,
 		userService,
 	)
 
@@ -126,11 +127,6 @@ func run(cfg *config.Config) error {
 			Auth *auth.Handler
 		}{
 			Auth: authHandler,
-		},
-		Services: struct {
-			Token *token.Service
-		}{
-			Token: tokenService,
 		},
 	}
 
