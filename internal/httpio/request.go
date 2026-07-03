@@ -559,3 +559,20 @@ func DecodePath(r *http.Request, dst any) error {
 
 	return nil
 }
+
+// getIP safely extracts the client's network identifier.
+func getIP(r *http.Request) string {
+	// WARNING: If you are behind a trusted proxy (Cloudflare, AWS ALB, Nginx),
+	// replace this with a deterministic, secure header like "CF-Connecting-IP"
+	// or validate the proxy chain to prevent X-Forwarded-For spoofing.
+	xForwardedFor := r.Header.Get("X-Forwarded-For")
+	if xForwardedFor != "" {
+		return strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
+	}
+
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}

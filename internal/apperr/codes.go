@@ -35,112 +35,112 @@ const (
 
 // codeMetadata stores the explicit HTTP presentation mapping and static defaults for a classification code.
 type codeMetadata struct {
-	status      int
-	title       string
-	description string
+	status int
+	title  string
+	detail string
 }
 
 // codesRegistry organizes code values.
 var codesRegistry = map[Code]codeMetadata{
 	CodeBadRequest: {
-		status:      http.StatusBadRequest,
-		title:       "Bad Request",
-		description: "The request payload or syntax is malformed.",
+		status: http.StatusBadRequest,
+		title:  "Bad Request",
+		detail: "The request payload or syntax is malformed.",
 	},
 	CodeInvalidInput: {
-		status:      http.StatusBadRequest,
-		title:       "Invalid Input Data",
-		description: "One or more fields failed validation rules.",
+		status: http.StatusBadRequest,
+		title:  "Invalid Input Data",
+		detail: "One or more fields failed validation rules.",
 	},
 	CodeUnauthorized: {
-		status:      http.StatusUnauthorized,
-		title:       "Unauthorized Access",
-		description: "The provided credentials are invalid or expired.",
+		status: http.StatusUnauthorized,
+		title:  "Unauthorized Access",
+		detail: "The provided credentials are invalid or expired.",
 	},
 	CodeForbidden: {
-		status:      http.StatusForbidden,
-		title:       "Permission Denied",
-		description: "You lack the required permissions for this action.",
+		status: http.StatusForbidden,
+		title:  "Permission Denied",
+		detail: "You lack the required permissions for this action.",
 	},
 	CodeNotFound: {
-		status:      http.StatusNotFound,
-		title:       "Resource Not Found",
-		description: "The requested resource could not be found.",
+		status: http.StatusNotFound,
+		title:  "Resource Not Found",
+		detail: "The requested resource could not be found.",
 	},
 	CodeMethodNotAllowed: {
-		status:      http.StatusMethodNotAllowed,
-		title:       "Method Not Allowed",
-		description: "The HTTP method is not supported for this path.",
+		status: http.StatusMethodNotAllowed,
+		title:  "Method Not Allowed",
+		detail: "The HTTP method is not supported for this path.",
 	},
 	CodeConflict: {
-		status:      http.StatusConflict,
-		title:       "Resource Conflict",
-		description: "The operation conflicted with the current state of a resource.",
+		status: http.StatusConflict,
+		title:  "Resource Conflict",
+		detail: "The operation conflicted with the current state of a resource.",
 	},
 	CodeGone: {
-		status:      http.StatusGone,
-		title:       "Resource No Longer Available",
-		description: "The requested resource has been permanently deleted.",
+		status: http.StatusGone,
+		title:  "Resource No Longer Available",
+		detail: "The requested resource has been permanently deleted.",
 	},
 	CodePreconditionFailed: {
-		status:      http.StatusPreconditionFailed,
-		title:       "Precondition Failed",
-		description: "Target resource state has changed. Please refresh and retry.",
+		status: http.StatusPreconditionFailed,
+		title:  "Precondition Failed",
+		detail: "Target resource state has changed. Please refresh and retry.",
 	},
 	CodePayloadTooLarge: {
-		status:      http.StatusRequestEntityTooLarge,
-		title:       "Payload Too Large",
-		description: "The request body exceeds the maximum size limit.",
+		status: http.StatusRequestEntityTooLarge,
+		title:  "Payload Too Large",
+		detail: "The request body exceeds the maximum size limit.",
 	},
 	CodeUnsupportedMediaType: {
-		status:      http.StatusUnsupportedMediaType,
-		title:       "Unsupported Media Type",
-		description: "Content-Type must be application/json.",
+		status: http.StatusUnsupportedMediaType,
+		title:  "Unsupported Media Type",
+		detail: "Content-Type must be application/json.",
 	},
 	CodeUnprocessableEntity: {
-		status:      http.StatusUnprocessableEntity,
-		title:       "Unprocessable Entity",
-		description: "The request is valid but breaks semantic business logic rules.",
+		status: http.StatusUnprocessableEntity,
+		title:  "Unprocessable Entity",
+		detail: "The request is valid but breaks semantic business logic rules.",
 	},
 	CodeTooManyRequests: {
-		status:      http.StatusTooManyRequests,
-		title:       "Too Many Requests",
-		description: "Rate limit exceeded. Please slow down.",
+		status: http.StatusTooManyRequests,
+		title:  "Too Many Requests",
+		detail: "Rate limit exceeded. Please slow down.",
 	},
 	CodeInternal: {
-		status:      http.StatusInternalServerError,
-		title:       "Internal Server Error",
-		description: "An unexpected condition occurred on our servers.",
+		status: http.StatusInternalServerError,
+		title:  "Internal Server Error",
+		detail: "An unexpected condition occurred on our servers.",
 	},
 	CodeNotImplemented: {
-		status:      http.StatusInternalServerError,
-		title:       "Feature Not Implemented",
-		description: "This server capability is not yet supported.",
+		status: http.StatusInternalServerError,
+		title:  "Feature Not Implemented",
+		detail: "This server capability is not yet supported.",
 	},
 	CodeBadGateway: {
-		status:      http.StatusBadGateway,
-		title:       "Bad Gateway",
-		description: "An upstream dependency returned an invalid response.",
+		status: http.StatusBadGateway,
+		title:  "Bad Gateway",
+		detail: "An upstream dependency returned an invalid response.",
 	},
 	CodeServiceUnavailable: {
-		status:      http.StatusInternalServerError,
-		title:       "Service Temporarily Unavailable",
-		description: "The server is temporarily down for maintenance or overloaded.",
+		status: http.StatusInternalServerError,
+		title:  "Service Temporarily Unavailable",
+		detail: "The server is temporarily down for maintenance or overloaded.",
 	},
 	CodeGatewayTimeout: {
-		status:      http.StatusGatewayTimeout,
-		title:       "Gateway Timeout",
-		description: "An upstream dependency failed to respond in time.",
+		status: http.StatusGatewayTimeout,
+		title:  "Gateway Timeout",
+		detail: "An upstream dependency failed to respond in time.",
 	},
 	CodeRequestTimeout: {
-		status:      http.StatusRequestTimeout,
-		title:       "Request Timeout",
-		description: "The execution timeout deadline was exceeded.",
+		status: http.StatusRequestTimeout,
+		title:  "Request Timeout",
+		detail: "The execution timeout deadline was exceeded.",
 	},
 	CodeClientClosedRequest: {
-		status:      499,
-		title:       "Client Closed Connection",
-		description: "The client disconnected before processing completed.",
+		status: 499,
+		title:  "Client Closed Connection",
+		detail: "The client disconnected before processing completed.",
 	},
 }
 
@@ -160,10 +160,10 @@ func (c Code) Title() string {
 	return "An Unexpected Error Occurred"
 }
 
-// Description returns the generic error description.
-func (c Code) Description() string {
+// Detail returns the generic error detail.
+func (c Code) Detail() string {
 	if meta, ok := codesRegistry[c]; ok {
-		return meta.description
+		return meta.detail
 	}
 	return "An internal server error occurred while processing your request."
 }

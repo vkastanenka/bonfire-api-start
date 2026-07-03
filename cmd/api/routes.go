@@ -31,7 +31,11 @@ func (app *Application) routes() http.Handler {
 	r.Route("/api/v1", func(api chi.Router) {
 		// Public routes
 		api.Group(func(publicAuth chi.Router) {
-			publicAuth.Use(customMiddleware.RateLimit(app.RateLimiter, 5, time.Minute, "auth"))
+			publicAuth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+				Limit:  5,
+				Window: time.Minute,
+				Scope:  httpio.RateLimitScopePublic,
+			}))
 
 			// Auth
 			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))

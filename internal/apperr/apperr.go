@@ -51,7 +51,7 @@ func (e *Error) Is(target error) bool {
 // build initializes a structured domain error with fallbacks and custom options.
 func build(code Code, err error, detail string, opts ...ErrorOption) error {
 	if detail == "" {
-		detail = code.Description()
+		detail = code.Detail()
 	}
 
 	e := &Error{

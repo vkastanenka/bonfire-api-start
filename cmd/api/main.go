@@ -75,6 +75,9 @@ func run(cfg *config.Config) error {
 	}
 	defer pdbPool.Close()
 
+	// Setup store
+	store := repository.NewStore(pdbPool)
+
 	// Setup redis
 	rdbClient, err := redis.NewClient(ctx, redis.Config{
 		ConnString:      cfg.RedisURL,
@@ -88,12 +91,10 @@ func run(cfg *config.Config) error {
 	}
 	defer rdbClient.Close()
 
-	// Setup data layer
-	store := repository.NewStore(pdbPool)
+	// Setup cache
+	rateLimiter := redis_rate.NewLimiter(rdbClient)
 
 	// Setup app services
-	rateLimiter := redis_rate.NewLimiter(rdbClient)
-	// cacheManager := cache.NewManager(rdbClient)
 	tokenService := token.NewService(
 		cfg.AccessSecret,
 		cfg.RefreshSecret,
