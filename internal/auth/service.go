@@ -9,15 +9,15 @@ import (
 
 type Service struct {
 	store   repository.Store
-	session *session.Service
 	token   *token.Manager
+	session *session.Service
 	user    *user.Service
 }
 
 func NewService(
 	store repository.Store,
-	session *session.Service,
 	token *token.Manager,
+	session *session.Service,
 	user *user.Service,
 ) *Service {
 	return &Service{

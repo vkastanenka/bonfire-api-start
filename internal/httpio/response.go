@@ -131,14 +131,12 @@ func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, origin
 	}
 
 	args := []any{
-		"path", r.URL.Path,
 		"method", r.Method,
+		"path", r.URL.Path,
 		"status", resp.Status,
 		slog.Group("error_context",
 			"code", appErr.Code,
 			"detail", appErr.Detail,
-			"req_id", resp.ReqID,
-			"trace_id", resp.TraceID,
 			"error", originalErr,
 		),
 	}

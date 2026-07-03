@@ -87,8 +87,8 @@ func run(cfg *config.Config) error {
 	userService := user.NewService(store)
 	authService := auth.NewService(
 		store,
-		sessionService,
 		tokenManager,
+		sessionService,
 		userService,
 	)
 
@@ -96,8 +96,6 @@ func run(cfg *config.Config) error {
 
 	app := &Application{
 		Config:      cfg,
-		DB:          pdbPool,
-		Redis:       rdbClient,
 		RateLimiter: rateLimiter,
 		Handlers: Handlers{
 			Auth: authHandler,
