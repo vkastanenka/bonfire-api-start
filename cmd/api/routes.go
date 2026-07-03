@@ -20,7 +20,7 @@ func (app *Application) routes() http.Handler {
 
 	// Global middleware
 	r.Use(middleware.RequestID)
-	r.Use(customMiddleware.TracingMiddleware)
+	r.Use(customMiddleware.TelemetryMiddleware)
 	r.Use(customMiddleware.LoggingMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(customMiddleware.Cors(app.Config))

@@ -3,10 +3,14 @@ package logger
 import (
 	"context"
 	"log/slog"
+)
 
-	customMiddleware "bonfire-api/internal/middleware"
+// Define local context keys or string-based lookups to avoid tight coupling.
+type CtxKey string
 
-	"github.com/go-chi/chi/v5/middleware"
+const (
+	ReqIDKey   CtxKey = "request_id"
+	TraceIDKey CtxKey = "trace_id"
 )
 
 // Handler wraps a slog.Handler and injects HTTP data into logs.
@@ -21,12 +25,14 @@ func NewHandler(handler slog.Handler) *Handler {
 
 // Handle overrides the default log writer to inject attributes from the request context.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	if reqID := middleware.GetReqID(ctx); reqID != "" {
+	if reqID, ok := ctx.Value(ReqIDKey).(string); ok && reqID != "" {
 		r.AddAttrs(slog.String("request_id", reqID))
 	}
-	if traceID := customMiddleware.GetTraceID(ctx); traceID != "" {
+
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
 		r.AddAttrs(slog.String("trace_id", traceID))
 	}
+
 	return h.Handler.Handle(ctx, r)
 }
 

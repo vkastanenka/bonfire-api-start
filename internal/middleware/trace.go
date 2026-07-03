@@ -5,24 +5,33 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+
+	"bonfire-api/internal/logger" // Import your standalone logger
+
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
-type contextKey string
-
-const TraceIDKey contextKey = "trace_id"
-
-func TracingMiddleware(next http.Handler) http.Handler {
+// TelemetryMiddleware unifies request tracking and trace mapping into the logging context.
+func TelemetryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// 1. Extract Chi's Request ID and map it to the logger's generic key
+		if reqID := chiMiddleware.GetReqID(ctx); reqID != "" {
+			ctx = context.WithValue(ctx, logger.ReqIDKey, reqID)
+		}
+
+		// 2. Handle the Trace ID logic
 		traceID := r.Header.Get("X-Trace-ID")
 		if traceID == "" {
 			traceID = generateW3CTraceID()
 		}
-
-		// Keep the header in sync so downstream services called by this API can forward it
 		r.Header.Set("X-Trace-ID", traceID)
 
-		// Inject into context so slog and your handlers can access it natively
-		ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
+		// Map the Trace ID to the logger's generic key
+		ctx = context.WithValue(ctx, logger.TraceIDKey, traceID)
+
+		// Pass the adapted context down the chain
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -33,9 +42,9 @@ func generateW3CTraceID() string {
 	return hex.EncodeToString(b)
 }
 
-// GetTraceID fetches the active trace identity from a context safely
+// GetTraceID remains handy for internal services needing to fetch the string directly
 func GetTraceID(ctx context.Context) string {
-	if v, ok := ctx.Value(TraceIDKey).(string); ok {
+	if v, ok := ctx.Value(logger.TraceIDKey).(string); ok {
 		return v
 	}
 	return ""

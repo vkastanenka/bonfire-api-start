@@ -92,8 +92,8 @@ func run(cfg *config.Config) error {
 	store := repository.NewStore(pdbPool)
 
 	// Setup helper services
-	redisManager := redis.NewManager(rdbClient)
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
+	redisManager := redis.NewManager(rdbClient)
 	tokenService := token.NewService(
 		cfg.AccessSecret,
 		cfg.RefreshSecret,

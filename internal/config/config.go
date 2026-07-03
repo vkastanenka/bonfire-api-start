@@ -39,6 +39,14 @@ type Config struct {
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
+// String prevent leaks of sensitive credentials if the config is ever printed.
+func (c *Config) String() string {
+	return fmt.Sprintf(
+		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",
+		c.AppEnv, c.Port, c.CORSAllowedOrigins,
+	)
+}
+
 // IsDevelopment returns true if the application is running in development.
 func (c *Config) IsDevelopment() bool {
 	return c.AppEnv == "development"
@@ -104,12 +112,4 @@ func (c *Config) normalizeEnv() {
 	if c.AppEnv == "" {
 		c.AppEnv = "development"
 	}
-}
-
-// String prevent leaks of sensitive credentials if the config is ever printed.
-func (c *Config) String() string {
-	return fmt.Sprintf(
-		"AppEnv: %s | Port: %s | DatabaseURL: [REDACTED] | RedisURL: [REDACTED] | CORSAllowedOrigins: %v",
-		c.AppEnv, c.Port, c.CORSAllowedOrigins,
-	)
 }
