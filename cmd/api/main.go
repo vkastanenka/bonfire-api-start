@@ -115,7 +115,6 @@ func run(cfg *config.Config) error {
 
 	// Setup presentation layer
 	authHandler := auth.NewHandler(authService)
-	userHandler := user.NewHandler(userService)
 
 	// Setup application container
 	app := &Application{
@@ -124,11 +123,9 @@ func run(cfg *config.Config) error {
 		Redis:       rdbClient,
 		RateLimiter: rateLimiter,
 		Handlers: struct {
-			Auth  *auth.Handler
-			Users *user.Handler
+			Auth *auth.Handler
 		}{
-			Auth:  authHandler,
-			Users: userHandler,
+			Auth: authHandler,
 		},
 		Services: struct {
 			Token *token.Service

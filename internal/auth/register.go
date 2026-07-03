@@ -4,15 +4,11 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/profile"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/user"
-	"bonfire-api/internal/worker"
 	"context"
 	"net/http"
-
-	"github.com/google/uuid"
 )
 
 // --- REFRESH CONSTANTS ---
@@ -70,8 +66,8 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User    user.View    `json:"user"`
-	Profile profile.View `json:"profile"`
+	User    user.View        `json:"user"`
+	Profile user.ProfileView `json:"user_profile"`
 }
 
 // --- REGISTER HANDLER ---
@@ -113,7 +109,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		Username: r.Username,
 	})
 	if err != nil {
-		return RegisterResult{}, repository.NewError(err, repository.DomainUser)
+		return RegisterResult{}, repository.NewError(err, repository.ScopeUser)
 	}
 
 	// Cleanly handle conflict
@@ -138,13 +134,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.DomainUser)
-		}
-
-		// Generate token
-		verificationToken, err := s.token.GenerateVerification(uuid.UUID(userRow.ID.Bytes), int(userRow.SecurityVersion))
-		if err != nil {
-			return apperr.NewInternal(err, "")
+			return repository.NewError(err, repository.ScopeUser)
 		}
 
 		// Set display name
@@ -154,27 +144,17 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		}
 
 		// Create profile
-		profileRow, err := qtx.ProfileCreate(persistCtx, repository.ProfileCreateParams{
+		userProfileRow, err := qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.DomainProfile)
-		}
-
-		// Create register event
-		err = worker.EmitRegister(persistCtx, qtx, worker.RegisterPayload{
-			Email:    userRow.Email,
-			Username: userRow.Username,
-			Token:    verificationToken,
-		})
-		if err != nil {
-			return repository.NewError(err, repository.DomainOutboxEvent)
+			return repository.NewError(err, repository.ScopeProfile)
 		}
 
 		result = RegisterResult{
 			User:    user.NewView(userRow),
-			Profile: profile.NewView(profileRow),
+			Profile: user.NewProfileView(userProfileRow),
 		}
 
 		return nil

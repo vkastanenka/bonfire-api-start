@@ -9,22 +9,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Domain represents an explicit database domain resource.
-type Domain string
+// Scope represents an explicit database domain resource.
+type Scope string
 
 const (
-	DomainChannel       Domain = "channel"
-	DomainDeleteRequest Domain = "delete_request"
-	DomainGuild         Domain = "guild"
-	DomainMessage       Domain = "message"
-	DomainOutboxEvent   Domain = "outbox_event"
-	DomainProfile       Domain = "profile"
-	DomainRelationship  Domain = "relationship"
-	DomainSession       Domain = "session"
-	DomainUser          Domain = "user"
+	ScopeProfile Scope = "profile"
+	ScopeSession Scope = "session"
+	ScopeUser    Scope = "user"
 )
 
-func (r Domain) String() string {
+func (r Scope) String() string {
 	return string(r)
 }
 
@@ -38,7 +32,7 @@ func IsNotFoundError(err error) bool {
 }
 
 // NewError converts native pgx/postgres driver faults into domain apperr classifications.
-func NewError(err error, domain Domain) error {
+func NewError(err error, scope Scope) error {
 	if err == nil {
 		return nil
 	}
@@ -51,7 +45,7 @@ func NewError(err error, domain Domain) error {
 
 	// Intercept "Not Found" exceptions
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", domain))
+		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", scope))
 	}
 
 	// Inspect specific structural PostgreSQL constraints
@@ -59,9 +53,9 @@ func NewError(err error, domain Domain) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
-			return apperr.NewConflict(err, fmt.Sprintf("A conflict occurred. This %s already exists.", domain))
+			return apperr.NewConflict(err, fmt.Sprintf("A conflict occurred. This %s already exists.", scope))
 		case "23503": // foreign_key_violation
-			return apperr.NewInvalidInput(err, fmt.Sprintf("A referenced %s record does not exist.", domain))
+			return apperr.NewInvalidInput(err, fmt.Sprintf("A referenced %s record does not exist.", scope))
 		case "23502": // not_null_violation
 			return apperr.NewInvalidInput(err, "A required field is missing.")
 		case "23514": // check_violation

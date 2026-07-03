@@ -5,237 +5,37 @@
 package repository
 
 import (
-	"database/sql/driver"
-	"fmt"
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type UserRole string
-
-const (
-	UserRoleUser  UserRole = "user"
-	UserRoleAdmin UserRole = "admin"
-)
-
-func (e *UserRole) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = UserRole(s)
-	case string:
-		*e = UserRole(s)
-	default:
-		return fmt.Errorf("unsupported scan type for UserRole: %T", src)
-	}
-	return nil
-}
-
-type NullUserRole struct {
-	UserRole UserRole `json:"user_role"`
-	Valid    bool     `json:"valid"` // Valid is true if UserRole is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullUserRole) Scan(value interface{}) error {
-	if value == nil {
-		ns.UserRole, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.UserRole.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullUserRole) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.UserRole), nil
-}
-
-type UserStatus string
-
-const (
-	UserStatusActive    UserStatus = "active"
-	UserStatusSuspended UserStatus = "suspended"
-)
-
-func (e *UserStatus) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = UserStatus(s)
-	case string:
-		*e = UserStatus(s)
-	default:
-		return fmt.Errorf("unsupported scan type for UserStatus: %T", src)
-	}
-	return nil
-}
-
-type NullUserStatus struct {
-	UserStatus UserStatus `json:"user_status"`
-	Valid      bool       `json:"valid"` // Valid is true if UserStatus is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullUserStatus) Scan(value interface{}) error {
-	if value == nil {
-		ns.UserStatus, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.UserStatus.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullUserStatus) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.UserStatus), nil
-}
-
-type Channel struct {
-	ID        pgtype.UUID        `json:"id"`
-	Type      int16              `json:"type"`
-	GuildID   pgtype.UUID        `json:"guild_id"`
-	Name      pgtype.Text        `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type ChannelMember struct {
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type DeleteRequest struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
-}
-
-type Guild struct {
-	ID        pgtype.UUID        `json:"id"`
-	OwnerID   pgtype.UUID        `json:"owner_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type GuildMember struct {
-	GuildID   pgtype.UUID        `json:"guild_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type GuildMemberRole struct {
-	GuildID pgtype.UUID `json:"guild_id"`
-	UserID  pgtype.UUID `json:"user_id"`
-	RoleID  pgtype.UUID `json:"role_id"`
-}
-
-type GuildProfile struct {
-	GuildID     pgtype.UUID        `json:"guild_id"`
-	Name        string             `json:"name"`
-	IconUrl     pgtype.Text        `json:"icon_url"`
-	BannerHex   pgtype.Text        `json:"banner_hex"`
-	Description pgtype.Text        `json:"description"`
-	Visibility  int16              `json:"visibility"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type GuildRole struct {
-	ID          pgtype.UUID        `json:"id"`
-	GuildID     pgtype.UUID        `json:"guild_id"`
-	Name        string             `json:"name"`
-	ColorHex    pgtype.Text        `json:"color_hex"`
-	Permissions int64              `json:"permissions"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type Message struct {
-	ID        pgtype.UUID        `json:"id"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-	Content   string             `json:"content"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-}
-
-type OutboxEvent struct {
-	ID            pgtype.UUID        `json:"id"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	EventType     string             `json:"event_type"`
-	Payload       []byte             `json:"payload"`
-	ProcessedAt   pgtype.Timestamptz `json:"processed_at"`
-	Attempts      int32              `json:"attempts"`
-	MaxAttempts   int32              `json:"max_attempts"`
-	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError     pgtype.Text        `json:"last_error"`
-}
-
-type Profile struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DisplayName string             `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
-}
-
-type Relationship struct {
-	User1ID   pgtype.UUID        `json:"user1_id"`
-	User2ID   pgtype.UUID        `json:"user2_id"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	Type      int16              `json:"type"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type RelationshipPerspective struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	PeerID      pgtype.UUID        `json:"peer_id"`
-	Type        int16              `json:"type"`
-	ActorID     pgtype.UUID        `json:"actor_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Username    string             `json:"username"`
-	DisplayName string             `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
-	UserStatus  UserStatus         `json:"user_status"`
-	ChannelID   pgtype.UUID        `json:"channel_id"`
-}
-
 type Session struct {
 	ID           pgtype.UUID        `json:"id"`
 	UserID       pgtype.UUID        `json:"user_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	RefreshToken string             `json:"refresh_token"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
-	RefreshToken string             `json:"refresh_token"`
 	IsBlocked    bool               `json:"is_blocked"`
 	ClientIP     netip.Addr         `json:"client_ip"`
 	UserAgent    string             `json:"user_agent"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {
-	ID                     pgtype.UUID        `json:"id"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	PasswordHash           string             `json:"password_hash"`
-	IsTotpEnabled          bool               `json:"is_totp_enabled"`
-	TotpSecret             pgtype.Text        `json:"totp_secret"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	LastVerificationSentAt pgtype.Timestamptz `json:"last_verification_sent_at"`
-	SecurityVersion        int32              `json:"security_version"`
-	Role                   UserRole           `json:"role"`
-	Status                 UserStatus         `json:"status"`
+	ID           pgtype.UUID        `json:"id"`
+	Email        string             `json:"email"`
+	Username     string             `json:"username"`
+	PasswordHash string             `json:"password_hash"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UserProfile struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
