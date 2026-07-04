@@ -11,7 +11,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config holds all application configuration variables.
 type Config struct {
 	AppEnv               string        `env:"APP_ENV" envDefault:"development"`
 	Port                 string        `env:"PORT" envDefault:":8080"`
@@ -46,40 +45,32 @@ type Config struct {
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
-// IsDevelopment returns true if the application is running in development.
 func (c *Config) IsDevelopment() bool {
 	return c.AppEnv == "development"
 }
 
-// IsStaging returns true if the application is running in staging.
 func (c *Config) IsStaging() bool {
 	return c.AppEnv == "staging"
 }
 
-// IsProduction returns true if the application is running in production.
 func (c *Config) IsProduction() bool {
 	return c.AppEnv == "production"
 }
 
-// Load parses and validates environment variables into the Config struct.
 func Load() (*Config, error) {
-	// Attempt to load .env file; ignore failure if it doesn't exist
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to load .env file: %w", err)
 	}
 
 	var cfg Config
 
-	// Parse environment variables into struct
 	if err := env.Parse(&cfg); err != nil {
 		return nil, fmt.Errorf("configuration parsing error: %w", err)
 	}
 
-	// Sanitize
 	cfg.normalizePort()
 	cfg.normalizeEnv()
 
-	// Validate
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation error: %w", err)
 	}
@@ -87,7 +78,6 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// validate enforces business constraints.
 func (c *Config) validate() error {
 	if c.ResendApiKey != "" {
 		if c.EmailFromAddress == "" || c.FrontendURL == "" {
@@ -97,7 +87,6 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// normalizePort ensures the port always starts with a colon, handling both "8080" and ":8080".
 func (c *Config) normalizePort() {
 	c.Port = strings.TrimSpace(c.Port)
 	if c.Port != "" && !strings.HasPrefix(c.Port, ":") {
@@ -105,7 +94,6 @@ func (c *Config) normalizePort() {
 	}
 }
 
-// normalizeEnv normalizes the environment string.
 func (c *Config) normalizeEnv() {
 	c.AppEnv = strings.ToLower(strings.TrimSpace(c.AppEnv))
 	if c.AppEnv == "" {

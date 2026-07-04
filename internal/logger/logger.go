@@ -15,8 +15,6 @@ func Init(cfg Config) {
 		Level:     cfg.Level,
 		AddSource: cfg.AddSource,
 	})
-
 	handler := NewHandler(jsonHandler)
-
 	slog.SetDefault(slog.New(handler))
 }
