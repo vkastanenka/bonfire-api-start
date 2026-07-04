@@ -83,10 +83,10 @@ type LoginRes struct {
 // Login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 	// Get JSON
-	req, err := httpio.BindJSON[LoginReq](w, r)
-	if err != nil {
-		return err
-	}
+	req, err := httpio.BindJSON(w, r, func(req *LoginReq) error {
+		req.Sanitize()
+		return nil
+	})
 
 	// Get client meta
 	clientMeta := httpio.GetClientMeta(r, false)
@@ -148,9 +148,6 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
-		UserAgent:    r.Meta.UserAgent,
-		ClientIP:     r.Meta.IP,
-		IsBlocked:    false,
 		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
 	})
 	if err != nil {

@@ -75,17 +75,17 @@ type RegisterResult struct {
 // Register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
-	reqData, err := httpio.BindJSON[RegisterReq](w, r)
-	if err != nil {
-		return err
-	}
+	req, err := httpio.BindJSON(w, r, func(req *RegisterReq) error {
+		req.Sanitize()
+		return nil
+	})
 
 	// Register user
 	data, err := h.service.Register(r.Context(), RegisterParams{
-		Email:       reqData.Email,
-		Username:    reqData.Username,
-		DisplayName: reqData.DisplayName,
-		Password:    reqData.Password,
+		Email:       req.Email,
+		Username:    req.Username,
+		DisplayName: req.DisplayName,
+		Password:    req.Password,
 	})
 	if err != nil {
 		return err

@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"net/netip"
 	"time"
 
 	"bonfire-api/internal/repository"
@@ -31,9 +30,6 @@ type CreateParams struct {
 	ID           uuid.UUID
 	UserID       uuid.UUID
 	RefreshToken string
-	UserAgent    string
-	ClientIP     netip.Addr
-	IsBlocked    bool
 	ExpiresAt    time.Time
 }
 
@@ -42,9 +38,6 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		ID:           pgtype.UUID{Bytes: p.ID, Valid: true},
 		UserID:       pgtype.UUID{Bytes: p.UserID, Valid: true},
 		RefreshToken: p.RefreshToken,
-		UserAgent:    p.UserAgent,
-		ClientIP:     p.ClientIP,
-		IsBlocked:    p.IsBlocked,
 		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {

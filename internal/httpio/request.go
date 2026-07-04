@@ -231,15 +231,16 @@ func GetQueryString(r *http.Request, key string, defaultValue string) string {
 
 // --- REQUEST BINDING FUNCTIONS ---
 
-// BindJSON
-func BindJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
+func BindJSON[T any](w http.ResponseWriter, r *http.Request, processor func(*T) error) (T, error) {
 	var req T
 	if err := DecodeJSON(w, r, &req); err != nil {
 		return req, err
 	}
 
-	if s, ok := any(&req).(Sanitizable); ok {
-		s.Sanitize()
+	if processor != nil {
+		if err := processor(&req); err != nil {
+			return req, err
+		}
 	}
 
 	if err := validate(&req); err != nil {
