@@ -10,40 +10,31 @@ import (
 	"net/http"
 )
 
-// --- REFRESH CONSTANTS ---
-
-// Messages
-const (
-	msgRegisterSuccess = "register_success"
-)
-
-// Errors
-const (
-	errEmailTaken       = "Email taken."
-	errUsernameTaken    = "Username taken."
-	errCredentialsTaken = "Email and/or username taken."
-)
-
-// --- REFRESH ERRORS ---
-
-func NewRegisterConflictError(emailAvailable, usernameAvailable bool) error {
-	var opts []apperr.ErrorOption
-
-	if !emailAvailable {
-		opts = append(opts, apperr.Param("email", errEmailTaken))
-	}
-	if !usernameAvailable {
-		opts = append(opts, apperr.Param("username", errUsernameTaken))
-	}
-
-	return apperr.NewConflict(nil, errCredentialsTaken, opts...)
-}
-
 type RegisterReq struct {
 	Email       string  `json:"email" mod:"email" validate:"identity_email"`
 	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
 	Username    string  `json:"username" mod:"text" validate:"identity_username"`
 	Password    string  `json:"password" validate:"security_password"`
+}
+
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpio.BindJSON[RegisterReq](w, r)
+	if err != nil {
+		return err
+	}
+
+	data, err := h.service.Register(r.Context(), RegisterParams{
+		Email:       req.Email,
+		Username:    req.Username,
+		DisplayName: req.DisplayName,
+		Password:    req.Password,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondCreated(w, r, data)
+	return nil
 }
 
 type RegisterParams struct {
@@ -58,40 +49,9 @@ type RegisterResult struct {
 	Profile user.ProfileView `json:"user_profile"`
 }
 
-// --- REGISTER HANDLER ---
-
-// Register
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
-	// Bind JSON
-	req, err := httpio.BindJSON[RegisterReq](w, r)
-	if err != nil {
-		return err
-	}
-
-	// Register user
-	data, err := h.service.Register(r.Context(), RegisterParams{
-		Email:       req.Email,
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Respond
-	httpio.RespondCreated(w, r, data)
-	return nil
-}
-
-// --- REGISTER SERVICE ---
-
-// Register
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
-	// Define result
 	var result RegisterResult
 
-	// Check if credentials are available
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    r.Email,
 		Username: r.Username,
@@ -100,22 +60,27 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, repository.NewError(err, repository.ScopeUser)
 	}
 
-	// Cleanly handle conflict
 	if !availability.EmailAvailable || !availability.UsernameAvailable {
-		return RegisterResult{}, NewRegisterConflictError(availability.EmailAvailable, availability.UsernameAvailable)
+		var opts []apperr.ErrorOption
+
+		if !availability.EmailAvailable {
+			opts = append(opts, apperr.Param("email", "Email unavailable."))
+		}
+		if !availability.UsernameAvailable {
+			opts = append(opts, apperr.Param("username", "Username unavailable."))
+		}
+
+		return RegisterResult{}, apperr.NewConflict(nil, "Email and/or username unavailable.", opts...)
 	}
 
-	// Hash password
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 	passwordHash := string(hashedPasswordBytes)
 
-	// Execute DB tx
 	persistCtx := context.WithoutCancel(ctx)
 	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
-		// Create user
 		userRow, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
 			Email:        r.Email,
 			Username:     r.Username,
@@ -125,13 +90,11 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			return repository.NewError(err, repository.ScopeUser)
 		}
 
-		// Set display name
 		displayName := r.Username
 		if r.DisplayName != nil && *r.DisplayName != "" {
 			displayName = *r.DisplayName
 		}
 
-		// Create profile
 		userProfileRow, err := qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
 			UserID:      userRow.ID,
 			DisplayName: displayName,
@@ -148,11 +111,9 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return nil
 	})
 
-	// Handle tx errors
 	if txErr != nil {
 		return RegisterResult{}, txErr
 	}
 
-	// Return result
 	return result, nil
 }
