@@ -75,6 +75,10 @@ func RespondError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	}
 
+	// // Crucial RFC 7807 requirement:
+	// w.Header().Set("Content-Type", "application/problem+json")
+	// w.WriteHeader(status)
+
 	status, resp := MapToProblemDetails(r, appErr)
 	logError(r, appErr, resp, err)
 	RespondJSON(w, r, status, resp)
