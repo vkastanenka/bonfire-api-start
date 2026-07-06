@@ -131,5 +131,5 @@ func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, origin
 		args = append(args, "invalid_params", appErr.InvalidParams)
 	}
 
-	slog.Log(r.Context(), level, errHTTPReqFailed, args...)
+	slog.Log(r.Context(), level, "http request failed", args...)
 }

@@ -27,8 +27,6 @@ type contextKey string
 
 const clientMetaKey contextKey = "client_metadata"
 
-var errMissingClientMeta = errors.New("client metadata missing from request context")
-
 type ClientMeta struct {
 	IP        netip.Addr
 	UserAgent string
@@ -51,7 +49,7 @@ func ClientTelemetry(trustProxy bool) func(http.Handler) http.Handler {
 func GetMeta(ctx context.Context) (ClientMeta, error) {
 	meta, ok := ctx.Value(clientMetaKey).(ClientMeta)
 	if !ok {
-		return ClientMeta{IP: netip.IPv4Unspecified()}, errMissingClientMeta
+		return ClientMeta{IP: netip.IPv4Unspecified()}, errors.New("client metadata missing from request context")
 	}
 	return meta, nil
 }
