@@ -14,6 +14,11 @@ import (
 
 var (
 	formDecoder = form.NewDecoder()
+	pathDecoder = func() *form.Decoder {
+		d := form.NewDecoder()
+		d.SetTagName("path")
+		return d
+	}()
 	validator   = goValidator.New()
 	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
 )
