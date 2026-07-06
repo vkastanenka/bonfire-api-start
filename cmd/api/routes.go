@@ -16,9 +16,10 @@ func (app *Application) routes() http.Handler {
 	r.Use(httpio.CORS(app.Config))
 	r.Use(middleware.RequestID)
 	r.Use(httpio.Trace)
+	r.Use(httpio.ClientTelemetry(app.Config.TrustProxy))
 	r.Use(httpio.Logger)
-	r.Use(middleware.Timeout(app.Config.RequestTimeout))
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(app.Config.RequestTimeout))
 	r.Use(httpio.SecurityHeaders)
 
 	r.Route("/api/v1", func(api chi.Router) {

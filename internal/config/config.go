@@ -14,6 +14,7 @@ import (
 type Config struct {
 	AppEnv               string        `env:"APP_ENV" envDefault:"development"`
 	Port                 string        `env:"PORT" envDefault:":8080"`
+	TrustProxy           bool          `env:"TRUST_PROXY" envDefault:"false"`
 	TokenIssuer          string        `env:"TOKEN_ISSUER" envDefault:"bonfire-api"`
 	AccessSecret         string        `env:"JWT_ACCESS_SECRET,required"`
 	RefreshSecret        string        `env:"JWT_REFRESH_SECRET,required"`

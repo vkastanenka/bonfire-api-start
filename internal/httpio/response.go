@@ -10,10 +10,8 @@ import (
 	"sync"
 )
 
-// --- RESPONSE CONSTANTS ---
-
 const (
-	ErrHTTPReqFailed = "http request failed"
+	errHTTPReqFailed = "http request failed"
 )
 
 var bufferPool = sync.Pool{
@@ -21,8 +19,6 @@ var bufferPool = sync.Pool{
 		return bytes.NewBuffer(make([]byte, 0, 2048))
 	},
 }
-
-// --- RESPONSE TYPES ---
 
 type SuccessResponse[T any] struct {
 	Message string `json:"message,omitempty"`
@@ -35,9 +31,6 @@ type CursorPagination struct {
 	PageSize   int32   `json:"page_size"`
 }
 
-// --- RESPONSE ADAPTERS ---
-
-// ToHTTP wraps handlers that return an error to centralize response/logging logic
 func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := h(w, r); err != nil {
@@ -45,8 +38,6 @@ func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		}
 	}
 }
-
-// --- RESPONSE FUNCTIONS ---
 
 func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
 	const maxPoolBufferCapacity = 64 * 1024
@@ -74,9 +65,7 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interf
 	_, _ = w.Write(buf.Bytes())
 }
 
-// RespondError
 func RespondError(w http.ResponseWriter, r *http.Request, err error) {
-	// 1. Identify/Normalize error (Only use reflection once)
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) {
 		appErr = &apperr.Error{
@@ -86,13 +75,8 @@ func RespondError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	}
 
-	// 2. Map domain error onto a request-scoped payload (Thread-Safe!)
 	status, resp := MapToProblemDetails(r, appErr)
-
-	// 3. Log using the original context values and tracking IDs
 	logError(r, appErr, resp, err)
-
-	// 4. Respond
 	RespondJSON(w, r, status, resp)
 }
 
@@ -122,8 +106,6 @@ func RespondNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- RESPONSE HELPERS ---
-
 func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, originalErr error) {
 	level := slog.LevelInfo
 	if appErr.Code == apperr.CodeInternal {
@@ -145,5 +127,5 @@ func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, origin
 		args = append(args, "invalid_params", appErr.InvalidParams)
 	}
 
-	slog.Log(r.Context(), level, ErrHTTPReqFailed, args...)
+	slog.Log(r.Context(), level, errHTTPReqFailed, args...)
 }

@@ -9,9 +9,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-var BaseDocURL = "https://api.bonfire.com/errors"
+var baseDocURL = "https://api.bonfire.com/errors"
 
-// ProblemDetails represents the transient, JSON-serialized RFC 7807 response
 type ProblemDetails struct {
 	Type          string                `json:"type"`
 	Title         string                `json:"title"`
@@ -25,7 +24,6 @@ type ProblemDetails struct {
 	TraceID       string                `json:"trace_id"`
 }
 
-// MapToProblemDetails extracts core error data and hydrates request contextual fields safely
 func MapToProblemDetails(r *http.Request, err *apperr.Error) (int, ProblemDetails) {
 	status := err.Code.Status()
 
@@ -40,7 +38,7 @@ func MapToProblemDetails(r *http.Request, err *apperr.Error) (int, ProblemDetail
 	}
 
 	payload := ProblemDetails{
-		Type:          fmt.Sprintf("%s/%s", BaseDocURL, err.Code.Slug()),
+		Type:          fmt.Sprintf("%s/%s", baseDocURL, err.Code.Slug()),
 		Title:         err.Code.Title(),
 		Status:        status,
 		Detail:        detail,

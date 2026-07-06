@@ -78,20 +78,17 @@ type LoginRes struct {
 	AccessToken string `json:"access_token"`
 }
 
-// --- LOGIN HANDLER ---
-
-// Login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
-	// Get JSON
 	req, err := httpio.BindJSON(w, r, func(req *LoginReq) error {
 		req.Sanitize()
 		return nil
 	})
 
-	// Get client meta
-	clientMeta := httpio.GetClientMeta(r, false)
+	clientMeta, err := httpio.GetMeta(r.Context())
+	if err != nil {
+		return err
+	}
 
-	// Login user, get tokens
 	tokens, err := h.service.Login(r.Context(), LoginParams{
 		Email:    req.Email,
 		Password: req.Password,
@@ -101,49 +98,36 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Repond with tokens
 	httpio.SetCookieRefreshToken(w, tokens.RefreshToken)
 	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken}, msgLoginSuccess)
 	return nil
 }
 
-// --- LOGIN SERVICE ---
-
-// Login
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
-	// Get user auth
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
-		// Handle not found
 		if apperr.IsNotFound(err) {
 			return LoginResult{}, newLoginCredentialsError()
 		}
-
-		// Handle rest
 		return LoginResult{}, err
 	}
 
-	// Check password
 	if err = crypto.ComparePassword(userAuth.PasswordHash, r.Password); err != nil {
 		return LoginResult{}, newLoginCredentialsError()
 	}
 
-	// Generate session id
 	userSessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
-	// Generate token pair
 	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, userSessionID)
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
-	// Create persist context
 	persistCtx := context.WithoutCancel(ctx)
 
-	// Create user session
 	_, err = s.session.Create(persistCtx, session.CreateParams{
 		ID:           userSessionID,
 		UserID:       userAuth.ID,
@@ -154,7 +138,6 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	// Return the tokens
 	return LoginResult{
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
