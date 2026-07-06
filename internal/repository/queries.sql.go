@@ -80,20 +80,26 @@ func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvaila
 }
 
 const userCreate = `-- name: UserCreate :one
-INSERT INTO users(email, username, password_hash)
-    VALUES ($1, $2, $3)
+INSERT INTO users(id, email, username, password_hash)
+    VALUES ($1, $2, $3, $4)
 RETURNING
     id, email, username, password_hash, created_at, updated_at
 `
 
 type UserCreateParams struct {
-	Email        string `json:"email"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"password_hash"`
+	ID           pgtype.UUID `json:"id"`
+	Email        string      `json:"email"`
+	Username     string      `json:"username"`
+	PasswordHash string      `json:"password_hash"`
 }
 
 func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
-	row := q.db.QueryRow(ctx, userCreate, arg.Email, arg.Username, arg.PasswordHash)
+	row := q.db.QueryRow(ctx, userCreate,
+		arg.ID,
+		arg.Email,
+		arg.Username,
+		arg.PasswordHash,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,

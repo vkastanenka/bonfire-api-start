@@ -1,6 +1,7 @@
 package user
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -21,13 +22,27 @@ func NewService(store Store) *Service {
 }
 
 type CreateParams struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	ID       *uuid.UUID `json:"id,omitempty"`
+	Email    string     `json:"email"`
+	Username string     `json:"username"`
+	Password string     `json:"password"`
 }
 
 func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
+	var targetID uuid.UUID
+
+	if p.ID != nil {
+		targetID = *p.ID
+	} else {
+		var err error
+		targetID, err = uuid.NewV7()
+		if err != nil {
+			return View{}, apperr.NewInternal(err, "")
+		}
+	}
+
 	row, err := s.store.UserCreate(ctx, repository.UserCreateParams{
+		ID:           pgtype.UUID{Bytes: targetID, Valid: true},
 		Email:        p.Email,
 		Username:     p.Username,
 		PasswordHash: p.Password,

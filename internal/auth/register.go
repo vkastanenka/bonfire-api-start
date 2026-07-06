@@ -90,13 +90,35 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 	}
 	passwordHash := string(hashedPasswordBytes)
 
-	var userView user.View
+	userID, err := uuid.NewV7()
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
+	tokenPair, err := s.token.GenerateTokenPair(userID, sessionID)
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
+	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
+
+	displayName := r.Username
+	if r.DisplayName != nil && *r.DisplayName != "" {
+		displayName = *r.DisplayName
+	}
+
 	persistCtx := context.WithoutCancel(ctx)
 	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
 		txUserService := user.NewService(qtx)
+		txSessionService := session.NewService(qtx)
 
-		var err error
-		userView, err = txUserService.Create(persistCtx, user.CreateParams{
+		_, err := txUserService.Create(persistCtx, user.CreateParams{
+			ID:       &userID,
 			Email:    r.Email,
 			Username: r.Username,
 			Password: passwordHash,
@@ -105,14 +127,19 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			return err
 		}
 
-		displayName := r.Username
-		if r.DisplayName != nil && *r.DisplayName != "" {
-			displayName = *r.DisplayName
+		_, err = txUserService.CreateProfile(persistCtx, user.CreateProfileParams{
+			UserID:      userID,
+			DisplayName: displayName,
+		})
+		if err != nil {
+			return err
 		}
 
-		_, err = txUserService.CreateProfile(persistCtx, user.CreateProfileParams{
-			UserID:      userView.ID,
-			DisplayName: displayName,
+		_, err = txSessionService.Create(persistCtx, session.CreateParams{
+			ID:           &sessionID,
+			UserID:       userID,
+			RefreshToken: hashedRefreshToken,
+			ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
 		})
 		if err != nil {
 			return err
@@ -123,28 +150,6 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 
 	if txErr != nil {
 		return RegisterResult{}, txErr
-	}
-
-	userSessionID, err := uuid.NewV7()
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
-
-	tokenPair, err := s.token.GenerateTokenPair(userView.ID, userSessionID)
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
-
-	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
-
-	_, err = s.session.Create(persistCtx, session.CreateParams{
-		ID:           userSessionID,
-		UserID:       userView.ID,
-		RefreshToken: hashedRefreshToken,
-		ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
-	})
-	if err != nil {
-		return RegisterResult{}, err
 	}
 
 	return RegisterResult{

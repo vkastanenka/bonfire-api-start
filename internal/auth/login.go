@@ -124,7 +124,7 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	persistCtx := context.WithoutCancel(ctx)
 
 	_, err = s.session.Create(persistCtx, session.CreateParams{
-		ID:           userSessionID,
+		ID:           &userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
