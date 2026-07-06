@@ -7,6 +7,14 @@ import (
 	"bonfire-api/internal/user"
 )
 
+type Handler struct {
+	service *Service
+}
+
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
+
 type Service struct {
 	store   repository.Store
 	token   *token.Manager
