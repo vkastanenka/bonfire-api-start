@@ -30,13 +30,13 @@ func (app *Application) routes() http.Handler {
 				Scope:  httpio.RateLimitScopePublic,
 			}))
 
-			publicAuth.Post("/auth/login", httpio.ToHTTP(app.Handlers.Auth.Login))
-			publicAuth.Post("/auth/register", httpio.ToHTTP(app.Handlers.Auth.Register))
+			publicAuth.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
+			publicAuth.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
 		})
 	})
 
-	r.NotFound(httpio.ToHTTP(app.notFoundHandler))
-	r.MethodNotAllowed(httpio.ToHTTP(app.methodNotAllowedHandler))
+	r.NotFound(httpio.ToHTTPErr(app.notFoundHandler))
+	r.MethodNotAllowed(httpio.ToHTTPErr(app.methodNotAllowedHandler))
 
 	return r
 }

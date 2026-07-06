@@ -208,7 +208,7 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 					Err:    fmt.Errorf("rate limit exceeded for ip: %s", ip),
 				}
 
-				RespondError(w, r, rateLimitErr)
+				respondError(w, r, rateLimitErr)
 				return
 			}
 

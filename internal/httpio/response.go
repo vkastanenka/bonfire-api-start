@@ -11,39 +11,59 @@ import (
 )
 
 const (
-	errHTTPReqFailed = "http request failed"
+	contentTypeJSON    = "application/json"
+	contentTypeProblem = "application/problem+json"
 )
 
 var bufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 2048))
 	},
 }
 
-type SuccessResponse[T any] struct {
-	Message string `json:"message,omitempty"`
-	Data    T      `json:"data"`
-	Meta    any    `json:"meta,omitempty"`
+func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T) {
+	respondJSON(w, r, http.StatusOK, data)
 }
 
-type CursorPagination struct {
-	NextCursor *string `json:"next_cursor,omitempty"`
-	PageSize   int32   `json:"page_size"`
+func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T) {
+	respondJSON(w, r, http.StatusCreated, data)
 }
 
-func ToHTTP(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+func RespondNoContent(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func respondJSON(w http.ResponseWriter, r *http.Request, status int, data any) {
+	writeJSON(w, r, status, contentTypeJSON, data)
+}
+
+func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := h(w, r); err != nil {
-			RespondError(w, r, err)
+			respondError(w, r, err)
 		}
 	}
 }
 
-func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+func respondError(w http.ResponseWriter, r *http.Request, err error) {
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		appErr = &apperr.Error{
+			Code:   apperr.CodeInternal,
+			Detail: "An unexpected error occurred on our end.",
+			Err:    err,
+		}
+	}
+
+	status, resp := MapToProblemDetails(r, appErr)
+	logError(r, appErr, resp, err)
+
+	writeJSON(w, r, status, contentTypeProblem, resp)
+}
+
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType string, data any) {
 	const maxPoolBufferCapacity = 64 * 1024
 	ctx := r.Context()
-
-	w.Header().Set("Content-Type", "application/json")
 
 	buf := bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
@@ -55,59 +75,20 @@ func RespondJSON(w http.ResponseWriter, r *http.Request, status int, data interf
 	}()
 
 	if err := json.NewEncoder(buf).Encode(data); err != nil {
-		slog.ErrorContext(ctx, "failed to encode json response", "error", err)
+		slog.ErrorContext(ctx, "failed to encode json response payload",
+			"error", err,
+			"http.path", r.URL.Path,
+		)
+
+		w.Header().Set("Content-Type", contentTypeProblem)
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error":"INTERNAL","message":"An unexpected error occurred."}`))
+		_, _ = w.Write([]byte(`{"type":"https://api.bonfire.com/errors/internal","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred during payload encoding."}`))
 		return
 	}
 
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
-}
-
-func RespondError(w http.ResponseWriter, r *http.Request, err error) {
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		appErr = &apperr.Error{
-			Code:   apperr.CodeInternal,
-			Detail: apperr.CodeInternal.Title(),
-			Err:    err,
-		}
-	}
-
-	// // Crucial RFC 7807 requirement:
-	// w.Header().Set("Content-Type", "application/problem+json")
-	// w.WriteHeader(status)
-
-	status, resp := MapToProblemDetails(r, appErr)
-	logError(r, appErr, resp, err)
-	RespondJSON(w, r, status, resp)
-}
-
-func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
-	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
-		Message: message,
-		Data:    data,
-	})
-}
-
-func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T, message string) {
-	RespondJSON(w, r, http.StatusCreated, SuccessResponse[T]{
-		Message: message,
-		Data:    data,
-	})
-}
-
-func RespondCursorList[T any](w http.ResponseWriter, r *http.Request, data T, message string, meta CursorPagination) {
-	RespondJSON(w, r, http.StatusOK, SuccessResponse[T]{
-		Message: message,
-		Data:    data,
-		Meta:    meta,
-	})
-}
-
-func RespondNoContent(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, originalErr error) {
@@ -117,19 +98,19 @@ func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, origin
 	}
 
 	args := []any{
-		"method", r.Method,
-		"path", r.URL.Path,
-		"status", resp.Status,
-		slog.Group("error_context",
+		"http.method", r.Method,
+		"http.path", r.URL.Path,
+		"http.status_code", resp.Status,
+		slog.Group("error",
 			"code", appErr.Code,
 			"detail", appErr.Detail,
-			"error", originalErr,
+			"raw", originalErr.Error(),
 		),
 	}
 
 	if len(appErr.InvalidParams) > 0 {
-		args = append(args, "invalid_params", appErr.InvalidParams)
+		args = append(args, "error.invalid_params", appErr.InvalidParams)
 	}
 
-	slog.Log(r.Context(), level, "http request failed", args...)
+	slog.Log(r.Context(), level, "http request execution failed", args...)
 }

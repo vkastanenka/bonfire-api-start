@@ -35,6 +35,6 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 		return apperr.NewInternal(err, "")
 	}
 
-	httpio.RespondOK(w, r, struct{}{}, "Healthy.")
+	httpio.RespondNoContent(w)
 	return nil
 }

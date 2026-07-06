@@ -80,7 +80,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Respond
-	httpio.RespondCreated(w, r, data, msgRegisterSuccess)
+	httpio.RespondCreated(w, r, data)
 	return nil
 }
 
