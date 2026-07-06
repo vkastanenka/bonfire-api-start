@@ -20,7 +20,7 @@ CREATE TABLE users(
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
-    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 12 AND 255)
+    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 12 AND 512)
 );
 
 CREATE TRIGGER update_users_modtime
@@ -47,7 +47,7 @@ CREATE TRIGGER update_user_profiles_modtime
 CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    refresh_token text NOT NULL UNIQUE,
+    refresh_token_hash bytea NOT NULL UNIQUE,
     expires_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL

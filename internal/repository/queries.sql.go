@@ -12,70 +12,35 @@ import (
 )
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token, expires_at)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at)
     VALUES ($1, $2, $3, $4)
 RETURNING
-    id, user_id, refresh_token, expires_at, created_at, updated_at
+    id, user_id, refresh_token_hash, expires_at, created_at, updated_at
 `
 
 type SessionCreateParams struct {
-	ID           pgtype.UUID        `json:"id"`
-	UserID       pgtype.UUID        `json:"user_id"`
-	RefreshToken string             `json:"refresh_token"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	RefreshTokenHash []byte             `json:"refresh_token_hash"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
 }
 
 func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error) {
 	row := q.db.QueryRow(ctx, sessionCreate,
 		arg.ID,
 		arg.UserID,
-		arg.RefreshToken,
+		arg.RefreshTokenHash,
 		arg.ExpiresAt,
 	)
 	var i Session
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshToken,
+		&i.RefreshTokenHash,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
-	return i, err
-}
-
-const userCheckAvailability = `-- name: UserCheckAvailability :one
-SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users u
-        WHERE
-            u.email = $1) AS email_available,
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users u
-        WHERE
-            u.username = $2) AS username_available
-`
-
-type UserCheckAvailabilityParams struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-}
-
-type UserCheckAvailabilityRow struct {
-	EmailAvailable    bool `json:"email_available"`
-	UsernameAvailable bool `json:"username_available"`
-}
-
-func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error) {
-	row := q.db.QueryRow(ctx, userCheckAvailability, arg.Email, arg.Username)
-	var i UserCheckAvailabilityRow
-	err := row.Scan(&i.EmailAvailable, &i.UsernameAvailable)
 	return i, err
 }
 

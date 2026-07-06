@@ -43,10 +43,10 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 	}
 
 	row, err := s.store.SessionCreate(ctx, repository.SessionCreateParams{
-		ID:           pgtype.UUID{Bytes: targetID, Valid: true},
-		UserID:       pgtype.UUID{Bytes: p.UserID, Valid: true},
-		RefreshToken: p.RefreshToken,
-		ExpiresAt:    pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
+		ID:               pgtype.UUID{Bytes: targetID, Valid: true},
+		UserID:           pgtype.UUID{Bytes: p.UserID, Valid: true},
+		RefreshTokenHash: []byte(p.RefreshToken),
+		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
 		return View{}, repository.NewError(err, repository.ScopeSession)

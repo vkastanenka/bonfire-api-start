@@ -9,21 +9,19 @@ import (
 )
 
 type View struct {
-	ID           uuid.UUID `json:"id"`
-	UserID       uuid.UUID `json:"user_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	RefreshToken string    `json:"refresh_token"`
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func NewView(row repository.Session) View {
 	return View{
-		ID:           row.ID.Bytes,
-		UserID:       row.UserID.Bytes,
-		CreatedAt:    row.CreatedAt.Time,
-		UpdatedAt:    row.UpdatedAt.Time,
-		ExpiresAt:    row.ExpiresAt.Time,
-		RefreshToken: row.RefreshToken,
+		ID:        row.ID.Bytes,
+		UserID:    row.UserID.Bytes,
+		ExpiresAt: row.ExpiresAt.Time,
+		CreatedAt: row.CreatedAt.Time,
+		UpdatedAt: row.UpdatedAt.Time,
 	}
 }

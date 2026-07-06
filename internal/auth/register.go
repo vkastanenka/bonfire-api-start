@@ -5,13 +5,12 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/user"
 	"context"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type RegisterReq struct {
@@ -63,27 +62,6 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
-	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
-		Email:    r.Email,
-		Username: r.Username,
-	})
-	if err != nil {
-		return RegisterResult{}, repository.NewError(err, repository.ScopeUser)
-	}
-
-	if !availability.EmailAvailable || !availability.UsernameAvailable {
-		var opts []apperr.ErrorOption
-
-		if !availability.EmailAvailable {
-			opts = append(opts, apperr.Param("email", "Email unavailable."))
-		}
-		if !availability.UsernameAvailable {
-			opts = append(opts, apperr.Param("username", "Username unavailable."))
-		}
-
-		return RegisterResult{}, apperr.NewConflict(nil, "Email and/or username unavailable.", opts...)
-	}
-
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
 		return RegisterResult{}, apperr.NewInternal(err, "")
@@ -112,34 +90,32 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		displayName = *r.DisplayName
 	}
 
-	persistCtx := context.WithoutCancel(ctx)
-	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
-		txUserService := user.NewService(qtx)
-		txSessionService := session.NewService(qtx)
+	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
+		persistCtx := context.WithoutCancel(ctx)
 
-		_, err := txUserService.Create(persistCtx, user.CreateParams{
-			ID:       &userID,
-			Email:    r.Email,
-			Username: r.Username,
-			Password: passwordHash,
+		_, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
+			ID:           pgtype.UUID{Bytes: userID, Valid: true},
+			Email:        r.Email,
+			Username:     r.Username,
+			PasswordHash: passwordHash,
 		})
 		if err != nil {
 			return err
 		}
 
-		_, err = txUserService.CreateProfile(persistCtx, user.CreateProfileParams{
-			UserID:      userID,
+		_, err = qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
+			UserID:      pgtype.UUID{Bytes: userID, Valid: true},
 			DisplayName: displayName,
 		})
 		if err != nil {
 			return err
 		}
 
-		_, err = txSessionService.Create(persistCtx, session.CreateParams{
-			ID:           &sessionID,
-			UserID:       userID,
-			RefreshToken: hashedRefreshToken,
-			ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
+		_, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
+			UserID:           pgtype.UUID{Bytes: userID, Valid: true},
+			RefreshTokenHash: hashedRefreshToken,
+			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshTokenExpiresAt, Valid: true},
 		})
 		if err != nil {
 			return err
