@@ -1,6 +1,8 @@
 package crypto
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 
 	"golang.org/x/crypto/bcrypt"
@@ -23,4 +25,9 @@ func ComparePassword(hashedPassword string, password string) error {
 		_ = bcrypt.CompareHashAndPassword(dummyHash, dummyPass)
 	}
 	return err
+}
+
+func HashToken(tokenStr string) string {
+	hash := sha256.Sum256([]byte(tokenStr))
+	return hex.EncodeToString(hash[:])
 }

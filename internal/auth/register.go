@@ -6,7 +6,6 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
@@ -42,7 +41,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondCreated(w, r, data)
+	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
+		Token:   data.RefreshToken,
+		Expires: data.RefreshTokenExpiresAt,
+	})
+	httpio.RespondCreated(w, r, RegisterRes{AccessToken: data.AccessToken})
 	return nil
 }
 
@@ -54,8 +57,9 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken           string
+	RefreshToken          string
+	RefreshTokenExpiresAt time.Time
 }
 
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
@@ -131,18 +135,21 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
+	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
+
 	_, err = s.session.Create(persistCtx, session.CreateParams{
 		ID:           userSessionID,
 		UserID:       userView.ID,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
+		RefreshToken: hashedRefreshToken,
+		ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
 	})
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
 	return RegisterResult{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
+		AccessToken:           tokenPair.AccessToken,
+		RefreshToken:          tokenPair.RefreshToken,
+		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
 	}, nil
 }

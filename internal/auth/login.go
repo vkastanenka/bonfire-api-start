@@ -93,7 +93,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.SetCookieRefreshToken(w, tokens.RefreshToken)
+	// httpio.SetCookieRefreshToken(w, tokens.RefreshToken)
 	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken})
 	return nil
 }

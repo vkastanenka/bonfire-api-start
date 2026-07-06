@@ -25,8 +25,9 @@ type Config struct {
 }
 
 type Pair struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"`
+	RefreshTokenExpiresAt time.Time `json:"-"`
 }
 
 type Manager struct {
@@ -73,27 +74,28 @@ func NewManager(cfg Config) (*Manager, error) {
 }
 
 func (m *Manager) GenerateTokenPair(userID uuid.UUID, sessionID uuid.UUID) (Pair, error) {
-	accessToken, err := m.GenerateAccessToken(userID)
+	accessToken, _, err := m.GenerateAccessToken(userID)
 	if err != nil {
 		return Pair{}, err
 	}
 
-	refreshToken, err := m.GenerateRefreshToken(userID, sessionID)
+	refreshToken, refreshTokenExpiresAt, err := m.GenerateRefreshToken(userID, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
 
 	return Pair{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		RefreshTokenExpiresAt: refreshTokenExpiresAt,
 	}, nil
 }
 
-func (m *Manager) GenerateAccessToken(userID uuid.UUID) (string, error) {
+func (m *Manager) GenerateAccessToken(userID uuid.UUID) (string, time.Time, error) {
 	return m.generate(userID, TypeAccess, AccessTokenTTL, Claims{})
 }
 
-func (m *Manager) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, error) {
+func (m *Manager) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, time.Time, error) {
 	return m.generate(userID, TypeRefresh, RefreshTokenTTL, Claims{
 		SessionID: &sessionID,
 	})
@@ -107,30 +109,32 @@ func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
 	return m.verify(tokenStr, TypeRefresh)
 }
 
-func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, claims Claims) (string, error) {
+func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
 	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
-		return "", fmt.Errorf("%w: missing signing key for type %s", errInternal, tokenType)
+		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", errInternal, tokenType)
 	}
 
 	now := time.Now()
+	expiresAt := now.Add(ttl)
+
 	claims.UserID = userID
 	claims.Type = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
 		ID:        uuid.NewString(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		ExpiresAt: jwt.NewNumericDate(expiresAt),
 		Issuer:    m.issuer,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString(secret)
 	if err != nil {
-		return "", fmt.Errorf("%w: signing failed: %v", errInternal, err)
+		return "", time.Time{}, fmt.Errorf("%w: signing failed: %v", errInternal, err)
 	}
 
-	return signedToken, nil
+	return signedToken, expiresAt, nil
 }
 
 func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
