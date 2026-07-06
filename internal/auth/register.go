@@ -5,9 +5,14 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type RegisterReq struct {
@@ -15,6 +20,10 @@ type RegisterReq struct {
 	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
 	Username    string  `json:"username" mod:"text" validate:"identity_username"`
 	Password    string  `json:"password" validate:"security_password"`
+}
+
+type RegisterRes struct {
+	AccessToken string `json:"access_token"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
@@ -45,13 +54,11 @@ type RegisterParams struct {
 }
 
 type RegisterResult struct {
-	User    user.View        `json:"user"`
-	Profile user.ProfileView `json:"user_profile"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
-	var result RegisterResult
-
 	availability, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
 		Email:    r.Email,
 		Username: r.Username,
@@ -79,15 +86,19 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 	}
 	passwordHash := string(hashedPasswordBytes)
 
+	var userView user.View
 	persistCtx := context.WithoutCancel(ctx)
 	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
-		userRow, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
-			Email:        r.Email,
-			Username:     r.Username,
-			PasswordHash: passwordHash,
+		txUserService := user.NewService(qtx)
+
+		var err error
+		userView, err = txUserService.Create(persistCtx, user.CreateParams{
+			Email:    r.Email,
+			Username: r.Username,
+			Password: passwordHash,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.ScopeUser)
+			return err
 		}
 
 		displayName := r.Username
@@ -95,17 +106,12 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			displayName = *r.DisplayName
 		}
 
-		userProfileRow, err := qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
-			UserID:      userRow.ID,
+		_, err = txUserService.CreateProfile(persistCtx, user.CreateProfileParams{
+			UserID:      userView.ID,
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return repository.NewError(err, repository.ScopeProfile)
-		}
-
-		result = RegisterResult{
-			User:    user.NewView(userRow),
-			Profile: user.NewProfileView(userProfileRow),
+			return err
 		}
 
 		return nil
@@ -115,5 +121,28 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	return result, nil
+	userSessionID, err := uuid.NewV7()
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
+	tokenPair, err := s.token.GenerateTokenPair(userView.ID, userSessionID)
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
+	_, err = s.session.Create(persistCtx, session.CreateParams{
+		ID:           userSessionID,
+		UserID:       userView.ID,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
+	})
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	return RegisterResult{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+	}, nil
 }

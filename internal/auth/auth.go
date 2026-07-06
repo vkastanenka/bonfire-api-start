@@ -30,8 +30,8 @@ func NewService(
 ) *Service {
 	return &Service{
 		store:   store,
-		session: session,
 		token:   token,
+		session: session,
 		user:    user,
 	}
 }
