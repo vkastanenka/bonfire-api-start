@@ -4,8 +4,8 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
 	"context"
 	"net/http"
 	"time"
@@ -13,60 +13,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// --- LOGIN CONSTANTS ---
-
-// Messages
-const (
-	msgLoginSuccess = "login_success"
-)
-
-// Errors
-const (
-	errCredentialsInvalid = "Invalid credentials."
-	errAccountInactive    = "Account inactive."
-	errAccountLocked      = "Account locked from too many failed attempts. Please try again later."
-)
-
-// Values
-const (
-	loginMaxAttempts     = 5
-	loginLockoutDuration = 15 * time.Minute
-)
-
-// --- LOGIN ERRORS ---
-
 func newLoginCredentialsError() error {
+	const msg = "Invalid credentials."
 	return apperr.NewUnauthorized(
 		nil,
-		errCredentialsInvalid,
-		apperr.Param("email", errCredentialsInvalid),
-		apperr.Param("password", errCredentialsInvalid),
+		msg,
+		apperr.Param("email", msg),
+		apperr.Param("password", msg),
 	)
 }
-
-func newAccountLockedError() error {
-	return apperr.NewForbidden(
-		nil,
-		errAccountLocked,
-	)
-}
-
-// --- LOGIN TYPES ---
 
 type LoginReq struct {
 	Email    string `json:"email" mod:"email" validate:"identity_email"`
 	Password string `json:"password" validate:"identity_password"`
-}
-
-type LoginParams struct {
-	Email    string
-	Password string
-	Meta     httpio.ClientMeta
-}
-
-type LoginResult struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
 }
 
 type LoginRes struct {
@@ -84,7 +43,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	tokens, err := h.service.Login(r.Context(), LoginParams{
+	data, err := h.service.Login(r.Context(), LoginParams{
 		Email:    req.Email,
 		Password: req.Password,
 		Meta:     clientMeta,
@@ -93,15 +52,30 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// httpio.SetCookieRefreshToken(w, tokens.RefreshToken)
-	httpio.RespondOK(w, r, LoginRes{AccessToken: tokens.AccessToken})
+	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
+		Token:   data.RefreshToken,
+		Expires: data.RefreshTokenExpiresAt,
+	})
+	httpio.RespondOK(w, r, RegisterRes{AccessToken: data.AccessToken})
 	return nil
+}
+
+type LoginParams struct {
+	Email    string
+	Password string
+	Meta     httpio.ClientMeta
+}
+
+type LoginResult struct {
+	AccessToken           string
+	RefreshToken          string
+	RefreshTokenExpiresAt time.Time
 }
 
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
-		if apperr.IsNotFound(err) {
+		if repository.IsNotFoundError(err) {
 			return LoginResult{}, newLoginCredentialsError()
 		}
 		return LoginResult{}, err
@@ -127,14 +101,15 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		ID:           &userSessionID,
 		UserID:       userAuth.ID,
 		RefreshToken: tokenPair.RefreshToken,
-		ExpiresAt:    time.Now().Add(token.RefreshTokenTTL),
+		ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
 	})
 	if err != nil {
 		return LoginResult{}, err
 	}
 
 	return LoginResult{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
+		AccessToken:           tokenPair.AccessToken,
+		RefreshToken:          tokenPair.RefreshToken,
+		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
 	}, nil
 }
