@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
@@ -40,22 +39,11 @@ func NewRegisterConflictError(emailAvailable, usernameAvailable bool) error {
 	return apperr.NewConflict(nil, errCredentialsTaken, opts...)
 }
 
-// --- REGISTER DTOs ---
-
 type RegisterReq struct {
-	Email       string  `json:"email" validate:"identity_email"`
-	DisplayName *string `json:"display_name" validate:"profile_display_name"`
-	Username    string  `json:"username" validate:"identity_username"`
+	Email       string  `json:"email" mod:"email" validate:"identity_email"`
+	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
+	Username    string  `json:"username" mod:"text" validate:"identity_username"`
 	Password    string  `json:"password" validate:"security_password"`
-}
-
-func (r *RegisterReq) Sanitize() {
-	r.Email = sanitize.SanitizeEmail(r.Email)
-
-	if r.DisplayName != nil {
-		cleaned := sanitize.SanitizeText(*r.DisplayName)
-		r.DisplayName = &cleaned
-	}
 }
 
 type RegisterParams struct {
@@ -75,10 +63,10 @@ type RegisterResult struct {
 // Register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 	// Bind JSON
-	req, err := httpio.BindJSON(w, r, func(req *RegisterReq) error {
-		req.Sanitize()
-		return nil
-	})
+	req, err := httpio.BindJSON[RegisterReq](w, r)
+	if err != nil {
+		return err
+	}
 
 	// Register user
 	data, err := h.service.Register(r.Context(), RegisterParams{

@@ -2,21 +2,19 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/token"
+	"bonfire-api/internal/sanitize"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strings"
 
 	"github.com/go-playground/form"
-	"github.com/google/uuid"
 )
 
 const (
@@ -35,23 +33,13 @@ const (
 	errMissingAuthCtx         = "Missing authentication context."
 )
 
-func BindJSON[T any](w http.ResponseWriter, r *http.Request, processor func(*T) error) (T, error) {
+func BindJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	var req T
 	if err := DecodeJSON(w, r, &req); err != nil {
 		return req, err
 	}
 
-	if processor != nil {
-		if err := processor(&req); err != nil {
-			return req, err
-		}
-	}
-
-	if err := validate(&req); err != nil {
-		return req, err
-	}
-
-	return req, nil
+	return req, bindInput(&req)
 }
 
 func BindQuery[T any](r *http.Request) (T, error) {
@@ -60,11 +48,7 @@ func BindQuery[T any](r *http.Request) (T, error) {
 		return req, err
 	}
 
-	if err := validate(&req); err != nil {
-		return req, err
-	}
-
-	return req, nil
+	return req, bindInput(&req)
 }
 
 func BindPath[T any](r *http.Request) (T, error) {
@@ -73,15 +57,17 @@ func BindPath[T any](r *http.Request) (T, error) {
 		return req, err
 	}
 
-	if err := validate(&req); err != nil {
-		return req, err
-	}
-
-	return req, nil
+	return req, bindInput(&req)
 }
 
+func bindInput[T any](req *T) error {
+	sanitize.Normalize(req)
+	return validate(req)
+}
+
+const maxJSONBodyBytes = 1 * 1024 * 1024
+
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
-	const maxBodyBytes = 1 * 1024 * 1024
 
 	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
 	if ct == "" {
@@ -95,7 +81,7 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		}
 	}
 
-	limitedBody := http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	limitedBody := http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 	defer limitedBody.Close()
 
 	dec := json.NewDecoder(limitedBody)
@@ -222,47 +208,4 @@ func DecodePath(r *http.Request, dst any) error {
 	}
 
 	return nil
-}
-
-type ContextKey string
-
-// --- REQUEST CONSTANTS ---
-
-const ClaimsKey ContextKey = "user_claims"
-
-// --- REQUEST AUTH FUNCTIONS ---
-
-// GetCtxClaims extracts token claims from the request context.
-func GetCtxClaims(ctx context.Context) (*token.Claims, error) {
-	claims, ok := ctx.Value(ClaimsKey).(*token.Claims)
-	if !ok {
-		return nil, errors.New(errMissingAuthCtx)
-	}
-	return claims, nil
-}
-
-// GetCtxUserID
-func GetCtxUserID(ctx context.Context) (uuid.UUID, error) {
-	claims, err := GetCtxClaims(ctx)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	return claims.UserID, nil
-}
-
-// getIP safely extracts the client's network identifier.
-func getIP(r *http.Request) string {
-	// WARNING: If you are behind a trusted proxy (Cloudflare, AWS ALB, Nginx),
-	// replace this with a deterministic, secure header like "CF-Connecting-IP"
-	// or validate the proxy chain to prevent X-Forwarded-For spoofing.
-	xForwardedFor := r.Header.Get("X-Forwarded-For")
-	if xForwardedFor != "" {
-		return strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
-	}
-
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
 }

@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"context"
@@ -55,12 +54,8 @@ func newAccountLockedError() error {
 // --- LOGIN TYPES ---
 
 type LoginReq struct {
-	Email    string `json:"email" validate:"identity_email"`
+	Email    string `json:"email" mod:"email" validate:"identity_email"`
 	Password string `json:"password" validate:"identity_password"`
-}
-
-func (r *LoginReq) Sanitize() {
-	r.Email = sanitize.SanitizeEmail(r.Email)
 }
 
 type LoginParams struct {
@@ -79,10 +74,10 @@ type LoginRes struct {
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON(w, r, func(req *LoginReq) error {
-		req.Sanitize()
-		return nil
-	})
+	req, err := httpio.BindJSON[LoginReq](w, r)
+	if err != nil {
+		return err
+	}
 
 	clientMeta, err := httpio.GetMeta(r.Context())
 	if err != nil {

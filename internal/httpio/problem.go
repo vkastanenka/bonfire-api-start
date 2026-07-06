@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-var baseDocURL = "https://api.bonfire.com/errors"
+const baseDocURL = "https://api.bonfire.com/errors"
 
 type ProblemDetails struct {
 	Type          string                `json:"type"`
