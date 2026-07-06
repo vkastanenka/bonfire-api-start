@@ -6,18 +6,13 @@ import (
 	"time"
 )
 
-// --- COOKIE CONSTANTS ---
-
 const (
-	RefreshTokenCookie = "refresh_token"
+	CookieRefreshToken = "refresh_token"
 )
 
-// --- COOKIE FUNCTIONS ---
-
-// SetRefreshTokenCookie
-func SetRefreshTokenCookie(w http.ResponseWriter, tokenString string) {
+func SetCookieRefreshToken(w http.ResponseWriter, tokenString string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshTokenCookie,
+		Name:     CookieRefreshToken,
 		Value:    tokenString,
 		Path:     "/",
 		Expires:  time.Now().Add(token.RefreshTokenTTL),
@@ -28,10 +23,9 @@ func SetRefreshTokenCookie(w http.ResponseWriter, tokenString string) {
 	})
 }
 
-// ClearRefreshTokenCookie
-func ClearRefreshTokenCookie(w http.ResponseWriter) {
+func ClearCookieRefreshToken(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     RefreshTokenCookie,
+		Name:     CookieRefreshToken,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
