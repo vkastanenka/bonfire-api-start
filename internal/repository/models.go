@@ -5,8 +5,6 @@
 package repository
 
 import (
-	"net/netip"
-
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -15,10 +13,6 @@ type Session struct {
 	UserID       pgtype.UUID        `json:"user_id"`
 	RefreshToken string             `json:"refresh_token"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	LastSeenAt   pgtype.Timestamptz `json:"last_seen_at"`
-	IsBlocked    bool               `json:"is_blocked"`
-	ClientIP     netip.Addr         `json:"client_ip"`
-	UserAgent    string             `json:"user_agent"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }

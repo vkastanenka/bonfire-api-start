@@ -55,8 +55,8 @@ RETURNING
     *;
 
 -- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO sessions(id, user_id, refresh_token, expires_at)
+    VALUES ($1, $2, $3, $4)
 RETURNING
     *;
 

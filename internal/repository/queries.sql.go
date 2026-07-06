@@ -7,25 +7,21 @@ package repository
 
 import (
 	"context"
-	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token, user_agent, client_ip, is_blocked, expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO sessions(id, user_id, refresh_token, expires_at)
+    VALUES ($1, $2, $3, $4)
 RETURNING
-    id, user_id, refresh_token, expires_at, last_seen_at, is_blocked, client_ip, user_agent, created_at, updated_at
+    id, user_id, refresh_token, expires_at, created_at, updated_at
 `
 
 type SessionCreateParams struct {
 	ID           pgtype.UUID        `json:"id"`
 	UserID       pgtype.UUID        `json:"user_id"`
 	RefreshToken string             `json:"refresh_token"`
-	UserAgent    string             `json:"user_agent"`
-	ClientIP     netip.Addr         `json:"client_ip"`
-	IsBlocked    bool               `json:"is_blocked"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
 }
 
@@ -34,9 +30,6 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		arg.ID,
 		arg.UserID,
 		arg.RefreshToken,
-		arg.UserAgent,
-		arg.ClientIP,
-		arg.IsBlocked,
 		arg.ExpiresAt,
 	)
 	var i Session
@@ -45,10 +38,6 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		&i.UserID,
 		&i.RefreshToken,
 		&i.ExpiresAt,
-		&i.LastSeenAt,
-		&i.IsBlocked,
-		&i.ClientIP,
-		&i.UserAgent,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
