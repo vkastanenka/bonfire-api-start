@@ -95,13 +95,15 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
+	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
+
 	persistCtx := context.WithoutCancel(ctx)
 
 	_, err = s.session.Create(persistCtx, session.CreateParams{
-		ID:           &userSessionID,
-		UserID:       userAuth.ID,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresAt:    tokenPair.RefreshTokenExpiresAt,
+		ID:               &userSessionID,
+		UserID:           userAuth.ID,
+		RefreshTokenHash: hashedRefreshToken,
+		ExpiresAt:        tokenPair.RefreshTokenExpiresAt,
 	})
 	if err != nil {
 		return LoginResult{}, err

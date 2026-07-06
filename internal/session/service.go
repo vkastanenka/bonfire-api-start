@@ -23,10 +23,10 @@ func NewService(store Store) *Service {
 }
 
 type CreateParams struct {
-	ID           *uuid.UUID
-	UserID       uuid.UUID
-	RefreshToken string
-	ExpiresAt    time.Time
+	ID               *uuid.UUID
+	UserID           uuid.UUID
+	RefreshTokenHash []byte
+	ExpiresAt        time.Time
 }
 
 func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
@@ -45,7 +45,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 	row, err := s.store.SessionCreate(ctx, repository.SessionCreateParams{
 		ID:               pgtype.UUID{Bytes: targetID, Valid: true},
 		UserID:           pgtype.UUID{Bytes: p.UserID, Valid: true},
-		RefreshTokenHash: []byte(p.RefreshToken),
+		RefreshTokenHash: p.RefreshTokenHash,
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
