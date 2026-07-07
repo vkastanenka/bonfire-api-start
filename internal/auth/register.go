@@ -15,8 +15,8 @@ import (
 
 type RegisterReq struct {
 	Email       string  `json:"email" mod:"email" validate:"identity_email"`
-	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
 	Username    string  `json:"username" mod:"text" validate:"identity_username"`
+	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
 	Password    string  `json:"password" validate:"security_password"`
 }
 
@@ -100,7 +100,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
-			return err
+			return repository.NewError(err, repository.ScopeUser)
 		}
 
 		_, err = qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
@@ -108,7 +108,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			DisplayName: displayName,
 		})
 		if err != nil {
-			return err
+			return repository.NewError(err, repository.ScopeUserProfile)
 		}
 
 		_, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
@@ -118,7 +118,7 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshTokenExpiresAt, Valid: true},
 		})
 		if err != nil {
-			return err
+			return repository.NewError(err, repository.ScopeSession)
 		}
 
 		return nil

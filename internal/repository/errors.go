@@ -12,9 +12,9 @@ import (
 type Scope string
 
 const (
-	ScopeProfile Scope = "profile"
-	ScopeSession Scope = "session"
-	ScopeUser    Scope = "user"
+	ScopeSession     Scope = "session"
+	ScopeUser        Scope = "user"
+	ScopeUserProfile Scope = "user_profile"
 )
 
 func (r Scope) String() string {

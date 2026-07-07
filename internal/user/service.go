@@ -104,7 +104,7 @@ func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (Pro
 		DisplayName: p.DisplayName,
 	})
 	if err != nil {
-		return ProfileView{}, repository.NewError(err, repository.ScopeProfile)
+		return ProfileView{}, repository.NewError(err, repository.ScopeUserProfile)
 	}
 	return NewProfileView(row), nil
 }
