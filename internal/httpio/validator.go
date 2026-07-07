@@ -30,7 +30,7 @@ const (
 	errWhitespace             = "Cannot consist entirely of whitespace."
 	errEmail                  = "Must be a valid email address."
 	errAlphanum               = "Must contain only letters and numbers."
-	errUsername               = "Must contain only letters, numbers, underscores, or periods."
+	errUsername               = "Must start and end with a letter or number. May contain only letters, numbers, and non-consecutive underscores or periods."
 	errMinString              = "Must be at least %s characters."
 	errMinNumeric             = "Must be %s or greater."
 	errMinCollection          = "Must contain at least %s items."
@@ -65,7 +65,7 @@ func init() {
 
 	validator.RegisterAlias("identity_id", "required,uuid,len=36")
 	validator.RegisterAlias("identity_email", "required,email,max=255")
-	validator.RegisterAlias("identity_username", "required,min=8,max=32,valid_username")
+	validator.RegisterAlias("identity_username", "required,min=3,max=32,valid_username")
 	validator.RegisterAlias("identity_password", "required,min=12,max=255")
 	validator.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
 }
