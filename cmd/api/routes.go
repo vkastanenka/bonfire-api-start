@@ -13,12 +13,12 @@ import (
 func (app *Application) routes() http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(httpio.CORS(app.Config))
 	r.Use(middleware.RequestID)
 	r.Use(httpio.Trace)
 	r.Use(httpio.ClientTelemetry(app.Config.TrustProxy))
 	r.Use(httpio.Logger)
 	r.Use(httpio.Recoverer)
+	r.Use(httpio.CORS(app.Config))
 	r.Use(middleware.Timeout(app.Config.RequestTimeout))
 	r.Use(httpio.SecurityHeaders)
 
