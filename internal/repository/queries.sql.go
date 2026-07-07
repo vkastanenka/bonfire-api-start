@@ -44,6 +44,41 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 	return i, err
 }
 
+const userCheckAvailability = `-- name: UserCheckAvailability :one
+SELECT
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.email = $1) AS email_available,
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.username = $2) AS username_available
+`
+
+type UserCheckAvailabilityParams struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+type UserCheckAvailabilityRow struct {
+	EmailAvailable    bool `json:"email_available"`
+	UsernameAvailable bool `json:"username_available"`
+}
+
+func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error) {
+	row := q.db.QueryRow(ctx, userCheckAvailability, arg.Email, arg.Username)
+	var i UserCheckAvailabilityRow
+	err := row.Scan(&i.EmailAvailable, &i.UsernameAvailable)
+	return i, err
+}
+
 const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, password_hash)
     VALUES ($1, $2, $3, $4)

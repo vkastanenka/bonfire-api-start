@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/user"
 	"context"
 	"net/http"
 	"time"
@@ -62,6 +63,18 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
+	availability, err := s.user.CheckAvailability(ctx, user.CheckAvailabilityParams{
+		Email:    r.Email,
+		Username: r.Username,
+	})
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	if !availability.Email || !availability.Username {
+		return RegisterResult{}, newRegisterConflictError(availability)
+	}
+
 	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
 	if err != nil {
 		return RegisterResult{}, apperr.NewInternal(err, "")
@@ -133,4 +146,21 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		RefreshToken:          tokenPair.RefreshToken,
 		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
 	}, nil
+}
+
+func newRegisterConflictError(r user.CheckAvailabilityResult) error {
+	var params []apperr.InvalidParam
+
+	if !r.Email {
+		params = append(params, apperr.InvalidParam{Name: "email", Reason: "Email taken."})
+	}
+	if !r.Username {
+		params = append(params, apperr.InvalidParam{Name: "username", Reason: "Username taken."})
+	}
+
+	return apperr.NewConflict(
+		nil,
+		"Email and/or username taken.",
+		apperr.Params(params),
+	)
 }

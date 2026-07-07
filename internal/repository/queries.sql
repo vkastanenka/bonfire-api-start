@@ -31,6 +31,23 @@ WHERE
     username = $1
 LIMIT 1;
 
+-- name: UserCheckAvailability :one
+SELECT
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.email = $1) AS email_available,
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.username = $2) AS username_available;
+
 -- name: UserProfileCreate :one
 INSERT INTO user_profiles(user_id, display_name)
     VALUES ($1, $2)

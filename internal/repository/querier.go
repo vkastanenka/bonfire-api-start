@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
+	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
 	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)

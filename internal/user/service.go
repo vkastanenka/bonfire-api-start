@@ -93,6 +93,27 @@ func (s *Service) GetAuthByEmail(ctx context.Context, email string) (AuthView, e
 	return NewAuthView(row), nil
 }
 
+type CheckAvailabilityParams struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+type CheckAvailabilityResult struct {
+	Email    bool `json:"email"`
+	Username bool `json:"username"`
+}
+
+func (s *Service) CheckAvailability(ctx context.Context, p CheckAvailabilityParams) (CheckAvailabilityResult, error) {
+	row, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
+		Email:    p.Email,
+		Username: p.Username,
+	})
+	if err != nil {
+		return CheckAvailabilityResult{Email: false, Username: false}, repository.NewError(err, repository.ScopeUser)
+	}
+	return CheckAvailabilityResult{Email: row.EmailAvailable, Username: row.UsernameAvailable}, nil
+}
+
 type CreateProfileParams struct {
 	UserID      uuid.UUID
 	DisplayName string
