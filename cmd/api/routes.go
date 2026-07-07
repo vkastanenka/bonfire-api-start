@@ -18,7 +18,7 @@ func (app *Application) routes() http.Handler {
 	r.Use(httpio.Trace)
 	r.Use(httpio.ClientTelemetry(app.Config.TrustProxy))
 	r.Use(httpio.Logger)
-	r.Use(middleware.Recoverer)
+	r.Use(httpio.Recoverer)
 	r.Use(middleware.Timeout(app.Config.RequestTimeout))
 	r.Use(httpio.SecurityHeaders)
 

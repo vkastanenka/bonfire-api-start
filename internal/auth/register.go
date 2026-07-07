@@ -3,7 +3,6 @@ package auth
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/user"
 	"context"
@@ -26,27 +25,29 @@ type RegisterRes struct {
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterReq](w, r)
-	if err != nil {
-		return err
-	}
+	panic("Catastrophic register error")
 
-	data, err := h.service.Register(r.Context(), RegisterParams{
-		Email:       req.Email,
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
-	})
-	if err != nil {
-		return err
-	}
+	// req, err := httpio.BindJSON[RegisterReq](w, r)
+	// if err != nil {
+	// 	return err
+	// }
 
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
-	httpio.RespondCreated(w, r, RegisterRes{AccessToken: data.AccessToken})
-	return nil
+	// data, err := h.service.Register(r.Context(), RegisterParams{
+	// 	Email:       req.Email,
+	// 	Username:    req.Username,
+	// 	DisplayName: req.DisplayName,
+	// 	Password:    req.Password,
+	// })
+	// if err != nil {
+	// 	return err
+	// }
+
+	// httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
+	// 	Token:   data.RefreshToken,
+	// 	Expires: data.RefreshTokenExpiresAt,
+	// })
+	// httpio.RespondCreated(w, r, RegisterRes{AccessToken: data.AccessToken})
+	// return nil
 }
 
 type RegisterParams struct {
