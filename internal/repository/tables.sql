@@ -20,7 +20,7 @@ CREATE TABLE users(
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 8 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
-    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 12 AND 512)
+    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 30 AND 255)
 );
 
 CREATE TRIGGER update_users_modtime

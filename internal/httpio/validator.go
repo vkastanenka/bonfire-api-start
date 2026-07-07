@@ -65,9 +65,8 @@ func init() {
 
 	validator.RegisterAlias("identity_id", "required,uuid,len=36")
 	validator.RegisterAlias("identity_email", "required,email,max=255")
-	validator.RegisterAlias("identity_username", "required,min=4,max=32,valid_username")
-	validator.RegisterAlias("identity_password", "required,min=12,max=128")
-	validator.RegisterAlias("security_password", "required,min=12,max=128")
+	validator.RegisterAlias("identity_username", "required,min=8,max=32,valid_username")
+	validator.RegisterAlias("identity_password", "required,min=12,max=255")
 	validator.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
 }
 

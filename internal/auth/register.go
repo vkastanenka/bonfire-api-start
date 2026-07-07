@@ -18,7 +18,7 @@ type RegisterReq struct {
 	Email       string  `json:"email" mod:"email" validate:"identity_email"`
 	Username    string  `json:"username" mod:"text" validate:"identity_username"`
 	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
-	Password    string  `json:"password" validate:"security_password"`
+	Password    string  `json:"password" validate:"identity_password"`
 }
 
 type RegisterRes struct {
@@ -75,11 +75,10 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, newRegisterConflictError(availability)
 	}
 
-	hashedPasswordBytes, err := crypto.HashPassword(r.Password)
+	passwordHash, err := crypto.HashPassword(r.Password)
 	if err != nil {
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
-	passwordHash := string(hashedPasswordBytes)
 
 	userID, err := uuid.NewV7()
 	if err != nil {
