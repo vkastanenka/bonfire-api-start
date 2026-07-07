@@ -3,6 +3,7 @@ package httpio
 import (
 	"bonfire-api/internal/apperr"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -47,10 +48,18 @@ func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFun
 
 func respondError(w http.ResponseWriter, r *http.Request, err error) {
 	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
+
+	if errors.As(err, &appErr) {
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		appErr = &apperr.Error{
+			Code:   apperr.CodeGatewayTimeout,
+			Detail: apperr.CodeGatewayTimeout.Detail(),
+			Err:    err,
+		}
+	} else {
 		appErr = &apperr.Error{
 			Code:   apperr.CodeInternal,
-			Detail: "An unexpected error occurred on our end.",
+			Detail: apperr.CodeInternal.Detail(),
 			Err:    err,
 		}
 	}
