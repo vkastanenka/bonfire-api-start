@@ -152,15 +152,15 @@ func newRegisterConflictError(r user.CheckAvailabilityResult) error {
 	var params []apperr.InvalidParam
 
 	if !r.Email {
-		params = append(params, apperr.InvalidParam{Name: "email", Reason: "Email taken."})
+		params = append(params, apperr.InvalidParam{Name: "email", Reason: "This email is already taken."})
 	}
 	if !r.Username {
-		params = append(params, apperr.InvalidParam{Name: "username", Reason: "Username taken."})
+		params = append(params, apperr.InvalidParam{Name: "username", Reason: "This username is already taken."})
 	}
 
-	return apperr.NewConflict(
+	return apperr.NewInvalidInput(
 		nil,
-		"Email and/or username taken.",
+		"Validation failed for the request.",
 		apperr.Params(params),
 	)
 }
