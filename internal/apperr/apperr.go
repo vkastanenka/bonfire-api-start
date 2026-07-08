@@ -137,7 +137,7 @@ var codesRegistry = map[Code]codeMetadata{
 	CodeTooManyRequests: {
 		status: http.StatusTooManyRequests,
 		title:  "Too Many Requests",
-		detail: "Rate limit exceeded. Please slow down.",
+		detail: "Rate limit exceeded. Please slow down and retry shortly.",
 	},
 	CodeInternal: {
 		status: http.StatusInternalServerError,
