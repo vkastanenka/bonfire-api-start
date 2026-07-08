@@ -18,6 +18,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/logger"
+	"bonfire-api/internal/token"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-redis/redis_rate/v10"
@@ -298,4 +299,49 @@ func generateW3CTraceID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+const (
+	errMissingAuthHeader = "Missing authorization header."
+	errInvalidAuthHeader = "Invalid authorization header format."
+	errInvalidToken      = "Invalid or expired access token."
+	errMissingAuthCtx    = "Missing authentication context."
+	errUnverifiedEmail   = "Unverified email. Please complete verification via your registration email."
+)
+
+func RequireAuth(mgr *token.Manager) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				respondError(w, r, apperr.NewUnauthorized(nil, errMissingAuthHeader))
+				return
+			}
+
+			if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+				respondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
+				return
+			}
+
+			tokenStr := strings.TrimSpace(authHeader[7:])
+			if tokenStr == "" {
+				respondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
+				return
+			}
+
+			claims, err := mgr.VerifyAccess(tokenStr)
+			if err != nil {
+				if errors.Is(err, token.ErrTokenExpired) {
+					respondError(w, r, apperr.NewUnauthorized(err, errInvalidToken))
+					return
+				}
+
+				respondError(w, r, apperr.NewUnauthorized(err, errInvalidToken))
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), "user_claims", claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }

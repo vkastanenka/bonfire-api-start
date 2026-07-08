@@ -48,6 +48,7 @@ const (
 	CodeBadRequest           Code = "BAD_REQUEST"            // 400 Bad Request
 	CodeInvalidInput         Code = "INVALID_INPUT"          // 400 Bad Request (Validation specific)
 	CodeUnauthorized         Code = "UNAUTHORIZED"           // 401 Unauthorized
+	CodeTokenExpired         Code = "TOKEN_EXPIRED"          // 401 Unauthorized
 	CodeForbidden            Code = "FORBIDDEN"              // 403 Forbidden
 	CodeNotFound             Code = "NOT_FOUND"              // 404 Not Found
 	CodeMethodNotAllowed     Code = "METHOD_NOT_ALLOWED"     // 405 Method Not Allowed
@@ -88,6 +89,11 @@ var codesRegistry = map[Code]codeMetadata{
 		status: http.StatusUnauthorized,
 		title:  "Unauthorized Access",
 		detail: "The provided credentials are invalid or expired.",
+	},
+	CodeTokenExpired: {
+		status: http.StatusUnauthorized,
+		title:  "Token Expired",
+		detail: "The token has expired and requires a refresh.",
 	},
 	CodeForbidden: {
 		status: http.StatusForbidden,
@@ -241,6 +247,9 @@ func NewInvalidInput(err error, detail string, opts ...ErrorOption) error {
 func NewUnauthorized(err error, detail string, opts ...ErrorOption) error {
 	return build(CodeUnauthorized, err, detail, opts...)
 }
+func NewTokenExpired(err error, detail string, opts ...ErrorOption) error {
+	return build(CodeTokenExpired, err, detail, opts...)
+}
 func NewForbidden(err error, detail string, opts ...ErrorOption) error {
 	return build(CodeForbidden, err, detail, opts...)
 }
@@ -304,6 +313,7 @@ func IsCode(err error, code Code) bool {
 func IsBadRequest(err error) bool           { return IsCode(err, CodeBadRequest) }
 func IsInvalidInput(err error) bool         { return IsCode(err, CodeInvalidInput) }
 func IsUnauthorized(err error) bool         { return IsCode(err, CodeUnauthorized) }
+func IsTokenExpired(err error) bool         { return IsCode(err, CodeTokenExpired) }
 func IsForbidden(err error) bool            { return IsCode(err, CodeForbidden) }
 func IsNotFound(err error) bool             { return IsCode(err, CodeNotFound) }
 func IsMethodNotAllowed(err error) bool     { return IsCode(err, CodeMethodNotAllowed) }

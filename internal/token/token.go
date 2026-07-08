@@ -14,7 +14,7 @@ type Type string
 type Claims struct {
 	UserID    uuid.UUID  `json:"uid"`
 	SessionID *uuid.UUID `json:"sid,omitempty"`
-	Type      Type       `json:"typ"`
+	Type      Type       `json:"type"`
 	jwt.RegisteredClaims
 }
 
@@ -46,13 +46,13 @@ const (
 )
 
 var (
-	errTokenExpired          = errors.New("token has expired")
-	errTokenMalformed        = errors.New("token is malformed")
-	errTokenSignatureInvalid = errors.New("token signature is invalid")
-	errTokenInvalid          = errors.New("token is invalid")
-	errIssuerMismatch        = errors.New("token issuer is invalid")
-	errTypeMismatch          = errors.New("token type mismatch")
-	errInternal              = errors.New("internal cryptographic error")
+	ErrTokenExpired          = errors.New("token has expired")
+	ErrTokenMalformed        = errors.New("token is malformed")
+	ErrTokenSignatureInvalid = errors.New("token signature is invalid")
+	ErrTokenInvalid          = errors.New("token is invalid")
+	ErrIssuerMismatch        = errors.New("token issuer is invalid")
+	ErrTypeMismatch          = errors.New("token type mismatch")
+	ErrInternal              = errors.New("internal cryptographic error")
 )
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -112,7 +112,7 @@ func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
 func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
 	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
-		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", errInternal, tokenType)
+		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenType)
 	}
 
 	now := time.Now()
@@ -131,7 +131,7 @@ func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString(secret)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("%w: signing failed: %v", errInternal, err)
+		return "", time.Time{}, fmt.Errorf("%w: signing failed: %v", ErrInternal, err)
 	}
 
 	return signedToken, expiresAt, nil
@@ -140,7 +140,7 @@ func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, 
 func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
 	secret, exists := m.secrets[expectedType]
 	if !exists || len(secret) == 0 {
-		return nil, fmt.Errorf("%w: missing verification key for type %s", errInternal, expectedType)
+		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, expectedType)
 	}
 
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
@@ -153,27 +153,27 @@ func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenExpired):
-			return nil, fmt.Errorf("%w: %v", errTokenExpired, err)
+			return nil, fmt.Errorf("%w: %v", ErrTokenExpired, err)
 		case errors.Is(err, jwt.ErrTokenMalformed):
-			return nil, fmt.Errorf("%w: %v", errTokenMalformed, err)
+			return nil, fmt.Errorf("%w: %v", ErrTokenMalformed, err)
 		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
-			return nil, fmt.Errorf("%w: %v", errTokenSignatureInvalid, err)
+			return nil, fmt.Errorf("%w: %v", ErrTokenSignatureInvalid, err)
 		default:
-			return nil, fmt.Errorf("%w: %v", errTokenInvalid, err)
+			return nil, fmt.Errorf("%w: %v", ErrTokenInvalid, err)
 		}
 	}
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, fmt.Errorf("%w: claims structure corrupt or invalid", errTokenInvalid)
+		return nil, fmt.Errorf("%w: claims structure corrupt or invalid", ErrTokenInvalid)
 	}
 
 	if claims.Issuer != m.issuer {
-		return nil, fmt.Errorf("%w: expected %q, got %q", errIssuerMismatch, m.issuer, claims.Issuer)
+		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, m.issuer, claims.Issuer)
 	}
 
 	if claims.Type != expectedType {
-		return nil, fmt.Errorf("%w: expected %q token context, got %q", errTypeMismatch, expectedType, claims.Type)
+		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrTypeMismatch, expectedType, claims.Type)
 	}
 
 	return claims, nil
