@@ -82,7 +82,7 @@ func handleUniqueViolation(pgErr *pgconn.PgError, scope Scope) error {
 		field := cleanIdentifier(pgErr.ConstraintName, "_key", scope)
 		reason := fmt.Sprintf("This %s is already taken.", humanize(field))
 
-		return apperr.NewInvalidInput(pgErr, "Validation failed for the request.", apperr.Param(field, reason))
+		return apperr.NewInvalidInput(pgErr, "", apperr.Param(field, reason))
 	}
 
 	return apperr.NewConflict(pgErr, fmt.Sprintf("A conflict occurred. This %s already exists.", scope))
@@ -91,10 +91,10 @@ func handleUniqueViolation(pgErr *pgconn.PgError, scope Scope) error {
 func handleNotNullViolation(pgErr *pgconn.PgError, scope Scope) error {
 	if pgErr.ColumnName != "" {
 		field := cleanIdentifier(pgErr.ColumnName, "", scope)
-		return apperr.NewInvalidInput(pgErr, "Validation failed for the request.", apperr.Param(field, "This field is required."))
+		return apperr.NewInvalidInput(pgErr, "", apperr.Param(field, "This field is required."))
 	}
 
-	return apperr.NewInvalidInput(pgErr, "Validation failed for the request.")
+	return apperr.NewInvalidInput(pgErr, "")
 }
 
 func handleForeignKeyViolation(pgErr *pgconn.PgError, scope Scope) error {
@@ -102,7 +102,7 @@ func handleForeignKeyViolation(pgErr *pgconn.PgError, scope Scope) error {
 		field := cleanIdentifier(pgErr.ConstraintName, "_fkey", scope)
 		reason := fmt.Sprintf("Must reference a valid %s.", humanize(field))
 
-		return apperr.NewInvalidInput(pgErr, "Validation failed for the request.", apperr.Param(field, reason))
+		return apperr.NewInvalidInput(pgErr, "", apperr.Param(field, reason))
 	}
 
 	return apperr.NewInvalidInput(pgErr, fmt.Sprintf("A referenced %s record does not exist.", scope))
@@ -113,16 +113,16 @@ func handleCheckViolation(pgErr *pgconn.PgError, scope Scope) error {
 		field := cleanIdentifier(pgErr.ConstraintName, "_check", scope)
 		reason := fmt.Sprintf("Invalid value for constraint: %s", humanize(field))
 
-		return apperr.NewInvalidInput(pgErr, "Validation failed for the request.", apperr.Param(field, reason))
+		return apperr.NewInvalidInput(pgErr, "", apperr.Param(field, reason))
 	}
 
-	return apperr.NewInvalidInput(pgErr, "The provided data failed validation rules.")
+	return apperr.NewInvalidInput(pgErr, "")
 }
 
 func handleLengthTruncation(pgErr *pgconn.PgError, scope Scope) error {
 	if pgErr.ColumnName != "" {
 		field := cleanIdentifier(pgErr.ColumnName, "", scope)
-		return apperr.NewInvalidInput(pgErr, "Validation failed for the request.", apperr.Param(field, "Cannot be longer than the maximum allowed length."))
+		return apperr.NewInvalidInput(pgErr, "", apperr.Param(field, "Cannot be longer than the maximum allowed length."))
 	}
 
 	return apperr.NewInvalidInput(pgErr, "A provided text field exceeds the maximum allowed length.")
