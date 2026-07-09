@@ -12,6 +12,13 @@ import (
 
 type Querier interface {
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
+	SessionDelete(ctx context.Context, id pgtype.UUID) error
+	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
+	SessionDeleteAllExpired(ctx context.Context) error
+	SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
+	SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)

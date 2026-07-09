@@ -9,6 +9,7 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/token"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -17,10 +18,15 @@ type Handlers struct {
 	Auth *auth.Handler
 }
 
+type Services struct {
+	Token *token.Manager
+}
+
 type Application struct {
 	Config      *config.Config
 	RateLimiter *redis_rate.Limiter
 	Handlers    Handlers
+	Services    Services
 }
 
 func (app *Application) Serve(ctx context.Context) error {

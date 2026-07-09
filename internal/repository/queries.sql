@@ -55,8 +55,67 @@ RETURNING
     *;
 
 -- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at)
-    VALUES ($1, $2, $3, $4)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent)
+    VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING
     *;
+
+-- name: SessionGetByID :one
+SELECT
+    *
+FROM
+    sessions
+WHERE
+    id = $1
+LIMIT 1;
+
+-- name: SessionUpdateRefreshToken :one
+UPDATE
+    sessions
+SET
+    refresh_token_hash = $2,
+    expires_at = $3,
+    last_seen_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+    AND expires_at > CURRENT_TIMESTAMP
+RETURNING
+    *;
+
+-- name: SessionUpdateLastSeen :one
+UPDATE
+    sessions
+SET
+    last_seen_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+    AND expires_at > CURRENT_TIMESTAMP
+RETURNING
+    *;
+
+-- name: SessionUpdateRevoked :one
+UPDATE
+    sessions
+SET
+    revoked_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+RETURNING
+    *;
+
+-- name: SessionDelete :exec
+DELETE FROM sessions
+WHERE id = $1;
+
+-- name: SessionDeleteAllExcept :exec
+DELETE FROM sessions
+WHERE user_id = $1
+    AND id != $2;
+
+-- name: SessionDeleteAllExpired :exec
+DELETE FROM sessions
+WHERE expires_at <= CURRENT_TIMESTAMP;
 

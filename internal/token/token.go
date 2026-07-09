@@ -12,9 +12,9 @@ import (
 type Type string
 
 type Claims struct {
-	UserID    uuid.UUID  `json:"uid"`
-	SessionID *uuid.UUID `json:"sid,omitempty"`
-	Type      Type       `json:"type"`
+	UserID    uuid.UUID `json:"uid"`
+	SessionID uuid.UUID `json:"sid"`
+	Type      Type      `json:"type"`
 	jwt.RegisteredClaims
 }
 
@@ -74,7 +74,7 @@ func NewManager(cfg Config) (*Manager, error) {
 }
 
 func (m *Manager) GenerateTokenPair(userID uuid.UUID, sessionID uuid.UUID) (Pair, error) {
-	accessToken, _, err := m.GenerateAccessToken(userID)
+	accessToken, _, err := m.GenerateAccessToken(userID, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -91,13 +91,15 @@ func (m *Manager) GenerateTokenPair(userID uuid.UUID, sessionID uuid.UUID) (Pair
 	}, nil
 }
 
-func (m *Manager) GenerateAccessToken(userID uuid.UUID) (string, time.Time, error) {
-	return m.generate(userID, TypeAccess, AccessTokenTTL, Claims{})
+func (m *Manager) GenerateAccessToken(userID uuid.UUID, sessionID uuid.UUID) (string, time.Time, error) {
+	return m.generate(userID, TypeAccess, AccessTokenTTL, Claims{
+		SessionID: sessionID,
+	})
 }
 
 func (m *Manager) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, time.Time, error) {
 	return m.generate(userID, TypeRefresh, RefreshTokenTTL, Claims{
-		SessionID: &sessionID,
+		SessionID: sessionID,
 	})
 }
 

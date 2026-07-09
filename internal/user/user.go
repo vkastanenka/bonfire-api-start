@@ -30,6 +30,8 @@ type AuthView struct {
 	Email        string    `json:"email"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"password"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 func NewAuthView(row repository.User) AuthView {
@@ -38,6 +40,8 @@ func NewAuthView(row repository.User) AuthView {
 		Email:        row.Email,
 		Username:     row.Username,
 		PasswordHash: row.PasswordHash,
+		CreatedAt:    row.CreatedAt.Time,
+		UpdatedAt:    row.UpdatedAt.Time,
 	}
 }
 

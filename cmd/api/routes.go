@@ -23,15 +23,18 @@ func (app *Application) routes() http.Handler {
 	r.Use(httpio.SecurityHeaders)
 
 	r.Route("/api/v1", func(api chi.Router) {
-		api.Group(func(publicAuth chi.Router) {
-			publicAuth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+		api.Group(func(auth chi.Router) {
+			auth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
 				Limit:  app.Config.AuthRateLimit,
 				Window: app.Config.AuthRateWindow,
 				Scope:  httpio.RateLimitScopePublic,
 			}))
 
-			publicAuth.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
-			publicAuth.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
+			auth.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
+			auth.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
+
+			auth.Use(httpio.RequireAuth(app.Services.Token))
+			auth.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
 		})
 	})
 

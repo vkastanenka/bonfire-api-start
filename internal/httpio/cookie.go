@@ -5,7 +5,15 @@ import (
 	"time"
 )
 
-const CookieNameRefreshToken = "refresh_token"
+const CookieRefreshToken = "refresh_token"
+
+func GetCookieRefreshToken(r *http.Request) (string, error) {
+	cookie, err := r.Cookie(CookieRefreshToken)
+	if err != nil {
+		return "", err
+	}
+	return cookie.Value, nil
+}
 
 type SetCookieRefreshTokenParams struct {
 	Token   string
@@ -14,7 +22,7 @@ type SetCookieRefreshTokenParams struct {
 
 func SetCookieRefreshToken(w http.ResponseWriter, p SetCookieRefreshTokenParams) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     CookieNameRefreshToken,
+		Name:     CookieRefreshToken,
 		Value:    p.Token,
 		Path:     "/",
 		Expires:  p.Expires,
@@ -27,7 +35,7 @@ func SetCookieRefreshToken(w http.ResponseWriter, p SetCookieRefreshTokenParams)
 
 func ClearCookieRefreshToken(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     CookieNameRefreshToken,
+		Name:     CookieRefreshToken,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,

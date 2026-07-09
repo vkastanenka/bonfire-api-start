@@ -20,7 +20,7 @@ CREATE TABLE users(
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
-    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 30 AND 255)
+    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 3 AND 255)
 );
 
 CREATE TRIGGER update_users_modtime
@@ -48,12 +48,23 @@ CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     refresh_token_hash bytea NOT NULL UNIQUE,
+    last_seen_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     expires_at timestamp with time zone NOT NULL,
+    revoked_at timestamp with time zone,
+    client_ip inet NOT NULL,
+    user_agent text NOT NULL,
+    device_os text NOT NULL DEFAULT 'Unknown',
+    device_browser text NOT NULL DEFAULT 'Unknown',
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
+    CONSTRAINT user_agent_length CHECK (length(user_agent) BETWEEN 1 AND 1000),
+    CONSTRAINT device_os_length CHECK (length(device_os) BETWEEN 1 AND 100),
+    CONSTRAINT device_browser_length CHECK (length(device_browser) BETWEEN 1 AND 100)
 );
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_user_active ON sessions(user_id)
+WHERE (revoked_at IS NULL);
 
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 

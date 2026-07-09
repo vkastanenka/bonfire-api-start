@@ -7,15 +7,16 @@ package repository
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at)
-    VALUES ($1, $2, $3, $4)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent)
+    VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING
-    id, user_id, refresh_token_hash, expires_at, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
 `
 
 type SessionCreateParams struct {
@@ -23,6 +24,8 @@ type SessionCreateParams struct {
 	UserID           pgtype.UUID        `json:"user_id"`
 	RefreshTokenHash []byte             `json:"refresh_token_hash"`
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	ClientIP         netip.Addr         `json:"client_ip"`
+	UserAgent        string             `json:"user_agent"`
 }
 
 func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error) {
@@ -31,13 +34,193 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		arg.UserID,
 		arg.RefreshTokenHash,
 		arg.ExpiresAt,
+		arg.ClientIP,
+		arg.UserAgent,
 	)
 	var i Session
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
 		&i.RefreshTokenHash,
+		&i.LastSeenAt,
 		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.UserAgent,
+		&i.DeviceOs,
+		&i.DeviceBrowser,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sessionDelete = `-- name: SessionDelete :exec
+DELETE FROM sessions
+WHERE id = $1
+`
+
+func (q *Queries) SessionDelete(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, sessionDelete, id)
+	return err
+}
+
+const sessionDeleteAllExcept = `-- name: SessionDeleteAllExcept :exec
+DELETE FROM sessions
+WHERE user_id = $1
+    AND id != $2
+`
+
+type SessionDeleteAllExceptParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error {
+	_, err := q.db.Exec(ctx, sessionDeleteAllExcept, arg.UserID, arg.ID)
+	return err
+}
+
+const sessionDeleteAllExpired = `-- name: SessionDeleteAllExpired :exec
+DELETE FROM sessions
+WHERE expires_at <= CURRENT_TIMESTAMP
+`
+
+func (q *Queries) SessionDeleteAllExpired(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, sessionDeleteAllExpired)
+	return err
+}
+
+const sessionGetByID = `-- name: SessionGetByID :one
+SELECT
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+FROM
+    sessions
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionGetByID, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshTokenHash,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.UserAgent,
+		&i.DeviceOs,
+		&i.DeviceBrowser,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sessionUpdateLastSeen = `-- name: SessionUpdateLastSeen :one
+UPDATE
+    sessions
+SET
+    last_seen_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+    AND expires_at > CURRENT_TIMESTAMP
+RETURNING
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+`
+
+func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionUpdateLastSeen, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshTokenHash,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.UserAgent,
+		&i.DeviceOs,
+		&i.DeviceBrowser,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sessionUpdateRefreshToken = `-- name: SessionUpdateRefreshToken :one
+UPDATE
+    sessions
+SET
+    refresh_token_hash = $2,
+    expires_at = $3,
+    last_seen_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+    AND expires_at > CURRENT_TIMESTAMP
+RETURNING
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+`
+
+type SessionUpdateRefreshTokenParams struct {
+	ID               pgtype.UUID        `json:"id"`
+	RefreshTokenHash []byte             `json:"refresh_token_hash"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionUpdateRefreshToken, arg.ID, arg.RefreshTokenHash, arg.ExpiresAt)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshTokenHash,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.UserAgent,
+		&i.DeviceOs,
+		&i.DeviceBrowser,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const sessionUpdateRevoked = `-- name: SessionUpdateRevoked :one
+UPDATE
+    sessions
+SET
+    revoked_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND revoked_at IS NULL
+RETURNING
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+`
+
+func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionUpdateRevoked, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RefreshTokenHash,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.UserAgent,
+		&i.DeviceOs,
+		&i.DeviceBrowser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
