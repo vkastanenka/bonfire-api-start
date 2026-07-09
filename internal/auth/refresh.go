@@ -72,17 +72,34 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	var sessionAuth session.AuthView
 
 	err = s.cache.Get(ctx, sessionKey, &sessionAuth)
+	if err != nil {
+		if !cache.IsNotFoundError(err) {
+			slog.WarnContext(ctx, "session cache degraded; falling back to database", "error", err, "session_id", claims.SessionID)
+		}
 
-	if cache.IsNotFoundError(err) {
 		val, err, _ := s.flightGroup.Do(claims.SessionID.String(), func() (interface{}, error) {
-			sessionRow, dbErr := s.session.GetByID(ctx, claims.SessionID)
+			dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+
+			sessionRow, dbErr := s.session.GetByID(dbCtx, claims.SessionID)
 			if dbErr != nil {
 				return nil, dbErr
 			}
 
 			auth := sessionRow.ToAuthView()
 
-			_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, auth, time.Until(auth.ExpiresAt))
+			var currentCache session.AuthView
+			checkErr := s.cache.Get(dbCtx, sessionKey, &currentCache)
+
+			if cache.IsNotFoundError(checkErr) || (checkErr == nil && currentCache.UpdatedAt.Before(auth.UpdatedAt)) {
+				if setErr := s.cache.Set(dbCtx, sessionKey, auth, time.Until(auth.ExpiresAt)); setErr != nil {
+					slog.WarnContext(dbCtx, "failed to populate session cache during singleflight fill",
+						"error", setErr,
+						"session_id", auth.ID,
+						"user_id", auth.UserID,
+					)
+				}
+			}
 
 			return auth, nil
 		})
@@ -91,16 +108,33 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		}
 
 		sessionAuth = val.(session.AuthView)
-	} else if err != nil {
-		return RefreshResult{}, err
 	}
 
+	persistCtx := context.WithoutCancel(ctx)
+
 	if subtle.ConstantTimeCompare(sessionAuth.RefreshTokenHash, crypto.HashToken(r.RefreshToken)) != 1 {
-		persistCtx := context.WithoutCancel(ctx)
-		if !sessionAuth.IsExpired() {
-			_, _ = s.session.Revoke(persistCtx, sessionAuth.ID)
+		slog.WarnContext(persistCtx, "refresh token reuse detected: token hash mismatch",
+			"session_id", sessionAuth.ID,
+			"user_id", sessionAuth.UserID,
+			"expired", sessionAuth.IsExpired(),
+		)
+
+		if _, revokeErr := s.session.Revoke(persistCtx, sessionAuth.ID); revokeErr != nil {
+			slog.ErrorContext(persistCtx, "failed to revoke compromised session in database",
+				"error", revokeErr,
+				"session_id", sessionAuth.ID,
+				"user_id", sessionAuth.UserID,
+			)
 		}
-		_ = s.cache.Delete(persistCtx, sessionKey)
+
+		if delErr := s.cache.Delete(persistCtx, sessionKey); delErr != nil {
+			slog.ErrorContext(persistCtx, "failed to evict compromised session from cache",
+				"error", delErr,
+				"session_id", sessionAuth.ID,
+				"user_id", sessionAuth.UserID,
+			)
+		}
+
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
 	}
 
@@ -122,9 +156,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
-	persistCtx := context.WithoutCancel(ctx)
-
-	_, err = s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
+	sessionView, err := s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
 		ID:               sessionAuth.ID,
 		RefreshTokenHash: hashedRefreshToken,
 		ExpiresAt:        tokenPair.RefreshExpiresAt,
@@ -133,22 +165,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	sessionAuth.RefreshTokenHash = hashedRefreshToken
-	sessionAuth.ExpiresAt = tokenPair.RefreshExpiresAt
-	if err := s.cache.Set(
-		persistCtx,
-		sessionKey,
-		sessionAuth,
-		time.Until(sessionAuth.ExpiresAt),
-	); err != nil {
-		slog.ErrorContext(ctx,
-			"failed to set session",
-			"error", err,
-			"sessionID", sessionAuth.ID,
-			"userID", sessionAuth.UserID,
-		)
-		_ = s.cache.Delete(persistCtx, sessionKey)
-	}
+	s.updateCacheSession(persistCtx, sessionView.ToAuthView())
 
 	return RefreshResult{
 		AccessToken:           tokenPair.Access,

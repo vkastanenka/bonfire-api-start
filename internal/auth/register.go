@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
@@ -10,7 +9,6 @@ import (
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -101,7 +99,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}
 
 	if !availability.Email || !availability.Username {
-		return RegisterResult{}, newRegisterConflictError(availability)
+		return RegisterResult{}, newConflictError(availability)
 	}
 
 	userID, err := uuid.NewV7()
@@ -131,8 +129,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	var sessionRow repository.Session
 
-	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
-		persistCtx := context.WithoutCancel(ctx)
+	persistCtx := context.WithoutCancel(ctx)
+
+	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
 
 		_, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
 			ID:           pgtype.UUID{Bytes: userID, Valid: true},
@@ -175,20 +174,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	sessionView := session.FromRepository(sessionRow)
 
-	err = s.cache.Set(
-		context.WithoutCancel(ctx),
-		cache.SessionKey(sessionView.ID),
-		sessionView.ToAuthView(),
-		time.Until(sessionView.ExpiresAt),
-	)
-	if err != nil {
-		slog.ErrorContext(ctx,
-			"failed to set session",
-			"error", err,
-			"sessionID", sessionView.ID,
-			"userID", sessionView.UserID,
-		)
-	}
+	s.createCacheSession(persistCtx, sessionView.ToAuthView())
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,
@@ -197,7 +183,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func newRegisterConflictError(r user.CheckAvailabilityResult) error {
+func newConflictError(r user.CheckAvailabilityResult) error {
 	var params []apperr.InvalidParam
 
 	if !r.Email {

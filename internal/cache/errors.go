@@ -16,6 +16,7 @@ const (
 	ScopeEvents    Scope = "events"
 	ScopePresence  Scope = "presence"
 	ScopeRateLimit Scope = "rate_limit"
+	ScopeSession   Scope = "session"
 	ScopeStore     Scope = "store"
 )
 

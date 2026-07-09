@@ -74,9 +74,12 @@ type LoginResult struct {
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
 	lockoutKey := cache.AuthLoginLockoutKey(p.Email)
-	if isLocked, err := s.cache.Exists(ctx, lockoutKey); err == nil && isLocked {
+
+	var isLocked bool
+	err := s.cache.Get(ctx, lockoutKey, &isLocked)
+	if err == nil && isLocked {
 		return LoginResult{}, newLockedError()
-	} else if err != nil {
+	} else if err != nil && !cache.IsNotFoundError(err) {
 		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", p.Email)
 	}
 
@@ -122,23 +125,10 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	err = s.cache.Set(
-		context.WithoutCancel(ctx),
-		cache.SessionKey(sessionView.ID),
-		sessionView.ToAuthView(),
-		time.Until(sessionView.ExpiresAt),
-	)
-	if err != nil {
-		slog.ErrorContext(ctx,
-			"failed to set session",
-			"error", err,
-			"sessionID", sessionView.ID,
-			"userID", sessionView.UserID,
-		)
-	}
+	s.createCacheSession(persistCtx, sessionView.ToAuthView())
 
 	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
-		slog.WarnContext(ctx,
+		slog.WarnContext(persistCtx,
 			"failed to clear login failures cache",
 			"error", delErr,
 			"email", p.Email,
@@ -158,13 +148,19 @@ func (s *Service) handleInvalidPassword(ctx context.Context, email string, locko
 
 	attempts, err := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to increment login failures", "error", err, "email", email)
+		slog.ErrorContext(persistCtx, "failed to increment login failures",
+			"error", err,
+			"email", email,
+		)
 		return newCredentialsError()
 	}
 
 	if attempts >= loginMaxAttempts {
 		if err := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); err != nil {
-			slog.ErrorContext(ctx, "failed to set login lockout", "error", err, "email", email)
+			slog.ErrorContext(persistCtx, "failed to set login lockout",
+				"error", err,
+				"email", email,
+			)
 		}
 		return newLockedError()
 	}
