@@ -21,12 +21,16 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-redis/redis_rate/v10"
+	"github.com/google/uuid"
 	"github.com/rs/cors"
 )
 
 type contextKey string
 
-const clientMetaKey contextKey = "client_metadata"
+const (
+	clientMetaKey contextKey = "client_metadata"
+	userClaimsKey contextKey = "user_claims"
+)
 
 type ClientMeta struct {
 	IP        netip.Addr
@@ -386,4 +390,23 @@ func RequireAuth(mgr *token.Manager) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func GetCtxClaims(ctx context.Context) (*token.Claims, error) {
+	claims, ok := ctx.Value(userClaimsKey).(*token.Claims)
+	if !ok {
+		return nil, apperr.NewUnauthorized(
+			fmt.Errorf("claims not found in context"),
+			"Authentication is required to access this resource.",
+		)
+	}
+	return claims, nil
+}
+
+func GetCtxUserID(ctx context.Context) (uuid.UUID, error) {
+	claims, err := GetCtxClaims(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return claims.UserID, nil
 }
