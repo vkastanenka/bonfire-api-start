@@ -22,7 +22,7 @@ func (r Scope) String() string {
 	return string(r)
 }
 
-var ErrNotFound = errors.New("resource not found")
+var ErrNotFound = errors.New("store: resource not found")
 
 func IsNotFoundError(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrNotFound)
@@ -39,7 +39,7 @@ func NewError(err error, scope Scope) error {
 	}
 
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(err, fmt.Sprintf("%s could not be found.", scope))
+		return apperr.NewNotFound(err, fmt.Sprintf("%s was not found in store.", scope))
 	}
 
 	var pgErr *pgconn.PgError

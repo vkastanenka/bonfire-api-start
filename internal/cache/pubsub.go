@@ -3,30 +3,33 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"time"
 
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 )
 
-// redisSubscription acts as our structural bridge, adapting the concrete
-// third-party goredis.PubSub stream to our clean, driver-agnostic interface.
-type redisSubscription struct {
-	pubsub *goredis.PubSub
+// TODO: Move to config
+const defaultChannelBuffer = 100
+
+type cacheSub struct {
+	pubsub *redis.PubSub
 	ch     chan string
 	done   chan struct{}
 }
 
-func (s *redisSubscription) Channel() <-chan string {
+func (s *cacheSub) Channel() <-chan string {
 	return s.ch
 }
 
-func (s *redisSubscription) Unsubscribe(ctx context.Context) error {
+func (s *cacheSub) Unsubscribe(ctx context.Context) error {
 	close(s.done)
-	return s.pubsub.Close()
+	if err := s.pubsub.Close(); err != nil {
+		return NewError(err, ScopeEvents)
+	}
+	return nil
 }
 
-// listen drains the native go-redis driver channel and pipes payloads
-// forward safely, respecting manual resource teardowns.
-func (s *redisSubscription) listen() {
+func (s *cacheSub) listen() {
 	defer close(s.ch)
 	redisCh := s.pubsub.Channel()
 
@@ -36,7 +39,6 @@ func (s *redisSubscription) listen() {
 			if !ok {
 				return
 			}
-			// Forward the message payload string to our exposed channel
 			select {
 			case s.ch <- msg.Payload:
 			case <-s.done:
@@ -51,28 +53,32 @@ func (s *redisSubscription) listen() {
 func (m *manager) Publish(ctx context.Context, channel string, payload interface{}) error {
 	bytes, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return NewError(err, ScopeEvents)
 	}
-	return m.client.Publish(ctx, channel, bytes).Err()
+
+	if err := m.client.Publish(ctx, channel, bytes).Err(); err != nil {
+		return NewError(err, ScopeEvents)
+	}
+	return nil
 }
 
 func (m *manager) Subscribe(ctx context.Context, channel string) (Subscription, error) {
-	pb := m.client.Subscribe(ctx, channel)
+	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-	// Block until Redis acknowledges the subscription request.
-	// This prevents a critical race condition where rapid subsequent publishes are lost.
-	if _, err := pb.Receive(ctx); err != nil {
+	pb := m.client.Subscribe(subCtx, channel)
+
+	if _, err := pb.Receive(subCtx); err != nil {
 		pb.Close()
-		return nil, NewError(err, DomainEvents)
+		return nil, NewError(err, ScopeEvents)
 	}
 
-	sub := &redisSubscription{
+	sub := &cacheSub{
 		pubsub: pb,
-		ch:     make(chan string),
+		ch:     make(chan string, defaultChannelBuffer),
 		done:   make(chan struct{}),
 	}
 
-	// Offload stream translation to a background worker loop
 	go sub.listen()
 
 	return sub, nil

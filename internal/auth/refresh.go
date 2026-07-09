@@ -69,7 +69,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 	var sessionAuth session.AuthView
 	err = s.cache.Get(ctx, sessionKey, &sessionAuth)
 
-	if cache.IsCacheMissError(err) {
+	if cache.IsNotFoundError(err) {
 		sessionAuth, err = s.session.GetAuthByID(ctx, claims.SessionID)
 		if err != nil {
 			return RefreshResult{}, err
