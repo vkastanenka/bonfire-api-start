@@ -58,7 +58,7 @@ type RefreshResult struct {
 func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, error) {
 	claims, err := s.token.VerifyRefresh(r.RefreshToken)
 	if err != nil {
-		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionInvalid)
+		return RefreshResult{}, apperr.NewTokenExpired(err, errSessionInvalid)
 	}
 
 	if claims.SessionID.String() == "" {

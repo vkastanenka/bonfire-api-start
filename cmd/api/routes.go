@@ -32,8 +32,6 @@ func (app *Application) routes() http.Handler {
 
 			auth.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			auth.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
-
-			auth.Use(httpio.RequireAuth(app.Services.Token))
 			auth.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
 		})
 	})

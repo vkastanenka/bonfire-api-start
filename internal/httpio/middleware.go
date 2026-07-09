@@ -331,12 +331,7 @@ func RequireAuth(mgr *token.Manager) func(http.Handler) http.Handler {
 
 			claims, err := mgr.VerifyAccess(tokenStr)
 			if err != nil {
-				if errors.Is(err, token.ErrTokenExpired) {
-					respondError(w, r, apperr.NewUnauthorized(err, errInvalidToken))
-					return
-				}
-
-				respondError(w, r, apperr.NewUnauthorized(err, errInvalidToken))
+				respondError(w, r, apperr.NewTokenExpired(err, errInvalidToken))
 				return
 			}
 
