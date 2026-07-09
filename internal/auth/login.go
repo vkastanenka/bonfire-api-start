@@ -106,15 +106,13 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
-	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
-
 	persistCtx := context.WithoutCancel(ctx)
 
 	sessionRow, err := s.session.Create(persistCtx, session.CreateParams{
 		ID:               &sessionID,
 		UserID:           userAuth.ID,
-		RefreshTokenHash: hashedRefreshToken,
-		ExpiresAt:        tokenPair.RefreshTokenExpiresAt,
+		RefreshTokenHash: crypto.HashToken(tokenPair.Refresh),
+		ExpiresAt:        tokenPair.RefreshExpiresAt,
 		ClientIP:         p.ClientMeta.IP,
 		UserAgent:        p.ClientMeta.UserAgent,
 		OS:               p.ClientMeta.OS,
@@ -124,17 +122,21 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	sessionKey := cache.SessionKey(sessionRow.ID)
-	_ = s.cache.Set(persistCtx, sessionKey, sessionRow, time.Until(tokenPair.RefreshTokenExpiresAt))
+	_ = s.cache.Set(
+		persistCtx,
+		cache.SessionKey(sessionRow.ID),
+		sessionRow,
+		time.Until(tokenPair.RefreshExpiresAt),
+	)
 
 	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
 		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", p.Email)
 	}
 
 	return LoginResult{
-		AccessToken:           tokenPair.AccessToken,
-		RefreshToken:          tokenPair.RefreshToken,
-		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
 	}, nil
 }
 

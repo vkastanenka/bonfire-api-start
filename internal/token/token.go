@@ -30,8 +30,8 @@ const (
 )
 
 const (
-	AccessTokenTTL  = 15 * time.Minute
-	RefreshTokenTTL = 7 * 24 * time.Hour
+	AccessTTL  = 15 * time.Minute
+	RefreshTTL = 7 * 24 * time.Hour
 )
 
 var (
@@ -73,10 +73,10 @@ type PairParams struct {
 }
 
 type Pair struct {
-	AccessToken           string    `json:"access_token"`
-	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
-	RefreshToken          string    `json:"refresh_token"`
-	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	Access           string    `json:"access_token"`
+	AccessExpiresAt  time.Time `json:"access_token_expires_at"`
+	Refresh          string    `json:"refresh_token"`
+	RefreshExpiresAt time.Time `json:"refresh_token_expires_at"`
 }
 
 func (m *Manager) GeneratePair(p PairParams) (Pair, error) {
@@ -91,22 +91,22 @@ func (m *Manager) GeneratePair(p PairParams) (Pair, error) {
 	}
 
 	return Pair{
-		AccessToken:           access,
-		AccessTokenExpiresAt:  accessExpiresAt,
-		RefreshToken:          refresh,
-		RefreshTokenExpiresAt: refreshExpiresAt,
+		Access:           access,
+		AccessExpiresAt:  accessExpiresAt,
+		Refresh:          refresh,
+		RefreshExpiresAt: refreshExpiresAt,
 	}, nil
 }
 
 func (m *Manager) GenerateAccess(p PairParams) (string, time.Time, error) {
-	return m.generate(TypeAccess, AccessTokenTTL, Claims{
+	return m.generate(TypeAccess, AccessTTL, Claims{
 		UserID:    p.UserID,
 		SessionID: p.SessionID,
 	})
 }
 
 func (m *Manager) GenerateRefresh(p PairParams) (string, time.Time, error) {
-	return m.generate(TypeRefresh, RefreshTokenTTL, Claims{
+	return m.generate(TypeRefresh, RefreshTTL, Claims{
 		UserID:    p.UserID,
 		SessionID: p.SessionID,
 	})

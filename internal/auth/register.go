@@ -2,9 +2,11 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
@@ -13,21 +15,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/sync/errgroup"
 )
 
-type RegisterReq struct {
+type RegisterRequest struct {
 	Email       string  `json:"email" mod:"email" validate:"identity_email"`
 	Username    string  `json:"username" mod:"text" validate:"identity_username"`
 	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
 	Password    string  `json:"password" validate:"identity_password"`
 }
 
-type RegisterRes struct {
+type RegisterResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterReq](w, r)
+	req, err := httpio.BindJSON[RegisterRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	clientMeta, err := httpio.GetClientMeta(r.Context())
 	if err != nil {
 		return err
 	}
@@ -37,6 +45,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
 		Password:    req.Password,
+		ClientMeta:  clientMeta,
 	})
 	if err != nil {
 		return err
@@ -46,7 +55,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 		Token:   data.RefreshToken,
 		Expires: data.RefreshTokenExpiresAt,
 	})
-	httpio.RespondCreated(w, r, RegisterRes{AccessToken: data.AccessToken})
+	httpio.RespondCreated(w, r, RegisterResponse{AccessToken: data.AccessToken})
+
 	return nil
 }
 
@@ -55,6 +65,7 @@ type RegisterParams struct {
 	Username    string
 	DisplayName *string
 	Password    string
+	ClientMeta  httpio.ClientMeta
 }
 
 type RegisterResult struct {
@@ -63,22 +74,33 @@ type RegisterResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResult, error) {
-	availability, err := s.user.CheckAvailability(ctx, user.CheckAvailabilityParams{
-		Email:    r.Email,
-		Username: r.Username,
+func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
+	var passwordHash string
+	var availability user.CheckAvailabilityResult
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var hErr error
+		passwordHash, hErr = crypto.HashPassword(p.Password)
+		return hErr
 	})
-	if err != nil {
-		return RegisterResult{}, err
+
+	g.Go(func() error {
+		var aErr error
+		availability, aErr = s.user.CheckAvailability(gCtx, user.CheckAvailabilityParams{
+			Email:    p.Email,
+			Username: p.Username,
+		})
+		return aErr
+	})
+
+	if err := g.Wait(); err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
 	if !availability.Email || !availability.Username {
 		return RegisterResult{}, newRegisterConflictError(availability)
-	}
-
-	passwordHash, err := crypto.HashPassword(r.Password)
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
 	userID, err := uuid.NewV7()
@@ -91,6 +113,10 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
 	tokenPair, err := s.token.GeneratePair(token.PairParams{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -99,20 +125,22 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
-	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
+	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
-	displayName := r.Username
-	if r.DisplayName != nil && *r.DisplayName != "" {
-		displayName = *r.DisplayName
+	displayName := p.Username
+	if p.DisplayName != nil && *p.DisplayName != "" {
+		displayName = *p.DisplayName
 	}
+
+	var sessionRow repository.Session
 
 	txErr := s.store.ExecTx(ctx, func(qtx *repository.Queries) error {
 		persistCtx := context.WithoutCancel(ctx)
 
 		_, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
 			ID:           pgtype.UUID{Bytes: userID, Valid: true},
-			Email:        r.Email,
-			Username:     r.Username,
+			Email:        p.Email,
+			Username:     p.Username,
 			PasswordHash: passwordHash,
 		})
 		if err != nil {
@@ -127,11 +155,15 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 			return repository.NewError(err, repository.ScopeUserProfile)
 		}
 
-		_, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+		sessionRow, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
 			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
 			UserID:           pgtype.UUID{Bytes: userID, Valid: true},
 			RefreshTokenHash: hashedRefreshToken,
-			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshTokenExpiresAt, Valid: true},
+			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshExpiresAt, Valid: true},
+			ClientIP:         p.ClientMeta.IP,
+			UserAgent:        p.ClientMeta.UserAgent,
+			OS:               p.ClientMeta.OS,
+			Browser:          p.ClientMeta.Browser,
 		})
 		if err != nil {
 			return repository.NewError(err, repository.ScopeSession)
@@ -144,10 +176,17 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
+	_ = s.cache.Set(
+		context.WithoutCancel(ctx),
+		cache.SessionKey(uuid.UUID(sessionRow.ID.Bytes)),
+		session.NewView(sessionRow),
+		time.Until(sessionRow.ExpiresAt.Time),
+	)
+
 	return RegisterResult{
-		AccessToken:           tokenPair.AccessToken,
-		RefreshToken:          tokenPair.RefreshToken,
-		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
 	}, nil
 }
 
@@ -155,10 +194,16 @@ func newRegisterConflictError(r user.CheckAvailabilityResult) error {
 	var params []apperr.InvalidParam
 
 	if !r.Email {
-		params = append(params, apperr.InvalidParam{Name: "email", Reason: "This email is already taken."})
+		params = append(params, apperr.InvalidParam{
+			Name:   "email",
+			Reason: "This email is already taken.",
+		})
 	}
 	if !r.Username {
-		params = append(params, apperr.InvalidParam{Name: "username", Reason: "This username is already taken."})
+		params = append(params, apperr.InvalidParam{
+			Name:   "username",
+			Reason: "This username is already taken.",
+		})
 	}
 
 	return apperr.NewInvalidInput(
