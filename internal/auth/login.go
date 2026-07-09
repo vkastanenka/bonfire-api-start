@@ -83,7 +83,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	userAuth, err := s.user.GetAuthByEmail(ctx, p.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			crypto.DummyComparePassword(p.Password)
+			crypto.CompareDummyPassword(p.Password)
 			return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
 		}
 		return LoginResult{}, err

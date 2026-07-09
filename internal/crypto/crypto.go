@@ -17,13 +17,6 @@ func ComparePassword(hashedPassword string, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(preHash))
 }
 
-func DummyComparePassword(password string) {
-	sum := sha256.Sum256([]byte(password))
-	preHash := hex.EncodeToString(sum[:])
-
-	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(preHash))
-}
-
 func HashPassword(password string) (string, error) {
 	if len(password) == 0 {
 		return "", errors.New("password cannot be empty")
@@ -34,6 +27,13 @@ func HashPassword(password string) (string, error) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(preHash), bcrypt.DefaultCost)
 	return string(hash), err
+}
+
+func CompareDummyPassword(password string) {
+	sum := sha256.Sum256([]byte(password))
+	preHash := hex.EncodeToString(sum[:])
+
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(preHash))
 }
 
 func HashToken(tokenStr string) []byte {
