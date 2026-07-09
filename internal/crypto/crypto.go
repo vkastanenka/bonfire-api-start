@@ -8,21 +8,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var (
-	dummyHash = []byte("$2a$10$784.8J6lZ.tYQvH4y.44Z.L33Wby0b9lD8nE1m5f6X2xWby0b9")
-	dummyPass = []byte("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-)
+const dummyHash = "$2a$10$784.8J6lZ.tYQvH4y.44Z.L33Wby0b9lD8nE1m5f6X2xWby0b9"
 
 func ComparePassword(hashedPassword string, password string) error {
 	sum := sha256.Sum256([]byte(password))
 	preHash := hex.EncodeToString(sum[:])
 
-	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(preHash))
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(preHash))
+}
 
-	if err != nil && errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
-		_ = bcrypt.CompareHashAndPassword(dummyHash, dummyPass)
-	}
-	return err
+func DummyComparePassword(password string) {
+	sum := sha256.Sum256([]byte(password))
+	preHash := hex.EncodeToString(sum[:])
+
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(preHash))
 }
 
 func HashPassword(password string) (string, error) {
@@ -31,7 +30,6 @@ func HashPassword(password string) (string, error) {
 	}
 
 	sum := sha256.Sum256([]byte(password))
-
 	preHash := hex.EncodeToString(sum[:])
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(preHash), bcrypt.DefaultCost)

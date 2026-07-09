@@ -13,10 +13,10 @@ import (
 )
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent)
-    VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
 `
 
 type SessionCreateParams struct {
@@ -26,6 +26,8 @@ type SessionCreateParams struct {
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
 	ClientIP         netip.Addr         `json:"client_ip"`
 	UserAgent        string             `json:"user_agent"`
+	OS               string             `json:"os"`
+	Browser          string             `json:"browser"`
 }
 
 func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error) {
@@ -36,6 +38,8 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		arg.ExpiresAt,
 		arg.ClientIP,
 		arg.UserAgent,
+		arg.OS,
+		arg.Browser,
 	)
 	var i Session
 	err := row.Scan(
@@ -47,8 +51,8 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		&i.RevokedAt,
 		&i.ClientIP,
 		&i.UserAgent,
-		&i.DeviceOs,
-		&i.DeviceBrowser,
+		&i.OS,
+		&i.Browser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -93,7 +97,7 @@ func (q *Queries) SessionDeleteAllExpired(ctx context.Context) error {
 
 const sessionGetByID = `-- name: SessionGetByID :one
 SELECT
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
 FROM
     sessions
 WHERE
@@ -113,8 +117,8 @@ func (q *Queries) SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, 
 		&i.RevokedAt,
 		&i.ClientIP,
 		&i.UserAgent,
-		&i.DeviceOs,
-		&i.DeviceBrowser,
+		&i.OS,
+		&i.Browser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -131,7 +135,7 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > CURRENT_TIMESTAMP
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
 `
 
 func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error) {
@@ -146,8 +150,8 @@ func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Se
 		&i.RevokedAt,
 		&i.ClientIP,
 		&i.UserAgent,
-		&i.DeviceOs,
-		&i.DeviceBrowser,
+		&i.OS,
+		&i.Browser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -166,7 +170,7 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > CURRENT_TIMESTAMP
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
 `
 
 type SessionUpdateRefreshTokenParams struct {
@@ -187,8 +191,8 @@ func (q *Queries) SessionUpdateRefreshToken(ctx context.Context, arg SessionUpda
 		&i.RevokedAt,
 		&i.ClientIP,
 		&i.UserAgent,
-		&i.DeviceOs,
-		&i.DeviceBrowser,
+		&i.OS,
+		&i.Browser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -204,7 +208,7 @@ WHERE
     id = $1
     AND revoked_at IS NULL
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, device_os, device_browser, created_at, updated_at
+    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
 `
 
 func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error) {
@@ -219,8 +223,8 @@ func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Ses
 		&i.RevokedAt,
 		&i.ClientIP,
 		&i.UserAgent,
-		&i.DeviceOs,
-		&i.DeviceBrowser,
+		&i.OS,
+		&i.Browser,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

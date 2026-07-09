@@ -53,14 +53,14 @@ CREATE TABLE sessions(
     revoked_at timestamp with time zone,
     client_ip inet NOT NULL,
     user_agent text NOT NULL,
-    device_os text NOT NULL DEFAULT 'Unknown',
-    device_browser text NOT NULL DEFAULT 'Unknown',
+    os text NOT NULL DEFAULT 'Unknown',
+    browser text NOT NULL DEFAULT 'Unknown',
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
     CONSTRAINT user_agent_length CHECK (length(user_agent) BETWEEN 1 AND 1000),
-    CONSTRAINT device_os_length CHECK (length(device_os) BETWEEN 1 AND 100),
-    CONSTRAINT device_browser_length CHECK (length(device_browser) BETWEEN 1 AND 100)
+    CONSTRAINT os_length CHECK (length(os) BETWEEN 1 AND 100),
+    CONSTRAINT browser_length CHECK (length(browser) BETWEEN 1 AND 100)
 );
 
 CREATE INDEX idx_sessions_user_active ON sessions(user_id)

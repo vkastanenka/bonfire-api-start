@@ -14,8 +14,8 @@ func AuthLoginLockoutKey(email string) string {
 	return fmt.Sprintf("auth:login:lockout:{%s}", email)
 }
 
-func AuthSessionKey(sessionID string) string {
-	return fmt.Sprintf("auth:session:{%s}", sessionID)
+func SessionKey(sessionID uuid.UUID) string {
+	return fmt.Sprintf("session:{%s}", sessionID.String())
 }
 
 func UserPresenceKey(userID uuid.UUID) string {

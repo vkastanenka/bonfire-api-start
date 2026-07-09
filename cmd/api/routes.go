@@ -15,7 +15,7 @@ func (app *Application) routes() http.Handler {
 
 	r.Use(middleware.RequestID)
 	r.Use(httpio.Trace)
-	r.Use(httpio.ClientTelemetry(app.Config.TrustProxy))
+	r.Use(httpio.WithClientMeta(app.Config.TrustProxy))
 	r.Use(httpio.Logger)
 	r.Use(httpio.Recoverer)
 	r.Use(httpio.CORS(app.Config))

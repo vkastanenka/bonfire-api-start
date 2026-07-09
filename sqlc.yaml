@@ -16,3 +16,4 @@ sql:
         initialisms:
           - "id"
           - "ip"
+          - "os"

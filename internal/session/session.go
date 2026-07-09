@@ -16,6 +16,8 @@ type View struct {
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 	ClientIP   string     `json:"client_ip"`
 	UserAgent  string     `json:"user_agent"`
+	OS         string     `json:"os"`
+	Browser    string     `json:"browser"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	IsRevoked  bool       `json:"is_revoked"`
@@ -29,6 +31,8 @@ func NewView(row repository.Session) View {
 		LastSeenAt: row.LastSeenAt.Time,
 		ExpiresAt:  row.ExpiresAt.Time,
 		UserAgent:  row.UserAgent,
+		OS:         row.OS,
+		Browser:    row.Browser,
 		CreatedAt:  row.CreatedAt.Time,
 		UpdatedAt:  row.UpdatedAt.Time,
 		IsRevoked:  row.RevokedAt.Valid,

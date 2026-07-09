@@ -19,8 +19,8 @@ type Session struct {
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
 	ClientIP         netip.Addr         `json:"client_ip"`
 	UserAgent        string             `json:"user_agent"`
-	DeviceOs         string             `json:"device_os"`
-	DeviceBrowser    string             `json:"device_browser"`
+	OS               string             `json:"os"`
+	Browser          string             `json:"browser"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }

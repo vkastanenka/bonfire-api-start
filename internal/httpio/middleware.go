@@ -31,14 +31,21 @@ const clientMetaKey contextKey = "client_metadata"
 type ClientMeta struct {
 	IP        netip.Addr
 	UserAgent string
+	OS        string
+	Browser   string
 }
 
-func ClientTelemetry(trustProxy bool) func(http.Handler) http.Handler {
+func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ua := r.UserAgent()
+			os, browser := parseUserAgent(ua)
+
 			meta := ClientMeta{
 				IP:        extractIP(r, trustProxy),
-				UserAgent: r.UserAgent(),
+				UserAgent: ua,
+				OS:        os,
+				Browser:   browser,
 			}
 
 			ctx := context.WithValue(r.Context(), clientMetaKey, meta)
@@ -47,7 +54,45 @@ func ClientTelemetry(trustProxy bool) func(http.Handler) http.Handler {
 	}
 }
 
-func GetMeta(ctx context.Context) (ClientMeta, error) {
+func parseUserAgent(ua string) (os string, browser string) {
+	if ua == "" {
+		return "Unknown", "Unknown"
+	}
+
+	uaLower := strings.ToLower(ua)
+
+	switch {
+	case strings.Contains(uaLower, "iphone") || strings.Contains(uaLower, "ipad") || strings.Contains(uaLower, "ipod"):
+		os = "iOS"
+	case strings.Contains(uaLower, "android"):
+		os = "Android"
+	case strings.Contains(uaLower, "windows"):
+		os = "Windows"
+	case strings.Contains(uaLower, "macintosh") || strings.Contains(uaLower, "mac os x"):
+		os = "macOS"
+	case strings.Contains(uaLower, "linux"):
+		os = "Linux"
+	default:
+		os = "Unknown"
+	}
+
+	switch {
+	case strings.Contains(uaLower, "edg/"):
+		browser = "Edge"
+	case strings.Contains(uaLower, "firefox") || strings.Contains(uaLower, "fxios"):
+		browser = "Firefox"
+	case strings.Contains(uaLower, "chrome") || strings.Contains(uaLower, "crios"):
+		browser = "Chrome"
+	case strings.Contains(uaLower, "safari"):
+		browser = "Safari"
+	default:
+		browser = "Unknown"
+	}
+
+	return os, browser
+}
+
+func GetClientMeta(ctx context.Context) (ClientMeta, error) {
 	meta, ok := ctx.Value(clientMetaKey).(ClientMeta)
 	if !ok {
 		return ClientMeta{IP: netip.IPv4Unspecified()}, apperr.NewInternal(
@@ -59,7 +104,7 @@ func GetMeta(ctx context.Context) (ClientMeta, error) {
 }
 
 func GetIP(ctx context.Context) (netip.Addr, error) {
-	meta, err := GetMeta(ctx)
+	meta, err := GetClientMeta(ctx)
 	if err != nil {
 		return netip.IPv4Unspecified(), err
 	}

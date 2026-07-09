@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
@@ -90,7 +91,10 @@ func (s *Service) Register(ctx context.Context, r RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
-	tokenPair, err := s.token.GenerateTokenPair(userID, sessionID)
+	tokenPair, err := s.token.GeneratePair(token.PairParams{
+		UserID:    userID,
+		SessionID: sessionID,
+	})
 	if err != nil {
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}

@@ -30,6 +30,8 @@ type CreateParams struct {
 	ExpiresAt        time.Time
 	ClientIP         netip.Addr
 	UserAgent        string
+	OS               string
+	Browser          string
 }
 
 func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
@@ -52,6 +54,8 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 		ClientIP:         p.ClientIP,
 		UserAgent:        p.UserAgent,
+		OS:               p.OS,
+		Browser:          p.Browser,
 	})
 	if err != nil {
 		return View{}, repository.NewError(err, repository.ScopeSession)

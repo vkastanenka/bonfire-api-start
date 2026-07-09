@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type Type string
-
 type Claims struct {
 	UserID    uuid.UUID `json:"uid"`
 	SessionID uuid.UUID `json:"sid"`
@@ -24,16 +22,7 @@ type Config struct {
 	Issuer        string
 }
 
-type Pair struct {
-	AccessToken           string    `json:"access_token"`
-	RefreshToken          string    `json:"refresh_token"`
-	RefreshTokenExpiresAt time.Time `json:"-"`
-}
-
-type Manager struct {
-	issuer  string
-	secrets map[Type][]byte
-}
+type Type string
 
 const (
 	TypeAccess  Type = "access"
@@ -55,6 +44,11 @@ var (
 	ErrInternal              = errors.New("internal cryptographic error")
 )
 
+type Manager struct {
+	issuer  string
+	secrets map[Type][]byte
+}
+
 func NewManager(cfg Config) (*Manager, error) {
 	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" {
 		return nil, fmt.Errorf("token manager initialization failed: critical secrets cannot be empty")
@@ -73,45 +67,52 @@ func NewManager(cfg Config) (*Manager, error) {
 	}, nil
 }
 
-func (m *Manager) GenerateTokenPair(userID uuid.UUID, sessionID uuid.UUID) (Pair, error) {
-	accessToken, _, err := m.GenerateAccessToken(userID, sessionID)
+type PairParams struct {
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+}
+
+type Pair struct {
+	AccessToken           string    `json:"access_token"`
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshToken          string    `json:"refresh_token"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+}
+
+func (m *Manager) GeneratePair(p PairParams) (Pair, error) {
+	access, accessExpiresAt, err := m.GenerateAccess(p)
 	if err != nil {
 		return Pair{}, err
 	}
 
-	refreshToken, refreshTokenExpiresAt, err := m.GenerateRefreshToken(userID, sessionID)
+	refresh, refreshExpiresAt, err := m.GenerateRefresh(p)
 	if err != nil {
 		return Pair{}, err
 	}
 
 	return Pair{
-		AccessToken:           accessToken,
-		RefreshToken:          refreshToken,
-		RefreshTokenExpiresAt: refreshTokenExpiresAt,
+		AccessToken:           access,
+		AccessTokenExpiresAt:  accessExpiresAt,
+		RefreshToken:          refresh,
+		RefreshTokenExpiresAt: refreshExpiresAt,
 	}, nil
 }
 
-func (m *Manager) GenerateAccessToken(userID uuid.UUID, sessionID uuid.UUID) (string, time.Time, error) {
-	return m.generate(userID, TypeAccess, AccessTokenTTL, Claims{
-		SessionID: sessionID,
+func (m *Manager) GenerateAccess(p PairParams) (string, time.Time, error) {
+	return m.generate(TypeAccess, AccessTokenTTL, Claims{
+		UserID:    p.UserID,
+		SessionID: p.SessionID,
 	})
 }
 
-func (m *Manager) GenerateRefreshToken(userID uuid.UUID, sessionID uuid.UUID) (string, time.Time, error) {
-	return m.generate(userID, TypeRefresh, RefreshTokenTTL, Claims{
-		SessionID: sessionID,
+func (m *Manager) GenerateRefresh(p PairParams) (string, time.Time, error) {
+	return m.generate(TypeRefresh, RefreshTokenTTL, Claims{
+		UserID:    p.UserID,
+		SessionID: p.SessionID,
 	})
 }
 
-func (m *Manager) VerifyAccess(tokenStr string) (*Claims, error) {
-	return m.verify(tokenStr, TypeAccess)
-}
-
-func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
-	return m.verify(tokenStr, TypeRefresh)
-}
-
-func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
+func (m *Manager) generate(tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
 	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
 		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenType)
@@ -120,7 +121,6 @@ func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, 
 	now := time.Now()
 	expiresAt := now.Add(ttl)
 
-	claims.UserID = userID
 	claims.Type = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
 		ID:        uuid.NewString(),
@@ -139,10 +139,18 @@ func (m *Manager) generate(userID uuid.UUID, tokenType Type, ttl time.Duration, 
 	return signedToken, expiresAt, nil
 }
 
-func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
-	secret, exists := m.secrets[expectedType]
+func (m *Manager) VerifyAccess(tokenStr string) (*Claims, error) {
+	return m.verify(TypeAccess, tokenStr)
+}
+
+func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
+	return m.verify(TypeRefresh, tokenStr)
+}
+
+func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {
+	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
-		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, expectedType)
+		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, tokenType)
 	}
 
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
@@ -174,8 +182,8 @@ func (m *Manager) verify(tokenStr string, expectedType Type) (*Claims, error) {
 		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, m.issuer, claims.Issuer)
 	}
 
-	if claims.Type != expectedType {
-		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrTypeMismatch, expectedType, claims.Type)
+	if claims.Type != tokenType {
+		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrTypeMismatch, tokenType, claims.Type)
 	}
 
 	return claims, nil

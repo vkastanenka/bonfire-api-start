@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
 	"context"
 	"crypto/subtle"
 	"net/http"
@@ -65,7 +66,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, apperr.NewUnauthorized(nil, errSessionMalformed)
 	}
 
-	sessionKey := cache.AuthSessionKey(claims.SessionID.String())
+	sessionKey := cache.SessionKey(claims.SessionID)
 	var sessionAuth session.AuthView
 	err = s.cache.Get(ctx, sessionKey, &sessionAuth)
 
@@ -103,7 +104,10 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, sessionAuth.ID)
+	tokenPair, err := s.token.GeneratePair(token.PairParams{
+		UserID:    userAuth.ID,
+		SessionID: sessionAuth.ID,
+	})
 	if err != nil {
 		return RefreshResult{}, apperr.NewInternal(err, "")
 	}

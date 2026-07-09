@@ -7,6 +7,7 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
 	"context"
 	"log/slog"
 	"net/http"
@@ -36,15 +37,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	clientMeta, err := httpio.GetMeta(r.Context())
+	clientMeta, err := httpio.GetClientMeta(r.Context())
 	if err != nil {
 		return err
 	}
 
 	data, err := h.service.Login(r.Context(), LoginParams{
-		Email:    req.Email,
-		Password: req.Password,
-		Meta:     clientMeta,
+		Email:      req.Email,
+		Password:   req.Password,
+		ClientMeta: clientMeta,
 	})
 	if err != nil {
 		return err
@@ -60,9 +61,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 }
 
 type LoginParams struct {
-	Email    string
-	Password string
-	Meta     httpio.ClientMeta
+	Email      string
+	Password   string
+	ClientMeta httpio.ClientMeta
 }
 
 type LoginResult struct {
@@ -82,7 +83,8 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			return LoginResult{}, newCredentialsError()
+			crypto.DummyComparePassword(r.Password)
+			return LoginResult{}, s.handleInvalidPassword(ctx, r.Email, lockoutKey)
 		}
 		return LoginResult{}, err
 	}
@@ -91,12 +93,15 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		return LoginResult{}, s.handleInvalidPassword(ctx, r.Email, lockoutKey)
 	}
 
-	userSessionID, err := uuid.NewV7()
+	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
 
-	tokenPair, err := s.token.GenerateTokenPair(userAuth.ID, userSessionID)
+	tokenPair, err := s.token.GeneratePair(token.PairParams{
+		UserID:    userAuth.ID,
+		SessionID: sessionID,
+	})
 	if err != nil {
 		return LoginResult{}, apperr.NewInternal(err, "")
 	}
@@ -105,14 +110,25 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	_, err = s.session.Create(persistCtx, session.CreateParams{
-		ID:               &userSessionID,
+	sessionRow, err := s.session.Create(persistCtx, session.CreateParams{
+		ID:               &sessionID,
 		UserID:           userAuth.ID,
 		RefreshTokenHash: hashedRefreshToken,
 		ExpiresAt:        tokenPair.RefreshTokenExpiresAt,
+		ClientIP:         r.ClientMeta.IP,
+		UserAgent:        r.ClientMeta.UserAgent,
+		OS:               r.ClientMeta.OS,
+		Browser:          r.ClientMeta.Browser,
 	})
 	if err != nil {
 		return LoginResult{}, err
+	}
+
+	sessionKey := cache.SessionKey(sessionRow.ID)
+	_ = s.cache.Set(persistCtx, sessionKey, sessionRow, time.Until(tokenPair.RefreshTokenExpiresAt))
+
+	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(r.Email)); delErr != nil {
+		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
 	}
 
 	return LoginResult{
