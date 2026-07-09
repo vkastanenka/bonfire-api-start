@@ -34,7 +34,7 @@ type CreateParams struct {
 	Browser          string
 }
 
-func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
+func (s *Service) Create(ctx context.Context, p CreateParams) (Session, error) {
 	var targetID uuid.UUID
 
 	if p.ID != nil {
@@ -43,7 +43,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		var err error
 		targetID, err = uuid.NewV7()
 		if err != nil {
-			return View{}, repository.NewError(err, repository.ScopeSession)
+			return Session{}, repository.NewError(err, repository.ScopeSession)
 		}
 	}
 
@@ -58,26 +58,18 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		Browser:          p.Browser,
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeSession)
+		return Session{}, repository.NewError(err, repository.ScopeSession)
 	}
 
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (Session, error) {
 	row, err := s.store.SessionGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeSession)
+		return Session{}, repository.NewError(err, repository.ScopeSession)
 	}
-	return NewView(row), nil
-}
-
-func (s *Service) GetAuthByID(ctx context.Context, id uuid.UUID) (AuthView, error) {
-	row, err := s.store.SessionGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ScopeSession)
-	}
-	return NewAuthView(row), nil
+	return FromRepository(row), nil
 }
 
 type UpdateRefreshTokenParams struct {
@@ -86,32 +78,32 @@ type UpdateRefreshTokenParams struct {
 	ExpiresAt        time.Time
 }
 
-func (s *Service) UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenParams) (AuthView, error) {
+func (s *Service) UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenParams) (Session, error) {
 	row, err := s.store.SessionUpdateRefreshToken(ctx, repository.SessionUpdateRefreshTokenParams{
 		ID:               pgtype.UUID{Bytes: p.ID, Valid: true},
 		RefreshTokenHash: p.RefreshTokenHash,
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ScopeSession)
+		return Session{}, repository.NewError(err, repository.ScopeSession)
 	}
-	return NewAuthView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) UpdateLastSeen(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) UpdateLastSeen(ctx context.Context, id uuid.UUID) (Session, error) {
 	row, err := s.store.SessionUpdateLastSeen(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeSession)
+		return Session{}, repository.NewError(err, repository.ScopeSession)
 	}
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) Revoke(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) Revoke(ctx context.Context, id uuid.UUID) (Session, error) {
 	row, err := s.store.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeSession)
+		return Session{}, repository.NewError(err, repository.ScopeSession)
 	}
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {

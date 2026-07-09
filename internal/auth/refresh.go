@@ -9,6 +9,7 @@ import (
 	"bonfire-api/internal/token"
 	"context"
 	"crypto/subtle"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -21,7 +22,7 @@ const (
 	errSessionMalformed = "Invalid session format."
 )
 
-type RefreshRes struct {
+type RefreshResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
@@ -42,7 +43,8 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
 		Token:   data.RefreshToken,
 		Expires: data.RefreshTokenExpiresAt,
 	})
-	httpio.RespondOK(w, r, RefreshRes{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, RefreshResponse{AccessToken: data.AccessToken})
+
 	return nil
 }
 
@@ -68,21 +70,32 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	sessionKey := cache.SessionKey(claims.SessionID)
 	var sessionAuth session.AuthView
+
 	err = s.cache.Get(ctx, sessionKey, &sessionAuth)
 
 	if cache.IsNotFoundError(err) {
-		sessionAuth, err = s.session.GetAuthByID(ctx, claims.SessionID)
+		val, err, _ := s.flightGroup.Do(claims.SessionID.String(), func() (interface{}, error) {
+			sessionRow, dbErr := s.session.GetByID(ctx, claims.SessionID)
+			if dbErr != nil {
+				return nil, dbErr
+			}
+
+			auth := sessionRow.ToAuthView()
+
+			_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, auth, time.Until(auth.ExpiresAt))
+
+			return auth, nil
+		})
 		if err != nil {
 			return RefreshResult{}, err
 		}
-		_ = s.cache.Set(context.WithoutCancel(ctx), sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
+
+		sessionAuth = val.(session.AuthView)
 	} else if err != nil {
 		return RefreshResult{}, err
 	}
 
-	incomingHash := crypto.HashToken(r.RefreshToken)
-
-	if subtle.ConstantTimeCompare(sessionAuth.RefreshTokenHash, incomingHash) != 1 {
+	if subtle.ConstantTimeCompare(sessionAuth.RefreshTokenHash, crypto.HashToken(r.RefreshToken)) != 1 {
 		persistCtx := context.WithoutCancel(ctx)
 		if !sessionAuth.IsExpired() {
 			_, _ = s.session.Revoke(persistCtx, sessionAuth.ID)
@@ -99,41 +112,47 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, apperr.NewUnauthorized(err, errSessionExpired)
 	}
 
-	userAuth, err := s.user.GetAuthByID(ctx, sessionAuth.UserID)
-	if err != nil {
-		return RefreshResult{}, err
-	}
-
 	tokenPair, err := s.token.GeneratePair(token.PairParams{
-		UserID:    userAuth.ID,
+		UserID:    sessionAuth.UserID,
 		SessionID: sessionAuth.ID,
 	})
 	if err != nil {
 		return RefreshResult{}, apperr.NewInternal(err, "")
 	}
 
-	hashedRefreshToken := crypto.HashToken(tokenPair.RefreshToken)
+	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
 	persistCtx := context.WithoutCancel(ctx)
 
 	_, err = s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
 		ID:               sessionAuth.ID,
 		RefreshTokenHash: hashedRefreshToken,
-		ExpiresAt:        tokenPair.RefreshTokenExpiresAt,
+		ExpiresAt:        tokenPair.RefreshExpiresAt,
 	})
 	if err != nil {
 		return RefreshResult{}, err
 	}
 
 	sessionAuth.RefreshTokenHash = hashedRefreshToken
-	sessionAuth.ExpiresAt = tokenPair.RefreshTokenExpiresAt
-	if err := s.cache.Set(persistCtx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt)); err != nil {
+	sessionAuth.ExpiresAt = tokenPair.RefreshExpiresAt
+	if err := s.cache.Set(
+		persistCtx,
+		sessionKey,
+		sessionAuth,
+		time.Until(sessionAuth.ExpiresAt),
+	); err != nil {
+		slog.ErrorContext(ctx,
+			"failed to set session",
+			"error", err,
+			"sessionID", sessionAuth.ID,
+			"userID", sessionAuth.UserID,
+		)
 		_ = s.cache.Delete(persistCtx, sessionKey)
 	}
 
 	return RefreshResult{
-		AccessToken:           tokenPair.AccessToken,
-		RefreshToken:          tokenPair.RefreshToken,
-		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
 	}, nil
 }

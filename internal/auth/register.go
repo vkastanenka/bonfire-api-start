@@ -10,6 +10,7 @@ import (
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -113,10 +114,6 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
-
 	tokenPair, err := s.token.GeneratePair(token.PairParams{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -176,12 +173,22 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	_ = s.cache.Set(
+	sessionView := session.FromRepository(sessionRow)
+
+	err = s.cache.Set(
 		context.WithoutCancel(ctx),
-		cache.SessionKey(uuid.UUID(sessionRow.ID.Bytes)),
-		session.NewView(sessionRow),
-		time.Until(sessionRow.ExpiresAt.Time),
+		cache.SessionKey(sessionView.ID),
+		sessionView.ToAuthView(),
+		time.Until(sessionView.ExpiresAt),
 	)
+	if err != nil {
+		slog.ErrorContext(ctx,
+			"failed to set session",
+			"error", err,
+			"sessionID", sessionView.ID,
+			"userID", sessionView.UserID,
+		)
+	}
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,

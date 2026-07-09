@@ -6,6 +6,8 @@ import (
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
+
+	"golang.org/x/sync/singleflight"
 )
 
 type Handler struct {
@@ -17,11 +19,12 @@ func NewHandler(service *Service) *Handler {
 }
 
 type Service struct {
-	store   repository.Store
-	cache   cache.Store
-	token   *token.Manager
-	session *session.Service
-	user    *user.Service
+	store       repository.Store
+	cache       cache.Store
+	token       *token.Manager
+	session     *session.Service
+	user        *user.Service
+	flightGroup singleflight.Group
 }
 
 func NewService(
@@ -32,10 +35,11 @@ func NewService(
 	user *user.Service,
 ) *Service {
 	return &Service{
-		store:   store,
-		cache:   cache,
-		token:   token,
-		session: session,
-		user:    user,
+		store:       store,
+		cache:       cache,
+		token:       token,
+		session:     session,
+		user:        user,
+		flightGroup: singleflight.Group{},
 	}
 }

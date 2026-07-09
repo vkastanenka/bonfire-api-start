@@ -108,7 +108,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	sessionRow, err := s.session.Create(persistCtx, session.CreateParams{
+	sessionView, err := s.session.Create(persistCtx, session.CreateParams{
 		ID:               &sessionID,
 		UserID:           userAuth.ID,
 		RefreshTokenHash: crypto.HashToken(tokenPair.Refresh),
@@ -122,15 +122,27 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	_ = s.cache.Set(
-		persistCtx,
-		cache.SessionKey(sessionRow.ID),
-		sessionRow,
-		time.Until(tokenPair.RefreshExpiresAt),
+	err = s.cache.Set(
+		context.WithoutCancel(ctx),
+		cache.SessionKey(sessionView.ID),
+		sessionView.ToAuthView(),
+		time.Until(sessionView.ExpiresAt),
 	)
+	if err != nil {
+		slog.ErrorContext(ctx,
+			"failed to set session",
+			"error", err,
+			"sessionID", sessionView.ID,
+			"userID", sessionView.UserID,
+		)
+	}
 
 	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
-		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", p.Email)
+		slog.WarnContext(ctx,
+			"failed to clear login failures cache",
+			"error", delErr,
+			"email", p.Email,
+		)
 	}
 
 	return LoginResult{
