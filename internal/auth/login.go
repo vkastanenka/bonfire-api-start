@@ -74,7 +74,6 @@ type LoginResult struct {
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
 	lockoutKey := cache.AuthLoginLockoutKey(p.Email)
-
 	var isLocked bool
 	err := s.cache.Get(ctx, lockoutKey, &isLocked)
 	if err == nil && isLocked {

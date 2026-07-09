@@ -70,8 +70,8 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	sessionKey := cache.SessionKey(claims.SessionID)
 	var sessionAuth session.AuthView
-
 	err = s.cache.Get(ctx, sessionKey, &sessionAuth)
+	
 	if err != nil {
 		if !cache.IsNotFoundError(err) {
 			slog.WarnContext(ctx, "session cache degraded; falling back to database", "error", err, "session_id", claims.SessionID)
