@@ -88,7 +88,7 @@ var codesRegistry = map[Code]codeMetadata{
 	CodeUnauthorized: {
 		status: http.StatusUnauthorized,
 		title:  "Unauthorized Access",
-		detail: "The provided credentials are invalid or expired.",
+		detail: "The provided credentials are invalid.",
 	},
 	CodeTokenExpired: {
 		status: http.StatusUnauthorized,

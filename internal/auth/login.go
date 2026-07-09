@@ -2,38 +2,36 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-func newLoginCredentialsError() error {
-	const msg = "Invalid credentials."
-	return apperr.NewUnauthorized(
-		nil,
-		msg,
-		apperr.Param("email", msg),
-		apperr.Param("password", msg),
-	)
-}
+// TODO: Move to config?
+const (
+	loginMaxAttempts     = 5
+	loginLockoutDuration = 15 * time.Minute
+)
 
-type LoginReq struct {
+type LoginRequest struct {
 	Email    string `json:"email" mod:"email" validate:"identity_email"`
 	Password string `json:"password" validate:"identity_password"`
 }
 
-type LoginRes struct {
+type LoginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[LoginReq](w, r)
+	req, err := httpio.BindJSON[LoginRequest](w, r)
 	if err != nil {
 		return err
 	}
@@ -56,7 +54,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
 		Token:   data.RefreshToken,
 		Expires: data.RefreshTokenExpiresAt,
 	})
-	httpio.RespondOK(w, r, RegisterRes{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, LoginResponse{AccessToken: data.AccessToken})
+
 	return nil
 }
 
@@ -73,16 +72,23 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
+	lockoutKey := cache.AuthLoginLockoutKey(r.Email)
+	if isLocked, err := s.cache.Exists(ctx, lockoutKey); err == nil && isLocked {
+		return LoginResult{}, newLockedError()
+	} else if err != nil {
+		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", r.Email)
+	}
+
 	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			return LoginResult{}, newLoginCredentialsError()
+			return LoginResult{}, newCredentialsError()
 		}
 		return LoginResult{}, err
 	}
 
 	if err = crypto.ComparePassword(userAuth.PasswordHash, r.Password); err != nil {
-		return LoginResult{}, newLoginCredentialsError()
+		return LoginResult{}, s.handleInvalidPassword(ctx, r.Email, lockoutKey)
 	}
 
 	userSessionID, err := uuid.NewV7()
@@ -114,4 +120,37 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		RefreshToken:          tokenPair.RefreshToken,
 		RefreshTokenExpiresAt: tokenPair.RefreshTokenExpiresAt,
 	}, nil
+}
+
+func (s *Service) handleInvalidPassword(ctx context.Context, email string, lockoutKey string) error {
+	persistCtx := context.WithoutCancel(ctx)
+	failureKey := cache.AuthLoginFailuresKey(email)
+
+	attempts, err := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to increment login failures", "error", err, "email", email)
+		return newCredentialsError()
+	}
+
+	if attempts >= loginMaxAttempts {
+		if err := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); err != nil {
+			slog.ErrorContext(ctx, "failed to set login lockout", "error", err, "email", email)
+		}
+		return newLockedError()
+	}
+
+	return newCredentialsError()
+}
+
+func newLockedError() error {
+	return apperr.NewForbidden(nil, "Account locked from too many failed attempts. Please try again later.")
+}
+
+func newCredentialsError() error {
+	return apperr.NewUnauthorized(
+		nil,
+		"",
+		apperr.Param("email", apperr.CodeBadRequest.Detail()),
+		apperr.Param("password", apperr.CodeBadRequest.Detail()),
+	)
 }

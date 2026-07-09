@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -51,7 +50,10 @@ func ClientTelemetry(trustProxy bool) func(http.Handler) http.Handler {
 func GetMeta(ctx context.Context) (ClientMeta, error) {
 	meta, ok := ctx.Value(clientMetaKey).(ClientMeta)
 	if !ok {
-		return ClientMeta{IP: netip.IPv4Unspecified()}, errors.New("client metadata missing from request context")
+		return ClientMeta{IP: netip.IPv4Unspecified()}, apperr.NewInternal(
+			nil,
+			"An unexpected system error occurred while processing request metadata.",
+		)
 	}
 	return meta, nil
 }
