@@ -72,25 +72,25 @@ type LoginResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error) {
-	lockoutKey := cache.AuthLoginLockoutKey(r.Email)
+func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
+	lockoutKey := cache.AuthLoginLockoutKey(p.Email)
 	if isLocked, err := s.cache.Exists(ctx, lockoutKey); err == nil && isLocked {
 		return LoginResult{}, newLockedError()
 	} else if err != nil {
-		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", r.Email)
+		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", p.Email)
 	}
 
-	userAuth, err := s.user.GetAuthByEmail(ctx, r.Email)
+	userAuth, err := s.user.GetAuthByEmail(ctx, p.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
-			crypto.DummyComparePassword(r.Password)
-			return LoginResult{}, s.handleInvalidPassword(ctx, r.Email, lockoutKey)
+			crypto.DummyComparePassword(p.Password)
+			return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
 		}
 		return LoginResult{}, err
 	}
 
-	if err = crypto.ComparePassword(userAuth.PasswordHash, r.Password); err != nil {
-		return LoginResult{}, s.handleInvalidPassword(ctx, r.Email, lockoutKey)
+	if err = crypto.ComparePassword(userAuth.PasswordHash, p.Password); err != nil {
+		return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
 	}
 
 	sessionID, err := uuid.NewV7()
@@ -115,10 +115,10 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 		UserID:           userAuth.ID,
 		RefreshTokenHash: hashedRefreshToken,
 		ExpiresAt:        tokenPair.RefreshTokenExpiresAt,
-		ClientIP:         r.ClientMeta.IP,
-		UserAgent:        r.ClientMeta.UserAgent,
-		OS:               r.ClientMeta.OS,
-		Browser:          r.ClientMeta.Browser,
+		ClientIP:         p.ClientMeta.IP,
+		UserAgent:        p.ClientMeta.UserAgent,
+		OS:               p.ClientMeta.OS,
+		Browser:          p.ClientMeta.Browser,
 	})
 	if err != nil {
 		return LoginResult{}, err
@@ -127,8 +127,8 @@ func (s *Service) Login(ctx context.Context, r LoginParams) (LoginResult, error)
 	sessionKey := cache.SessionKey(sessionRow.ID)
 	_ = s.cache.Set(persistCtx, sessionKey, sessionRow, time.Until(tokenPair.RefreshTokenExpiresAt))
 
-	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(r.Email)); delErr != nil {
-		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", r.Email)
+	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
+		slog.WarnContext(ctx, "failed to clear login failures cache", "error", delErr, "email", p.Email)
 	}
 
 	return LoginResult{
