@@ -165,6 +165,15 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return repository.NewError(err, repository.ScopeSession)
 		}
 
+		// err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
+		// 	Email:    userRow.Email,
+		// 	Username: userRow.Username,
+		// 	Token:    verificationToken,
+		// })
+		// if err != nil {
+		// 	return repository.NewError(err, repository.ScopeOutboxEvent)
+		// }
+
 		return nil
 	})
 
