@@ -22,8 +22,8 @@ func UserPresenceKey(userID uuid.UUID) string {
 	return fmt.Sprintf("user:{%s}:presence", userID.String())
 }
 
-func WSTicketKey(ticket string) string {
-	return fmt.Sprintf("ws:ticket{%s}", ticket)
+func WSTicketKey(ticket uuid.UUID) string {
+	return fmt.Sprintf("ws:ticket:{%s}", ticket.String())
 }
 
 // func AuthCooldownForgotPasswordKey(email string) string {

@@ -4,8 +4,10 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
+	"context"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -13,25 +15,52 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-type Handler struct {
-	hub *Hub
+type TicketCacher interface {
+	Get(ctx context.Context, key string, dest interface{}) error
+	Delete(ctx context.Context, key string) error
 }
 
-func NewHandler(hub *Hub) *Handler {
-	return &Handler{hub: hub}
+type Handler struct {
+	hub   *Hub
+	cache TicketCacher
+}
+
+func NewHandler(hub *Hub, cache TicketCacher) *Handler {
+	return &Handler{
+		hub:   hub,
+		cache: cache,
+	}
+}
+
+type ServeWSQuery struct {
+	Ticket   uuid.UUID      `form:"ticket" validate:"required"`
+	Presence cache.Presence `form:"presence" validate:"omitempty,presence"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
+	query, err := httpio.BindQuery[ServeWSQuery](r)
 	if err != nil {
-		return apperr.NewUnauthorized(err, "")
+		return err
 	}
 
-	statusParam := r.URL.Query().Get("status")
-	if statusParam == "" {
-		statusParam = "online"
+	ctx := r.Context()
+	ticketKey := cache.WSTicketKey(query.Ticket)
+
+	var userIDStr string
+	if err := h.cache.Get(ctx, ticketKey, &userIDStr); err != nil {
+		return apperr.NewUnauthorized(err, "Websocket connection ticket is invalid or expired.")
 	}
-	initialPresence := cache.ParsePresence(statusParam)
+
+	_ = h.cache.Delete(ctx, ticketKey)
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return apperr.NewInternal(err, "Failed reconstructing identity signatures from token.")
+	}
+
+	if query.Presence == cache.PresenceUnknown {
+		query.Presence = cache.PresenceOnline
+	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -40,7 +69,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	client := &Client{
 		UserID:   userID,
-		Presence: initialPresence,
+		Presence: query.Presence,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
 	}

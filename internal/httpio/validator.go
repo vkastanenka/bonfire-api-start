@@ -2,6 +2,7 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"errors"
 	"fmt"
 	"reflect"
@@ -61,6 +62,17 @@ func init() {
 
 	validator.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
 		return rgxUsername.MatchString(fl.Field().String())
+	})
+
+	validator.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
+		p, ok := fl.Field().Interface().(cache.Presence)
+		if !ok {
+			return false
+		}
+		if p == cache.PresenceUnknown {
+			return true
+		}
+		return p.Valid()
 	})
 
 	validator.RegisterAlias("identity_id", "required,uuid,len=36")
