@@ -52,15 +52,6 @@ func (c *Client) readPump(hub *Hub) {
 
 	c.Conn.SetPongHandler(func(string) error {
 		_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
-
-		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = outbox.EmitPresenceUpdated(bgCtx, hub.store, outbox.PresenceUpdatedPayload{
-				UserID:   c.UserID.String(),
-				Presence: c.Presence.String(),
-			})
-		}()
 		return nil
 	})
 
@@ -84,12 +75,18 @@ func (c *Client) readPump(hub *Hub) {
 				presenceEnum := cache.ParsePresence(data.Presence)
 				c.Presence = presenceEnum
 
-				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				_ = outbox.EmitPresenceUpdated(bgCtx, hub.store, outbox.PresenceUpdatedPayload{
-					UserID:   c.UserID.String(),
-					Presence: presenceEnum.String(),
-				})
-				cancel()
+				err := func() error {
+					bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					defer cancel()
+
+					return outbox.EmitPresenceUpdated(bgCtx, hub.store, outbox.PresenceUpdatedPayload{
+						UserID:   c.UserID.String(),
+						Presence: presenceEnum.String(),
+					})
+				}()
+
+				if err != nil {
+				}
 			}
 		}
 	}

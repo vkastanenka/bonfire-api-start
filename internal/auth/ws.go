@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type TicketResponse struct {
+type CreateWSTicketResponse struct {
 	Ticket string `json:"ticket"`
 }
 
@@ -26,7 +26,7 @@ func (h *Handler) CreateWSTicket(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, TicketResponse{Ticket: ticket.String()})
+	httpio.RespondOK(w, r, CreateWSTicketResponse{Ticket: ticket.String()})
 	return nil
 }
 
