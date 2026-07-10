@@ -36,29 +36,6 @@ func FromRepository(row repository.User) User {
 	return u
 }
 
-type UserProfile struct {
-	UserID      uuid.UUID
-	DisplayName string
-	AvatarURL   *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-func ProfileFromRepository(row repository.UserProfile) UserProfile {
-	up := UserProfile{
-		UserID:      uuid.UUID(row.UserID.Bytes),
-		DisplayName: row.DisplayName,
-		CreatedAt:   row.CreatedAt.Time,
-		UpdatedAt:   row.UpdatedAt.Time,
-	}
-
-	if row.AvatarUrl.Valid {
-		up.AvatarURL = ptr.To(row.AvatarUrl.String)
-	}
-
-	return up
-}
-
 type View struct {
 	ID        uuid.UUID       `json:"id"`
 	Email     string          `json:"email"`
@@ -117,6 +94,29 @@ func ToPublicView(u User) PublicView {
 		CreatedAt: u.CreatedAt,
 		UpdatedAt: u.UpdatedAt,
 	}
+}
+
+type UserProfile struct {
+	UserID      uuid.UUID
+	DisplayName string
+	AvatarURL   *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func ProfileFromRepository(row repository.UserProfile) UserProfile {
+	up := UserProfile{
+		UserID:      uuid.UUID(row.UserID.Bytes),
+		DisplayName: row.DisplayName,
+		CreatedAt:   row.CreatedAt.Time,
+		UpdatedAt:   row.UpdatedAt.Time,
+	}
+
+	if row.AvatarUrl.Valid {
+		up.AvatarURL = ptr.To(row.AvatarUrl.String)
+	}
+
+	return up
 }
 
 type ProfileView struct {
