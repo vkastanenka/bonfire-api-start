@@ -10,8 +10,10 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/postgres"
+	"bonfire-api/internal/presence.go"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
@@ -85,23 +87,29 @@ func run(cfg *config.Config) error {
 	store := repository.NewStore(pdbPool)
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
 
-	sessionService := session.NewService(store)
-	userService := user.NewService(store)
+	sessionSvc := session.NewService(store)
+	userSvc := user.NewService(store)
+	presenceSvc := presence.NewService(cacheMgr)
 	authService := auth.NewService(
 		store,
 		cacheMgr,
 		tokenMgr,
-		sessionService,
-		userService,
+		sessionSvc,
+		userSvc,
 	)
 
+	hub := gateway.NewHub(store, cacheMgr, presenceSvc)
+	go hub.Run(ctx)
+
 	authHandler := auth.NewHandler(authService)
+	gatewayHandler := gateway.NewHandler(hub, cacheMgr)
 
 	app := &Application{
 		Config:      cfg,
 		RateLimiter: rateLimiter,
 		Handlers: Handlers{
-			Auth: authHandler,
+			Auth:    authHandler,
+			Gateway: gatewayHandler,
 		},
 		Managers: Managers{
 			Token: tokenMgr,

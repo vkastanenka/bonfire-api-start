@@ -27,10 +27,10 @@ type Hub struct {
 
 	store       repository.Store
 	cache       cache.Manager
-	presenceSvc presence.Service
+	presenceSvc *presence.Service
 }
 
-func NewHub(store repository.Store, cache cache.Manager, presenceSvc presence.Service) *Hub {
+func NewHub(store repository.Store, cache cache.Manager, presenceSvc *presence.Service) *Hub {
 	return &Hub{
 		clients:     make(map[uuid.UUID]*Client),
 		register:    make(chan *Client),

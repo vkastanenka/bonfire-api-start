@@ -33,6 +33,7 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
+			public.Get("/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 		})
 
 		api.Group(func(auth chi.Router) {
