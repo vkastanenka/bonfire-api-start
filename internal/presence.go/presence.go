@@ -30,6 +30,8 @@ func (p Presence) String() string {
 	switch p {
 	case PresenceOnline:
 		return "online"
+	case PresenceOffline:
+		return "offline"
 	case PresenceIdle:
 		return "idle"
 	case PresenceBusy:

@@ -1,8 +1,8 @@
 package user
 
 import (
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence.go"
 	"bonfire-api/internal/repository"
 	"time"
 
@@ -14,7 +14,7 @@ type User struct {
 	Email        string
 	Username     string
 	PasswordHash string
-	Presence     *cache.Presence
+	Presence     *presence.Presence
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -30,19 +30,19 @@ func FromRepository(row repository.User) User {
 	}
 
 	if row.Presence.Valid {
-		u.Presence = ptr.To(cache.Presence(row.Presence.Int16))
+		u.Presence = ptr.To(presence.Presence(row.Presence.Int16))
 	}
 
 	return u
 }
 
 type View struct {
-	ID        uuid.UUID       `json:"id"`
-	Email     string          `json:"email"`
-	Username  string          `json:"username"`
-	Presence  *cache.Presence `json:"presence,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
+	Username  string             `json:"username"`
+	Presence  *presence.Presence `json:"presence,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
 }
 
 func ToView(u User) View {
@@ -57,13 +57,13 @@ func ToView(u User) View {
 }
 
 type AuthView struct {
-	ID           uuid.UUID       `json:"id"`
-	Email        string          `json:"email"`
-	Username     string          `json:"username"`
-	PasswordHash string          `json:"password_hash"`
-	Presence     *cache.Presence `json:"presence,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID           uuid.UUID          `json:"id"`
+	Email        string             `json:"email"`
+	Username     string             `json:"username"`
+	PasswordHash string             `json:"password_hash"`
+	Presence     *presence.Presence `json:"presence,omitempty"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
 func ToAuthView(u User) AuthView {
@@ -79,11 +79,11 @@ func ToAuthView(u User) AuthView {
 }
 
 type PublicView struct {
-	ID        uuid.UUID       `json:"id"`
-	Username  string          `json:"username"`
-	Presence  *cache.Presence `json:"presence,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        uuid.UUID          `json:"id"`
+	Username  string             `json:"username"`
+	Presence  *presence.Presence `json:"presence,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
 }
 
 func ToPublicView(u User) PublicView {

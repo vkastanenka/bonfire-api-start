@@ -3,6 +3,7 @@ package gateway
 import (
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/presence.go"
 	"bonfire-api/internal/repository"
 	"context"
 	"log/slog"
@@ -25,17 +26,19 @@ type Hub struct {
 	unregister chan *Client
 	mu         sync.RWMutex
 
-	store repository.Store
-	cache cache.Manager
+	store       repository.Store
+	cache       cache.Manager
+	presenceSvc presence.Service
 }
 
-func NewHub(store repository.Store, cache cache.Manager) *Hub {
+func NewHub(store repository.Store, cache cache.Manager, presenceSvc presence.Service) *Hub {
 	return &Hub{
-		clients:    make(map[uuid.UUID]*Client),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		store:      store,
-		cache:      cache,
+		clients:     make(map[uuid.UUID]*Client),
+		register:    make(chan *Client),
+		unregister:  make(chan *Client),
+		store:       store,
+		cache:       cache,
+		presenceSvc: presenceSvc,
 	}
 }
 
@@ -52,11 +55,11 @@ func (h *Hub) Run(ctx context.Context) {
 			h.clients[client.UserID] = client
 			h.mu.Unlock()
 
-			go func(id uuid.UUID, initialPresence cache.Presence) {
+			go func(id uuid.UUID, initialPresence presence.Presence) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
 
-				_ = h.cache.Heartbeat(bgCtx, id, initialPresence)
+				_ = h.presenceSvc.Heartbeat(bgCtx, id, initialPresence)
 
 				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
 					UserID:   id.String(),
@@ -78,7 +81,7 @@ func (h *Hub) Run(ctx context.Context) {
 
 				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
 					UserID:   id.String(),
-					Presence: cache.PresenceOffline.String(),
+					Presence: presence.PresenceOffline.String(),
 				})
 			}(client.UserID)
 		}

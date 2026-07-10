@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/presence.go"
 	"context"
 	"net/http"
 
@@ -33,8 +34,8 @@ func NewHandler(hub *Hub, cache TicketCacher) *Handler {
 }
 
 type ServeWSQuery struct {
-	Ticket   uuid.UUID      `form:"ticket" validate:"required"`
-	Presence cache.Presence `form:"presence" validate:"omitempty,presence"`
+	Ticket   uuid.UUID         `form:"ticket" validate:"required"`
+	Presence presence.Presence `form:"presence" validate:"omitempty,presence"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
@@ -58,8 +59,8 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return apperr.NewInternal(err, "Failed reconstructing identity signatures from token.")
 	}
 
-	if query.Presence == cache.PresenceUnknown {
-		query.Presence = cache.PresenceOnline
+	if query.Presence == presence.PresenceUnknown {
+		query.Presence = presence.PresenceOnline
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -68,10 +69,10 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := &Client{
-		UserID:   userID,
-		Presence: query.Presence,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
+		UserID: userID,
+		// Presence: query.Presence,
+		Conn: conn,
+		Send: make(chan []byte, 256),
 	}
 
 	h.hub.register <- client

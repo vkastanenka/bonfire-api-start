@@ -2,7 +2,7 @@ package httpio
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/presence.go"
 	"errors"
 	"fmt"
 	"reflect"
@@ -65,11 +65,11 @@ func init() {
 	})
 
 	validator.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
-		p, ok := fl.Field().Interface().(cache.Presence)
+		p, ok := fl.Field().Interface().(presence.Presence)
 		if !ok {
 			return false
 		}
-		if p == cache.PresenceUnknown {
+		if p == presence.PresenceUnknown {
 			return true
 		}
 		return p.Valid()

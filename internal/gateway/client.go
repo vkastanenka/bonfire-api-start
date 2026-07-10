@@ -1,8 +1,8 @@
 package gateway
 
 import (
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/presence.go"
 	"context"
 	"encoding/json"
 	"sync"
@@ -25,7 +25,7 @@ type WSMessage struct {
 
 type Client struct {
 	UserID   uuid.UUID
-	Presence cache.Presence
+	Presence presence.Presence
 	Conn     *websocket.Conn
 	Send     chan []byte
 	isClosed bool
@@ -72,7 +72,7 @@ func (c *Client) readPump(hub *Hub) {
 				Presence string `json:"presence"`
 			}
 			if err := json.Unmarshal(wsMsg.Data, &data); err == nil {
-				presenceEnum := cache.ParsePresence(data.Presence)
+				presenceEnum := presence.ParsePresence(data.Presence)
 				c.Presence = presenceEnum
 
 				err := func() error {

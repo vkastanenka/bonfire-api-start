@@ -3,8 +3,6 @@ package cache
 import (
 	"context"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type Store interface {
@@ -14,12 +12,6 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
 	Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
-}
-
-type PresenceTracker interface {
-	Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) error
-	GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error)
-	GetBulkPresence(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
 }
 
 type Subscription interface {
@@ -34,6 +26,5 @@ type MessageBus interface {
 
 type Manager interface {
 	Store
-	PresenceTracker
 	MessageBus
 }

@@ -34,7 +34,7 @@ func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) e
 	return s.cache.Set(ctx, key, p.String(), presenceTTL)
 }
 
-func (s *Service) GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error) {
+func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (Presence, error) {
 	var val string
 	err := s.cache.Get(ctx, presenceKey(userID), &val)
 
@@ -49,7 +49,7 @@ func (s *Service) GetPresence(ctx context.Context, userID uuid.UUID) (Presence, 
 	return ParsePresence(val), nil
 }
 
-func (s *Service) GetBulkPresence(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
+func (s *Service) GetBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
 	if len(userIDs) == 0 {
 		return map[uuid.UUID]Presence{}, nil
 	}
