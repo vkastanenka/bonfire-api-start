@@ -55,6 +55,14 @@ func (m *manager) Get(ctx context.Context, key string, dest interface{}) error {
 	}
 }
 
+func (m *manager) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
+	values, err := m.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, NewError(err, ScopeStore)
+	}
+	return values, nil
+}
+
 func (m *manager) Delete(ctx context.Context, key string) error {
 	if err := m.client.Del(ctx, key).Err(); err != nil {
 		return NewError(err, ScopeStore)
