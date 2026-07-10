@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bonfire-api/internal/apperr"
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -25,12 +26,12 @@ const (
 // TODO: Move to config
 const presenceTTL = 30 * time.Second
 
-func (s Presence) Valid() bool {
-	return s > PresenceUnknown && s < presenceMax
+func (p Presence) Valid() bool {
+	return p > PresenceUnknown && p < presenceMax
 }
 
-func (s Presence) String() string {
-	switch s {
+func (p Presence) String() string {
+	switch p {
 	case PresenceOnline:
 		return "online"
 	case PresenceIdle:
@@ -57,6 +58,17 @@ func ParsePresence(s string) Presence {
 	default:
 		return PresenceOffline
 	}
+}
+
+func (p Presence) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("%q", p.String())), nil
+}
+
+func (p *Presence) UnmarshalJSON(data []byte) error {
+	data = bytes.Trim(data, "\"")
+
+	*p = ParsePresence(string(data))
+	return nil
 }
 
 func (m *manager) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) error {

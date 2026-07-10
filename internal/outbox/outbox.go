@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/repository"
 
 	"github.com/google/uuid"
@@ -70,8 +71,7 @@ type Event struct {
 	UpdatedAt      time.Time
 }
 
-func (e *Event) IsProcessed() bool { return e.ProcessedAt != nil }
-
+func (e *Event) IsProcessed() bool  { return e.ProcessedAt != nil }
 func (e *Event) IsDeadLetter() bool { return e.Attempts >= e.MaxAttempts }
 
 func (e *Event) GetStatus() Status {
@@ -100,26 +100,25 @@ func FromRepository(row repository.OutboxEvent) Event {
 	}
 
 	if row.ProcessedAt.Valid {
-		e.ProcessedAt = &row.ProcessedAt.Time
+		e.ProcessedAt = ptr.To(row.ProcessedAt.Time)
 	}
 
 	if row.LockedBy.Valid {
-		uid := uuid.UUID(row.LockedBy.Bytes)
-		e.LockedBy = &uid
+		e.LockedBy = ptr.To(uuid.UUID(row.LockedBy.Bytes))
 	}
 
 	if row.LeaseExpiresAt.Valid {
-		e.LeaseExpiresAt = &row.LeaseExpiresAt.Time
+		e.LeaseExpiresAt = ptr.To(row.LeaseExpiresAt.Time)
 	}
 
 	if row.LastError.Valid {
-		e.LastError = &row.LastError.String
+		e.LastError = ptr.To(row.LastError.String)
 	}
 
 	return e
 }
 
-type AdminView struct {
+type AuthView struct {
 	ID             uuid.UUID       `json:"id"`
 	EventType      string          `json:"event_type"`
 	Payload        json.RawMessage `json:"payload"`
@@ -134,8 +133,8 @@ type AdminView struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-func (e *Event) ToAdminView() AdminView {
-	return AdminView{
+func ToAuthView(e Event) AuthView {
+	return AuthView{
 		ID:             e.ID,
 		EventType:      e.EventType,
 		Payload:        e.Payload,
@@ -143,9 +142,9 @@ func (e *Event) ToAdminView() AdminView {
 		Attempts:       e.Attempts,
 		MaxAttempts:    e.MaxAttempts,
 		NextAttemptAt:  e.NextAttemptAt,
-		LockedBy:       e.LockedBy,
-		LeaseExpiresAt: e.LeaseExpiresAt,
-		LastError:      e.LastError,
+		LockedBy:       ptr.Map(e.LockedBy),
+		LeaseExpiresAt: ptr.Map(e.LeaseExpiresAt),
+		LastError:      ptr.Map(e.LastError),
 		CreatedAt:      e.CreatedAt,
 		UpdatedAt:      e.UpdatedAt,
 	}

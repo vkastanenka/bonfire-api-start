@@ -620,7 +620,7 @@ const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, password_hash)
     VALUES ($1, $2, $3, $4)
 RETURNING
-    id, email, username, password_hash, created_at, updated_at
+    id, email, username, password_hash, presence, created_at, updated_at
 `
 
 type UserCreateParams struct {
@@ -643,6 +643,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Presence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -651,7 +652,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, email, username, password_hash, created_at, updated_at
+    id, email, username, password_hash, presence, created_at, updated_at
 FROM
     users
 WHERE
@@ -667,6 +668,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Presence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -675,7 +677,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 
 const userGetByID = `-- name: UserGetByID :one
 SELECT
-    id, email, username, password_hash, created_at, updated_at
+    id, email, username, password_hash, presence, created_at, updated_at
 FROM
     users
 WHERE
@@ -691,6 +693,7 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Presence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -699,7 +702,7 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, email, username, password_hash, created_at, updated_at
+    id, email, username, password_hash, presence, created_at, updated_at
 FROM
     users
 WHERE
@@ -715,6 +718,7 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Presence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

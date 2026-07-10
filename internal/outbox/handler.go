@@ -31,7 +31,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, event.ToAdminView())
+	httpio.RespondOK(w, r, ToAuthView(event))
 	return nil
 }
 
@@ -50,7 +50,7 @@ func (h *Handler) ResetAttempts(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, event.ToAdminView())
+	httpio.RespondOK(w, r, ToAuthView(event))
 	return nil
 }
 
@@ -59,13 +59,12 @@ type DeleteByIDPath struct {
 }
 
 func (h *Handler) DeleteByID(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[ResetAttemptsPath](r)
+	path, err := httpio.BindPath[DeleteByIDPath](r)
 	if err != nil {
 		return err
 	}
 
-	err = h.service.DeleteByID(r.Context(), path.ID)
-	if err != nil {
+	if err = h.service.DeleteByID(r.Context(), path.ID); err != nil {
 		return err
 	}
 

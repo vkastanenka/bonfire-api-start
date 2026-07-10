@@ -28,7 +28,7 @@ type CreateParams struct {
 	Password string     `json:"password"`
 }
 
-func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
+func (s *Service) Create(ctx context.Context, p CreateParams) (User, error) {
 	var targetID uuid.UUID
 
 	if p.ID != nil {
@@ -37,7 +37,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		var err error
 		targetID, err = uuid.NewV7()
 		if err != nil {
-			return View{}, apperr.NewInternal(err, "")
+			return User{}, apperr.NewInternal(err, "")
 		}
 	}
 
@@ -48,49 +48,33 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (View, error) {
 		PasswordHash: p.Password,
 	})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeUser)
+		return User{}, repository.NewError(err, repository.ScopeUser)
 	}
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (View, error) {
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (User, error) {
 	row, err := s.store.UserGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeUser)
+		return User{}, repository.NewError(err, repository.ScopeUser)
 	}
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) GetByEmail(ctx context.Context, email string) (View, error) {
+func (s *Service) GetByEmail(ctx context.Context, email string) (User, error) {
 	row, err := s.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeUser)
+		return User{}, repository.NewError(err, repository.ScopeUser)
 	}
-	return NewView(row), nil
+	return FromRepository(row), nil
 }
 
-func (s *Service) GetByUsername(ctx context.Context, username string) (View, error) {
+func (s *Service) GetByUsername(ctx context.Context, username string) (User, error) {
 	row, err := s.store.UserGetByUsername(ctx, username)
 	if err != nil {
-		return View{}, repository.NewError(err, repository.ScopeUser)
+		return User{}, repository.NewError(err, repository.ScopeUser)
 	}
-	return NewView(row), nil
-}
-
-func (s *Service) GetAuthByID(ctx context.Context, id uuid.UUID) (AuthView, error) {
-	row, err := s.store.UserGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ScopeUser)
-	}
-	return NewAuthView(row), nil
-}
-
-func (s *Service) GetAuthByEmail(ctx context.Context, email string) (AuthView, error) {
-	row, err := s.store.UserGetByEmail(ctx, email)
-	if err != nil {
-		return AuthView{}, repository.NewError(err, repository.ScopeUser)
-	}
-	return NewAuthView(row), nil
+	return FromRepository(row), nil
 }
 
 type CheckAvailabilityParams struct {
@@ -119,13 +103,13 @@ type CreateProfileParams struct {
 	DisplayName string
 }
 
-func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (ProfileView, error) {
+func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (UserProfile, error) {
 	row, err := s.store.UserProfileCreate(ctx, repository.UserProfileCreateParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
 		DisplayName: p.DisplayName,
 	})
 	if err != nil {
-		return ProfileView{}, repository.NewError(err, repository.ScopeUserProfile)
+		return UserProfile{}, repository.NewError(err, repository.ScopeUserProfile)
 	}
-	return NewProfileView(row), nil
+	return ProfileFromRepository(row), nil
 }

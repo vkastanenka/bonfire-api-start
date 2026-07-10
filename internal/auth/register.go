@@ -127,7 +127,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		displayName = *p.DisplayName
 	}
 
-	var sessionRow repository.Session
+	var sessionRaw repository.Session
 
 	persistCtx := context.WithoutCancel(ctx)
 
@@ -151,7 +151,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return repository.NewError(err, repository.ScopeUserProfile)
 		}
 
-		sessionRow, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+		sessionRaw, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
 			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
 			UserID:           pgtype.UUID{Bytes: userID, Valid: true},
 			RefreshTokenHash: hashedRefreshToken,
@@ -172,9 +172,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	sessionView := session.FromRepository(sessionRow)
+	sessionRow := session.FromRepository(sessionRaw)
 
-	s.createCacheSession(persistCtx, sessionView.ToAuthView())
+	s.createCacheSession(persistCtx, session.ToAuthView(sessionRow))
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,

@@ -8,6 +8,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
 	"net/http"
@@ -82,7 +83,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", p.Email)
 	}
 
-	userAuth, err := s.user.GetAuthByEmail(ctx, p.Email)
+	userRow, err := s.user.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
 			crypto.CompareDummyPassword(p.Password)
@@ -90,6 +91,8 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		}
 		return LoginResult{}, err
 	}
+
+	userAuth := user.ToAuthView(userRow)
 
 	if err = crypto.ComparePassword(userAuth.PasswordHash, p.Password); err != nil {
 		return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
@@ -110,7 +113,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	sessionView, err := s.session.Create(persistCtx, session.CreateParams{
+	sessionRow, err := s.session.Create(persistCtx, session.CreateParams{
 		ID:               &sessionID,
 		UserID:           userAuth.ID,
 		RefreshTokenHash: crypto.HashToken(tokenPair.Refresh),
@@ -124,7 +127,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	s.createCacheSession(persistCtx, sessionView.ToAuthView())
+	s.createCacheSession(persistCtx, session.ToAuthView(sessionRow))
 
 	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
 		slog.WarnContext(persistCtx,
