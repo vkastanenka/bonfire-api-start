@@ -41,6 +41,10 @@ func (s Status) String() string {
 	}
 }
 
+func (s Status) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
 func ParseStatus(s string) Status {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "pending":
