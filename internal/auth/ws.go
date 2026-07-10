@@ -24,9 +24,8 @@ func (h *Handler) WSTicket(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	ticket, err := h.service.WSTicket(r.Context(), WSTicketParams{
-		UserID:    claims.UserID,
-		SessionID: claims.SessionID,
+	ticket, err := h.service.WSTicket(r.Context(), WSTicketData{
+		UserID: claims.UserID,
 	})
 	if err != nil {
 		return err
@@ -36,22 +35,21 @@ func (h *Handler) WSTicket(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type WSTicketParams struct {
-	UserID    uuid.UUID `json:"user_id"`
-	SessionID uuid.UUID `json:"session_id"`
+type WSTicketData struct {
+	UserID uuid.UUID `json:"user_id"`
 }
 
-func (s *Service) WSTicket(ctx context.Context, p WSTicketParams) (uuid.UUID, error) {
-	ticket, err := uuid.NewV7()
+func (s *Service) WSTicket(ctx context.Context, p WSTicketData) (uuid.UUID, error) {
+	ticketID, err := uuid.NewV7()
 	if err != nil {
-		return uuid.UUID{}, apperr.NewInternal(err, "")
+		return uuid.Nil, apperr.NewInternal(err, "Failed to generate websocket ticket")
 	}
 
-	ticketKey := cache.WSTicketKey(ticket)
+	ticketKey := cache.WSTicketKey(ticketID)
 	err = s.cache.Set(ctx, ticketKey, p, WSTicketTTL)
 	if err != nil {
-		return uuid.UUID{}, err
+		return uuid.Nil, err
 	}
 
-	return ticket, nil
+	return ticketID, nil
 }

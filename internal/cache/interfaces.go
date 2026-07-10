@@ -12,6 +12,11 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
 	Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
+	HSet(ctx context.Context, key string, field string, value interface{}) error
+	HDel(ctx context.Context, key string, fields ...string) error
+	HGetAll(ctx context.Context, key string, dest *map[string]string) error
+	HGetAllPipeline(ctx context.Context, keys []string) ([]map[string]string, error)
+	Expire(ctx context.Context, key string, ttl time.Duration) error
 }
 
 type Subscription interface {

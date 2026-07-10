@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/presence.go"
@@ -34,7 +35,7 @@ func NewHandler(hub *Hub, cache TicketCacher) *Handler {
 }
 
 type ServeWSQuery struct {
-	Ticket   uuid.UUID         `form:"ticket" validate:"required"`
+	TicketID uuid.UUID         `form:"ticket_id" validate:"required"`
 	Presence presence.Presence `form:"presence" validate:"omitempty,presence"`
 }
 
@@ -45,19 +46,15 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ctx := r.Context()
-	ticketKey := cache.WSTicketKey(query.Ticket)
+	ticketKey := cache.WSTicketKey(query.TicketID)
+	var ticket auth.WSTicketData
 
-	var userIDStr string
-	if err := h.cache.Get(ctx, ticketKey, &userIDStr); err != nil {
+	err = h.cache.Get(ctx, ticketKey, &ticket)
+	if err != nil {
 		return apperr.NewUnauthorized(err, "Websocket connection ticket is invalid or expired.")
 	}
 
 	_ = h.cache.Delete(ctx, ticketKey)
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return apperr.NewInternal(err, "Failed reconstructing identity signatures from token.")
-	}
 
 	if query.Presence == presence.PresenceUnknown {
 		query.Presence = presence.PresenceOnline
@@ -69,10 +66,10 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := &Client{
-		UserID: userID,
-		// Presence: query.Presence,
-		Conn: conn,
-		Send: make(chan []byte, 256),
+		UserID:   ticket.UserID,
+		Presence: query.Presence,
+		Conn:     conn,
+		Send:     make(chan []byte, 256),
 	}
 
 	h.hub.register <- client

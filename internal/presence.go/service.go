@@ -9,16 +9,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func presenceKey(userID uuid.UUID) string {
+func userPresenceKey(userID uuid.UUID) string {
 	return fmt.Sprintf("user:{%s}:presence", userID.String())
 }
 
 type Service struct {
-	cache cache.Store
+	cache cache.Manager
 }
 
 func NewService(
-	cache cache.Store,
+	cache cache.Manager,
 ) *Service {
 	return &Service{
 		cache: cache,
@@ -29,14 +29,14 @@ func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) e
 	if !p.Valid() {
 		return apperr.NewInvalidInput(nil, fmt.Sprintf("invalid presence: %d", p))
 	}
-	key := presenceKey(userID)
+	key := userPresenceKey(userID)
 
 	return s.cache.Set(ctx, key, p.String(), presenceTTL)
 }
 
 func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (Presence, error) {
 	var val string
-	err := s.cache.Get(ctx, presenceKey(userID), &val)
+	err := s.cache.Get(ctx, userPresenceKey(userID), &val)
 
 	if cache.IsNotFoundError(err) {
 		return PresenceOffline, nil
@@ -50,21 +50,20 @@ func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (Presence, 
 }
 
 func (s *Service) GetBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
+	activities := make(map[uuid.UUID]Presence, len(userIDs))
 	if len(userIDs) == 0 {
-		return map[uuid.UUID]Presence{}, nil
+		return activities, nil
 	}
 
 	presenceKeys := make([]string, len(userIDs))
 	for i, id := range userIDs {
-		presenceKeys[i] = presenceKey(id)
+		presenceKeys[i] = userPresenceKey(id)
 	}
 
 	values, err := s.cache.MGet(ctx, presenceKeys...)
 	if err != nil {
 		return nil, err
 	}
-
-	activities := make(map[uuid.UUID]Presence, len(userIDs))
 
 	for i, id := range userIDs {
 		if values[i] == nil {

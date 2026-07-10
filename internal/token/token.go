@@ -163,7 +163,7 @@ func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenExpired):
-			return nil, fmt.Errorf("%w: %v", ErrTokenExpired, err)
+			return nil, fmt.Errorf("%w (jwt detail: %v)", ErrTokenExpired, err)
 		case errors.Is(err, jwt.ErrTokenMalformed):
 			return nil, fmt.Errorf("%w: %v", ErrTokenMalformed, err)
 		case errors.Is(err, jwt.ErrTokenSignatureInvalid):

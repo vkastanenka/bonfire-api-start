@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -382,7 +383,12 @@ func RequireAuth(t *token.Manager) func(http.Handler) http.Handler {
 
 			claims, err := t.VerifyAccess(tokenStr)
 			if err != nil {
-				respondError(w, r, apperr.NewTokenExpired(err, errInvalidToken))
+				if errors.Is(err, token.ErrTokenExpired) {
+					respondError(w, r, apperr.NewTokenExpired(err, errInvalidToken))
+					return
+				}
+
+				respondError(w, r, apperr.NewUnauthorized(err, "Invalid or corrupt authorization token."))
 				return
 			}
 

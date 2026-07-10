@@ -6,19 +6,16 @@ import (
 	"bonfire-api/internal/presence.go"
 	"bonfire-api/internal/repository"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	// Added for pgtype.UUID mapping
 )
 
 const PresenceUpdatedChannel = "presence:updated"
-
-type PresenceUpdatedEvent struct {
-	UserID   uuid.UUID `json:"user_id"`
-	Presence string    `json:"status"`
-}
 
 type Hub struct {
 	clients    map[uuid.UUID]*Client
@@ -43,24 +40,30 @@ func NewHub(store repository.Store, cache cache.Manager, presenceSvc presence.Se
 }
 
 func (h *Hub) Run(ctx context.Context) {
+	// Start background listeners
 	go h.listenRedisPresence(ctx)
 
 	for {
 		select {
+		case <-ctx.Done():
+			// Graceful shutdown
+			return
+
 		case client := <-h.register:
 			h.mu.Lock()
+			// If a user logs in from a new device, boot the old connection
 			if oldClient, exists := h.clients[client.UserID]; exists {
 				oldClient.Close()
 			}
 			h.clients[client.UserID] = client
 			h.mu.Unlock()
 
+			// Fire-and-forget outbox emission so we don't block the Hub loop
 			go func(id uuid.UUID, initialPresence presence.Presence) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
 
 				_ = h.presenceSvc.Heartbeat(bgCtx, id, initialPresence)
-
 				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
 					UserID:   id.String(),
 					Presence: initialPresence.String(),
@@ -69,6 +72,8 @@ func (h *Hub) Run(ctx context.Context) {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
+			// Ensure we are only deleting the exact connection that disconnected
+			// (prevents deleting a new connection if they quickly reconnected)
 			if current, exists := h.clients[client.UserID]; exists && current == client {
 				delete(h.clients, client.UserID)
 				client.Close()
@@ -89,49 +94,115 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (h *Hub) listenRedisPresence(ctx context.Context) {
-	_, err := h.cache.Subscribe(ctx, PresenceUpdatedChannel)
+	sub, err := h.cache.Subscribe(ctx, PresenceUpdatedChannel)
 	if err != nil {
-		slog.Error("Failed to switch on node presence event consumer stream", "error", err)
+		slog.Error("Failed to subscribe...", "error", err)
 		return
 	}
 
-	// ch := pubsub.Channel()
-	// for msg := range ch {
-	// 	go h.broadcastPresenceEvent(context.WithoutCancel(ctx), msg)
+	ch := sub.Channel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_ = sub.Unsubscribe(ctx)
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+
+			go h.broadcastPresenceEvent(context.WithoutCancel(ctx), msg)
+		}
+	}
+}
+
+type PresenceUpdatedEvent struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Presence string    `json:"status"`
+}
+
+func (h *Hub) broadcastPresenceEvent(ctx context.Context, msg string) {
+	var event PresenceUpdatedEvent
+	if err := json.Unmarshal([]byte(msg), &event); err != nil {
+		return
+	}
+
+	// dbUUID := pgtype.UUID{Bytes: event.UserID, Valid: true}
+	// friends, err := h.store.RelationshipsListFriendsByUserID(ctx, dbUUID)
+	// if err != nil {
+	// 	return
+	// }
+
+	// Create the inner data payload
+	// innerData, _ := json.Marshal(map[string]string{
+	// 	"user_id": event.UserID.String(),
+	// 	"status":  event.Presence,
+	// })
+
+	// Wrap it in your standard WSMessage envelope
+	// outboundPayload, _ := json.Marshal(WSMessage{
+	// 	Type: "PRESENCE_UPDATE",
+	// 	Data: innerData,
+	// })
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// for _, friend := range friends {
+	// 	friendID := uuid.UUID(friend.PeerID.Bytes)
+
+	// 	if client, online := h.clients[friendID]; online {
+	// 		select {
+	// 		case client.Send <- outboundPayload:
+	// 		default:
+	// 			// If the client's send channel is full, they are a dead connection. Boot them.
+	// 			go client.Close()
+	// 		}
+	// 	}
 	// }
 }
 
-// func (h *Hub) broadcastPresenceEvent(ctx context.Context, rawPayload string) {
-// 	var event PresenceUpdatedEvent
-// 	if err := json.Unmarshal([]byte(rawPayload), &event); err != nil {
+func (h *Hub) handleMessage(client *Client, msg WSMessage) {
+	switch msg.Type {
+	case "UPDATE_PRESENCE":
+		// h.handleUpdatePresence(client, msg.Data)
+	}
+}
+
+// func (h *Hub) handleUpdatePresence(client *Client, rawData json.RawMessage) {
+// 	var data struct {
+// 		Presence string `json:"presence" mod:"text" validate:"required"`
+// 	}
+
+// 	if err := json.Unmarshal(rawData, &data); err != nil {
 // 		return
 // 	}
 
-// 	dbUUID := pgtype.UUID{Bytes: event.UserID, Valid: true}
-// 	friends, err := h.store.RelationshipsListFriendsByUserID(ctx, dbUUID)
-// 	if err != nil {
+// 	// 1. Sanitize and Validate via your new toolkit
+// 	sanitize.Normalize(&data)
+// 	if err := httpio.ValidateStruct(&data); err != nil {
 // 		return
 // 	}
 
-// 	outboundPayload, _ := json.Marshal(map[string]interface{}{
-// 		"t": "PRESENCE_UPDATE",
-// 		"d": map[string]interface{}{
-// 			"user_id": event.UserID.String(),
-// 			"status":  event.Presence,
-// 		},
-// 	})
-
-// 	h.mu.RLock()
-// 	defer h.mu.RUnlock()
-
-// 	for _, friend := range friends {
-// 		friendID := uuid.UUID(friend.PeerID.Bytes)
-// 		if client, online := h.clients[friendID]; online {
-// 			select {
-// 			case client.Send <- outboundPayload:
-// 			default:
-// 				go client.Close()
-// 			}
-// 		}
+// 	// 2. Validate Enum Constraints
+// 	presenceEnum := presence.ParsePresence(data.Presence)
+// 	if presenceEnum == presence.PresenceUnknown || !presenceEnum.Valid() {
+// 		return
 // 	}
+
+// 	// 3. Thread-safe client mutation
+// 	client.SetPresence(presenceEnum)
+
+// 	// 4. Async Outbox Emission
+// 	go func(id uuid.UUID) {
+// 		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+// 		defer cancel()
+
+// 		_ = h.presenceSvc.Heartbeat(bgCtx, id, presenceEnum)
+// 		_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+// 			UserID:   id.String(),
+// 			Presence: presenceEnum.String(),
+// 		})
+// 	}(client.UserID)
 // }
