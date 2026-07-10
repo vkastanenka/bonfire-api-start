@@ -31,6 +31,12 @@ type Client struct {
 	mu       sync.RWMutex
 }
 
+func (c *Client) SetPresence(p presence.Presence) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Presence = p
+}
+
 func (c *Client) Close() {
 	_ = c.Conn.Close()
 }

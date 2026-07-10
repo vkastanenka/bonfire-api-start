@@ -3,6 +3,7 @@ package httpio
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/validator"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,15 @@ import (
 	"strings"
 
 	"github.com/go-playground/form"
+)
+
+var (
+	formDecoder = form.NewDecoder()
+	pathDecoder = func() *form.Decoder {
+		d := form.NewDecoder()
+		d.SetTagName("path")
+		return d
+	}()
 )
 
 func BindJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
@@ -195,5 +205,5 @@ func compilePathValues(structVal reflect.Value, r *http.Request, output url.Valu
 
 func bindInput[T any](req *T) error {
 	sanitize.Normalize(req)
-	return validate(req)
+	return validator.Validate(req)
 }

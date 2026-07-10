@@ -5,6 +5,8 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence.go"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/validator"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -40,25 +42,21 @@ func NewHub(store repository.Store, cache cache.Manager, presenceSvc presence.Se
 }
 
 func (h *Hub) Run(ctx context.Context) {
-	// Start background listeners
 	go h.listenRedisPresence(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			// Graceful shutdown
 			return
 
 		case client := <-h.register:
 			h.mu.Lock()
-			// If a user logs in from a new device, boot the old connection
 			if oldClient, exists := h.clients[client.UserID]; exists {
 				oldClient.Close()
 			}
 			h.clients[client.UserID] = client
 			h.mu.Unlock()
 
-			// Fire-and-forget outbox emission so we don't block the Hub loop
 			go func(id uuid.UUID, initialPresence presence.Presence) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
@@ -72,8 +70,6 @@ func (h *Hub) Run(ctx context.Context) {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			// Ensure we are only deleting the exact connection that disconnected
-			// (prevents deleting a new connection if they quickly reconnected)
 			if current, exists := h.clients[client.UserID]; exists && current == client {
 				delete(h.clients, client.UserID)
 				client.Close()
@@ -166,43 +162,37 @@ func (h *Hub) broadcastPresenceEvent(ctx context.Context, msg string) {
 func (h *Hub) handleMessage(client *Client, msg WSMessage) {
 	switch msg.Type {
 	case "UPDATE_PRESENCE":
-		// h.handleUpdatePresence(client, msg.Data)
+		h.handleUpdatePresence(client, msg.Data)
 	}
 }
 
-// func (h *Hub) handleUpdatePresence(client *Client, rawData json.RawMessage) {
-// 	var data struct {
-// 		Presence string `json:"presence" mod:"text" validate:"required"`
-// 	}
+func (h *Hub) handleUpdatePresence(client *Client, rawData json.RawMessage) {
+	var data struct {
+		Presence string `json:"presence" mod:"text" validate:"required,presence"`
+	}
 
-// 	if err := json.Unmarshal(rawData, &data); err != nil {
-// 		return
-// 	}
+	if err := json.Unmarshal(rawData, &data); err != nil {
+		return
+	}
 
-// 	// 1. Sanitize and Validate via your new toolkit
-// 	sanitize.Normalize(&data)
-// 	if err := httpio.ValidateStruct(&data); err != nil {
-// 		return
-// 	}
+	sanitize.Normalize(&data)
 
-// 	// 2. Validate Enum Constraints
-// 	presenceEnum := presence.ParsePresence(data.Presence)
-// 	if presenceEnum == presence.PresenceUnknown || !presenceEnum.Valid() {
-// 		return
-// 	}
+	if err := validator.Validate(&data); err != nil {
+		return
+	}
 
-// 	// 3. Thread-safe client mutation
-// 	client.SetPresence(presenceEnum)
+	presenceEnum := presence.ParsePresence(data.Presence)
 
-// 	// 4. Async Outbox Emission
-// 	go func(id uuid.UUID) {
-// 		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-// 		defer cancel()
+	client.SetPresence(presenceEnum)
 
-// 		_ = h.presenceSvc.Heartbeat(bgCtx, id, presenceEnum)
-// 		_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
-// 			UserID:   id.String(),
-// 			Presence: presenceEnum.String(),
-// 		})
-// 	}(client.UserID)
-// }
+	go func(id uuid.UUID, p presence.Presence) {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		_ = h.presenceSvc.Heartbeat(bgCtx, id, p)
+		_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+			UserID:   id.String(),
+			Presence: p.String(),
+		})
+	}(client.UserID, presenceEnum)
+}

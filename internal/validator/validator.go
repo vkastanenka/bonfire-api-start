@@ -1,4 +1,4 @@
-package httpio
+package validator
 
 import (
 	"bonfire-api/internal/apperr"
@@ -9,18 +9,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-playground/form"
 	goValidator "github.com/go-playground/validator/v10"
 )
 
 var (
-	formDecoder = form.NewDecoder()
-	pathDecoder = func() *form.Decoder {
-		d := form.NewDecoder()
-		d.SetTagName("path")
-		return d
-	}()
-	validator   = goValidator.New()
+	v           = goValidator.New()
 	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
 )
 
@@ -41,7 +34,7 @@ const (
 )
 
 func init() {
-	validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
+	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		if tag := fld.Tag.Get("json"); tag != "" && tag != "-" {
 			if idx := strings.IndexByte(tag, ','); idx != -1 {
 				return tag[:idx]
@@ -60,11 +53,11 @@ func init() {
 		return ""
 	})
 
-	validator.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
+	v.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
 		return rgxUsername.MatchString(fl.Field().String())
 	})
 
-	validator.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
+	v.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
 		p, ok := fl.Field().Interface().(presence.Presence)
 		if !ok {
 			return false
@@ -75,15 +68,15 @@ func init() {
 		return p.Valid()
 	})
 
-	validator.RegisterAlias("identity_id", "required,uuid,len=36")
-	validator.RegisterAlias("identity_email", "required,email,max=255")
-	validator.RegisterAlias("identity_username", "required,min=3,max=32,valid_username")
-	validator.RegisterAlias("identity_password", "required,min=12,max=255")
-	validator.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
+	v.RegisterAlias("identity_id", "required,uuid,len=36")
+	v.RegisterAlias("identity_email", "required,email,max=255")
+	v.RegisterAlias("identity_username", "required,min=3,max=32,valid_username")
+	v.RegisterAlias("identity_password", "required,min=12,max=255")
+	v.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
 }
 
-func validate(s interface{}) error {
-	err := validator.Struct(s)
+func Validate(s interface{}) error {
+	err := v.Struct(s)
 	if err == nil {
 		return nil
 	}
