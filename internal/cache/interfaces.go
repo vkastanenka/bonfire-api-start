@@ -24,7 +24,7 @@ type MessageBus interface {
 	Subscribe(ctx context.Context, channel string) (Subscription, error)
 }
 
-type Client interface {
+type Manager interface {
 	Store
 	MessageBus
 }

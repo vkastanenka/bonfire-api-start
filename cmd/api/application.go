@@ -18,7 +18,7 @@ type Handlers struct {
 	Auth *auth.Handler
 }
 
-type Services struct {
+type Managers struct {
 	Token *token.Manager
 }
 
@@ -26,7 +26,7 @@ type Application struct {
 	Config      *config.Config
 	RateLimiter *redis_rate.Limiter
 	Handlers    Handlers
-	Services    Services
+	Managers    Managers
 }
 
 func (app *Application) Serve(ctx context.Context) error {

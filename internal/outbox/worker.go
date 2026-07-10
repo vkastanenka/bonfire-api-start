@@ -16,7 +16,7 @@ import (
 
 type Worker struct {
 	id            uuid.UUID
-	cache         cache.Client
+	cache         cache.Manager
 	service       *Service
 	mailer        email.Mailer
 	pollInterval  time.Duration
@@ -27,7 +27,7 @@ type Worker struct {
 }
 
 func NewWorker(
-	cache cache.Client,
+	cache cache.Manager,
 	service *Service,
 	mailer email.Mailer,
 	pollInterval time.Duration,

@@ -360,7 +360,7 @@ const (
 	errUnverifiedEmail   = "Unverified email. Please complete verification via your registration email."
 )
 
-func RequireAuth(mgr *token.Manager) func(http.Handler) http.Handler {
+func RequireAuth(t *token.Manager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -380,13 +380,13 @@ func RequireAuth(mgr *token.Manager) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := mgr.VerifyAccess(tokenStr)
+			claims, err := t.VerifyAccess(tokenStr)
 			if err != nil {
 				respondError(w, r, apperr.NewTokenExpired(err, errInvalidToken))
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), "user_claims", claims)
+			ctx := context.WithValue(r.Context(), userClaimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
