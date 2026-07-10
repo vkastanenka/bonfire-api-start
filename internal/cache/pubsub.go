@@ -50,23 +50,23 @@ func (s *cacheSub) listen() {
 	}
 }
 
-func (m *manager) Publish(ctx context.Context, channel string, payload interface{}) error {
+func (c *client) Publish(ctx context.Context, channel string, payload interface{}) error {
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		return NewError(err, ScopeEvents)
 	}
 
-	if err := m.client.Publish(ctx, channel, bytes).Err(); err != nil {
+	if err := c.redis.Publish(ctx, channel, bytes).Err(); err != nil {
 		return NewError(err, ScopeEvents)
 	}
 	return nil
 }
 
-func (m *manager) Subscribe(ctx context.Context, channel string) (Subscription, error) {
+func (c *client) Subscribe(ctx context.Context, channel string) (Subscription, error) {
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	pb := m.client.Subscribe(subCtx, channel)
+	pb := c.redis.Subscribe(subCtx, channel)
 
 	if _, err := pb.Receive(subCtx); err != nil {
 		pb.Close()

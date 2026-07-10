@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func (m *manager) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (c *client) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	var bytes []byte
 	var err error
 
@@ -25,14 +25,14 @@ func (m *manager) Set(ctx context.Context, key string, value interface{}, ttl ti
 		}
 	}
 
-	if err := m.client.Set(ctx, key, bytes, ttl).Err(); err != nil {
+	if err := c.redis.Set(ctx, key, bytes, ttl).Err(); err != nil {
 		return NewError(err, ScopeStore)
 	}
 	return nil
 }
 
-func (m *manager) Get(ctx context.Context, key string, dest interface{}) error {
-	bytes, err := m.client.Get(ctx, key).Bytes()
+func (c *client) Get(ctx context.Context, key string, dest interface{}) error {
+	bytes, err := c.redis.Get(ctx, key).Bytes()
 	if IsNotFoundError(err) {
 		return NewError(ErrNotFound, ScopeStore)
 	}
@@ -55,23 +55,23 @@ func (m *manager) Get(ctx context.Context, key string, dest interface{}) error {
 	}
 }
 
-func (m *manager) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
-	values, err := m.client.MGet(ctx, keys...).Result()
+func (c *client) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
+	values, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, NewError(err, ScopeStore)
 	}
 	return values, nil
 }
 
-func (m *manager) Delete(ctx context.Context, key string) error {
-	if err := m.client.Del(ctx, key).Err(); err != nil {
+func (c *client) Delete(ctx context.Context, key string) error {
+	if err := c.redis.Del(ctx, key).Err(); err != nil {
 		return NewError(err, ScopeStore)
 	}
 	return nil
 }
 
-func (m *manager) Exists(ctx context.Context, key string) (bool, error) {
-	count, err := m.client.Exists(ctx, key).Result()
+func (c *client) Exists(ctx context.Context, key string) (bool, error) {
+	count, err := c.redis.Exists(ctx, key).Result()
 	if err != nil {
 		return false, NewError(err, ScopeStore)
 	}
@@ -86,10 +86,10 @@ var incrWithTTLScript = redis.NewScript(`
 	return current
 `)
 
-func (m *manager) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+func (c *client) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	seconds := int64(ttl.Seconds())
 
-	result, err := incrWithTTLScript.Run(ctx, m.client, []string{key}, seconds).Result()
+	result, err := incrWithTTLScript.Run(ctx, c.redis, []string{key}, seconds).Result()
 	if err != nil {
 		return 0, NewError(err, ScopeStore)
 	}

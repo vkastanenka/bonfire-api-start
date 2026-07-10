@@ -81,7 +81,7 @@ func run(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	cache := cache.NewManager(rdbClient)
+	cache := cache.New(rdbClient)
 	store := repository.NewStore(pdbPool)
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
 

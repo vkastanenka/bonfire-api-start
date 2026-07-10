@@ -4,12 +4,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type manager struct {
-	client *redis.Client
+type client struct {
+	redis *redis.Client
 }
 
-func NewManager(client *redis.Client) Manager {
-	return &manager{
-		client: client,
+func New(rClient *redis.Client) Client {
+	return &client{
+		redis: rClient,
 	}
 }

@@ -27,11 +27,11 @@ type Hub struct {
 	mu         sync.RWMutex
 
 	store       repository.Store
-	cache       cache.Manager
+	cache       cache.Client
 	presenceSvc presence.Service
 }
 
-func NewHub(store repository.Store, cache cache.Manager, presenceSvc presence.Service) *Hub {
+func NewHub(store repository.Store, cache cache.Client, presenceSvc presence.Service) *Hub {
 	return &Hub{
 		clients:     make(map[uuid.UUID]*Client),
 		register:    make(chan *Client),
