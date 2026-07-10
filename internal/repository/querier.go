@@ -11,6 +11,16 @@ import (
 )
 
 type Querier interface {
+	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
+	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)
+	OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) error
+	OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error)
+	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error)
+	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	OutboxEventPurgeProcessed(ctx context.Context) error
+	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
+	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error

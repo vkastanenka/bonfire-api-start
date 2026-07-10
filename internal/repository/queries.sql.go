@@ -12,6 +12,356 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const outboxEventAcquireBatch = `-- name: OutboxEventAcquireBatch :many
+WITH batch AS (
+    SELECT
+        id
+    FROM
+        outbox_events
+    WHERE
+        processed_at IS NULL
+        AND attempts < max_attempts
+        AND next_attempt_at <= CURRENT_TIMESTAMP
+        AND (lease_expires_at IS NULL
+            OR lease_expires_at < CURRENT_TIMESTAMP)
+    ORDER BY
+        next_attempt_at ASC,
+        id ASC
+    LIMIT $1
+    FOR UPDATE
+        SKIP LOCKED)
+UPDATE
+    outbox_events
+SET
+    locked_by = $2,
+    lease_expires_at = CURRENT_TIMESTAMP +($3::text || ' seconds')::interval
+WHERE
+    id IN (
+        SELECT
+            id
+        FROM
+            batch)
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+type OutboxEventAcquireBatchParams struct {
+	Limit    int32       `json:"limit"`
+	LockedBy pgtype.UUID `json:"locked_by"`
+	Column3  string      `json:"column_3"`
+}
+
+func (q *Queries) OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error) {
+	rows, err := q.db.Query(ctx, outboxEventAcquireBatch, arg.Limit, arg.LockedBy, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutboxEvent
+	for rows.Next() {
+		var i OutboxEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.Payload,
+			&i.ProcessedAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.NextAttemptAt,
+			&i.LockedBy,
+			&i.LeaseExpiresAt,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const outboxEventCreate = `-- name: OutboxEventCreate :one
+INSERT INTO outbox_events(event_type, payload)
+    VALUES ($1, $2)
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+type OutboxEventCreateParams struct {
+	EventType string `json:"event_type"`
+	Payload   []byte `json:"payload"`
+}
+
+func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventCreate, arg.EventType, arg.Payload)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const outboxEventDeleteByID = `-- name: OutboxEventDeleteByID :exec
+DELETE FROM outbox_events
+WHERE id = $1
+`
+
+func (q *Queries) OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, outboxEventDeleteByID, id)
+	return err
+}
+
+const outboxEventGetByID = `-- name: OutboxEventGetByID :one
+SELECT
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+FROM
+    outbox_events
+WHERE
+    id = $1
+`
+
+func (q *Queries) OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventGetByID, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const outboxEventList = `-- name: OutboxEventList :many
+SELECT
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+FROM
+    outbox_events
+WHERE ($1::uuid IS NULL
+    OR id < $1)
+ORDER BY
+    id DESC
+LIMIT $2
+`
+
+type OutboxEventListParams struct {
+	Column1 pgtype.UUID `json:"column_1"`
+	Limit   int32       `json:"limit"`
+}
+
+func (q *Queries) OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error) {
+	rows, err := q.db.Query(ctx, outboxEventList, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutboxEvent
+	for rows.Next() {
+		var i OutboxEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.Payload,
+			&i.ProcessedAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.NextAttemptAt,
+			&i.LockedBy,
+			&i.LeaseExpiresAt,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :one
+UPDATE
+    outbox_events
+SET
+    last_error = COALESCE($2, 'Manually marked dead letter by operator.'),
+    attempts = max_attempts,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+type OutboxEventMarkDeadLetterParams struct {
+	ID        pgtype.UUID `json:"id"`
+	LastError pgtype.Text `json:"last_error"`
+}
+
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventMarkDeadLetter, arg.ID, arg.LastError)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :one
+UPDATE
+    outbox_events
+SET
+    processed_at = CURRENT_TIMESTAMP,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventMarkProcessed, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const outboxEventPurgeProcessed = `-- name: OutboxEventPurgeProcessed :exec
+DELETE FROM outbox_events
+WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days')
+`
+
+func (q *Queries) OutboxEventPurgeProcessed(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, outboxEventPurgeProcessed)
+	return err
+}
+
+const outboxEventRecordFailure = `-- name: OutboxEventRecordFailure :one
+UPDATE
+    outbox_events
+SET
+    attempts = attempts + 1,
+    last_error = $2,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1)::int)
+WHERE
+    id = $1
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+type OutboxEventRecordFailureParams struct {
+	ID        pgtype.UUID `json:"id"`
+	LastError pgtype.Text `json:"last_error"`
+}
+
+func (q *Queries) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventRecordFailure, arg.ID, arg.LastError)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const outboxEventResetAttempts = `-- name: OutboxEventResetAttempts :one
+UPDATE
+    outbox_events
+SET
+    attempts = 0,
+    next_attempt_at = CURRENT_TIMESTAMP,
+    last_error = NULL,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+`
+
+func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventResetAttempts, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.Payload,
+		&i.ProcessedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.NextAttemptAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const sessionCreate = `-- name: SessionCreate :one
 INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

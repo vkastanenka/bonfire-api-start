@@ -119,3 +119,121 @@ WHERE user_id = $1
 DELETE FROM sessions
 WHERE expires_at <= CURRENT_TIMESTAMP;
 
+-- name: OutboxEventCreate :one
+INSERT INTO outbox_events(event_type, payload)
+    VALUES ($1, $2)
+RETURNING
+    *;
+
+-- name: OutboxEventGetByID :one
+SELECT
+    *
+FROM
+    outbox_events
+WHERE
+    id = $1;
+
+-- name: OutboxEventList :many
+SELECT
+    *
+FROM
+    outbox_events
+WHERE ($1::uuid IS NULL
+    OR id < $1)
+ORDER BY
+    id DESC
+LIMIT $2;
+
+-- name: OutboxEventAcquireBatch :many
+WITH batch AS (
+    SELECT
+        id
+    FROM
+        outbox_events
+    WHERE
+        processed_at IS NULL
+        AND attempts < max_attempts
+        AND next_attempt_at <= CURRENT_TIMESTAMP
+        AND (lease_expires_at IS NULL
+            OR lease_expires_at < CURRENT_TIMESTAMP)
+    ORDER BY
+        next_attempt_at ASC,
+        id ASC
+    LIMIT $1
+    FOR UPDATE
+        SKIP LOCKED)
+UPDATE
+    outbox_events
+SET
+    locked_by = $2,
+    lease_expires_at = CURRENT_TIMESTAMP +($3::text || ' seconds')::interval
+WHERE
+    id IN (
+        SELECT
+            id
+        FROM
+            batch)
+RETURNING
+    *;
+
+-- name: OutboxEventMarkProcessed :one
+UPDATE
+    outbox_events
+SET
+    processed_at = CURRENT_TIMESTAMP,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    *;
+
+-- name: OutboxEventRecordFailure :one
+UPDATE
+    outbox_events
+SET
+    attempts = attempts + 1,
+    last_error = $2,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP +(INTERVAL '1 minute' * POWER(2, attempts + 1)::int)
+WHERE
+    id = $1
+RETURNING
+    *;
+
+-- name: OutboxEventMarkDeadLetter :one
+UPDATE
+    outbox_events
+SET
+    last_error = COALESCE($2, 'Manually marked dead letter by operator.'),
+    attempts = max_attempts,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    *;
+
+-- name: OutboxEventResetAttempts :one
+UPDATE
+    outbox_events
+SET
+    attempts = 0,
+    next_attempt_at = CURRENT_TIMESTAMP,
+    last_error = NULL,
+    locked_by = NULL,
+    lease_expires_at = NULL
+WHERE
+    id = $1
+RETURNING
+    *;
+
+-- name: OutboxEventDeleteByID :exec
+DELETE FROM outbox_events
+WHERE id = $1;
+
+-- name: OutboxEventPurgeProcessed :exec
+DELETE FROM outbox_events
+WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
+
