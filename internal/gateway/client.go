@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/outbox"
 	"context"
 	"encoding/json"
 	"sync"
@@ -55,7 +56,10 @@ func (c *Client) readPump(hub *Hub) {
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			_ = hub.cache.Heartbeat(bgCtx, c.UserID, c.Presence)
+			_ = outbox.EmitPresenceUpdated(bgCtx, hub.store, outbox.PresenceUpdatedPayload{
+				UserID:   c.UserID.String(),
+				Presence: c.Presence.String(),
+			})
 		}()
 		return nil
 	})
@@ -81,13 +85,10 @@ func (c *Client) readPump(hub *Hub) {
 				c.Presence = presenceEnum
 
 				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				_ = hub.cache.Heartbeat(bgCtx, c.UserID, presenceEnum)
-
-				event := PresenceUpdatedEvent{
-					UserID:   c.UserID,
+				_ = outbox.EmitPresenceUpdated(bgCtx, hub.store, outbox.PresenceUpdatedPayload{
+					UserID:   c.UserID.String(),
 					Presence: presenceEnum.String(),
-				}
-				_ = hub.cache.Publish(bgCtx, PresenceUpdatedChannel, event)
+				})
 				cancel()
 			}
 		}

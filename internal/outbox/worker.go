@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/email"
 
 	"github.com/google/uuid"
@@ -15,6 +17,7 @@ import (
 
 type Worker struct {
 	id            uuid.UUID
+	cache         cache.Manager
 	service       *Service
 	mailer        email.Mailer
 	pollInterval  time.Duration
@@ -25,6 +28,7 @@ type Worker struct {
 }
 
 func NewWorker(
+	cache cache.Manager,
 	service *Service,
 	mailer email.Mailer,
 	pollInterval time.Duration,
@@ -33,6 +37,7 @@ func NewWorker(
 ) *Worker {
 	return &Worker{
 		id:            uuid.New(),
+		cache:         cache,
 		service:       service,
 		mailer:        mailer,
 		pollInterval:  pollInterval,
@@ -128,6 +133,25 @@ func (w *Worker) executeEvent(ctx context.Context, event Event) {
 			break
 		}
 		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
+
+	case EventPresenceUpdated:
+		var payload PresenceUpdatedPayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			executionErr, isFatal = err, true
+			break
+		}
+
+		userIdStr := uuid.MustParse(payload.UserID)
+		presenceEnum := cache.ParsePresence(payload.Presence)
+
+		if err := w.cache.Heartbeat(ctx, userIdStr, presenceEnum); err != nil {
+			executionErr = fmt.Errorf("failed to sync heartbeat to redis: %w", err)
+			break
+		}
+
+		if err := w.cache.Publish(ctx, "presence:updated", payload); err != nil {
+			executionErr = fmt.Errorf("failed to broadcast presence pubsub: %w", err)
+		}
 
 	default:
 		slog.WarnContext(ctx, "unhandled event type dropped", "event_type", event.EventType, "event_id", event.ID)

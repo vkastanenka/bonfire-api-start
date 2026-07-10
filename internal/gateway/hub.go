@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
 	"context"
 	"log/slog"
@@ -57,14 +58,10 @@ func (h *Hub) Run(ctx context.Context) {
 
 				_ = h.cache.Heartbeat(bgCtx, id, initialPresence)
 
-				_ = h.cache.Publish(
-					bgCtx,
-					PresenceUpdatedChannel,
-					PresenceUpdatedEvent{
-						UserID:   id,
-						Presence: initialPresence.String(),
-					},
-				)
+				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+					UserID:   id.String(),
+					Presence: initialPresence.String(),
+				})
 			}(client.UserID, client.Presence)
 
 		case client := <-h.unregister:
@@ -79,16 +76,10 @@ func (h *Hub) Run(ctx context.Context) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
 
-				_ = h.cache.Heartbeat(bgCtx, id, cache.PresenceOffline)
-
-				_ = h.cache.Publish(
-					bgCtx,
-					PresenceUpdatedChannel,
-					PresenceUpdatedEvent{
-						UserID:   id,
-						Presence: cache.PresenceOffline.String(),
-					},
-				)
+				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+					UserID:   id.String(),
+					Presence: cache.PresenceOffline.String(),
+				})
 			}(client.UserID)
 		}
 	}

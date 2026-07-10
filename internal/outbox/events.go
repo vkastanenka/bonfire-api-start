@@ -17,6 +17,7 @@ const (
 	EventAuthRegister           Type = "auth.register"
 	EventAuthResendVerification Type = "auth.retry-verification"
 	EventAuthForgotPassword     Type = "auth.forgot-password"
+	EventPresenceUpdated        Type = "presence.updated"
 )
 
 type RegisterPayload struct {
@@ -46,6 +47,15 @@ type ForgotPasswordPayload struct {
 
 func EmitForgotPassword(ctx context.Context, db Emitter, payload ForgotPasswordPayload) error {
 	return emitEvent(ctx, db, EventAuthForgotPassword, payload)
+}
+
+type PresenceUpdatedPayload struct {
+	UserID   string `json:"user_id"`
+	Presence string `json:"presence"`
+}
+
+func EmitPresenceUpdated(ctx context.Context, db Emitter, payload PresenceUpdatedPayload) error {
+	return emitEvent(ctx, db, EventPresenceUpdated, payload)
 }
 
 func emitEvent(ctx context.Context, db Emitter, eventType Type, payload any) error {
