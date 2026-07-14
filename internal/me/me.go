@@ -1,7 +1,7 @@
 package me
 
 import (
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"time"
 

@@ -3,7 +3,7 @@ package gateway
 import (
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/validator"

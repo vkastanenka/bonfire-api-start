@@ -12,6 +12,14 @@ type Service struct {
 	user *user.Service
 }
 
+func NewService(
+	user *user.Service,
+) *Service {
+	return &Service{
+		user: user,
+	}
+}
+
 func (s *Service) GetByID(ctx context.Context, userID uuid.UUID) (View, error) {
 	var (
 		u  user.User

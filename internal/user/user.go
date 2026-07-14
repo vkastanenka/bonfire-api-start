@@ -2,7 +2,7 @@ package user
 
 import (
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 	"time"
 

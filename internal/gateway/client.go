@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"

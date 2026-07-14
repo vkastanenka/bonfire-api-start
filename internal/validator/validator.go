@@ -2,7 +2,7 @@ package validator
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 	"errors"
 	"fmt"
 	"reflect"

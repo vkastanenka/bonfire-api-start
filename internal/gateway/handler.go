@@ -5,7 +5,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence.go"
+	"bonfire-api/internal/presence"
 	"context"
 	"net/http"
 
