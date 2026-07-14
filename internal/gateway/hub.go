@@ -181,7 +181,7 @@ func (h *Hub) handleUpdatePresence(client *Client, rawData json.RawMessage) {
 		return
 	}
 
-	presenceEnum := presence.ParsePresence(data.Presence)
+	presenceEnum := presence.Parse(data.Presence)
 
 	client.SetPresence(presenceEnum)
 

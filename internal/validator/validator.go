@@ -58,14 +58,36 @@ func init() {
 	})
 
 	v.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
-		p, ok := fl.Field().Interface().(presence.Presence)
-		if !ok {
+		switch val := fl.Field().Interface().(type) {
+		case string:
+			p := presence.Parse(val)
+			return p.Valid()
+
+		case *string:
+			if val == nil {
+				return true
+			}
+			p := presence.Parse(*val)
+			return p.Valid()
+
+		case presence.Presence:
+			if val == presence.PresenceUnknown {
+				return true
+			}
+			return val.Valid()
+
+		case *presence.Presence:
+			if val == nil {
+				return true
+			}
+			if *val == presence.PresenceUnknown {
+				return true
+			}
+			return val.Valid()
+
+		default:
 			return false
 		}
-		if p == presence.PresenceUnknown {
-			return true
-		}
-		return p.Valid()
 	})
 
 	v.RegisterAlias("identity_id", "required,uuid,len=36")

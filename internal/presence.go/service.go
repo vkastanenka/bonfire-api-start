@@ -46,7 +46,7 @@ func (s *Service) GetByUserID(ctx context.Context, userID uuid.UUID) (Presence, 
 		return PresenceUnknown, err
 	}
 
-	return ParsePresence(val), nil
+	return Parse(val), nil
 }
 
 func (s *Service) GetBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
@@ -72,7 +72,7 @@ func (s *Service) GetBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (ma
 		}
 
 		if valStr, ok := values[i].(string); ok {
-			activities[id] = ParsePresence(valStr)
+			activities[id] = Parse(valStr)
 		} else {
 			activities[id] = PresenceOffline
 		}

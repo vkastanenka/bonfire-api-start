@@ -35,8 +35,8 @@ func NewHandler(hub *Hub, cache TicketCacher) *Handler {
 }
 
 type ServeWSQuery struct {
-	TicketID uuid.UUID         `form:"ticket_id" validate:"required"`
-	Presence presence.Presence `form:"presence" validate:"omitempty,presence"`
+	TicketID string  `form:"ticket_id" validate:"required"`
+	Presence *string `form:"presence"  validate:"omitempty,presence"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
@@ -45,8 +45,17 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	ticketId, err := uuid.Parse(query.TicketID)
+	if err != nil {
+		return apperr.NewInvalidInput(
+			err,
+			"Invalid ticket format.",
+			apperr.Param("ticket_id", "Must be a valid UUID v4 format."),
+		)
+	}
+
 	ctx := r.Context()
-	ticketKey := cache.WSTicketKey(query.TicketID)
+	ticketKey := cache.WSTicketKey(ticketId)
 	var ticket auth.WSTicketData
 
 	err = h.cache.Get(ctx, ticketKey, &ticket)
@@ -56,8 +65,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	_ = h.cache.Delete(ctx, ticketKey)
 
-	if query.Presence == presence.PresenceUnknown {
-		query.Presence = presence.PresenceOnline
+	userPresence := presence.PresenceOnline
+	if query.Presence != nil {
+		userPresence = presence.Parse(*query.Presence)
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -67,11 +77,10 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	client := &Client{
 		UserID:   ticket.UserID,
-		Presence: query.Presence,
+		Presence: userPresence,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
 	}
-
 	h.hub.register <- client
 
 	go client.writePump()

@@ -24,24 +24,24 @@ func (app *Application) routes() http.Handler {
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Group(func(public chi.Router) {
-			public.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
-				Limit:  app.Config.AuthRateLimit,
-				Window: app.Config.AuthRateWindow,
-				Scope:  httpio.RateLimitScopePublic,
-			}))
+			// public.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+			// 	Limit:  app.Config.AuthRateLimit,
+			// 	Window: app.Config.AuthRateWindow,
+			// 	Scope:  httpio.RateLimitScopePublic,
+			// }))
 
 			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
-			public.Get("/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 		})
 
 		api.Group(func(auth chi.Router) {
-			auth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
-				Limit:  app.Config.AuthRateLimit,
-				Window: app.Config.AuthRateWindow,
-				Scope:  httpio.RateLimitScopeAuth,
-			}))
+			// auth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+			// 	Limit:  app.Config.AuthRateLimit,
+			// 	Window: app.Config.AuthRateWindow,
+			// 	Scope:  httpio.RateLimitScopeAuth,
+			// }))
 			auth.Use(httpio.RequireAuth(app.Managers.Token))
 
 			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))

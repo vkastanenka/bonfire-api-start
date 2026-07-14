@@ -38,23 +38,28 @@ func (p Presence) String() string {
 		return "busy"
 	case PresenceDND:
 		return "dnd"
+	case PresenceInvisible:
+		return "invisible"
 	default:
 		return "offline"
 	}
 }
-
-func ParsePresence(s string) Presence {
+func Parse(s string) Presence {
 	switch s {
 	case "online":
 		return PresenceOnline
+	case "offline":
+		return PresenceOffline
 	case "idle":
 		return PresenceIdle
 	case "busy":
 		return PresenceBusy
 	case "dnd":
 		return PresenceDND
+	case "invisible":
+		return PresenceInvisible
 	default:
-		return PresenceOffline
+		return PresenceUnknown
 	}
 }
 
@@ -65,6 +70,6 @@ func (p Presence) MarshalJSON() ([]byte, error) {
 func (p *Presence) UnmarshalJSON(data []byte) error {
 	data = bytes.Trim(data, "\"")
 
-	*p = ParsePresence(string(data))
+	*p = Parse(string(data))
 	return nil
 }

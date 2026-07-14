@@ -145,23 +145,6 @@ ORDER BY
 LIMIT $2;
 
 -- name: OutboxEventAcquireBatch :many
-WITH batch AS (
-    SELECT
-        id
-    FROM
-        outbox_events
-    WHERE
-        processed_at IS NULL
-        AND attempts < max_attempts
-        AND next_attempt_at <= CURRENT_TIMESTAMP
-        AND (lease_expires_at IS NULL
-            OR lease_expires_at < CURRENT_TIMESTAMP)
-    ORDER BY
-        next_attempt_at ASC,
-        id ASC
-    LIMIT $1
-    FOR UPDATE
-        SKIP LOCKED)
 UPDATE
     outbox_events
 SET
@@ -172,7 +155,19 @@ WHERE
         SELECT
             id
         FROM
-            batch)
+            outbox_events
+        WHERE
+            processed_at IS NULL
+            AND attempts < max_attempts
+            AND next_attempt_at <= CURRENT_TIMESTAMP
+            AND (lease_expires_at IS NULL
+                OR lease_expires_at < CURRENT_TIMESTAMP)
+        ORDER BY
+            next_attempt_at ASC,
+            id ASC
+        LIMIT $1
+        FOR UPDATE
+            SKIP LOCKED)
 RETURNING
     *;
 

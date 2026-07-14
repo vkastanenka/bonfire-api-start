@@ -32,7 +32,7 @@ CREATE TABLE outbox_events(
 
 CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at ASC, id ASC)
 WHERE
-    processed_at IS NULL AND (lease_expires_at IS NULL OR lease_expires_at < CURRENT_TIMESTAMP);
+    processed_at IS NULL;
 
 CREATE TRIGGER update_outbox_events_modtime
     BEFORE UPDATE ON outbox_events
