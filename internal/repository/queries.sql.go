@@ -744,3 +744,26 @@ func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreatePa
 	)
 	return i, err
 }
+
+const userProfileGetByUserID = `-- name: UserProfileGetByUserID :one
+SELECT
+    user_id, display_name, avatar_url, created_at, updated_at
+FROM
+    user_profiles
+WHERE
+    user_id = $1
+LIMIT 1
+`
+
+func (q *Queries) UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileGetByUserID, userID)
+	var i UserProfile
+	err := row.Scan(
+		&i.UserID,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

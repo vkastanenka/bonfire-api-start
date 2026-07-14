@@ -35,6 +35,7 @@ type Querier interface {
 	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByUsername(ctx context.Context, username string) (User, error)
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
+	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
 }
 
 var _ Querier = (*Queries)(nil)

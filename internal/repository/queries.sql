@@ -54,6 +54,15 @@ INSERT INTO user_profiles(user_id, display_name)
 RETURNING
     *;
 
+-- name: UserProfileGetByUserID :one
+SELECT
+    *
+FROM
+    user_profiles
+WHERE
+    user_id = $1
+LIMIT 1;
+
 -- name: SessionCreate :one
 INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

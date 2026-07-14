@@ -113,3 +113,11 @@ func (s *Service) CreateProfile(ctx context.Context, p CreateProfileParams) (Use
 	}
 	return ProfileFromRepository(row), nil
 }
+
+func (s *Service) GetProfileByUserID(ctx context.Context, id uuid.UUID) (UserProfile, error) {
+	row, err := s.store.UserProfileGetByUserID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if err != nil {
+		return UserProfile{}, repository.NewError(err, repository.ScopeUserProfile)
+	}
+	return ProfileFromRepository(row), nil
+}

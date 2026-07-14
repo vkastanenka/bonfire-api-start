@@ -80,6 +80,7 @@ func ToAuthView(u User) AuthView {
 
 type PublicView struct {
 	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
 	Username  string             `json:"username"`
 	Presence  *presence.Presence `json:"presence,omitempty"`
 	CreatedAt time.Time          `json:"created_at"`
@@ -89,6 +90,7 @@ type PublicView struct {
 func ToPublicView(u User) PublicView {
 	return PublicView{
 		ID:        u.ID,
+		Email:     u.Email,
 		Username:  u.Username,
 		Presence:  ptr.Map(u.Presence),
 		CreatedAt: u.CreatedAt,
