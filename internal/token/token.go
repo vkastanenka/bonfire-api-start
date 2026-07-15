@@ -26,15 +26,17 @@ type Config struct {
 type Type string
 
 const (
-	TypeAccess      Type = "access"
-	TypeRefresh     Type = "refresh"
-	TypeEmailVerify Type = "email-verify"
+	TypeAccess        Type = "access"
+	TypeRefresh       Type = "refresh"
+	TypeEmailVerify   Type = "email-verify"
+	TypePasswordReset Type = "password-reset"
 )
 
 const (
-	AccessTTL      = 15 * time.Minute
-	RefreshTTL     = 7 * 24 * time.Hour
-	EmailVerifyTTL = 24 * time.Hour
+	AccessTTL        = 15 * time.Minute
+	RefreshTTL       = 7 * 24 * time.Hour
+	EmailVerifyTTL   = 24 * time.Hour
+	PasswordResetTTL = 15 * time.Minute
 )
 
 var (
@@ -122,6 +124,12 @@ func (m *Manager) GenerateEmailVerify(userID uuid.UUID) (string, time.Time, erro
 	})
 }
 
+func (m *Manager) GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error) {
+	return m.generate(TypePasswordReset, PasswordResetTTL, Claims{
+		UserID: userID,
+	})
+}
+
 func (m *Manager) generate(tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
 	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
@@ -159,6 +167,10 @@ func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
 
 func (m *Manager) VerifyEmailVerify(tokenStr string) (*Claims, error) {
 	return m.verify(TypeEmailVerify, tokenStr)
+}
+
+func (m *Manager) VerifyPasswordReset(tokenStr string) (*Claims, error) {
+	return m.verify(TypePasswordReset, tokenStr)
 }
 
 func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {

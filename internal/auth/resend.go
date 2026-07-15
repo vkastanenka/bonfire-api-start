@@ -28,12 +28,12 @@ func (h *Handler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func cooldownKey(userID uuid.UUID) string {
+func AuthCooldownResendVerificationKey(userID uuid.UUID) string {
 	return fmt.Sprintf("auth:cooldown:resend-verify:{%s}", userID.String())
 }
 
 func (s *Service) ResendVerify(ctx context.Context, userId uuid.UUID) error {
-	cooldownKey := cooldownKey(userId)
+	cooldownKey := AuthCooldownResendVerificationKey(userId)
 	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
 	if err != nil {
 		slog.ErrorContext(ctx, "resend verification cooldown lookup failed", "error", err, "user_id", userId)

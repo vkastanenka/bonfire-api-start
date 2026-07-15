@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -39,4 +40,15 @@ func CompareDummyPassword(password string) {
 func HashToken(tokenStr string) []byte {
 	hash := sha256.Sum256([]byte(tokenStr))
 	return hash[:]
+}
+
+func ConstantWindow(target time.Duration) func() {
+	start := time.Now()
+
+	return func() {
+		elapsed := time.Since(start)
+		if elapsed < target {
+			time.Sleep(target - elapsed)
+		}
+	}
 }
