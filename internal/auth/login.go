@@ -127,15 +127,10 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	s.createCacheSession(persistCtx, session.ToAuthView(sessionRow))
-
-	if delErr := s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email)); delErr != nil {
-		slog.WarnContext(persistCtx,
-			"failed to clear login failures cache",
-			"error", delErr,
-			"email", p.Email,
-		)
-	}
+	sessionAuth := session.ToAuthView(sessionRow)
+	sessionKey := cache.SessionKey(sessionAuth.ID)
+	s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
+	s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email))
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,

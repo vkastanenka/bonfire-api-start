@@ -160,7 +160,7 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 
 	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
-	sessionView, err := s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
+	sessionRow, err = s.session.UpdateRefreshToken(persistCtx, session.UpdateRefreshTokenParams{
 		ID:               sessionAuth.ID,
 		RefreshTokenHash: hashedRefreshToken,
 		ExpiresAt:        tokenPair.RefreshExpiresAt,
@@ -169,7 +169,12 @@ func (s *Service) Refresh(ctx context.Context, r RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	s.updateCacheSession(persistCtx, session.ToAuthView(sessionView))
+	sessionAuth = session.ToAuthView(sessionRow)
+	sessionKey = cache.SessionKey(sessionAuth.ID)
+	err = s.cache.Set(persistCtx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
+	if err != nil {
+		s.cache.Delete(persistCtx, sessionKey)
+	}
 
 	return RefreshResult{
 		AccessToken:           tokenPair.Access,

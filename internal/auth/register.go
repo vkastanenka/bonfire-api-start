@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/repository"
@@ -127,7 +128,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		displayName = *p.DisplayName
 	}
 
-	var sessionRaw repository.Session
+	var sessionRow session.Session
 
 	persistCtx := context.WithoutCancel(ctx)
 
@@ -151,7 +152,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return repository.NewError(err, repository.ScopeUserProfile)
 		}
 
-		sessionRaw, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+		sessionRaw, err := qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
 			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
 			UserID:           pgtype.UUID{Bytes: userID, Valid: true},
 			RefreshTokenHash: hashedRefreshToken,
@@ -164,6 +165,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		if err != nil {
 			return repository.NewError(err, repository.ScopeSession)
 		}
+		sessionRow = session.FromRepository(sessionRaw)
 
 		// err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
 		// 	Email:    userRow.Email,
@@ -181,9 +183,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	sessionRow := session.FromRepository(sessionRaw)
-
-	s.createCacheSession(persistCtx, session.ToAuthView(sessionRow))
+	sessionAuth := session.ToAuthView(sessionRow)
+	sessionKey := cache.SessionKey(sessionAuth.ID)
+	s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,
