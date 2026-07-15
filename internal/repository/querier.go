@@ -37,6 +37,7 @@ type Querier interface {
 	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
 	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
+	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

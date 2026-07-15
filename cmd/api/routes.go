@@ -35,6 +35,7 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
 			public.Post("/auth/verify-email", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
+			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
 			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 
 			public.Get("/users", httpio.ToHTTPErr(app.Handlers.User.Get))

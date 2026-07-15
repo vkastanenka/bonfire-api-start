@@ -98,6 +98,17 @@ func (s *Service) GetByUsername(ctx context.Context, username string) (User, err
 	return FromRepository(row), nil
 }
 
+func (s *Service) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) (User, error) {
+	row, err := s.store.UserUpdatePassword(ctx, repository.UserUpdatePasswordParams{
+		ID:           pgtype.UUID{Bytes: id, Valid: true},
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
+		return User{}, repository.NewError(err, repository.ScopeUser)
+	}
+	return FromRepository(row), nil
+}
+
 func (s *Service) MarkVerified(ctx context.Context, id uuid.UUID) (User, error) {
 	row, err := s.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {

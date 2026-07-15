@@ -48,6 +48,16 @@ WHERE
     username = $1
 LIMIT 1;
 
+-- name: UserUpdatePassword :one
+UPDATE
+    users
+SET
+    password_hash = $2
+WHERE
+    id = $1
+RETURNING
+    *;
+
 -- name: UserMarkVerified :one
 UPDATE
     users

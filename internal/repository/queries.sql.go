@@ -799,3 +799,35 @@ func (q *Queries) UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID
 	)
 	return i, err
 }
+
+const userUpdatePassword = `-- name: UserUpdatePassword :one
+UPDATE
+    users
+SET
+    password_hash = $2
+WHERE
+    id = $1
+RETURNING
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+`
+
+type UserUpdatePasswordParams struct {
+	ID           pgtype.UUID `json:"id"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdatePassword, arg.ID, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Presence,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+	)
+	return i, err
+}
