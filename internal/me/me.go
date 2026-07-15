@@ -13,8 +13,8 @@ type View struct {
 	Email       string             `json:"email"`
 	Username    string             `json:"username"`
 	DisplayName string             `json:"display_name"`
-	AvatarURL   *string            `json:"avatar_url,omitempty"`
-	Presence    *presence.Presence `json:"presence,omitempty"`
+	AvatarURL   *string            `json:"avatar_url" validate:"omitempty"`
+	Presence    *presence.Presence `json:"presence" validate:"omitempty"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`
 }
