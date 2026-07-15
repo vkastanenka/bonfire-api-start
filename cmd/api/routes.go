@@ -49,6 +49,7 @@ func (app *Application) routes() http.Handler {
 			auth.Use(httpio.RequireAuth(app.Managers.Token))
 
 			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
+			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
 			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
 		})
 	})

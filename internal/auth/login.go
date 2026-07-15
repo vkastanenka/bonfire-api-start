@@ -83,6 +83,8 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", p.Email)
 	}
 
+	slog.Info("Login lockout")
+
 	userRow, err := s.user.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if repository.IsNotFoundError(err) {
@@ -94,9 +96,13 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	userAuth := user.ToAuthView(userRow)
 
+	slog.Info("Get user")
+
 	if err = crypto.ComparePassword(userAuth.PasswordHash, p.Password); err != nil {
 		return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
 	}
+
+	slog.Info("Compare password")
 
 	sessionID, err := uuid.NewV7()
 	if err != nil {
@@ -173,7 +179,7 @@ func newCredentialsError() error {
 	return apperr.NewUnauthorized(
 		nil,
 		"",
-		apperr.Param("email", apperr.CodeBadRequest.Detail()),
-		apperr.Param("password", apperr.CodeBadRequest.Detail()),
+		apperr.Param("email", "invalid email"),
+		apperr.Param("password", "invalid password"),
 	)
 }

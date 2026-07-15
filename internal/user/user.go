@@ -86,6 +86,7 @@ func ToAuthView(u User) AuthView {
 		ID:         u.ID,
 		Email:      u.Email,
 		Username:   u.Username,
+		PasswordHash: u.PasswordHash,
 		Presence:   ptr.Map(u.Presence),
 		IsVerified: u.IsVerified(),
 		VerifiedAt: ptr.Map(u.VerifiedAt),
