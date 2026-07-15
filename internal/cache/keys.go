@@ -18,6 +18,10 @@ func SessionKey(sessionID uuid.UUID) string {
 	return fmt.Sprintf("session:{%s}", sessionID.String())
 }
 
+func TokenBlacklistKey(jti string) string {
+	return fmt.Sprintf("token:blacklist:{%s}", jti)
+}
+
 func UserPresenceKey(userID uuid.UUID) string {
 	return fmt.Sprintf("user:{%s}:presence", userID.String())
 }

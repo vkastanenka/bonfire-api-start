@@ -93,7 +93,7 @@ var codesRegistry = map[Code]codeMetadata{
 	CodeTokenExpired: {
 		status: http.StatusUnauthorized,
 		title:  "Token Expired",
-		detail: "The token has expired and requires a refresh.",
+		detail: "The token is invalid or expired.",
 	},
 	CodeForbidden: {
 		status: http.StatusForbidden,
