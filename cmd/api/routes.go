@@ -30,9 +30,10 @@ func (app *Application) routes() http.Handler {
 			// 	Scope:  httpio.RateLimitScopePublic,
 			// }))
 
-			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
+			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
+			public.Post("/auth/verify-email", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 		})
 

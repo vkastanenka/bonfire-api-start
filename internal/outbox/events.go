@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 )
 
 type Emitter interface {
@@ -28,7 +27,6 @@ type RegisterPayload struct {
 }
 
 func EmitRegister(ctx context.Context, db Emitter, payload RegisterPayload) error {
-	slog.Info("EmitRegister triggered!")
 	return emitEvent(ctx, db, EventAuthRegister, payload)
 }
 
