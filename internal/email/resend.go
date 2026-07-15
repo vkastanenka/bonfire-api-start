@@ -65,6 +65,7 @@ func (m *ResendMailer) send(ctx context.Context, templateName, recipient, subjec
 }
 
 func (m *ResendMailer) SendRegisterEmail(ctx context.Context, emailAddress, username, token string) error {
+	slog.Info("SendRegisterEmail resend triggered!")
 	return m.send(ctx, "register.html", emailAddress, "Welcome to Bonfire! 🔥", map[string]any{
 		"Title":      fmt.Sprintf("Welcome to Bonfire, %s! 🔥", username),
 		"Message":    "We're excited to have you. Before you can start joining servers, you need to verify your email.",

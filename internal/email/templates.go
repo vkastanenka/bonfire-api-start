@@ -5,6 +5,7 @@ import (
 	"html/template"
 )
 
+//go:embed templates/*.html
 var emailTemplates embed.FS
 
 func LoadTemplates() (*template.Template, error) {

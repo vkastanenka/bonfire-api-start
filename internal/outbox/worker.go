@@ -115,6 +115,7 @@ func (w *Worker) executeEvent(ctx context.Context, event Event) {
 			executionErr, isFatal = err, true
 			break
 		}
+		slog.Info("SendRegisterEmail triggered!")
 		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
 
 	case EventAuthResendVerification:

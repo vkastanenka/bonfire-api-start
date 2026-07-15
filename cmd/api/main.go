@@ -6,13 +6,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/me"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
@@ -88,7 +91,14 @@ func run(cfg *config.Config) error {
 	cacheMgr := cache.NewManager(rdbClient)
 	store := repository.NewStore(pdbPool)
 	rateLimiter := redis_rate.NewLimiter(rdbClient)
+	mailer := email.NewMailer(email.Config{
+		ResendAPIKey: cfg.ResendApiKey,
+		FromAddress:  cfg.EmailFromAddress,
+		FrontendURL:  cfg.FrontendURL,
+		OverrideTo:   cfg.EmailOverrideTo,
+	})
 
+	outboxSvc := outbox.NewService(store)
 	sessionSvc := session.NewService(store)
 	userSvc := user.NewService(store)
 	meSvc := me.NewService(userSvc)
@@ -100,6 +110,17 @@ func run(cfg *config.Config) error {
 		sessionSvc,
 		userSvc,
 	)
+
+	outboxWorker := outbox.NewWorker(
+		cacheMgr,
+		outboxSvc,
+		mailer,
+		2*time.Second,
+		int32(10),
+		int32(10),
+	)
+	outboxWorker.Start(ctx)
+	defer outboxWorker.Stop()
 
 	hub := gateway.NewHub(store, cacheMgr, presenceSvc)
 	go hub.Run(ctx)
