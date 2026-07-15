@@ -19,19 +19,22 @@ type Claims struct {
 type Config struct {
 	AccessSecret  string
 	RefreshSecret string
+	VerifySecret  string
 	Issuer        string
 }
 
 type Type string
 
 const (
-	TypeAccess  Type = "access"
-	TypeRefresh Type = "refresh"
+	TypeAccess      Type = "access"
+	TypeRefresh     Type = "refresh"
+	TypeEmailVerify Type = "email-verify"
 )
 
 const (
-	AccessTTL  = 15 * time.Minute
-	RefreshTTL = 7 * 24 * time.Hour
+	AccessTTL      = 15 * time.Minute
+	RefreshTTL     = 7 * 24 * time.Hour
+	EmailVerifyTTL = 24 * time.Hour
 )
 
 var (
@@ -50,7 +53,7 @@ type Manager struct {
 }
 
 func NewManager(cfg Config) (*Manager, error) {
-	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" {
+	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" || cfg.VerifySecret == "" {
 		return nil, fmt.Errorf("token manager initialization failed: critical secrets cannot be empty")
 	}
 
@@ -61,8 +64,9 @@ func NewManager(cfg Config) (*Manager, error) {
 	return &Manager{
 		issuer: cfg.Issuer,
 		secrets: map[Type][]byte{
-			TypeAccess:  []byte(cfg.AccessSecret),
-			TypeRefresh: []byte(cfg.RefreshSecret),
+			TypeAccess:      []byte(cfg.AccessSecret),
+			TypeRefresh:     []byte(cfg.RefreshSecret),
+			TypeEmailVerify: []byte(cfg.VerifySecret),
 		},
 	}, nil
 }
@@ -112,6 +116,12 @@ func (m *Manager) GenerateRefresh(p PairParams) (string, time.Time, error) {
 	})
 }
 
+func (m *Manager) GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error) {
+	return m.generate(TypeEmailVerify, EmailVerifyTTL, Claims{
+		UserID: userID,
+	})
+}
+
 func (m *Manager) generate(tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
 	secret, exists := m.secrets[tokenType]
 	if !exists || len(secret) == 0 {
@@ -145,6 +155,10 @@ func (m *Manager) VerifyAccess(tokenStr string) (*Claims, error) {
 
 func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
 	return m.verify(TypeRefresh, tokenStr)
+}
+
+func (m *Manager) VerifyEmailVerify(tokenStr string) (*Claims, error) {
+	return m.verify(TypeEmailVerify, tokenStr)
 }
 
 func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {

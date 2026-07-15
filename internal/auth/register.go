@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
@@ -121,6 +122,11 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, apperr.NewInternal(err, "")
 	}
 
+	evToken, _, err := s.token.GenerateEmailVerify(userID)
+	if err != nil {
+		return RegisterResult{}, apperr.NewInternal(err, "")
+	}
+
 	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
 	displayName := p.Username
@@ -134,7 +140,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
 
-		_, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
+		userRaw, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
 			ID:           pgtype.UUID{Bytes: userID, Valid: true},
 			Email:        p.Email,
 			Username:     p.Username,
@@ -165,16 +171,18 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		if err != nil {
 			return repository.NewError(err, repository.ScopeSession)
 		}
-		sessionRow = session.FromRepository(sessionRaw)
 
-		// err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
-		// 	Email:    userRow.Email,
-		// 	Username: userRow.Username,
-		// 	Token:    verificationToken,
-		// })
-		// if err != nil {
-		// 	return repository.NewError(err, repository.ScopeOutboxEvent)
-		// }
+		sessionRow = session.FromRepository(sessionRaw)
+		userRow := user.FromRepository(userRaw)
+
+		err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
+			Email:    userRow.Email,
+			Username: userRow.Username,
+			Token:    evToken,
+		})
+		if err != nil {
+			return repository.NewError(err, repository.ScopeOutboxEvent)
+		}
 
 		return nil
 	})

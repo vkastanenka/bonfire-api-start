@@ -12,48 +12,49 @@ import (
 
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
-	EventType      string             `json:"event_type"`
-	Payload        []byte             `json:"payload"`
-	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
-	Attempts       int32              `json:"attempts"`
-	MaxAttempts    int32              `json:"max_attempts"`
-	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
 	LockedBy       pgtype.UUID        `json:"locked_by"`
+	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
 	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-	LastError      pgtype.Text        `json:"last_error"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Attempts       int32              `json:"attempts"`
+	MaxAttempts    int32              `json:"max_attempts"`
+	EventType      string             `json:"event_type"`
+	Payload        []byte             `json:"payload"`
+	LastError      pgtype.Text        `json:"last_error"`
 }
 
 type Session struct {
 	ID               pgtype.UUID        `json:"id"`
 	UserID           pgtype.UUID        `json:"user_id"`
-	RefreshTokenHash []byte             `json:"refresh_token_hash"`
 	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	ClientIP         netip.Addr         `json:"client_ip"`
+	RefreshTokenHash []byte             `json:"refresh_token_hash"`
 	UserAgent        string             `json:"user_agent"`
 	OS               string             `json:"os"`
 	Browser          string             `json:"browser"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {
 	ID           pgtype.UUID        `json:"id"`
+	VerifiedAt   pgtype.Timestamptz `json:"verified_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Presence     pgtype.Int2        `json:"presence"`
 	Email        string             `json:"email"`
 	Username     string             `json:"username"`
 	PasswordHash string             `json:"password_hash"`
-	Presence     pgtype.Int2        `json:"presence"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type UserProfile struct {
 	UserID      pgtype.UUID        `json:"user_id"`
-	DisplayName string             `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
 }

@@ -18,7 +18,7 @@ type Config struct {
 	TokenIssuer          string        `env:"TOKEN_ISSUER" envDefault:"bonfire-api"`
 	AccessSecret         string        `env:"JWT_ACCESS_SECRET,required"`
 	RefreshSecret        string        `env:"JWT_REFRESH_SECRET,required"`
-	VerificationSecret   string        `env:"JWT_VERIFICATION_SECRET,required"`
+	EmailVerifySecret    string        `env:"JWT_EMAIL_VERIFY_SECRET,required"`
 	PasswordResetSecret  string        `env:"JWT_PASSWORD_RESET_SECRET,required"`
 	PasswordMFASecret    string        `env:"JWT_PASSWORD_MFA_SECRET,required"`
 	ResendApiKey         string        `env:"RESEND_API_KEY"`

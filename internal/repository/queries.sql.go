@@ -37,7 +37,7 @@ WHERE
         FOR UPDATE
             SKIP LOCKED)
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 type OutboxEventAcquireBatchParams struct {
@@ -57,17 +57,17 @@ func (q *Queries) OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAc
 		var i OutboxEvent
 		if err := rows.Scan(
 			&i.ID,
-			&i.EventType,
-			&i.Payload,
-			&i.ProcessedAt,
-			&i.Attempts,
-			&i.MaxAttempts,
-			&i.NextAttemptAt,
 			&i.LockedBy,
+			&i.ProcessedAt,
+			&i.NextAttemptAt,
 			&i.LeaseExpiresAt,
-			&i.LastError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.EventType,
+			&i.Payload,
+			&i.LastError,
 		); err != nil {
 			return nil, err
 		}
@@ -83,7 +83,7 @@ const outboxEventCreate = `-- name: OutboxEventCreate :one
 INSERT INTO outbox_events(event_type, payload)
     VALUES ($1, $2)
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 type OutboxEventCreateParams struct {
@@ -96,17 +96,17 @@ func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreatePa
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
@@ -123,7 +123,7 @@ func (q *Queries) OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) err
 
 const outboxEventGetByID = `-- name: OutboxEventGetByID :one
 SELECT
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 FROM
     outbox_events
 WHERE
@@ -135,24 +135,24 @@ func (q *Queries) OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (Outbo
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
 
 const outboxEventList = `-- name: OutboxEventList :many
 SELECT
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 FROM
     outbox_events
 WHERE ($1::uuid IS NULL
@@ -178,17 +178,17 @@ func (q *Queries) OutboxEventList(ctx context.Context, arg OutboxEventListParams
 		var i OutboxEvent
 		if err := rows.Scan(
 			&i.ID,
-			&i.EventType,
-			&i.Payload,
-			&i.ProcessedAt,
-			&i.Attempts,
-			&i.MaxAttempts,
-			&i.NextAttemptAt,
 			&i.LockedBy,
+			&i.ProcessedAt,
+			&i.NextAttemptAt,
 			&i.LeaseExpiresAt,
-			&i.LastError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.EventType,
+			&i.Payload,
+			&i.LastError,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +211,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 type OutboxEventMarkDeadLetterParams struct {
@@ -224,17 +224,17 @@ func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEvent
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
@@ -249,7 +249,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
@@ -257,17 +257,17 @@ func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) 
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
@@ -294,7 +294,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 type OutboxEventRecordFailureParams struct {
@@ -307,17 +307,17 @@ func (q *Queries) OutboxEventRecordFailure(ctx context.Context, arg OutboxEventR
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
@@ -334,7 +334,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, event_type, payload, processed_at, attempts, max_attempts, next_attempt_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+    id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 `
 
 func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
@@ -342,17 +342,17 @@ func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) 
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
-		&i.EventType,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.Attempts,
-		&i.MaxAttempts,
-		&i.NextAttemptAt,
 		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.NextAttemptAt,
 		&i.LeaseExpiresAt,
-		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.EventType,
+		&i.Payload,
+		&i.LastError,
 	)
 	return i, err
 }
@@ -361,7 +361,7 @@ const sessionCreate = `-- name: SessionCreate :one
 INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
+    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
 
 type SessionCreateParams struct {
@@ -390,16 +390,16 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshTokenHash,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ClientIP,
+		&i.RefreshTokenHash,
 		&i.UserAgent,
 		&i.OS,
 		&i.Browser,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -442,7 +442,7 @@ func (q *Queries) SessionDeleteAllExpired(ctx context.Context) error {
 
 const sessionGetByID = `-- name: SessionGetByID :one
 SELECT
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
+    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 FROM
     sessions
 WHERE
@@ -456,16 +456,16 @@ func (q *Queries) SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, 
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshTokenHash,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ClientIP,
+		&i.RefreshTokenHash,
 		&i.UserAgent,
 		&i.OS,
 		&i.Browser,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -480,7 +480,7 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > CURRENT_TIMESTAMP
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
+    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
 
 func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error) {
@@ -489,16 +489,16 @@ func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Se
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshTokenHash,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ClientIP,
+		&i.RefreshTokenHash,
 		&i.UserAgent,
 		&i.OS,
 		&i.Browser,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -515,7 +515,7 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > CURRENT_TIMESTAMP
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
+    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
 
 type SessionUpdateRefreshTokenParams struct {
@@ -530,16 +530,16 @@ func (q *Queries) SessionUpdateRefreshToken(ctx context.Context, arg SessionUpda
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshTokenHash,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ClientIP,
+		&i.RefreshTokenHash,
 		&i.UserAgent,
 		&i.OS,
 		&i.Browser,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -553,7 +553,7 @@ WHERE
     id = $1
     AND revoked_at IS NULL
 RETURNING
-    id, user_id, refresh_token_hash, last_seen_at, expires_at, revoked_at, client_ip, user_agent, os, browser, created_at, updated_at
+    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
 
 func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error) {
@@ -562,16 +562,16 @@ func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Ses
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.RefreshTokenHash,
 		&i.LastSeenAt,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ClientIP,
+		&i.RefreshTokenHash,
 		&i.UserAgent,
 		&i.OS,
 		&i.Browser,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -615,7 +615,7 @@ const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, password_hash)
     VALUES ($1, $2, $3, $4)
 RETURNING
-    id, email, username, password_hash, presence, created_at, updated_at
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
 `
 
 type UserCreateParams struct {
@@ -635,19 +635,20 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Presence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
-		&i.Presence,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, email, username, password_hash, presence, created_at, updated_at
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
 FROM
     users
 WHERE
@@ -660,19 +661,20 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Presence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
-		&i.Presence,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByID = `-- name: UserGetByID :one
 SELECT
-    id, email, username, password_hash, presence, created_at, updated_at
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
 FROM
     users
 WHERE
@@ -685,19 +687,20 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Presence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
-		&i.Presence,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, email, username, password_hash, presence, created_at, updated_at
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
 FROM
     users
 WHERE
@@ -710,12 +713,41 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Presence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
-		&i.Presence,
+	)
+	return i, err
+}
+
+const userMarkVerified = `-- name: UserMarkVerified :one
+UPDATE
+    users
+SET
+    verified_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND verified_at IS NULL
+RETURNING
+    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+`
+
+func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userMarkVerified, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Presence,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
 	)
 	return i, err
 }
@@ -724,7 +756,7 @@ const userProfileCreate = `-- name: UserProfileCreate :one
 INSERT INTO user_profiles(user_id, display_name)
     VALUES ($1, $2)
 RETURNING
-    user_id, display_name, avatar_url, created_at, updated_at
+    user_id, created_at, updated_at, display_name, avatar_url
 `
 
 type UserProfileCreateParams struct {
@@ -737,17 +769,17 @@ func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreatePa
 	var i UserProfile
 	err := row.Scan(
 		&i.UserID,
-		&i.DisplayName,
-		&i.AvatarUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }
 
 const userProfileGetByUserID = `-- name: UserProfileGetByUserID :one
 SELECT
-    user_id, display_name, avatar_url, created_at, updated_at
+    user_id, created_at, updated_at, display_name, avatar_url
 FROM
     user_profiles
 WHERE
@@ -760,10 +792,10 @@ func (q *Queries) UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID
 	var i UserProfile
 	err := row.Scan(
 		&i.UserID,
-		&i.DisplayName,
-		&i.AvatarUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DisplayName,
+		&i.AvatarUrl,
 	)
 	return i, err
 }

@@ -1,3 +1,20 @@
+-- name: UserCheckAvailability :one
+SELECT
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.email = $1) AS email_available,
+    NOT EXISTS (
+        SELECT
+            1
+        FROM
+            users u
+        WHERE
+            u.username = $2) AS username_available;
+
 -- name: UserCreate :one
 INSERT INTO users(id, email, username, password_hash)
     VALUES ($1, $2, $3, $4)
@@ -31,22 +48,16 @@ WHERE
     username = $1
 LIMIT 1;
 
--- name: UserCheckAvailability :one
-SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users u
-        WHERE
-            u.email = $1) AS email_available,
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users u
-        WHERE
-            u.username = $2) AS username_available;
+-- name: UserMarkVerified :one
+UPDATE
+    users
+SET
+    verified_at = CURRENT_TIMESTAMP
+WHERE
+    id = $1
+    AND verified_at IS NULL
+RETURNING
+    *;
 
 -- name: UserProfileCreate :one
 INSERT INTO user_profiles(user_id, display_name)

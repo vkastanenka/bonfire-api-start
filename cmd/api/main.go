@@ -79,6 +79,7 @@ func run(cfg *config.Config) error {
 	tokenMgr, err := token.NewManager(token.Config{
 		AccessSecret:  cfg.AccessSecret,
 		RefreshSecret: cfg.RefreshSecret,
+		VerifySecret:  cfg.EmailVerifySecret,
 		Issuer:        cfg.TokenIssuer,
 	})
 	if err != nil {

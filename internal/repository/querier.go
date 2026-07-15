@@ -34,6 +34,7 @@ type Querier interface {
 	UserGetByEmail(ctx context.Context, email string) (User, error)
 	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByUsername(ctx context.Context, username string) (User, error)
+	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
 	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
 }

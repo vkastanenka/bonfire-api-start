@@ -21,6 +21,27 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
+type CheckAvailabilityParams struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+type CheckAvailabilityResult struct {
+	Email    bool `json:"email"`
+	Username bool `json:"username"`
+}
+
+func (s *Service) CheckAvailability(ctx context.Context, p CheckAvailabilityParams) (CheckAvailabilityResult, error) {
+	row, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
+		Email:    p.Email,
+		Username: p.Username,
+	})
+	if err != nil {
+		return CheckAvailabilityResult{Email: false, Username: false}, repository.NewError(err, repository.ScopeUser)
+	}
+	return CheckAvailabilityResult{Email: row.EmailAvailable, Username: row.UsernameAvailable}, nil
+}
+
 type CreateParams struct {
 	ID       *uuid.UUID `json:"id,omitempty"`
 	Email    string     `json:"email"`
@@ -77,25 +98,12 @@ func (s *Service) GetByUsername(ctx context.Context, username string) (User, err
 	return FromRepository(row), nil
 }
 
-type CheckAvailabilityParams struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-}
-
-type CheckAvailabilityResult struct {
-	Email    bool `json:"email"`
-	Username bool `json:"username"`
-}
-
-func (s *Service) CheckAvailability(ctx context.Context, p CheckAvailabilityParams) (CheckAvailabilityResult, error) {
-	row, err := s.store.UserCheckAvailability(ctx, repository.UserCheckAvailabilityParams{
-		Email:    p.Email,
-		Username: p.Username,
-	})
+func (s *Service) MarkVerified(ctx context.Context, id uuid.UUID) (User, error) {
+	row, err := s.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return CheckAvailabilityResult{Email: false, Username: false}, repository.NewError(err, repository.ScopeUser)
+		return User{}, repository.NewError(err, repository.ScopeUser)
 	}
-	return CheckAvailabilityResult{Email: row.EmailAvailable, Username: row.UsernameAvailable}, nil
+	return FromRepository(row), nil
 }
 
 type CreateProfileParams struct {
