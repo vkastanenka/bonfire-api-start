@@ -131,6 +131,7 @@ func (w *Worker) executeEvent(ctx context.Context, event Event) {
 			executionErr, isFatal = err, true
 			break
 		}
+		slog.Info(("EventAuthForgotPassword triggered!"))
 		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
 
 	// case EventPresenceUpdated:

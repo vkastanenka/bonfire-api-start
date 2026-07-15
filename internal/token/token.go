@@ -17,10 +17,11 @@ type Claims struct {
 }
 
 type Config struct {
-	AccessSecret  string
-	RefreshSecret string
-	VerifySecret  string
-	Issuer        string
+	AccessSecret        string
+	RefreshSecret       string
+	VerifySecret        string
+	PasswordResetSecret string
+	Issuer              string
 }
 
 type Type string
@@ -55,7 +56,7 @@ type Manager struct {
 }
 
 func NewManager(cfg Config) (*Manager, error) {
-	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" || cfg.VerifySecret == "" {
+	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" || cfg.VerifySecret == "" || cfg.PasswordResetSecret == "" {
 		return nil, fmt.Errorf("token manager initialization failed: critical secrets cannot be empty")
 	}
 
@@ -66,9 +67,10 @@ func NewManager(cfg Config) (*Manager, error) {
 	return &Manager{
 		issuer: cfg.Issuer,
 		secrets: map[Type][]byte{
-			TypeAccess:      []byte(cfg.AccessSecret),
-			TypeRefresh:     []byte(cfg.RefreshSecret),
-			TypeEmailVerify: []byte(cfg.VerifySecret),
+			TypeAccess:        []byte(cfg.AccessSecret),
+			TypeRefresh:       []byte(cfg.RefreshSecret),
+			TypeEmailVerify:   []byte(cfg.VerifySecret),
+			TypePasswordReset: []byte(cfg.PasswordResetSecret),
 		},
 	}, nil
 }

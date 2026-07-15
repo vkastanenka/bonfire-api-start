@@ -80,10 +80,11 @@ func run(cfg *config.Config) error {
 	defer rdbClient.Close()
 
 	tokenMgr, err := token.NewManager(token.Config{
-		AccessSecret:  cfg.AccessSecret,
-		RefreshSecret: cfg.RefreshSecret,
-		VerifySecret:  cfg.EmailVerifySecret,
-		Issuer:        cfg.TokenIssuer,
+		AccessSecret:        cfg.AccessSecret,
+		RefreshSecret:       cfg.RefreshSecret,
+		VerifySecret:        cfg.EmailVerifySecret,
+		PasswordResetSecret: cfg.PasswordResetSecret,
+		Issuer:              cfg.TokenIssuer,
 	})
 	if err != nil {
 		return err
