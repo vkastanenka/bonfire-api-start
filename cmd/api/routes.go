@@ -35,6 +35,9 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
 			public.Post("/auth/verify-email", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+
+			public.Get("/users", httpio.ToHTTPErr(app.Handlers.User.Get))
+			public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.GetByID))
 		})
 
 		api.Group(func(auth chi.Router) {

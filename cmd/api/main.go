@@ -128,6 +128,7 @@ func run(cfg *config.Config) error {
 	authHandler := auth.NewHandler(authService)
 	gatewayHandler := gateway.NewHandler(hub, cacheMgr)
 	meHandler := me.NewHandler(meSvc)
+	userHandler := user.NewHandler(userSvc)
 
 	app := &Application{
 		Config:      cfg,
@@ -136,6 +137,7 @@ func run(cfg *config.Config) error {
 			Auth:    authHandler,
 			Gateway: gatewayHandler,
 			Me:      meHandler,
+			User:    userHandler,
 		},
 		Managers: Managers{
 			Token: tokenMgr,

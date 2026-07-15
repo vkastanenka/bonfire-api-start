@@ -15,8 +15,13 @@ type User struct {
 	Username     string
 	PasswordHash string
 	Presence     *presence.Presence
+	VerifiedAt   *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+func (u User) IsVerified() bool {
+	return u.VerifiedAt != nil
 }
 
 func FromRepository(row repository.User) User {
@@ -29,6 +34,10 @@ func FromRepository(row repository.User) User {
 		UpdatedAt:    row.UpdatedAt.Time,
 	}
 
+	if row.VerifiedAt.Valid {
+		u.VerifiedAt = ptr.To(row.VerifiedAt.Time)
+	}
+
 	if row.Presence.Valid {
 		u.Presence = ptr.To(presence.Presence(row.Presence.Int16))
 	}
@@ -37,22 +46,26 @@ func FromRepository(row repository.User) User {
 }
 
 type View struct {
-	ID        uuid.UUID          `json:"id"`
-	Email     string             `json:"email"`
-	Username  string             `json:"username"`
-	Presence  *presence.Presence `json:"presence,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
+	ID         uuid.UUID          `json:"id"`
+	Email      string             `json:"email"`
+	Username   string             `json:"username"`
+	Presence   *presence.Presence `json:"presence"`
+	VerifiedAt *time.Time         `json:"verified_at"`
+	IsVerified bool               `json:"is_verified"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
 }
 
 func ToView(u User) View {
 	return View{
-		ID:        u.ID,
-		Email:     u.Email,
-		Username:  u.Username,
-		Presence:  ptr.Map(u.Presence),
-		CreatedAt: u.CreatedAt,
-		UpdatedAt: u.UpdatedAt,
+		ID:         u.ID,
+		Email:      u.Email,
+		Username:   u.Username,
+		Presence:   ptr.Map(u.Presence),
+		IsVerified: u.IsVerified(),
+		VerifiedAt: ptr.Map(u.VerifiedAt),
+		CreatedAt:  u.CreatedAt,
+		UpdatedAt:  u.UpdatedAt,
 	}
 }
 
@@ -61,40 +74,45 @@ type AuthView struct {
 	Email        string             `json:"email"`
 	Username     string             `json:"username"`
 	PasswordHash string             `json:"password_hash"`
-	Presence     *presence.Presence `json:"presence,omitempty"`
+	Presence     *presence.Presence `json:"presence"`
+	VerifiedAt   *time.Time         `json:"verified_at"`
+	IsVerified   bool               `json:"is_verified"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
 func ToAuthView(u User) AuthView {
 	return AuthView{
-		ID:           u.ID,
-		Email:        u.Email,
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		Presence:     ptr.Map(u.Presence),
-		CreatedAt:    u.CreatedAt,
-		UpdatedAt:    u.UpdatedAt,
+		ID:         u.ID,
+		Email:      u.Email,
+		Username:   u.Username,
+		Presence:   ptr.Map(u.Presence),
+		IsVerified: u.IsVerified(),
+		VerifiedAt: ptr.Map(u.VerifiedAt),
+		CreatedAt:  u.CreatedAt,
+		UpdatedAt:  u.UpdatedAt,
 	}
 }
 
 type PublicView struct {
-	ID        uuid.UUID          `json:"id"`
-	Email     string             `json:"email"`
-	Username  string             `json:"username"`
-	Presence  *presence.Presence `json:"presence,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
+	ID         uuid.UUID          `json:"id"`
+	Email      string             `json:"email"`
+	Username   string             `json:"username"`
+	Presence   *presence.Presence `json:"presence"`
+	IsVerified bool               `json:"is_verified"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
 }
 
 func ToPublicView(u User) PublicView {
 	return PublicView{
-		ID:        u.ID,
-		Email:     u.Email,
-		Username:  u.Username,
-		Presence:  ptr.Map(u.Presence),
-		CreatedAt: u.CreatedAt,
-		UpdatedAt: u.UpdatedAt,
+		ID:         u.ID,
+		Email:      u.Email,
+		Username:   u.Username,
+		Presence:   ptr.Map(u.Presence),
+		IsVerified: u.IsVerified(),
+		CreatedAt:  u.CreatedAt,
+		UpdatedAt:  u.UpdatedAt,
 	}
 }
 
@@ -124,7 +142,7 @@ func ProfileFromRepository(row repository.UserProfile) UserProfile {
 type ProfileView struct {
 	UserID      uuid.UUID `json:"user_id"`
 	DisplayName string    `json:"display_name"`
-	AvatarURL   *string   `json:"avatar_url,omitempty"`
+	AvatarURL   *string   `json:"avatar_url"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -142,7 +160,7 @@ func ToProfileView(up UserProfile) ProfileView {
 type PublicProfileView struct {
 	UserID      uuid.UUID `json:"user_id"`
 	DisplayName string    `json:"display_name"`
-	AvatarURL   *string   `json:"avatar_url,omitempty"`
+	AvatarURL   *string   `json:"avatar_url"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
