@@ -357,6 +357,288 @@ func (q *Queries) OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) 
 	return i, err
 }
 
+const relationshipDelete = `-- name: RelationshipDelete :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+`
+
+type RelationshipDeleteParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+func (q *Queries) RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error {
+	_, err := q.db.Exec(ctx, relationshipDelete, arg.User1ID, arg.User2ID)
+	return err
+}
+
+const relationshipDeleteVerified = `-- name: RelationshipDeleteVerified :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+    AND (type != 3 -- 3 = Blocked
+        OR actor_id = $3::uuid)
+`
+
+type RelationshipDeleteVerifiedParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+	ActorID pgtype.UUID `json:"actor_id"`
+}
+
+func (q *Queries) RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error {
+	_, err := q.db.Exec(ctx, relationshipDeleteVerified, arg.User1ID, arg.User2ID, arg.ActorID)
+	return err
+}
+
+const relationshipGet = `-- name: RelationshipGet :one
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE
+    user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+`
+
+type RelationshipGetParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+// 3 = Blocked
+func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
+	var i Relationship
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+	)
+	return i, err
+}
+
+const relationshipGetForUpdate = `-- name: RelationshipGetForUpdate :one
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE
+    user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+FOR UPDATE
+`
+
+type RelationshipGetForUpdateParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipGetForUpdate, arg.User1ID, arg.User2ID)
+	var i Relationship
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+	)
+	return i, err
+}
+
+const relationshipUpsert = `-- name: RelationshipUpsert :one
+INSERT INTO relationships(user1_id, user2_id, type, actor_id)
+    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4)
+ON CONFLICT (user1_id, user2_id)
+    DO UPDATE SET type = EXCLUDED.type, actor_id = EXCLUDED.actor_id, updated_at = CURRENT_TIMESTAMP
+RETURNING
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+`
+
+type RelationshipUpsertParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+	Type    int16       `json:"type"`
+	ActorID pgtype.UUID `json:"actor_id"`
+}
+
+func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipUpsert,
+		arg.User1ID,
+		arg.User2ID,
+		arg.Type,
+		arg.ActorID,
+	)
+	var i Relationship
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+	)
+	return i, err
+}
+
+const relationshipsListBlockedByUserID = `-- name: RelationshipsListBlockedByUserID :many
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE (user1_id = $1
+    OR user2_id = $1)
+AND type = 3 -- 3 = Blocked
+AND actor_id = $1::uuid
+`
+
+// 2 = Friends
+func (q *Queries) RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+	rows, err := q.db.Query(ctx, relationshipsListBlockedByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relationship
+	for rows.Next() {
+		var i Relationship
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipsListByUserID = `-- name: RelationshipsListByUserID :many
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE (user1_id = $1
+    OR user2_id = $1)
+AND (type != 3
+    OR actor_id = $1::uuid)
+`
+
+func (q *Queries) RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+	rows, err := q.db.Query(ctx, relationshipsListByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relationship
+	for rows.Next() {
+		var i Relationship
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipsListFriendsByUserID = `-- name: RelationshipsListFriendsByUserID :many
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE (user1_id = $1
+    OR user2_id = $1)
+AND type = 2
+`
+
+// 1 = Pending
+func (q *Queries) RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+	rows, err := q.db.Query(ctx, relationshipsListFriendsByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relationship
+	for rows.Next() {
+		var i Relationship
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipsListPendingByUserID = `-- name: RelationshipsListPendingByUserID :many
+SELECT
+    user1_id, user2_id, actor_id, created_at, updated_at, type
+FROM
+    relationships
+WHERE (user1_id = $1
+    OR user2_id = $1)
+AND type = 1
+`
+
+func (q *Queries) RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+	rows, err := q.db.Query(ctx, relationshipsListPendingByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relationship
+	for rows.Next() {
+		var i Relationship
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sessionCreate = `-- name: SessionCreate :one
 INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

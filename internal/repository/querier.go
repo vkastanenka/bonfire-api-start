@@ -21,6 +21,18 @@ type Querier interface {
 	OutboxEventPurgeProcessed(ctx context.Context) error
 	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
+	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
+	// 3 = Blocked
+	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
+	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error)
+	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
+	// 2 = Friends
+	RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
+	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
+	// 1 = Pending
+	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
+	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error

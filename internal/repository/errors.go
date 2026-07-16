@@ -13,10 +13,11 @@ import (
 type Scope string
 
 const (
-	ScopeOutboxEvent Scope = "outbox_event"
-	ScopeSession     Scope = "session"
-	ScopeUser        Scope = "user"
-	ScopeUserProfile Scope = "user_profile"
+	ScopeOutboxEvent  Scope = "outbox_event"
+	ScopeSession      Scope = "session"
+	ScopeUser         Scope = "user"
+	ScopeUserProfile  Scope = "user_profile"
+	ScopeRelationship Scope = "relationship"
 )
 
 func (r Scope) String() string {

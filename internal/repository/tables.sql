@@ -23,7 +23,6 @@ CREATE TABLE outbox_events(
     event_type text NOT NULL,
     payload jsonb NOT NULL,
     last_error text,
-    
     CONSTRAINT event_type_length CHECK (length(event_type) BETWEEN 1 AND 100),
     CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
     CONSTRAINT payload_size_limit CHECK (pg_column_size(payload) < 102400),
@@ -68,7 +67,7 @@ CREATE TABLE user_profiles(
     display_name text NOT NULL,
     avatar_url text,
     CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 3 AND 32),
-    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 255)
+    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 2048)
 );
 
 CREATE INDEX idx_user_profiles_display_name ON user_profiles(display_name);
@@ -106,4 +105,123 @@ CREATE TRIGGER update_sessions_modtime
     BEFORE UPDATE ON sessions
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
+
+CREATE TABLE channels(
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    type SMALLINT NOT NULL,
+    name text,
+    CONSTRAINT valid_channel_type CHECK (type IN (0, 1, 2, 3, 4)),
+    CONSTRAINT check_channel_name_rules CHECK ((type = 1 AND name IS NULL) OR (type != 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100)))
+);
+
+CREATE TRIGGER update_channels_modtime
+    BEFORE UPDATE ON channels
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+CREATE TABLE channel_members(
+    channel_id uuid REFERENCES channels(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    PRIMARY KEY (channel_id, user_id)
+);
+
+CREATE INDEX idx_channel_members_user_id ON channel_members(user_id);
+
+CREATE TRIGGER update_channel_members_modtime
+    BEFORE UPDATE ON channel_members
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+CREATE TABLE relationships(
+    user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    actor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    type SMALLINT NOT NULL, -- (1 = pending, 2 = friends, 3 = blocked)
+    PRIMARY KEY (user1_id, user2_id),
+    -- CRITICAL: Enforce alphabetical order to ensure A->B and B->A are the same row
+    CONSTRAINT user_order CHECK (user1_id < user2_id),
+    CONSTRAINT valid_relationship_type CHECK (type IN (1, 2, 3))
+);
+
+CREATE INDEX idx_relationships_user2_type ON relationships(user2_id, type);
+
+CREATE TRIGGER update_relationships_modtime
+    BEFORE UPDATE ON relationships
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_column();
+
+CREATE OR REPLACE VIEW relationship_perspectives AS
+-- ==========================================
+-- PERSPECTIVE A: The querying user is user1_id, looking at user2_id (the peer)
+-- ==========================================
+SELECT
+    r.user1_id AS user_id,
+    r.user2_id AS peer_id,
+    r.type,
+    r.actor_id,
+(r.actor_id = r.user1_id) AS is_initiator, -- TRUE = Sent by user1, FALSE = Received by user1
+    r.created_at,
+    r.updated_at,
+    u2.username,
+    p2.display_name,
+    p2.avatar_url,
+    u2.presence AS user_presence, -- Matches 'presence' column in users table
+(
+        SELECT
+            cm1.channel_id
+        FROM channel_members cm1
+        JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+        JOIN channels c ON cm1.channel_id = c.id
+        WHERE
+            c.type = 1 -- 1 = DM Channel
+            AND cm1.user_id = r.user1_id
+            AND cm2.user_id = r.user2_id LIMIT 1) AS channel_id
+FROM
+    relationships r
+    JOIN users u2 ON r.user2_id = u2.id
+    LEFT JOIN user_profiles p2 ON r.user2_id = p2.user_id -- Matches 'user_profiles'
+WHERE
+-- SECURITY: If blocked (type = 3), ONLY show this row to the blocker (user1_id)
+(r.type != 3
+    OR r.actor_id = r.user1_id)
+UNION ALL
+-- ==========================================
+-- PERSPECTIVE B: The querying user is user2_id, looking at user1_id (the peer)
+-- ==========================================
+SELECT
+    r.user2_id AS user_id,
+    r.user1_id AS peer_id,
+    r.type,
+    r.actor_id,
+(r.actor_id = r.user2_id) AS is_initiator, -- TRUE = Sent by user2, FALSE = Received by user2
+    r.created_at,
+    r.updated_at,
+    u1.username,
+    p1.display_name,
+    p1.avatar_url,
+    u1.presence AS user_presence, -- Matches 'presence' column in users table
+(
+        SELECT
+            cm1.channel_id
+        FROM channel_members cm1
+        JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+        JOIN channels c ON cm1.channel_id = c.id
+        WHERE
+            c.type = 1 -- 1 = DM Channel
+            AND cm1.user_id = r.user1_id
+            AND cm2.user_id = r.user2_id LIMIT 1) AS channel_id
+FROM
+    relationships r
+    JOIN users u1 ON r.user1_id = u1.id
+    LEFT JOIN user_profiles p1 ON r.user1_id = p1.user_id -- Matches 'user_profiles'
+WHERE
+-- SECURITY: If blocked (type = 3), ONLY show this row to the blocker (user2_id)
+(r.type != 3
+    OR r.actor_id = r.user2_id);
 

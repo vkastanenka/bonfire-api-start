@@ -10,6 +10,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Channel struct {
+	ID        pgtype.UUID        `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+	Name      pgtype.Text        `json:"name"`
+}
+
+type ChannelMember struct {
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	LockedBy       pgtype.UUID        `json:"locked_by"`
@@ -23,6 +38,30 @@ type OutboxEvent struct {
 	EventType      string             `json:"event_type"`
 	Payload        []byte             `json:"payload"`
 	LastError      pgtype.Text        `json:"last_error"`
+}
+
+type Relationship struct {
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+}
+
+type RelationshipPerspective struct {
+	UserID       pgtype.UUID        `json:"user_id"`
+	PeerID       pgtype.UUID        `json:"peer_id"`
+	Type         int16              `json:"type"`
+	ActorID      pgtype.UUID        `json:"actor_id"`
+	IsInitiator  bool               `json:"is_initiator"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Username     string             `json:"username"`
+	DisplayName  pgtype.Text        `json:"display_name"`
+	AvatarUrl    pgtype.Text        `json:"avatar_url"`
+	UserPresence pgtype.Int2        `json:"user_presence"`
+	ChannelID    pgtype.UUID        `json:"channel_id"`
 }
 
 type Session struct {

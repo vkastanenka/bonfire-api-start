@@ -266,3 +266,83 @@ WHERE id = $1;
 DELETE FROM outbox_events
 WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
 
+-- name: RelationshipsListByUserID :many
+SELECT
+    *
+FROM
+    relationships
+WHERE (user1_id = @user_id
+    OR user2_id = @user_id)
+AND (type != 3
+    OR actor_id = @user_id::uuid);
+
+-- name: RelationshipsListPendingByUserID :many
+SELECT
+    *
+FROM
+    relationships
+WHERE (user1_id = @user_id
+    OR user2_id = @user_id)
+AND type = 1;
+
+-- 1 = Pending
+-- name: RelationshipsListFriendsByUserID :many
+SELECT
+    *
+FROM
+    relationships
+WHERE (user1_id = @user_id
+    OR user2_id = @user_id)
+AND type = 2;
+
+-- 2 = Friends
+-- name: RelationshipsListBlockedByUserID :many
+SELECT
+    *
+FROM
+    relationships
+WHERE (user1_id = @user_id
+    OR user2_id = @user_id)
+AND type = 3 -- 3 = Blocked
+AND actor_id = @user_id::uuid;
+
+-- 3 = Blocked
+-- name: RelationshipGet :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
+
+-- name: RelationshipGetForUpdate :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
+FOR UPDATE;
+
+-- name: RelationshipUpsert :one
+INSERT INTO relationships(user1_id, user2_id, type, actor_id)
+    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @type, @actor_id)
+ON CONFLICT (user1_id, user2_id)
+    DO UPDATE SET type = EXCLUDED.type, actor_id = EXCLUDED.actor_id, updated_at = CURRENT_TIMESTAMP
+RETURNING
+    *;
+
+-- name: RelationshipDelete :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
+
+-- name: RelationshipDeleteVerified :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
+    AND (type != 3 -- 3 = Blocked
+        OR actor_id = @actor_id::uuid);
+
