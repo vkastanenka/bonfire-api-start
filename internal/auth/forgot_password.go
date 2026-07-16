@@ -2,12 +2,10 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -40,22 +38,23 @@ func AuthCooldownForgotPasswordKey(email string) string {
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
-	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
+	// defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
-	cooldownKey := AuthCooldownForgotPasswordKey(email)
-	onCooldown, err := s.cache.Exists(ctx, cooldownKey)
-	if err != nil {
-		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
-	} else if onCooldown {
-		return nil
-	}
+	// cooldownKey := AuthCooldownForgotPasswordKey(email)
+	// onCooldown, err := s.cache.Exists(ctx, cooldownKey)
+	// if err != nil {
+	// 	slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
+	// } else if onCooldown {
+	// 	return nil
+	// }
 
 	userRow, err := s.user.GetByEmail(ctx, email)
 	if err != nil {
-		if apperr.IsNotFound(err) {
-			return nil
-		}
-		return err
+		return apperr.NewNotFound(err, "")
+		// if apperr.IsNotFound(err) {
+		// 	return nil
+		// }
+		// return err
 	}
 
 	t, _, err := s.token.GeneratePasswordReset(userRow.ID)
@@ -72,9 +71,9 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
-		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
-	}
+	// if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
+	// 	slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
+	// }
 
 	return nil
 }
