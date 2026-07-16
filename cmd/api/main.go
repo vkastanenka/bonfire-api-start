@@ -19,6 +19,7 @@ import (
 	"bonfire-api/internal/postgres"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
+	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
@@ -101,6 +102,7 @@ func run(cfg *config.Config) error {
 
 	outboxSvc := outbox.NewService(store)
 	sessionSvc := session.NewService(store)
+	relationshipSvc := relationship.NewService(store)
 	userSvc := user.NewService(store)
 	meSvc := me.NewService(userSvc)
 	presenceSvc := presence.NewService(cacheMgr)
@@ -128,7 +130,7 @@ func run(cfg *config.Config) error {
 
 	authHandler := auth.NewHandler(authService)
 	gatewayHandler := gateway.NewHandler(hub, cacheMgr)
-	meHandler := me.NewHandler(meSvc)
+	meHandler := me.NewHandler(meSvc, relationshipSvc)
 	userHandler := user.NewHandler(userSvc)
 
 	app := &Application{

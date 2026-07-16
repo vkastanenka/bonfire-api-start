@@ -2,7 +2,6 @@ package relationship
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/repository"
 	"context"
 
@@ -15,14 +14,12 @@ type Store interface {
 }
 
 type Service struct {
-	store    Store
-	presence *presence.Service
+	store Store
 }
 
-func NewService(store Store, presence *presence.Service) *Service {
+func NewService(store Store) *Service {
 	return &Service{
-		store:    store,
-		presence: presence,
+		store: store,
 	}
 }
 
@@ -174,10 +171,11 @@ func (s *Service) Block(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error
 	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) error {
-	err := s.store.RelationshipDelete(ctx, repository.RelationshipDeleteParams{
-		User1ID: pgtype.UUID{Bytes: user1ID, Valid: true},
-		User2ID: pgtype.UUID{Bytes: user2ID, Valid: true},
+func (s *Service) DeleteVerified(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
+	err := s.store.RelationshipDeleteVerified(ctx, repository.RelationshipDeleteVerifiedParams{
+		User1ID: pgtype.UUID{Bytes: aid, Valid: true},
+		User2ID: pgtype.UUID{Bytes: pid, Valid: true},
+		ActorID: pgtype.UUID{Bytes: aid, Valid: true},
 	})
 	if err != nil {
 		return repository.NewError(err, repository.ScopeRelationship)
@@ -186,11 +184,10 @@ func (s *Service) Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UU
 	return nil
 }
 
-func (s *Service) DeleteVerified(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
-	err := s.store.RelationshipDeleteVerified(ctx, repository.RelationshipDeleteVerifiedParams{
-		User1ID: pgtype.UUID{Bytes: aid, Valid: true},
-		User2ID: pgtype.UUID{Bytes: pid, Valid: true},
-		ActorID: pgtype.UUID{Bytes: aid, Valid: true},
+func (s *Service) Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) error {
+	err := s.store.RelationshipDelete(ctx, repository.RelationshipDeleteParams{
+		User1ID: pgtype.UUID{Bytes: user1ID, Valid: true},
+		User2ID: pgtype.UUID{Bytes: user2ID, Valid: true},
 	})
 	if err != nil {
 		return repository.NewError(err, repository.ScopeRelationship)

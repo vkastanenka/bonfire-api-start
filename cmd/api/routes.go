@@ -53,6 +53,10 @@ func (app *Application) routes() http.Handler {
 			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
 			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
 			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
+			auth.Get("/users/@me/relationships", httpio.ToHTTPErr(app.Handlers.Me.ListRelationships))
+			auth.Put("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.UpsertRelationship))
+			auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.BlockUser))
+			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.DeleteRelationship))
 		})
 	})
 

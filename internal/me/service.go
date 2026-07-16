@@ -13,6 +13,7 @@ type Service struct {
 }
 
 func NewService(
+
 	user *user.Service,
 ) *Service {
 	return &Service{
