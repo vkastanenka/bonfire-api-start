@@ -33,7 +33,6 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
 			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
 			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
-			public.Post("/auth/verify-email", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
 			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
 			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
@@ -50,8 +49,9 @@ func (app *Application) routes() http.Handler {
 			// }))
 			auth.Use(httpio.RequireAuth(app.Managers.Token))
 
-			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
+			auth.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
+			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
 			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
 		})
 	})

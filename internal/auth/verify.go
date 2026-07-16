@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-type VerifyEmailReq struct {
+type VerifyEmailRequest struct {
 	Token string `json:"token" validate:"required"`
 }
 
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[VerifyEmailReq](w, r)
+	req, err := httpio.BindJSON[VerifyEmailRequest](w, r)
 	if err != nil {
 		return err
 	}
@@ -24,7 +24,6 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpio.RespondNoContent(w)
-
 	return nil
 }
 

@@ -57,7 +57,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
 		Expires: data.RefreshTokenExpiresAt,
 	})
 	httpio.RespondCreated(w, r, RegisterResponse{AccessToken: data.AccessToken})
-
 	return nil
 }
 

@@ -24,7 +24,6 @@ func (h *Handler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpio.RespondNoContent(w)
-
 	return nil
 }
 

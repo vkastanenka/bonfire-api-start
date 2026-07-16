@@ -5,9 +5,15 @@ import (
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/repository"
+	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
 	"context"
-	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const (
@@ -25,54 +31,109 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.service.ResetPassword(r.Context(), ResetPasswordParams{
-		req.Token,
-		req.Password,
-	}); err != nil {
+	clientMeta, err := httpio.GetClientMeta(r.Context())
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondNoContent(w)
+	data, err := h.service.ResetPassword(r.Context(), ResetPasswordParams{
+		req.Token,
+		req.Password,
+		clientMeta,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
+		Token:   data.RefreshToken,
+		Expires: data.RefreshTokenExpiresAt,
+	})
+	httpio.RespondOK(w, r, RegisterResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
 type ResetPasswordParams struct {
-	Token    string
-	Password string
+	Token      string
+	Password   string
+	ClientMeta httpio.ClientMeta
 }
 
-func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) error {
+type ResetPasswordResult struct {
+	AccessToken           string
+	RefreshToken          string
+	RefreshTokenExpiresAt time.Time
+}
+
+func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
 	claims, err := s.token.VerifyPasswordReset(p.Token)
 	if err != nil {
-		return apperr.NewTokenExpired(err, "")
+		return ResetPasswordResult{}, apperr.NewTokenExpired(err, "")
 	}
 
-	userRow, err := s.user.GetByID(ctx, claims.UserID)
+	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return err
+		return ResetPasswordResult{}, apperr.NewInternal(err, "")
 	}
+
+	tokenPair, err := s.token.GeneratePair(token.PairParams{
+		UserID:    claims.UserID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err, "")
+	}
+
+	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
 	hashedPasswordBytes, err := crypto.HashPassword(p.Password)
 	if err != nil {
-		return apperr.NewInternal(err, "")
+		return ResetPasswordResult{}, apperr.NewInternal(err, "")
 	}
+
+	var sessionRaw repository.Session
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	_, err = s.user.UpdatePassword(persistCtx, claims.UserID, string(hashedPasswordBytes))
-	if err != nil {
-		return err
+	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
+
+		_, err = qtx.UserUpdatePassword(persistCtx, repository.UserUpdatePasswordParams{
+			ID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
+			PasswordHash: string(hashedPasswordBytes),
+		})
+		if err != nil {
+			return err
+		}
+
+		sessionRaw, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
+			UserID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
+			RefreshTokenHash: hashedRefreshToken,
+			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshExpiresAt, Valid: true},
+			ClientIP:         p.ClientMeta.IP,
+			UserAgent:        p.ClientMeta.UserAgent,
+			OS:               p.ClientMeta.OS,
+			Browser:          p.ClientMeta.Browser,
+		})
+		if err != nil {
+			return repository.NewError(err, repository.ScopeSession)
+		}
+
+		return nil
+	})
+
+	if txErr != nil {
+		return ResetPasswordResult{}, txErr
 	}
 
-	failureKey := cache.AuthLoginFailuresKey(userRow.Email)
-	lockoutKey := cache.AuthLoginFailuresKey(userRow.Email)
+	sessionRow := session.FromRepository(sessionRaw)
+	sessionAuth := session.ToAuthView(sessionRow)
+	sessionKey := cache.SessionKey(sessionAuth.ID)
+	s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
 
-	if err := s.cache.Delete(persistCtx, failureKey); err != nil {
-		slog.WarnContext(persistCtx, "failed to clear login failures on password reset", "error", err, "email", userRow.Email)
-	}
-	if err := s.cache.Delete(persistCtx, lockoutKey); err != nil {
-		slog.WarnContext(persistCtx, "failed to lift login lockout on password reset", "error", err, "email", userRow.Email)
-	}
-
-	return nil
+	return ResetPasswordResult{
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
+	}, nil
 }
