@@ -25,6 +25,10 @@ type ResetPasswordRequest struct {
 	Password string `json:"password" validate:"identity_password"`
 }
 
+type ResetPasswordResponse struct {
+	AccessToken string `json:"access_token"`
+}
+
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	req, err := httpio.BindJSON[ResetPasswordRequest](w, r)
 	if err != nil {
