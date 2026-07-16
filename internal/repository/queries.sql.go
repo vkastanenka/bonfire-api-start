@@ -440,6 +440,16 @@ func (q *Queries) SessionDeleteAllExpired(ctx context.Context) error {
 	return err
 }
 
+const sessionDeleteByUserID = `-- name: SessionDeleteByUserID :exec
+DELETE FROM sessions
+WHERE user_id = $1
+`
+
+func (q *Queries) SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, sessionDeleteByUserID, userID)
+	return err
+}
+
 const sessionGetByID = `-- name: SessionGetByID :one
 SELECT
     id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser

@@ -140,6 +140,10 @@ RETURNING
 DELETE FROM sessions
 WHERE id = $1;
 
+-- name: SessionDeleteByUserID :exec
+DELETE FROM sessions
+WHERE user_id = $1;
+
 -- name: SessionDeleteAllExcept :exec
 DELETE FROM sessions
 WHERE user_id = $1

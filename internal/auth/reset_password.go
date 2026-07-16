@@ -100,6 +100,10 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	persistCtx := context.WithoutCancel(ctx)
 
 	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
+		err = qtx.SessionDeleteByUserID(persistCtx, pgtype.UUID{Bytes: claims.UserID, Valid: true})
+		if err != nil {
+			return err
+		}
 
 		_, err = qtx.UserUpdatePassword(persistCtx, repository.UserUpdatePasswordParams{
 			ID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},

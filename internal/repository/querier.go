@@ -25,6 +25,7 @@ type Querier interface {
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
 	SessionDeleteAllExpired(ctx context.Context) error
+	SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
 	SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
