@@ -23,9 +23,7 @@ const (
 	EntityUserProfile   Entity = "user_profile"
 )
 
-func (e Entity) String() string {
-	return string(e)
-}
+func (e Entity) String() string { return string(e) }
 
 const (
 	pgCodeUniqueViolation     = "23505"
@@ -55,7 +53,8 @@ func NewError(err error, entity Entity) error {
 	options := apperr.WithOptions(meta, resourceInfo)
 
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(err,
+		return apperr.NewNotFound(
+			err,
 			apperr.WithMessage(fmt.Sprintf("The requested %s could not be found.", entity.String())),
 			options,
 		)
@@ -83,7 +82,7 @@ func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options 
 	case pgCodeUniqueViolation:
 		return p.handleConstraint(
 			apperr.CodeAlreadyExists,
-			fmt.Sprintf("This %s is already taken.", entity.String()),
+			"This %s is already taken.",
 			fmt.Sprintf("A record for %s with those details already exists.", entity.String()),
 		)
 
@@ -95,51 +94,52 @@ func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options 
 		)
 
 	case pgCodeForeignKeyViolation:
-		return p.handleConstraint(
-			apperr.CodeInvalidArgument,
-			fmt.Sprintf("Must reference a valid %s.", entity.String()),
-			fmt.Sprintf("A referenced record required for %s does not exist.", entity.String()),
+		// Foreign keys mean a referenced record is missing, return Bad Request / Not Found
+		return apperr.NewInvalidArgument(
+			origErr,
+			apperr.WithMessage(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
+			options,
 		)
 
 	case pgCodeCheckViolation:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
-			"Invalid value for constraint.",
+			"Invalid value.",
 			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity.String()),
 		)
 
 	case pgCodeStringDataTruncated:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
-			"Cannot be longer than the maximum allowed length.",
-			fmt.Sprintf("A provided field for %s exceeds the maximum allowed length.", entity.String()),
+			"Exceeds maximum allowed length.",
+			fmt.Sprintf("A provided field for %s exceeds maximum length.", entity.String()),
 		)
 
 	case pgCodeNumericOutOfRange:
 		return apperr.NewOutOfRange(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("A numeric value for %s was out of the allowed range.", entity.String())),
+			apperr.WithMessage(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
 			options,
 		)
 
 	case pgCodeInvalidTextRepr:
 		return apperr.NewInvalidArgument(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("One or more provided parameters for %s are formatted incorrectly.", entity.String())),
+			apperr.WithMessage(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
 			options,
 		)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
 		return apperr.NewAborted(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("The operation on %s could not be completed due to a concurrent conflict. Please try again.", entity.String())),
+			apperr.WithMessage(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
 			options,
 		)
 
 	case pgCodeQueryCanceled:
 		return apperr.NewDeadlineExceeded(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("The requested database operation on %s timed out.", entity.String())),
+			apperr.WithMessage(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
 			options,
 		)
 
@@ -167,12 +167,10 @@ func (p dbErrorParams) handleConstraint(
 	field, ok := getFieldName(p.pgErr, p.entity)
 	if ok {
 		formattedMsg := formatMessage(fieldMsgTemplate, field)
-		fieldViolation := apperr.WithFieldViolation(field, formattedMsg, "")
-
 		return apperr.New(
 			code,
 			apperr.WithError(p.pgErr),
-			fieldViolation,
+			apperr.WithFieldViolation(field, formattedMsg, ""),
 			p.options,
 		)
 	}
@@ -202,6 +200,7 @@ func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
 }
 
 func sanitizeFieldName(raw string, entity Entity) string {
+	// 1. Strip known suffixes first
 	suffixes := []string{"_key", "_fkey", "_check", "_pkey", "_idx", "_seq", "_unique"}
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(raw, suffix) {
@@ -210,15 +209,15 @@ func sanitizeFieldName(raw string, entity Entity) string {
 		}
 	}
 
-	entityName := entity.String()
-	if entityName != "" {
+	// 2. Strip table/entity prefixes safely
+	e := entity.String()
+	if e != "" {
 		prefixes := []string{
-			"fk_" + entityName + "_",
-			"fk_" + entityName + "s_",
-			entityName + "_",
-			entityName + "s_",
+			"fk_" + e + "_",
+			"fk_" + e + "s_",
+			e + "_",
+			e + "s_",
 		}
-
 		for _, prefix := range prefixes {
 			if strings.HasPrefix(raw, prefix) {
 				raw = strings.TrimPrefix(raw, prefix)
