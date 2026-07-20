@@ -1,7 +1,7 @@
 package presence
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -68,8 +68,16 @@ func (p Presence) MarshalJSON() ([]byte, error) {
 }
 
 func (p *Presence) UnmarshalJSON(data []byte) error {
-	data = bytes.Trim(data, "\"")
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
 
-	*p = Parse(string(data))
+	parsed := Parse(s)
+	if !parsed.Valid() {
+		return fmt.Errorf("invalid presence status: %q", s)
+	}
+
+	*p = parsed
 	return nil
 }

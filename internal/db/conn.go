@@ -1,4 +1,4 @@
-package postgres
+package db
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Config struct {
+type ConnConfig struct {
 	ConnString      string
 	MaxConns        int32
 	MinConns        int32
@@ -18,17 +18,17 @@ type Config struct {
 	HealthCheck     time.Duration
 }
 
-func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
+func NewConn(ctx context.Context, cfg ConnConfig) (*pgxpool.Pool, error) {
 	if cfg.ConnString == "" {
-		return nil, fmt.Errorf("postgres connection string cannot be empty")
+		return nil, fmt.Errorf("db connection string cannot be empty")
 	}
 
 	start := time.Now()
-	slog.Info("initializing postgres connection pool")
+	slog.Info("initializing db connection")
 
 	config, err := pgxpool.ParseConfig(cfg.ConnString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse postgres config: %w", err)
+		return nil, fmt.Errorf("failed to parse db config: %w", err)
 	}
 
 	if cfg.MaxConns > 0 {
@@ -49,7 +49,7 @@ func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create postgres pool: %w", err)
+		return nil, fmt.Errorf("failed to create db connection: %w", err)
 	}
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -57,9 +57,9 @@ func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 
 	if err := dbPool.Ping(pingCtx); err != nil {
 		dbPool.Close()
-		return nil, fmt.Errorf("postgres connection verification failed: %w", err)
+		return nil, fmt.Errorf("db connection verification failed: %w", err)
 	}
 
-	slog.Info("postgres connection established", slog.Duration("duration", time.Since(start)))
+	slog.Info("db connection established", slog.Duration("duration", time.Since(start)))
 	return dbPool, nil
 }

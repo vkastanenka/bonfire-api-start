@@ -1,4 +1,4 @@
-package repository
+package db
 
 import (
 	"context"
@@ -12,22 +12,22 @@ import (
 
 type Store interface {
 	Querier
-	ExecTx(ctx context.Context, fn func(*Queries) error) error
+	ExecTx(ctx context.Context, fn func(Querier) error) error
 }
 
-type SQLStore struct {
-	db *pgxpool.Pool
+type store struct {
 	*Queries
+	db *pgxpool.Pool
 }
 
-func NewStore(db *pgxpool.Pool) *SQLStore {
-	return &SQLStore{
-		db:      db,
+func NewStore(db *pgxpool.Pool) *store {
+	return &store{
 		Queries: New(db),
+		db:      db,
 	}
 }
 
-func (s *SQLStore) ExecTx(ctx context.Context, fn func(*Queries) error) error {
+func (s *store) ExecTx(ctx context.Context, fn func(Querier) error) error {
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
