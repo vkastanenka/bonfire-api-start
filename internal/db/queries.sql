@@ -21,7 +21,7 @@ INSERT INTO users(id, email, username, password_hash)
 RETURNING
     *;
 
--- name: UserGetByID :one
+-- name: UserGet :one
 SELECT
     *
 FROM
@@ -90,7 +90,7 @@ INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, use
 RETURNING
     *;
 
--- name: SessionGetByID :one
+-- name: SessionGet :one
 SELECT
     *
 FROM
@@ -159,7 +159,7 @@ INSERT INTO outbox_events(event_type, payload)
 RETURNING
     *;
 
--- name: OutboxEventGetByID :one
+-- name: OutboxEventGet :one
 SELECT
     *
 FROM

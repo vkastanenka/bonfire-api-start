@@ -1,4 +1,4 @@
-package httpio
+package http
 
 import (
 	"bonfire-api/internal/apperr"

@@ -1,4 +1,4 @@
-package httpio
+package http
 
 import (
 	"bufio"
