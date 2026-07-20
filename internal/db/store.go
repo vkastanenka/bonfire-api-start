@@ -20,7 +20,7 @@ type store struct {
 	db *pgxpool.Pool
 }
 
-func NewStore(db *pgxpool.Pool) *store {
+func NewStore(db *pgxpool.Pool) Store {
 	return &store{
 		Queries: New(db),
 		db:      db,

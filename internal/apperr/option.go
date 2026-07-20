@@ -13,26 +13,24 @@ func isPlainText(s string) bool {
 	return !strings.ContainsAny(s, "<>[]*_~`")
 }
 
-func WithDetail(d Detail) Option {
-	return func(e *Error) {
-		e.addDetail(d)
-	}
-}
-
-func WithDetails(details ...Detail) Option {
-	return func(e *Error) {
-		for _, d := range details {
-			e.addDetail(d)
-		}
-	}
-}
-
 func WithOptions(options ...Option) Option {
 	return func(e *Error) {
 		for _, opt := range options {
 			if opt != nil {
 				opt(e)
 			}
+		}
+	}
+}
+
+func WithDetail(d Detail) Option {
+	return WithDetails(d)
+}
+
+func WithDetails(details ...Detail) Option {
+	return func(e *Error) {
+		for _, d := range details {
+			e.addDetail(d)
 		}
 	}
 }
@@ -51,42 +49,24 @@ func WithMessage(message string) Option {
 
 func WithReason(reason string) Option {
 	return func(e *Error) {
-		if info, ok := e.detMap[DetailErrorInfo].(*ErrorInfo); ok && info != nil {
+		if info, ok := e.GetDetail(DetailErrorInfo).(*ErrorInfo); ok && info != nil {
 			info.Reason = reason
-			return
 		}
-
-		info, err := NewErrorInfo(reason, getDomain(), nil)
-		if err != nil {
-			slog.Warn("apperr: failed to create ErrorInfo in WithReason", "error", err)
-			return
-		}
-		e.addDetail(info)
 	}
 }
 
 func WithMeta(key, value string) Option {
 	return func(e *Error) {
 		if len(key) > 64 {
-			slog.Warn("apperr: metadata key exceeds 64 characters", "key", key)
+			slog.Warn("apperr: metadata key exceeds maximum length of 64 characters", "key", key)
 			return
 		}
-
-		if info, ok := e.detMap[DetailErrorInfo].(*ErrorInfo); ok && info != nil {
+		if info, ok := e.GetDetail(DetailErrorInfo).(*ErrorInfo); ok && info != nil {
 			if info.Metadata == nil {
 				info.Metadata = make(map[string]string)
 			}
 			info.Metadata[key] = value
-			return
 		}
-
-		// Fallback safeguard in case ErrorInfo wasn't initialized prior to option execution
-		info, err := NewErrorInfo("REASON_UNSPECIFIED", getDomain(), map[string]string{key: value})
-		if err != nil {
-			slog.Warn("apperr: failed to create ErrorInfo in WithMeta", "error", err)
-			return
-		}
-		e.addDetail(info)
 	}
 }
 
@@ -97,20 +77,19 @@ func WithRetryInfo(delay time.Duration) Option {
 func WithDebugInfo(detail string, stack ...string) Option {
 	info, err := NewDebugInfo(detail, stack...)
 	if err != nil {
-		slog.Warn("apperr: invalid DebugInfo parameters", "error", err)
+		slog.Warn("apperr: failed to create DebugInfo", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(info)
 }
 
 func WithQuotaViolation(subject, description string) Option {
-	// AIP-193 QuotaViolation is created directly as a struct
 	qf, err := NewQuotaFailure(QuotaViolation{
 		Subject:     subject,
 		Description: description,
 	})
 	if err != nil {
-		slog.Warn("apperr: invalid QuotaFailure parameters", "error", err)
+		slog.Warn("apperr: failed to create QuotaFailure", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(qf)
@@ -118,10 +97,9 @@ func WithQuotaViolation(subject, description string) Option {
 
 func WithPreconditionViolation(vType, subject, description string) Option {
 	pv := NewPreconditionViolation(vType, subject, description)
-
 	pf, err := NewPreconditionFailure(*pv)
 	if err != nil {
-		slog.Warn("apperr: invalid PreconditionFailure parameters", "error", err)
+		slog.Warn("apperr: failed to create PreconditionFailure", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(pf)
@@ -130,13 +108,13 @@ func WithPreconditionViolation(vType, subject, description string) Option {
 func WithFieldViolation(field, description, reason string) Option {
 	fv, err := NewFieldViolation(field, description, reason, nil)
 	if err != nil {
-		slog.Warn("apperr: invalid FieldViolation parameters", "error", err)
+		slog.Warn("apperr: failed to create FieldViolation", "error", err)
 		return func(*Error) {}
 	}
 
 	br, err := NewBadRequest(*fv)
 	if err != nil {
-		slog.Warn("apperr: invalid BadRequest parameters", "error", err)
+		slog.Warn("apperr: failed to create BadRequest", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(br)
@@ -145,7 +123,7 @@ func WithFieldViolation(field, description, reason string) Option {
 func WithRequestInfo(id, servingData string) Option {
 	info, err := NewRequestInfo(id, servingData)
 	if err != nil {
-		slog.Warn("apperr: invalid RequestInfo parameters", "error", err)
+		slog.Warn("apperr: failed to create RequestInfo", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(info)
@@ -154,7 +132,7 @@ func WithRequestInfo(id, servingData string) Option {
 func WithResourceInfo(rType, name, owner, description string) Option {
 	info, err := NewResourceInfo(rType, name, owner, description)
 	if err != nil {
-		slog.Warn("apperr: invalid ResourceInfo parameters", "error", err)
+		slog.Warn("apperr: failed to create ResourceInfo", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(info)
@@ -166,25 +144,25 @@ func WithHelpLink(description, rawURL string) Option {
 	}
 
 	if !isPlainText(description) {
-		slog.Error("apperr: HelpLink description dropped; must be plain text.", "invalid_description", description)
+		slog.Error("apperr: HelpLink description must be plain text", "description", description)
 		return func(*Error) {}
 	}
 
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil || !parsedURL.IsAbs() {
-		slog.Error("apperr: HelpLink URL dropped; must be an absolute URL.", "invalid_url", rawURL)
+		slog.Error("apperr: HelpLink URL must be absolute", "url", rawURL)
 		return func(*Error) {}
 	}
 
 	link, err := NewHelpLink(description, parsedURL.String())
 	if err != nil {
-		slog.Warn("apperr: invalid HelpLink parameters", "error", err)
+		slog.Warn("apperr: failed to create HelpLink", "error", err)
 		return func(*Error) {}
 	}
 
 	h, err := NewHelp(*link)
 	if err != nil {
-		slog.Warn("apperr: invalid Help parameters", "error", err)
+		slog.Warn("apperr: failed to create Help", "error", err)
 		return func(*Error) {}
 	}
 
@@ -194,7 +172,7 @@ func WithHelpLink(description, rawURL string) Option {
 func WithLocalizedMessage(locale, message string) Option {
 	lm, err := NewLocalizedMessage(locale, message)
 	if err != nil {
-		slog.Warn("apperr: invalid LocalizedMessage parameters", "error", err)
+		slog.Warn("apperr: failed to create LocalizedMessage", "error", err)
 		return func(*Error) {}
 	}
 	return WithDetail(lm)

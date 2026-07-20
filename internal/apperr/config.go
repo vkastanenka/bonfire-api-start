@@ -15,5 +15,10 @@ func Init(serviceDomain string) {
 }
 
 func getDomain() string {
-	return domain.Load().(string)
+	if v := domain.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return "unknown.service"
 }

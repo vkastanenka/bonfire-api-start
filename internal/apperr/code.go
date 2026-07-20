@@ -1,5 +1,7 @@
 package apperr
 
+import "fmt"
+
 // https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto
 
 type Code int32
@@ -24,82 +26,56 @@ const (
 	CodeUnauthenticated    Code = 16
 )
 
+var codeNames = [...]string{
+	CodeOK:                 "OK",
+	CodeCancelled:          "CANCELLED",
+	CodeUnknown:            "UNKNOWN",
+	CodeInvalidArgument:    "INVALID_ARGUMENT",
+	CodeDeadlineExceeded:   "DEADLINE_EXCEEDED",
+	CodeNotFound:           "NOT_FOUND",
+	CodeAlreadyExists:      "ALREADY_EXISTS",
+	CodePermissionDenied:   "PERMISSION_DENIED",
+	CodeResourceExhausted:  "RESOURCE_EXHAUSTED",
+	CodeFailedPrecondition: "FAILED_PRECONDITION",
+	CodeAborted:            "ABORTED",
+	CodeOutOfRange:         "OUT_OF_RANGE",
+	CodeUnimplemented:      "UNIMPLEMENTED",
+	CodeInternal:           "INTERNAL",
+	CodeUnavailable:        "UNAVAILABLE",
+	CodeDataLoss:           "DATA_LOSS",
+	CodeUnauthenticated:    "UNAUTHENTICATED",
+}
+
+var codeMessages = [...]string{
+	CodeOK:                 "The operation completed successfully.",
+	CodeCancelled:          "The operation was cancelled.",
+	CodeUnknown:            "An unknown system error occurred.",
+	CodeInvalidArgument:    "An invalid argument was provided.",
+	CodeDeadlineExceeded:   "The deadline expired before the operation could complete.",
+	CodeNotFound:           "The requested entity could not be found.",
+	CodeAlreadyExists:      "The entity you attempted to create already exists.",
+	CodePermissionDenied:   "You do not have permission to execute this operation.",
+	CodeResourceExhausted:  "A resource or rate quota has been exhausted.",
+	CodeFailedPrecondition: "The operation was rejected because the system is not in a state required for execution.",
+	CodeAborted:            "The operation was aborted.",
+	CodeOutOfRange:         "The operation was attempted past the valid bounds or index range.",
+	CodeUnimplemented:      "This system capability is not implemented or enabled in this service.",
+	CodeInternal:           "An internal error occurred.",
+	CodeUnavailable:        "The service is temporarily unavailable. Please retry later.",
+	CodeDataLoss:           "Unrecoverable data loss or system corruption occurred.",
+	CodeUnauthenticated:    "The request lacks valid credentials.",
+}
+
 func (c Code) String() string {
-	switch c {
-	case CodeOK:
-		return "OK"
-	case CodeCancelled:
-		return "CANCELLED"
-	case CodeUnknown:
-		return "UNKNOWN"
-	case CodeInvalidArgument:
-		return "INVALID_ARGUMENT"
-	case CodeDeadlineExceeded:
-		return "DEADLINE_EXCEEDED"
-	case CodeNotFound:
-		return "NOT_FOUND"
-	case CodeAlreadyExists:
-		return "ALREADY_EXISTS"
-	case CodePermissionDenied:
-		return "PERMISSION_DENIED"
-	case CodeResourceExhausted:
-		return "RESOURCE_EXHAUSTED"
-	case CodeFailedPrecondition:
-		return "FAILED_PRECONDITION"
-	case CodeAborted:
-		return "ABORTED"
-	case CodeOutOfRange:
-		return "OUT_OF_RANGE"
-	case CodeUnimplemented:
-		return "UNIMPLEMENTED"
-	case CodeInternal:
-		return "INTERNAL"
-	case CodeUnavailable:
-		return "UNAVAILABLE"
-	case CodeDataLoss:
-		return "DATA_LOSS"
-	case CodeUnauthenticated:
-		return "UNAUTHENTICATED"
-	default:
-		return "UNKNOWN"
+	if int(c) >= 0 && int(c) < len(codeNames) {
+		return codeNames[c]
 	}
+	return fmt.Sprintf("CODE_%d", c)
 }
 
 func (c Code) Message() string {
-	switch c {
-	case CodeOK:
-		return "The operation completed successfully."
-	case CodeCancelled:
-		return "The operation was cancelled."
-	case CodeInvalidArgument:
-		return "An invalid argument was provided."
-	case CodeDeadlineExceeded:
-		return "The deadline expired before the operation could complete."
-	case CodeNotFound:
-		return "The requested entity could not be found."
-	case CodeAlreadyExists:
-		return "The entity you attempted to create already exists."
-	case CodePermissionDenied:
-		return "You do not have permission to execute this operation."
-	case CodeResourceExhausted:
-		return "A resource or rate quota has been exhausted."
-	case CodeFailedPrecondition:
-		return "The operation was rejected because the system is not in a state required for execution."
-	case CodeAborted:
-		return "The operation was aborted."
-	case CodeOutOfRange:
-		return "The operation was attempted past the valid bounds or index range."
-	case CodeUnimplemented:
-		return "This system capability is not implemented or enabled in this service."
-	case CodeInternal:
-		return "An internal error occurred."
-	case CodeUnavailable:
-		return "The service is temporarily unavailable. Please retry later."
-	case CodeDataLoss:
-		return "Unrecoverable data loss or system corruption occurred."
-	case CodeUnauthenticated:
-		return "The request lacks valid credentials."
-	default:
-		return "An unknown system error occurred."
+	if int(c) >= 0 && int(c) < len(codeMessages) {
+		return codeMessages[c]
 	}
+	return "An unknown error occurred."
 }
