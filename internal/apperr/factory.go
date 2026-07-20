@@ -1,107 +1,67 @@
 package apperr
 
-import (
-	"log/slog"
-	"net/url"
-	"strings"
-)
-
-func New(code Code, reason string, message string, opts ...Option) error {
-	if message == "" {
-		message = code.Message()
-	}
-
-	finalReason := reason
-	if finalReason == "" {
-		finalReason = code.String()
-	} else {
-		if len(finalReason) > 63 {
-			slog.Error("apperr: ErrorInfo.reason validation failed: Must be at most 63 characters.", "reason", finalReason)
-			opts = append(opts, WithMeta("x-apperr-compliance-violation", "true"))
-		}
-
-		if !reasonRegex.MatchString(finalReason) {
-			slog.Error("apperr: ErrorInfo.reason validation failed: Must be UPPER_SNAKE_CASE (start with uppercase letter, contain only uppercase letters, numbers, or underscores).", "reason", finalReason)
-			opts = append(opts, WithMeta("x-apperr-compliance-violation", "true"))
-		}
-	}
-
-	e := &Error{
-		Code:    code,
-		Message: message,
-	}
-
-	e.ErrorInfo = &ErrorInfo{
-		Domain: getDefaultDomain(),
-		Reason: finalReason,
-	}
-
-	for _, opt := range opts {
-		opt(e)
-	}
-
-	if e.Help != nil && e.ErrorInfo != nil && e.ErrorInfo.Reason != "" {
-		for i, link := range e.Help.Links {
-			if u, err := url.Parse(link.URL); err == nil && u.Fragment == "" {
-				u.Fragment = e.ErrorInfo.Reason
-				e.Help.Links[i].URL = u.String()
-			}
-		}
-	}
-
-	if len(e.Message) > 0 && strings.Contains(e.Message, "%") {
-		slog.Error("apperr: Raw format verb detected. Use WithParams instead of inline formatting.", "msg", e.Message)
-		WithMeta("x-apperr-compliance-violation", "true")(e)
-	}
-
-	return e
+func NewCancelled(err error, opts ...Option) error {
+	return New(CodeCancelled, append(opts, WithError(err))...)
+}
+func NewUnknown(err error, opts ...Option) error {
+	return New(CodeUnknown, append(opts, WithError(err))...)
+}
+func NewInvalidArgument(err error, opts ...Option) error {
+	return New(CodeInvalidArgument, append(opts, WithError(err))...)
+}
+func NewDeadlineExceeded(err error, opts ...Option) error {
+	return New(CodeDeadlineExceeded, append(opts, WithError(err))...)
+}
+func NewNotFound(err error, opts ...Option) error {
+	return New(CodeNotFound, append(opts, WithError(err))...)
+}
+func NewAlreadyExists(err error, opts ...Option) error {
+	return New(CodeAlreadyExists, append(opts, WithError(err))...)
+}
+func NewPermissionDenied(err error, opts ...Option) error {
+	return New(CodePermissionDenied, append(opts, WithError(err))...)
+}
+func NewResourceExhausted(err error, opts ...Option) error {
+	return New(CodeResourceExhausted, append(opts, WithError(err))...)
+}
+func NewFailedPrecondition(err error, opts ...Option) error {
+	return New(CodeFailedPrecondition, append(opts, WithError(err))...)
+}
+func NewAborted(err error, opts ...Option) error {
+	return New(CodeAborted, append(opts, WithError(err))...)
+}
+func NewOutOfRange(err error, opts ...Option) error {
+	return New(CodeOutOfRange, append(opts, WithError(err))...)
+}
+func NewUnimplemented(err error, opts ...Option) error {
+	return New(CodeUnimplemented, append(opts, WithError(err))...)
+}
+func NewInternal(err error, opts ...Option) error {
+	return New(CodeInternal, append(opts, WithError(err))...)
+}
+func NewUnavailable(err error, opts ...Option) error {
+	return New(CodeUnavailable, append(opts, WithError(err))...)
+}
+func NewDataLoss(err error, opts ...Option) error {
+	return New(CodeDataLoss, append(opts, WithError(err))...)
+}
+func NewUnauthenticated(err error, opts ...Option) error {
+	return New(CodeUnauthenticated, append(opts, WithError(err))...)
 }
 
-func NewCancelled(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeCancelled, reason, msg, append(opts, WithError(err))...)
-}
-func NewUnknown(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeUnknown, reason, msg, append(opts, WithError(err))...)
-}
-func NewInvalidArgument(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeInvalidArgument, reason, msg, append(opts, WithError(err))...)
-}
-func NewDeadlineExceeded(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeDeadlineExceeded, reason, msg, append(opts, WithError(err))...)
-}
-func NewNotFound(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeNotFound, reason, msg, append(opts, WithError(err))...)
-}
-func NewAlreadyExists(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeAlreadyExists, reason, msg, append(opts, WithError(err))...)
-}
-func NewPermissionDenied(err error, reason string, msg string, opts ...Option) error {
-	return New(CodePermissionDenied, reason, msg, append(opts, WithError(err))...)
-}
-func NewResourceExhausted(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeResourceExhausted, reason, msg, append(opts, WithError(err))...)
-}
-func NewFailedPrecondition(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeFailedPrecondition, reason, msg, append(opts, WithError(err))...)
-}
-func NewAborted(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeAborted, reason, msg, append(opts, WithError(err))...)
-}
-func NewOutOfRange(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeOutOfRange, reason, msg, append(opts, WithError(err))...)
-}
-func NewUnimplemented(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeUnimplemented, reason, msg, append(opts, WithError(err))...)
-}
-func NewInternal(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeInternal, reason, msg, append(opts, WithError(err))...)
-}
-func NewUnavailable(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeUnavailable, reason, msg, append(opts, WithError(err))...)
-}
-func NewDataLoss(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeDataLoss, reason, msg, append(opts, WithError(err))...)
-}
-func NewUnauthenticated(err error, reason string, msg string, opts ...Option) error {
-	return New(CodeUnauthenticated, reason, msg, append(opts, WithError(err))...)
-}
+func IsCancelled(err error) bool          { return IsCode(err, CodeCancelled) }
+func IsUnknown(err error) bool            { return IsCode(err, CodeUnknown) }
+func IsInvalidArgument(err error) bool    { return IsCode(err, CodeInvalidArgument) }
+func IsDeadlineExceeded(err error) bool   { return IsCode(err, CodeDeadlineExceeded) }
+func IsNotFound(err error) bool           { return IsCode(err, CodeNotFound) }
+func IsAlreadyExists(err error) bool      { return IsCode(err, CodeAlreadyExists) }
+func IsPermissionDenied(err error) bool   { return IsCode(err, CodePermissionDenied) }
+func IsResourceExhausted(err error) bool  { return IsCode(err, CodeResourceExhausted) }
+func IsFailedPrecondition(err error) bool { return IsCode(err, CodeFailedPrecondition) }
+func IsAborted(err error) bool            { return IsCode(err, CodeAborted) }
+func IsOutOfRange(err error) bool         { return IsCode(err, CodeOutOfRange) }
+func IsUnimplemented(err error) bool      { return IsCode(err, CodeUnimplemented) }
+func IsInternal(err error) bool           { return IsCode(err, CodeInternal) }
+func IsUnavailable(err error) bool        { return IsCode(err, CodeUnavailable) }
+func IsDataLoss(err error) bool           { return IsCode(err, CodeDataLoss) }
+func IsUnauthenticated(err error) bool    { return IsCode(err, CodeUnauthenticated) }

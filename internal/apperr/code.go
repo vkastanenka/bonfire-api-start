@@ -1,5 +1,7 @@
 package apperr
 
+// https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto
+
 type Code int32
 
 const (
@@ -80,11 +82,11 @@ func (c Code) Message() string {
 	case CodePermissionDenied:
 		return "You do not have permission to execute this operation."
 	case CodeResourceExhausted:
-		return "A system resource or rate quota has been exhausted."
+		return "A resource or rate quota has been exhausted."
 	case CodeFailedPrecondition:
 		return "The operation was rejected because the system is not in a state required for execution."
 	case CodeAborted:
-		return "The operation was aborted, typically due to a system concurrency or transaction conflict."
+		return "The operation was aborted."
 	case CodeOutOfRange:
 		return "The operation was attempted past the valid bounds or index range."
 	case CodeUnimplemented:
@@ -92,11 +94,11 @@ func (c Code) Message() string {
 	case CodeInternal:
 		return "An internal error occurred."
 	case CodeUnavailable:
-		return "The service is temporarily unavailable. Please retry with backoff."
+		return "The service is temporarily unavailable. Please retry later."
 	case CodeDataLoss:
 		return "Unrecoverable data loss or system corruption occurred."
 	case CodeUnauthenticated:
-		return "The request lacks valid authentication credentials for the operation."
+		return "The request lacks valid credentials."
 	default:
 		return "An unknown system error occurred."
 	}

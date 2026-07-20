@@ -50,123 +50,113 @@ func NewError(err error, entity Entity) error {
 		return err
 	}
 
+	meta := apperr.WithMeta("entity", entity.String())
 	resourceInfo := apperr.WithResourceInfo("db", entity.String(), "", "")
+	options := apperr.WithOptions(meta, resourceInfo)
 
 	if IsNotFoundError(err) {
 		return apperr.NewNotFound(err,
-			"",
-			"The requested {entity} could not be found.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("The requested %s could not be found.", entity.String())),
+			options,
 		)
 	}
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return handlePgError(err, pgErr, entity, resourceInfo)
+		return handlePgError(err, pgErr, entity, options)
 	}
 
-	return apperr.NewInternal(err, "", "", resourceInfo)
+	return apperr.NewInternal(err, options)
 }
 
 func IsNotFoundError(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
-func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, resourceInfo apperr.Option) error {
+func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options apperr.Option) error {
 	p := dbErrorParams{
-		origErr:      origErr,
-		pgErr:        pgErr,
-		entity:       entity,
-		resourceInfo: resourceInfo,
+		origErr: origErr,
+		pgErr:   pgErr,
+		entity:  entity,
+		options: options,
 	}
 
 	switch pgErr.Code {
 	case pgCodeUniqueViolation:
 		return p.handleConstraint(
 			apperr.CodeAlreadyExists,
-			"This %s is already taken.",
-			"A record for {entity} with those details already exists.",
+			fmt.Sprintf("This %s is already taken.", entity.String()),
+			fmt.Sprintf("A record for %s with those details already exists.", entity.String()),
 		)
 
 	case pgCodeNotNullViolation:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
 			"This field is required.",
-			"A required field is missing for {entity}.",
+			fmt.Sprintf("A required field is missing for %s.", entity.String()),
 		)
 
 	case pgCodeForeignKeyViolation:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
-			"Must reference a valid %s.",
-			"A referenced record required for {entity} does not exist.",
+			fmt.Sprintf("Must reference a valid %s.", entity.String()),
+			fmt.Sprintf("A referenced record required for %s does not exist.", entity.String()),
 		)
 
 	case pgCodeCheckViolation:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
-			"Invalid value for constraint: %s.",
-			"An operation on {entity} was rejected due to a constraint violation.",
+			"Invalid value for constraint.",
+			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity.String()),
 		)
 
 	case pgCodeStringDataTruncated:
 		return p.handleConstraint(
 			apperr.CodeInvalidArgument,
 			"Cannot be longer than the maximum allowed length.",
-			"A provided field for {entity} exceeds the maximum allowed length.",
+			fmt.Sprintf("A provided field for %s exceeds the maximum allowed length.", entity.String()),
 		)
 
 	case pgCodeNumericOutOfRange:
 		return apperr.NewOutOfRange(
 			origErr,
-			"",
-			"A numeric value for {entity} was out of the allowed range.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("A numeric value for %s was out of the allowed range.", entity.String())),
+			options,
 		)
 
 	case pgCodeInvalidTextRepr:
 		return apperr.NewInvalidArgument(
 			origErr,
-			"",
-			"One or more provided parameters for {entity} are formatted incorrectly.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("One or more provided parameters for %s are formatted incorrectly.", entity.String())),
+			options,
 		)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
 		return apperr.NewAborted(
 			origErr,
-			"",
-			"The operation on {entity} could not be completed due to a concurrent conflict. Please try again.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("The operation on %s could not be completed due to a concurrent conflict. Please try again.", entity.String())),
+			options,
 		)
 
 	case pgCodeQueryCanceled:
 		return apperr.NewDeadlineExceeded(
 			origErr,
-			"",
-			"The requested database operation on {entity} timed out.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("The requested database operation on %s timed out.", entity.String())),
+			options,
 		)
 
 	default:
 		return apperr.NewInternal(
 			origErr,
-			"",
-			"An internal database error occurred while processing {entity}.",
-			apperr.WithParams(map[string]string{"entity": entity.String()}),
-			resourceInfo,
+			apperr.WithMessage(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
+			options,
 		)
 	}
 }
 
 type dbErrorParams struct {
-	origErr      error
-	pgErr        *pgconn.PgError
-	entity       Entity
-	resourceInfo apperr.Option
+	origErr error
+	pgErr   *pgconn.PgError
+	entity  Entity
+	options apperr.Option
 }
 
 func (p dbErrorParams) handleConstraint(
@@ -181,21 +171,17 @@ func (p dbErrorParams) handleConstraint(
 
 		return apperr.New(
 			code,
-			"",
-			"Validation failed.",
-			p.resourceInfo,
-			fieldViolation,
 			apperr.WithError(p.pgErr),
+			fieldViolation,
+			p.options,
 		)
 	}
 
 	return apperr.New(
 		code,
-		"",
-		fallbackMsg,
-		apperr.WithParams(map[string]string{"entity": p.entity.String()}),
-		p.resourceInfo,
 		apperr.WithError(p.pgErr),
+		apperr.WithMessage(fallbackMsg),
+		p.options,
 	)
 }
 

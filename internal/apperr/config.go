@@ -2,18 +2,18 @@ package apperr
 
 import "sync/atomic"
 
-var defaultDomain atomic.Value
+var domain atomic.Value
 
 func init() {
-	defaultDomain.Store("unknown.service")
+	domain.Store("unknown.service")
 }
 
-func Init(domain string) {
-	if domain != "" {
-		defaultDomain.Store(domain)
+func Init(serviceDomain string) {
+	if serviceDomain != "" {
+		domain.Store(serviceDomain)
 	}
 }
 
-func getDefaultDomain() string {
-	return defaultDomain.Load().(string)
+func getDomain() string {
+	return domain.Load().(string)
 }
