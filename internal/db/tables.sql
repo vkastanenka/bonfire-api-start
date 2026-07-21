@@ -52,7 +52,7 @@ CREATE TABLE users(
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 3 AND 255),
-    CONSTRAINT presence_values CHECK (preferred_presence IN (4, 5, 6))
+    CONSTRAINT preferred_presence_values CHECK (preferred_presence IN (4, 5, 6))
 );
 
 CREATE TRIGGER update_users_modtime
@@ -171,7 +171,7 @@ SELECT
     u2.username,
     p2.display_name,
     p2.avatar_url,
-    u2.presence AS user_presence, -- Matches 'presence' column in users table
+    u2.preferred_presence AS user_preferred_presence, -- Matches 'preferred_presence' column in users table
 (
         SELECT
             cm1.channel_id
@@ -205,7 +205,7 @@ SELECT
     u1.username,
     p1.display_name,
     p1.avatar_url,
-    u1.presence AS user_presence, -- Matches 'presence' column in users table
+    u1.preferred_presence AS user_preferred_presence, -- Matches 'preferred_presence' column in users table
 (
         SELECT
             cm1.channel_id

@@ -111,17 +111,17 @@ func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreatePa
 	return i, err
 }
 
-const outboxEventDeleteByID = `-- name: OutboxEventDeleteByID :exec
+const outboxEventDelete = `-- name: OutboxEventDelete :exec
 DELETE FROM outbox_events
 WHERE id = $1
 `
 
-func (q *Queries) OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, outboxEventDeleteByID, id)
+func (q *Queries) OutboxEventDelete(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, outboxEventDelete, id)
 	return err
 }
 
-const outboxEventGetByID = `-- name: OutboxEventGetByID :one
+const outboxEventGet = `-- name: OutboxEventGet :one
 SELECT
     id, locked_by, processed_at, next_attempt_at, lease_expires_at, created_at, updated_at, attempts, max_attempts, event_type, payload, last_error
 FROM
@@ -130,8 +130,8 @@ WHERE
     id = $1
 `
 
-func (q *Queries) OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
-	row := q.db.QueryRow(ctx, outboxEventGetByID, id)
+func (q *Queries) OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, outboxEventGet, id)
 	var i OutboxEvent
 	err := row.Scan(
 		&i.ID,
@@ -732,7 +732,7 @@ func (q *Queries) SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID)
 	return err
 }
 
-const sessionGetByID = `-- name: SessionGetByID :one
+const sessionGet = `-- name: SessionGet :one
 SELECT
     id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 FROM
@@ -742,8 +742,8 @@ WHERE
 LIMIT 1
 `
 
-func (q *Queries) SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error) {
-	row := q.db.QueryRow(ctx, sessionGetByID, id)
+func (q *Queries) SessionGet(ctx context.Context, id pgtype.UUID) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionGet, id)
 	var i Session
 	err := row.Scan(
 		&i.ID,
@@ -907,7 +907,7 @@ const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, password_hash)
     VALUES ($1, $2, $3, $4)
 RETURNING
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 `
 
 type UserCreateParams struct {
@@ -930,7 +930,33 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Presence,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
+const userGet = `-- name: UserGet :one
+SELECT
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+FROM
+    users
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userGet, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
@@ -940,7 +966,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 FROM
     users
 WHERE
@@ -956,33 +982,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Presence,
-		&i.Email,
-		&i.Username,
-		&i.PasswordHash,
-	)
-	return i, err
-}
-
-const userGetByID = `-- name: UserGetByID :one
-SELECT
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
-FROM
-    users
-WHERE
-    id = $1
-LIMIT 1
-`
-
-func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, userGetByID, id)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Presence,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
@@ -992,7 +992,7 @@ func (q *Queries) UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 FROM
     users
 WHERE
@@ -1008,7 +1008,7 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User,
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Presence,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
@@ -1025,7 +1025,7 @@ WHERE
     id = $1
     AND verified_at IS NULL
 RETURNING
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 `
 
 func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -1036,7 +1036,7 @@ func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, e
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Presence,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
@@ -1069,7 +1069,7 @@ func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreatePa
 	return i, err
 }
 
-const userProfileGetByUserID = `-- name: UserProfileGetByUserID :one
+const userProfileGet = `-- name: UserProfileGet :one
 SELECT
     user_id, created_at, updated_at, display_name, avatar_url
 FROM
@@ -1079,8 +1079,8 @@ WHERE
 LIMIT 1
 `
 
-func (q *Queries) UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileGetByUserID, userID)
+func (q *Queries) UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileGet, userID)
 	var i UserProfile
 	err := row.Scan(
 		&i.UserID,
@@ -1100,7 +1100,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id, verified_at, created_at, updated_at, presence, email, username, password_hash
+    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 `
 
 type UserUpdatePasswordParams struct {
@@ -1116,7 +1116,7 @@ func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePassword
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Presence,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,

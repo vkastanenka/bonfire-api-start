@@ -34,8 +34,8 @@ func (o *Outbox) Create(ctx context.Context, p outbox.CreateParams) (outbox.Even
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) GetByID(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.store.OutboxEventGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (o *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
+	row, err := o.store.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
@@ -148,8 +148,8 @@ func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event,
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) DeleteByID(ctx context.Context, id uuid.UUID) error {
-	err := o.store.OutboxEventDeleteByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
+	err := o.store.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))

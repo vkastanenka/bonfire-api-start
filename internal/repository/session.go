@@ -37,8 +37,8 @@ func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.S
 	return sessionFromDB(row), nil
 }
 
-func (r *Session) GetByID(ctx context.Context, id uuid.UUID) (session.Session, error) {
-	row, err := r.store.SessionGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *Session) Get(ctx context.Context, id uuid.UUID) (session.Session, error) {
+	row, err := r.store.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return session.Session{}, NewError(err, EntitySession)
 	}

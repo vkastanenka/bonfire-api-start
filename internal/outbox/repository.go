@@ -35,13 +35,13 @@ type MarkDeadLetterParams struct {
 
 type Repository interface {
 	Create(ctx context.Context, p CreateParams) (Event, error)
-	GetByID(ctx context.Context, id uuid.UUID) (Event, error)
+	Get(ctx context.Context, id uuid.UUID) (Event, error)
 	List(ctx context.Context, p ListParams) ([]Event, error)
 	AcquireBatch(ctx context.Context, p AcquireBatchParams) ([]Event, error)
 	MarkProcessed(ctx context.Context, id uuid.UUID) (Event, error)
 	RecordFailure(ctx context.Context, p RecordFailureParams) (Event, error)
 	MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) (Event, error)
 	ResetAttempts(ctx context.Context, id uuid.UUID) (Event, error)
-	DeleteByID(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	PurgeProcessed(ctx context.Context) error
 }

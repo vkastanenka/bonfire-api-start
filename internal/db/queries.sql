@@ -75,7 +75,7 @@ INSERT INTO user_profiles(user_id, display_name)
 RETURNING
     *;
 
--- name: UserProfileGetByUserID :one
+-- name: UserProfileGet :one
 SELECT
     *
 FROM
@@ -258,7 +258,7 @@ WHERE
 RETURNING
     *;
 
--- name: OutboxEventDeleteByID :exec
+-- name: OutboxEventDelete :exec
 DELETE FROM outbox_events
 WHERE id = $1;
 

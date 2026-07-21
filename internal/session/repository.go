@@ -33,7 +33,7 @@ type DeleteAllExceptParams struct {
 
 type Repository interface {
 	Create(ctx context.Context, p CreateParams) (Session, error)
-	GetByID(ctx context.Context, id uuid.UUID) (Session, error)
+	Get(ctx context.Context, id uuid.UUID) (Session, error)
 	UpdateRefreshToken(ctx context.Context, p UpdateRefreshTokenParams) (Session, error)
 	UpdateLastSeen(ctx context.Context, id uuid.UUID) (Session, error)
 	Revoke(ctx context.Context, id uuid.UUID) (Session, error)

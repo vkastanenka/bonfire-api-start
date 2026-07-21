@@ -50,18 +50,18 @@ type Relationship struct {
 }
 
 type RelationshipPerspective struct {
-	UserID       pgtype.UUID        `json:"user_id"`
-	PeerID       pgtype.UUID        `json:"peer_id"`
-	Type         int16              `json:"type"`
-	ActorID      pgtype.UUID        `json:"actor_id"`
-	IsInitiator  bool               `json:"is_initiator"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	Username     string             `json:"username"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	AvatarUrl    pgtype.Text        `json:"avatar_url"`
-	UserPresence pgtype.Int2        `json:"user_presence"`
-	ChannelID    pgtype.UUID        `json:"channel_id"`
+	UserID                pgtype.UUID        `json:"user_id"`
+	PeerID                pgtype.UUID        `json:"peer_id"`
+	Type                  int16              `json:"type"`
+	ActorID               pgtype.UUID        `json:"actor_id"`
+	IsInitiator           bool               `json:"is_initiator"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	Username              string             `json:"username"`
+	DisplayName           pgtype.Text        `json:"display_name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
+	UserPreferredPresence pgtype.Int2        `json:"user_preferred_presence"`
+	ChannelID             pgtype.UUID        `json:"channel_id"`
 }
 
 type Session struct {
@@ -80,14 +80,14 @@ type Session struct {
 }
 
 type User struct {
-	ID           pgtype.UUID        `json:"id"`
-	VerifiedAt   pgtype.Timestamptz `json:"verified_at"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	Presence     pgtype.Int2        `json:"presence"`
-	Email        string             `json:"email"`
-	Username     string             `json:"username"`
-	PasswordHash string             `json:"password_hash"`
+	ID                pgtype.UUID        `json:"id"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
+	Email             string             `json:"email"`
+	Username          string             `json:"username"`
+	PasswordHash      string             `json:"password_hash"`
 }
 
 type UserProfile struct {

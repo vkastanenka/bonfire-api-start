@@ -13,8 +13,8 @@ import (
 type Querier interface {
 	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)
-	OutboxEventDeleteByID(ctx context.Context, id pgtype.UUID) error
-	OutboxEventGetByID(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
+	OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error)
 	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error)
 	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
@@ -38,18 +38,18 @@ type Querier interface {
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
 	SessionDeleteAllExpired(ctx context.Context) error
 	SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
-	SessionGetByID(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
 	SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
+	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
-	UserGetByID(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByUsername(ctx context.Context, username string) (User, error)
 	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
 	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
-	UserProfileGetByUserID(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
+	UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
 	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
 }
 

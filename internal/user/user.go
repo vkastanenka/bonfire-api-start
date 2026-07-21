@@ -9,14 +9,14 @@ import (
 // Rich Domain Model Example
 
 type User struct {
-	ID           uuid.UUID
-	Email        string
-	Username     string
-	PasswordHash string
-	Presence     Presence
-	VerifiedAt   *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                uuid.UUID
+	Email             string
+	Username          string
+	PasswordHash      string
+	PreferredPresence Presence
+	VerifiedAt        *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 func (u User) IsVerified() bool {
@@ -30,6 +30,3 @@ type UserProfile struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
-
-
-

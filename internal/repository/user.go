@@ -48,8 +48,8 @@ func (r *User) Create(ctx context.Context, p user.CreateParams) (user.User, erro
 	return userFromDB(row), nil
 }
 
-func (r *User) GetByID(ctx context.Context, id uuid.UUID) (user.User, error) {
-	row, err := r.store.UserGetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
+	row, err := r.store.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
@@ -102,8 +102,8 @@ func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (u
 	return userProfileFromDB(row), nil
 }
 
-func (r *User) GetProfileByUserID(ctx context.Context, userID uuid.UUID) (user.UserProfile, error) {
-	row, err := r.store.UserProfileGetByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.UserProfile, error) {
+	row, err := r.store.UserProfileGet(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
 		return user.UserProfile{}, NewError(err, EntityUserProfile)
 	}
@@ -124,8 +124,8 @@ func userFromDB(row db.User) user.User {
 		u.VerifiedAt = ptr.To(row.VerifiedAt.Time)
 	}
 
-	if row.Presence.Valid {
-		u.Presence = user.Presence(row.Presence.Int16)
+	if row.PreferredPresence.Valid {
+		u.PreferredPresence = user.Presence(row.PreferredPresence.Int16)
 	}
 
 	return u
