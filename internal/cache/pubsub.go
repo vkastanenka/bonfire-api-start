@@ -2,14 +2,16 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// TODO: Move to config
 const defaultChannelBuffer = 100
+
+type Subscription interface {
+	Channel() <-chan string
+	Unsubscribe(ctx context.Context) error
+}
 
 type cacheSub struct {
 	pubsub *redis.PubSub
@@ -50,36 +52,7 @@ func (s *cacheSub) listen() {
 	}
 }
 
-func (m *manager) Publish(ctx context.Context, channel string, payload interface{}) error {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		return NewError(err, ScopeEvents)
-	}
-
-	if err := m.client.Publish(ctx, channel, bytes).Err(); err != nil {
-		return NewError(err, ScopeEvents)
-	}
-	return nil
-}
-
-func (m *manager) Subscribe(ctx context.Context, channel string) (Subscription, error) {
-	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	pb := m.client.Subscribe(subCtx, channel)
-
-	if _, err := pb.Receive(subCtx); err != nil {
-		pb.Close()
-		return nil, NewError(err, ScopeEvents)
-	}
-
-	sub := &cacheSub{
-		pubsub: pb,
-		ch:     make(chan string, defaultChannelBuffer),
-		done:   make(chan struct{}),
-	}
-
-	go sub.listen()
-
-	return sub, nil
+type MessageBus interface {
+	Publish(ctx context.Context, channel string, payload interface{}) error
+	Subscribe(ctx context.Context, channel string) (Subscription, error)
 }

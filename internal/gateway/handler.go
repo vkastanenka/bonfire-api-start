@@ -3,7 +3,6 @@ package gateway
 import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
 	"context"
 	"net/http"
@@ -44,7 +43,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	ticketId, err := uuid.Parse(query.TicketID)
+	_, err = uuid.Parse(query.TicketID)
 	if err != nil {
 		return apperr.NewInvalidArgument(
 			err,
@@ -55,7 +54,8 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ctx := r.Context()
-	ticketKey := cache.WSTicketKey(ticketId)
+	// ticketKey := cache.WSTicketKey(ticketId)
+	ticketKey := ""
 	var ticket auth.WSTicketData
 
 	err = h.cache.Get(ctx, ticketKey, &ticket)

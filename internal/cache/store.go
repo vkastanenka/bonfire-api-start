@@ -2,180 +2,83 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-func (m *manager) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
-	var bytes []byte
-	var err error
-
-	switch v := value.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		bytes, err = json.Marshal(value)
-		if err != nil {
-			return NewError(err, ScopeStore)
-		}
-	}
-
-	if err := m.client.Set(ctx, key, bytes, ttl).Err(); err != nil {
-		return NewError(err, ScopeStore)
-	}
-	return nil
+type Querier interface {
+	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	Get(ctx context.Context, key string, dest interface{}) error
+	MGet(ctx context.Context, keys ...string) ([]interface{}, error)
+	Delete(ctx context.Context, key string) error
+	Exists(ctx context.Context, key string) (bool, error)
+	Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
+	HSet(ctx context.Context, key string, field string, value interface{}) error
+	HDel(ctx context.Context, key string, fields ...string) error
+	HGetAll(ctx context.Context, key string, dest *map[string]string) error
+	Expire(ctx context.Context, key string, ttl time.Duration) error
+	Publish(ctx context.Context, channel string, payload interface{}) error
 }
 
-func (m *manager) Get(ctx context.Context, key string, dest interface{}) error {
-	bytes, err := m.client.Get(ctx, key).Bytes()
-	if IsNotFoundError(err) {
-		return NewError(ErrNotFound, ScopeStore)
-	}
-	if err != nil {
-		return NewError(err, ScopeStore)
-	}
+var _ Querier = (*Queries)(nil)
 
-	switch d := dest.(type) {
-	case *string:
-		*d = string(bytes)
-		return nil
-	case *[]byte:
-		*d = bytes
-		return nil
-	default:
-		if err := json.Unmarshal(bytes, dest); err != nil {
-			return NewError(err, ScopeStore)
-		}
-		return nil
+type Store interface {
+	Querier
+	ExecPipeline(ctx context.Context, fn func(Querier) error) error
+}
+
+type Manager interface {
+	Store
+	MessageBus
+}
+
+type manager struct {
+	*Queries
+	client *redis.Client
+}
+
+func NewManager(client *redis.Client) Manager {
+	return &manager{
+		Queries: New(client),
+		client:  client,
 	}
 }
 
-func (m *manager) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
-	values, err := m.client.MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, NewError(err, ScopeStore)
-	}
-	return values, nil
-}
-
-func (m *manager) Delete(ctx context.Context, key string) error {
-	if err := m.client.Del(ctx, key).Err(); err != nil {
-		return NewError(err, ScopeStore)
-	}
-	return nil
-}
-
-func (m *manager) Exists(ctx context.Context, key string) (bool, error) {
-	count, err := m.client.Exists(ctx, key).Result()
-	if err != nil {
-		return false, NewError(err, ScopeStore)
-	}
-	return count > 0, nil
-}
-
-var incrWithTTLScript = redis.NewScript(`
-	local current = redis.call("INCR", KEYS[1])
-	if current == 1 then
-		redis.call("EXPIRE", KEYS[1], ARGV[1])
-	end
-	return current
-`)
-
-func (m *manager) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
-	seconds := int64(ttl.Seconds())
-
-	result, err := incrWithTTLScript.Run(ctx, m.client, []string{key}, seconds).Result()
-	if err != nil {
-		return 0, NewError(err, ScopeStore)
-	}
-
-	if val, ok := result.(int64); ok {
-		return val, nil
-	}
-
-	return 0, NewError(errors.New("redis script returned unexpected type"), ScopeStore)
-}
-
-func (m *manager) HSet(ctx context.Context, key string, field string, value interface{}) error {
-	var val interface{}
-
-	switch v := value.(type) {
-	case []byte:
-		val = string(v)
-	case string:
-		val = v
-	default:
-		bytes, err := json.Marshal(value)
-		if err != nil {
-			return NewError(err, ScopeStore)
-		}
-		val = string(bytes)
-	}
-
-	if err := m.client.HSet(ctx, key, field, val).Err(); err != nil {
-		return NewError(err, ScopeStore)
-	}
-	return nil
-}
-
-func (m *manager) HDel(ctx context.Context, key string, fields ...string) error {
-	if len(fields) == 0 {
-		return nil
-	}
-	if err := m.client.HDel(ctx, key, fields...).Err(); err != nil {
-		return NewError(err, ScopeStore)
-	}
-	return nil
-}
-
-func (m *manager) HGetAll(ctx context.Context, key string, dest *map[string]string) error {
-	res, err := m.client.HGetAll(ctx, key).Result()
-	if err != nil {
-		return NewError(err, ScopeStore)
-	}
-
-	*dest = res
-	return nil
-}
-
-func (m *manager) HGetAllPipeline(ctx context.Context, keys []string) ([]map[string]string, error) {
-	if len(keys) == 0 {
-		return nil, nil
-	}
-
+func (m *manager) ExecPipeline(ctx context.Context, fn func(Querier) error) error {
 	pipe := m.client.Pipeline()
-	cmds := make([]*redis.MapStringStringCmd, len(keys))
+	qpipe := m.WithPipeline(pipe)
 
-	for i, key := range keys {
-		cmds[i] = pipe.HGetAll(ctx, key)
+	if err := fn(qpipe); err != nil {
+		pipe.Discard()
+		return fmt.Errorf("pipeline queue failed: %w", err)
 	}
 
-	_, err := pipe.Exec(ctx)
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return nil, NewError(err, ScopeStore)
-	}
-
-	results := make([]map[string]string, len(keys))
-	for i, cmd := range cmds {
-		res, err := cmd.Result()
-		if err != nil {
-			results[i] = make(map[string]string)
-			continue
-		}
-		results[i] = res
-	}
-
-	return results, nil
-}
-
-func (m *manager) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	if err := m.client.Expire(ctx, key, ttl).Err(); err != nil {
+	if _, err := pipe.Exec(ctx); err != nil {
 		return NewError(err, ScopeStore)
 	}
+
 	return nil
+}
+
+func (m *manager) Subscribe(ctx context.Context, channel string) (Subscription, error) {
+	pb := m.client.Subscribe(ctx, channel)
+
+	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if _, err := pb.Receive(subCtx); err != nil {
+		pb.Close()
+		return nil, NewError(err, ScopeEvents)
+	}
+
+	sub := &cacheSub{
+		pubsub: pb,
+		ch:     make(chan string, defaultChannelBuffer),
+		done:   make(chan struct{}),
+	}
+
+	go sub.listen()
+	return sub, nil
 }
