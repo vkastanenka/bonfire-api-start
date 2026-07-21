@@ -116,3 +116,5 @@ func sessionFromDB(row db.Session) session.Session {
 
 	return s
 }
+
+var _ session.Repository = (*Session)(nil)

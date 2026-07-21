@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/repository"
-
 	"github.com/google/uuid"
 )
 
@@ -87,55 +84,4 @@ func (r Relationship) GetPeerID(userID uuid.UUID) uuid.UUID {
 		return r.User2ID
 	}
 	return r.User1ID
-}
-
-func FromRepository(row repository.Relationship) Relationship {
-	return Relationship{
-		User1ID:   uuid.UUID(row.User1ID.Bytes),
-		User2ID:   uuid.UUID(row.User2ID.Bytes),
-		ActorID:   uuid.UUID(row.ActorID.Bytes),
-		Type:      Type(row.Type),
-		CreatedAt: row.CreatedAt.Time,
-		UpdatedAt: row.UpdatedAt.Time,
-	}
-}
-
-type PerspectiveView struct {
-	UserID      uuid.UUID          `json:"user_id"`
-	PeerID      uuid.UUID          `json:"peer_id"`
-	Type        Type               `json:"type"`
-	ActorID     uuid.UUID          `json:"actor_id"`
-	IsInitiator bool               `json:"is_initiator"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	Username    string             `json:"username"`
-	DisplayName string             `json:"display_name"`
-	AvatarURL   *string            `json:"avatar_url"`
-	Presence    *presence.Presence `json:"presence"`
-	ChannelID   *uuid.UUID         `json:"channel_id"`
-}
-
-func ToPerspectiveView(
-	r Relationship,
-	queryingUserID uuid.UUID,
-	peerUsername string,
-	peerDisplayName string,
-	peerAvatarURL *string,
-	peerPresence *presence.Presence,
-	channelID *uuid.UUID,
-) PerspectiveView {
-	return PerspectiveView{
-		UserID:      queryingUserID,
-		PeerID:      r.GetPeerID(queryingUserID),
-		Type:        r.Type,
-		ActorID:     r.ActorID,
-		IsInitiator: r.ActorID == queryingUserID,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
-		Username:    peerUsername,
-		DisplayName: peerDisplayName,
-		AvatarURL:   peerAvatarURL,
-		Presence:    peerPresence,
-		ChannelID:   channelID,
-	}
 }

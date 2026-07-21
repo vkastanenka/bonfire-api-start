@@ -145,3 +145,5 @@ func userProfileFromDB(row db.UserProfile) user.UserProfile {
 
 	return up
 }
+
+var _ user.Repository = (*User)(nil)
