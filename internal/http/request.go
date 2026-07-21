@@ -27,13 +27,21 @@ var (
 	}()
 )
 
-func BindJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
+type RequestBinder struct {
+	validator *validator.Validator
+}
+
+func NewRequestBinder(v *validator.Validator) *RequestBinder {
+	return &RequestBinder{validator: v}
+}
+
+func BindJSON[T any](b *RequestBinder, w http.ResponseWriter, r *http.Request) (T, error) {
 	var req T
 	if err := decodeJSON(w, r, &req); err != nil {
 		return req, err
 	}
 
-	return req, bindInput(&req)
+	return req, b.bindInput(&req)
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
@@ -111,13 +119,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	return nil
 }
 
-func BindQuery[T any](r *http.Request) (T, error) {
+func BindQuery[T any](b *RequestBinder, r *http.Request) (T, error) {
 	var req T
 	if err := decodeQuery(r, &req); err != nil {
 		return req, err
 	}
 
-	return req, bindInput(&req)
+	return req, b.bindInput(&req)
 }
 
 func decodeQuery(r *http.Request, dst any) error {
@@ -143,13 +151,13 @@ func decodeQuery(r *http.Request, dst any) error {
 	return nil
 }
 
-func BindPath[T any](r *http.Request) (T, error) {
+func BindPath[T any](b *RequestBinder, r *http.Request) (T, error) {
 	var req T
 	if err := decodePath(r, &req); err != nil {
 		return req, err
 	}
 
-	return req, bindInput(&req)
+	return req, b.bindInput(&req)
 }
 
 func decodePath(r *http.Request, dst any) error {

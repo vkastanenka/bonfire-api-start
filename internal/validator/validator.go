@@ -2,19 +2,12 @@ package validator
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/presence"
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strings"
 
 	goValidator "github.com/go-playground/validator/v10"
-)
-
-var (
-	v           = goValidator.New()
-	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
 )
 
 const (
@@ -24,7 +17,6 @@ const (
 	errWhitespace             = "Cannot consist entirely of whitespace."
 	errEmail                  = "Must be a valid email address."
 	errAlphanum               = "Must contain only letters and numbers."
-	errUsername               = "Must start and end with a letter or number. May contain only letters, numbers, and non-consecutive underscores or periods."
 	errMinString              = "Must be at least %s characters."
 	errMinNumeric             = "Must be %s or greater."
 	errMinCollection          = "Must contain at least %s items."
@@ -33,7 +25,22 @@ const (
 	errMaxCollection          = "Cannot contain more than %s items."
 )
 
-func init() {
+type Option func(*Validator)
+
+type Rule struct {
+	Tag          string
+	ValidatorFn  func(val string) bool
+	ErrorMessage string
+}
+
+type Validator struct {
+	validate      *goValidator.Validate
+	errorMessages map[string]string
+}
+
+func New(opts ...Option) *Validator {
+	v := goValidator.New()
+
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		if tag := fld.Tag.Get("json"); tag != "" && tag != "-" {
 			if idx := strings.IndexByte(tag, ','); idx != -1 {
@@ -41,104 +48,120 @@ func init() {
 			}
 			return tag
 		}
-
 		if tag := fld.Tag.Get("form"); tag != "" && tag != "-" {
 			return tag
 		}
-
 		if tag := fld.Tag.Get("path"); tag != "" && tag != "-" {
 			return tag
 		}
-
 		return ""
 	})
 
-	v.RegisterValidation("valid_username", func(fl goValidator.FieldLevel) bool {
-		return rgxUsername.MatchString(fl.Field().String())
-	})
+	v.RegisterAlias("idSchema", "uuid,len=36")
+	v.RegisterAlias("emailSchema", "email,max=255")
 
-	v.RegisterValidation("presence", func(fl goValidator.FieldLevel) bool {
-		switch val := fl.Field().Interface().(type) {
-		case string:
-			p := presence.Parse(val)
-			return p.Valid()
+	instance := &Validator{
+		validate:      v,
+		errorMessages: make(map[string]string),
+	}
 
-		case *string:
-			if val == nil {
-				return true
-			}
-			p := presence.Parse(*val)
-			return p.Valid()
+	for _, opt := range opts {
+		opt(instance)
+	}
 
-		case presence.Presence:
-			if val == presence.PresenceUnknown {
-				return true
-			}
-			return val.Valid()
-
-		case *presence.Presence:
-			if val == nil {
-				return true
-			}
-			if *val == presence.PresenceUnknown {
-				return true
-			}
-			return val.Valid()
-
-		default:
-			return false
-		}
-	})
-
-	v.RegisterAlias("identity_id", "required,uuid,len=36")
-	v.RegisterAlias("identity_email", "required,email,max=255")
-	v.RegisterAlias("identity_username", "required,min=3,max=32,valid_username")
-	v.RegisterAlias("identity_password", "required,min=12,max=255")
-	v.RegisterAlias("profile_display_name", "omitempty,min=3,max=32")
+	return instance
 }
 
-func Validate(s interface{}) error {
-	err := v.Struct(s)
+func (v *Validator) RegisterValidation(tag string, fn func(val string) bool, customMsg ...string) {
+	v.validate.RegisterValidation(tag, func(fl goValidator.FieldLevel) bool {
+		field := fl.Field()
+		if field.Kind() == reflect.String {
+			return fn(field.String())
+		}
+		return false
+	})
+
+	if len(customMsg) > 0 && customMsg[0] != "" {
+		v.errorMessages[tag] = customMsg[0]
+	}
+}
+
+func (v *Validator) RegisterAlias(alias, tags string) {
+	v.validate.RegisterAlias(alias, tags)
+}
+
+func WithCustomRules(rules ...Rule) Option {
+	return func(v *Validator) {
+		for _, r := range rules {
+			v.RegisterValidation(r.Tag, r.ValidatorFn, r.ErrorMessage)
+		}
+	}
+}
+
+func WithSchemaAliases(aliases map[string]string) Option {
+	return func(v *Validator) {
+		for alias, tags := range aliases {
+			v.RegisterAlias(alias, tags)
+		}
+	}
+}
+
+func (v *Validator) Validate(s interface{}) error {
+	err := v.validate.Struct(s)
 	if err == nil {
 		return nil
 	}
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return apperr.NewInternal(err, "")
+		return apperr.NewInternal(err, apperr.WithMsg("Failed to execute struct validation"))
 	}
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		invalidParams := make([]apperr.InvalidParam, 0, len(validationErrors))
+		fieldViolations := make([]apperr.FieldViolation, 0, len(validationErrors))
 
 		for _, fieldErr := range validationErrors {
 			ns := fieldErr.Namespace()
 			var jsonPath string
 
-			if idx := strings.Index(ns, "."); idx != -1 {
+			if idx := strings.IndexByte(ns, '.'); idx != -1 {
 				jsonPath = ns[idx+1:]
 			} else {
 				jsonPath = fieldErr.Field()
 			}
 
-			invalidParams = append(invalidParams, apperr.InvalidParam{
-				Name:   jsonPath,
-				Reason: msgForFieldError(fieldErr),
-			})
+			fv, fvErr := apperr.NewFieldViolation(
+				jsonPath,
+				v.msgForFieldError(fieldErr),
+				fieldErr.ActualTag(),
+				nil,
+			)
+			if fvErr == nil && fv != nil {
+				fieldViolations = append(fieldViolations, *fv)
+			}
 		}
 
-		return apperr.NewInvalidInput(
+		badReq, brErr := apperr.NewBadRequest(fieldViolations...)
+		if brErr != nil {
+			return apperr.NewInvalidArgument(err, apperr.WithMsg(errValidationFailed))
+		}
+
+		return apperr.NewInvalidArgument(
 			err,
-			errValidationFailed,
-			apperr.Params(invalidParams),
+			apperr.WithMsg(errValidationFailed),
+			apperr.WithDetail(badReq),
 		)
 	}
 
-	return apperr.NewInternal(err, "")
+	return apperr.NewInternal(err)
 }
 
-func msgForFieldError(err goValidator.FieldError) string {
+func (v *Validator) msgForFieldError(err goValidator.FieldError) string {
+	if msg, exists := v.errorMessages[err.ActualTag()]; exists {
+		return msg
+	}
+
 	if err.ActualTag() == "required" {
 		val := err.Value()
 
@@ -162,8 +185,6 @@ func msgForFieldError(err goValidator.FieldError) string {
 		return errEmail
 	case "alphanum":
 		return errAlphanum
-	case "valid_username":
-		return errUsername
 	case "min":
 		return formatRangeMessage(err, errMinString, errMinNumeric, errMinCollection)
 	case "max":

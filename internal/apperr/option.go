@@ -41,7 +41,7 @@ func WithError(err error) Option {
 	}
 }
 
-func WithMessage(message string) Option {
+func WithMsg(message string) Option {
 	return func(e *Error) {
 		e.Message = message
 	}

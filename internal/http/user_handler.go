@@ -10,18 +10,22 @@ import (
 
 type UserHandler struct {
 	repository user.Repository
+	binder     *RequestBinder
 }
 
-func NewUserHandler(repository user.Repository) *UserHandler {
-	return &UserHandler{repository: repository}
+func NewUserHandler(repository user.Repository, binder *RequestBinder) *UserHandler {
+	return &UserHandler{
+		repository: repository,
+		binder:     binder,
+	}
 }
 
 type GetByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required,idSchema"`
 }
 
 func (h *UserHandler) GetByID(w http.ResponseWriter, r *http.Request) error {
-	path, err := BindPath[GetByIDPath](r)
+	path, err := BindPath[GetByIDPath](h.binder, r)
 	if err != nil {
 		return err
 	}
@@ -36,12 +40,12 @@ func (h *UserHandler) GetByID(w http.ResponseWriter, r *http.Request) error {
 }
 
 type GetQuery struct {
-	Email    *string `form:"email" validate:"omitempty,email"`
-	Username *string `form:"username"  validate:"omitempty"`
+	Email    *string `form:"email" validate:"omitempty,emailSchema"`
+	Username *string `form:"username"  validate:"omitempty,userUsernameSchema"`
 }
 
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
-	query, err := BindQuery[GetQuery](r)
+	query, err := BindQuery[GetQuery](h.binder, r)
 	if err != nil {
 		return err
 	}
@@ -61,7 +65,7 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
 	} else if username != "" {
 		userRow, err = h.repository.GetByUsername(r.Context(), username)
 	} else {
-		return apperr.NewInvalidArgument(nil, apperr.WithMessage("either email or username query parameter must be provided"))
+		return apperr.NewInvalidArgument(nil, apperr.WithMsg("either email or username query parameter must be provided"))
 	}
 
 	if err != nil {
