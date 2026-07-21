@@ -30,16 +30,16 @@ func (app *Application) routes() http.Handler {
 			// 	Scope:  httpio.RateLimitScopePublic,
 			// }))
 
-			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
-			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
-			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
-			public.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
-			public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
-			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
-			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+			// public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
+			// public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
+			// public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
+			// public.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
+			// public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
+			// public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
+			// public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 
-			public.Get("/users", httpio.ToHTTPErr(app.Handlers.User.Get))
-			public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.GetByID))
+			// public.Get("/users", httpio.ToHTTPErr(app.Handlers.User.Get))
+			// public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.GetByID))
 		})
 
 		api.Group(func(auth chi.Router) {
@@ -48,15 +48,15 @@ func (app *Application) routes() http.Handler {
 			// 	Window: app.Config.AuthRateWindow,
 			// 	Scope:  httpio.RateLimitScopeAuth,
 			// }))
-			auth.Use(httpio.RequireAuth(app.Managers.Token))
+			// auth.Use(httpio.RequireAuth(app.Managers.Token))
 
-			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
-			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
-			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
-			auth.Get("/users/@me/relationships", httpio.ToHTTPErr(app.Handlers.Me.ListRelationships))
-			auth.Put("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.UpsertRelationship))
-			auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.BlockUser))
-			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.DeleteRelationship))
+			// auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
+			// auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
+			// auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
+			// auth.Get("/users/@me/relationships", httpio.ToHTTPErr(app.Handlers.Me.ListRelationships))
+			// auth.Put("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.UpsertRelationship))
+			// auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.BlockUser))
+			// auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.DeleteRelationship))
 		})
 	})
 
@@ -67,9 +67,11 @@ func (app *Application) routes() http.Handler {
 }
 
 func (app *Application) notFoundHandler(w http.ResponseWriter, r *http.Request) error {
-	return apperr.NewNotFound(nil, "The requested API endpoint does not exist.")
+	// return apperr.NewNotFound(nil, apperr.WithMsg("The requested API endpoint does not exist."))
+	return nil
 }
 
 func (app *Application) methodNotAllowedHandler(w http.ResponseWriter, r *http.Request) error {
-	return apperr.NewMethodNotAllowed(nil, "HTTP method not allowed for this endpoint.")
+	// return apperr.NewMethodNotAllowed(nil, "HTTP method not allowed for this endpoint.")
+	return apperr.NewInternal(nil)
 }

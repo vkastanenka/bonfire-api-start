@@ -1,15 +1,5 @@
 package auth
 
-import (
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/repository"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
-	"bonfire-api/internal/user"
-
-	"golang.org/x/sync/singleflight"
-)
-
 type Handler struct {
 	service *Service
 }
@@ -19,27 +9,27 @@ func NewHandler(service *Service) *Handler {
 }
 
 type Service struct {
-	store       repository.Store
-	cache       cache.Store
-	token       *token.Manager
-	session     *session.Service
-	user        *user.Service
-	flightGroup singleflight.Group
+	// store       repository.Store
+	// cache       cache.Store
+	// token       *token.Manager
+	// session     *session.Service
+	// user        *user.Service
+	// flightGroup singleflight.Group
 }
 
 func NewService(
-	store repository.Store,
-	cache cache.Store,
-	token *token.Manager,
-	session *session.Service,
-	user *user.Service,
+// store repository.Store,
+// cache cache.Store,
+// token *token.Manager,
+// session *session.Service,
+// user *user.Service,
 ) *Service {
 	return &Service{
-		store:       store,
-		cache:       cache,
-		token:       token,
-		session:     session,
-		user:        user,
-		flightGroup: singleflight.Group{},
+		// store:       store,
+		// cache:       cache,
+		// token:       token,
+		// session:     session,
+		// user:        user,
+		// flightGroup: singleflight.Group{},
 	}
 }

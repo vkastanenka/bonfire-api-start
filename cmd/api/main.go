@@ -6,26 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"bonfire-api/internal/auth"
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/email"
-	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/logger"
-	"bonfire-api/internal/me"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/postgres"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/redis"
-	"bonfire-api/internal/relationship"
-	"bonfire-api/internal/repository"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
-	"bonfire-api/internal/user"
-
-	"github.com/go-redis/redis_rate/v10"
 )
 
 func main() {
@@ -55,96 +38,96 @@ func run(cfg *config.Config) error {
 	)
 	defer stop()
 
-	pdbPool, err := postgres.NewPool(ctx, postgres.Config{
-		ConnString:      cfg.DatabaseURL,
-		MaxConns:        cfg.DBMaxConns,
-		MinConns:        cfg.DBMinConns,
-		MaxConnLifetime: cfg.DBMaxConnLifetime,
-		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
-		HealthCheck:     cfg.DBHealthCheck,
-	})
-	if err != nil {
-		return err
-	}
-	defer pdbPool.Close()
+	// pdbPool, err := postgres.NewPool(ctx, postgres.Config{
+	// 	ConnString:      cfg.DatabaseURL,
+	// 	MaxConns:        cfg.DBMaxConns,
+	// 	MinConns:        cfg.DBMinConns,
+	// 	MaxConnLifetime: cfg.DBMaxConnLifetime,
+	// 	MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+	// 	HealthCheck:     cfg.DBHealthCheck,
+	// })
+	// if err != nil {
+	// 	return err
+	// }
+	// defer pdbPool.Close()
 
-	rdbClient, err := redis.NewClient(ctx, redis.Config{
-		ConnString:      cfg.RedisURL,
-		PoolSize:        cfg.RedisPoolSize,
-		MinIdleConns:    cfg.RedisMinIdleConns,
-		ConnMaxIdleTime: cfg.RedisConnMaxIdleTime,
-		ConnMaxLifetime: cfg.RedisConnMaxLifetime,
-	})
-	if err != nil {
-		return err
-	}
-	defer rdbClient.Close()
+	// rdbClient, err := redis.NewClient(ctx, redis.Config{
+	// 	ConnString:      cfg.RedisURL,
+	// 	PoolSize:        cfg.RedisPoolSize,
+	// 	MinIdleConns:    cfg.RedisMinIdleConns,
+	// 	ConnMaxIdleTime: cfg.RedisConnMaxIdleTime,
+	// 	ConnMaxLifetime: cfg.RedisConnMaxLifetime,
+	// })
+	// if err != nil {
+	// 	return err
+	// }
+	// defer rdbClient.Close()
 
-	tokenMgr, err := token.NewManager(token.Config{
-		AccessSecret:        cfg.AccessSecret,
-		RefreshSecret:       cfg.RefreshSecret,
-		VerifySecret:        cfg.EmailVerifySecret,
-		PasswordResetSecret: cfg.PasswordResetSecret,
-		Issuer:              cfg.TokenIssuer,
-	})
-	if err != nil {
-		return err
-	}
-	cacheMgr := cache.NewManager(rdbClient)
-	store := repository.NewStore(pdbPool)
-	rateLimiter := redis_rate.NewLimiter(rdbClient)
-	mailer := email.NewMailer(email.Config{
-		ResendAPIKey: cfg.ResendApiKey,
-		FromAddress:  cfg.EmailFromAddress,
-		FrontendURL:  cfg.FrontendURL,
-		OverrideTo:   cfg.EmailOverrideTo,
-	})
+	// tokenMgr, err := token.NewManager(token.Config{
+	// 	AccessSecret:        cfg.AccessSecret,
+	// 	RefreshSecret:       cfg.RefreshSecret,
+	// 	VerifySecret:        cfg.EmailVerifySecret,
+	// 	PasswordResetSecret: cfg.PasswordResetSecret,
+	// 	Issuer:              cfg.TokenIssuer,
+	// })
+	// if err != nil {
+	// 	return err
+	// }
+	// cacheMgr := cache.NewManager(rdbClient)
+	// store := repository.NewStore(pdbPool)
+	// rateLimiter := redis_rate.NewLimiter(rdbClient)
+	// mailer := email.NewMailer(email.Config{
+	// 	ResendAPIKey: cfg.ResendApiKey,
+	// 	FromAddress:  cfg.EmailFromAddress,
+	// 	FrontendURL:  cfg.FrontendURL,
+	// 	OverrideTo:   cfg.EmailOverrideTo,
+	// })
 
-	outboxSvc := outbox.NewService(store)
-	sessionSvc := session.NewService(store)
-	relationshipSvc := relationship.NewService(store)
-	userSvc := user.NewService(store)
-	meSvc := me.NewService(userSvc)
-	presenceSvc := presence.NewService(cacheMgr)
-	authService := auth.NewService(
-		store,
-		cacheMgr,
-		tokenMgr,
-		sessionSvc,
-		userSvc,
-	)
+	// // outboxSvc := outbox.NewService(store)
+	// // sessionSvc := session.NewService(store)
+	// relationshipSvc := relationship.NewService(store)
+	// userSvc := user.NewService(store)
+	// meSvc := me.NewService(userSvc)
+	// presenceSvc := presence.NewService(cacheMgr)
+	// authService := auth.NewService(
+	// 	store,
+	// 	cacheMgr,
+	// 	tokenMgr,
+	// 	sessionSvc,
+	// 	userSvc,
+	// )
 
-	outboxWorker := outbox.NewWorker(
-		cacheMgr,
-		outboxSvc,
-		mailer,
-		2*time.Second,
-		int32(10),
-		int32(10),
-	)
-	outboxWorker.Start(ctx)
-	defer outboxWorker.Stop()
+	// outboxWorker := outbox.NewWorker(
+	// 	cacheMgr,
+	// 	outboxSvc,
+	// 	mailer,
+	// 	2*time.Second,
+	// 	int32(10),
+	// 	int32(10),
+	// )
+	// outboxWorker.Start(ctx)
+	// defer outboxWorker.Stop()
 
-	hub := gateway.NewHub(store, cacheMgr, presenceSvc)
-	go hub.Run(ctx)
+	// hub := gateway.NewHub(store, cacheMgr, presenceSvc)
+	// go hub.Run(ctx)
 
-	authHandler := auth.NewHandler(authService)
-	gatewayHandler := gateway.NewHandler(hub, cacheMgr)
-	meHandler := me.NewHandler(meSvc, relationshipSvc)
-	userHandler := user.NewHandler(userSvc)
+	// authHandler := auth.NewHandler(authService)
+	// gatewayHandler := gateway.NewHandler(hub, cacheMgr)
+	// meHandler := me.NewHandler(meSvc, relationshipSvc)
+	// userHandler := user.NewHandler(userSvc)
 
 	app := &Application{
-		Config:      cfg,
-		RateLimiter: rateLimiter,
-		Handlers: Handlers{
-			Auth:    authHandler,
-			Gateway: gatewayHandler,
-			Me:      meHandler,
-			User:    userHandler,
-		},
-		Managers: Managers{
-			Token: tokenMgr,
-		},
+		Config: cfg,
+		// RateLimiter: rateLimiter,
+		// Handlers: Handlers{
+		// 	Auth:    authHandler,
+		// 	Gateway: gatewayHandler,
+		// 	Me:      meHandler,
+		// 	User:    userHandler,
+		// },
+		// Managers: Managers{
+		// 	Token: tokenMgr,
+		// },
 	}
 
 	return app.Serve(ctx)

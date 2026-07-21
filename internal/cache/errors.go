@@ -41,15 +41,15 @@ func NewError(err error, resource Scope) error {
 	}
 
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(err, fmt.Sprintf("%s was not found in cache.", resource))
+		return apperr.NewNotFound(err, apperr.WithMsg(fmt.Sprintf("%s was not found in cache.", resource)))
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		return apperr.NewRequestTimeout(err, "The cache operation timed out.")
+		return apperr.NewDeadlineExceeded(err, apperr.WithMsg("The cache operation timed out.")) // request timeout
 	}
 	if errors.Is(err, context.Canceled) {
-		return apperr.NewInvalidInput(err, "The cache transaction was aborted by the client.")
+		return apperr.NewInvalidArgument(err, apperr.WithMsg("The cache transaction was aborted by the client."))
 	}
 
-	return apperr.NewInternal(err, "A temporary caching error occurred.")
+	return apperr.NewInternal(err, apperr.WithMsg("A temporary caching error occurred."))
 }

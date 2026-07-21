@@ -17,7 +17,7 @@ import (
 type Worker struct {
 	id            uuid.UUID
 	cache         cache.Manager
-	service       *Service
+	repository    Repository
 	mailer        email.Mailer
 	pollInterval  time.Duration
 	leaseDuration int32
@@ -28,7 +28,7 @@ type Worker struct {
 
 func NewWorker(
 	cache cache.Manager,
-	service *Service,
+	repository Repository,
 	mailer email.Mailer,
 	pollInterval time.Duration,
 	leaseDuration int32,
@@ -37,7 +37,7 @@ func NewWorker(
 	return &Worker{
 		id:            uuid.New(),
 		cache:         cache,
-		service:       service,
+		repository:    repository,
 		mailer:        mailer,
 		pollInterval:  pollInterval,
 		leaseDuration: leaseDuration,
@@ -84,7 +84,7 @@ func (w *Worker) Stop() {
 }
 
 func (w *Worker) processBatch(ctx context.Context) {
-	events, err := w.service.AcquireBatch(ctx, AcquireBatchParams{
+	events, err := w.repository.AcquireBatch(ctx, AcquireBatchParams{
 		Limit:                  w.batchSize,
 		WorkerID:               w.id,
 		LeaseDurationInSeconds: w.leaseDuration,
@@ -170,7 +170,7 @@ func (w *Worker) executeEvent(ctx context.Context, event Event) {
 	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if _, err := w.service.MarkProcessed(finalizeCtx, event.ID); err != nil {
+	if _, err := w.repository.MarkProcessed(finalizeCtx, event.ID); err != nil {
 		slog.ErrorContext(finalizeCtx, "failed to finalize successful outbox event", "event_id", event.ID, "error", err)
 		return
 	}
@@ -194,7 +194,7 @@ func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFa
 			"error", err,
 		)
 
-		_, dbErr := w.service.MarkDeadLetter(finalizeCtx, MarkDeadLetterParams{
+		_, dbErr := w.repository.MarkDeadLetter(finalizeCtx, MarkDeadLetterParams{
 			ID:     event.ID,
 			Reason: err.Error(),
 		})
@@ -208,7 +208,7 @@ func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFa
 			"error", err,
 		)
 
-		_, dbErr := w.service.RecordFailure(finalizeCtx, RecordFailureParams{
+		_, dbErr := w.repository.RecordFailure(finalizeCtx, RecordFailureParams{
 			ID:        event.ID,
 			LastError: err.Error(),
 		})

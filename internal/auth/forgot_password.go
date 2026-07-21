@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/outbox"
 	"context"
 	"fmt"
 	"net/http"
@@ -20,7 +18,7 @@ type ForgotPasswordReq struct {
 }
 
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ForgotPasswordReq](w, r)
+	req, err := httpio.BindJSON[ForgotPasswordReq](nil, w, r)
 	if err != nil {
 		return err
 	}
@@ -48,28 +46,28 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	// 	return nil
 	// }
 
-	userRow, err := s.user.GetByEmail(ctx, email)
-	if err != nil {
-		return apperr.NewNotFound(err, "")
-		// if apperr.IsNotFound(err) {
-		// 	return nil
-		// }
-		// return err
-	}
+	// userRow, err := s.user.GetByEmail(ctx, email)
+	// if err != nil {
+	// 	return apperr.NewNotFound(err, "")
+	// 	// if apperr.IsNotFound(err) {
+	// 	// 	return nil
+	// 	// }
+	// 	// return err
+	// }
 
-	t, _, err := s.token.GeneratePasswordReset(userRow.ID)
-	if err != nil {
-		return apperr.NewInternal(err, "")
-	}
+	// t, _, err := s.token.GeneratePasswordReset(userRow.ID)
+	// if err != nil {
+	// 	return apperr.NewInternal(err, "")
+	// }
 
-	persistCtx := context.WithoutCancel(ctx)
+	// persistCtx := context.WithoutCancel(ctx)
 
-	if err := outbox.EmitForgotPassword(persistCtx, s.store, outbox.ForgotPasswordPayload{
-		Email: email,
-		Token: t,
-	}); err != nil {
-		return err
-	}
+	// if err := outbox.EmitForgotPassword(persistCtx, s.store, outbox.ForgotPasswordPayload{
+	// 	Email: email,
+	// 	Token: t,
+	// }); err != nil {
+	// 	return err
+	// }
 
 	// if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
 	// 	slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)

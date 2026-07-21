@@ -1,4 +1,4 @@
-package http
+package httpio
 
 import (
 	"bufio"
@@ -103,7 +103,7 @@ func GetClientMeta(ctx context.Context) (ClientMeta, error) {
 	if !ok {
 		return ClientMeta{IP: netip.IPv4Unspecified()}, apperr.NewInternal(
 			nil,
-			"An unexpected system error occurred while processing request metadata.",
+			apperr.WithMsg("An unexpected system error occurred while processing request metadata."),
 		)
 	}
 	return meta, nil
@@ -272,9 +272,8 @@ func Recoverer(next http.Handler) http.Handler {
 				}
 
 				appErr := &apperr.Error{
-					Code:   apperr.CodeInternal,
-					Detail: apperr.CodeInternal.Detail(),
-					Err:    err,
+					Code: apperr.CodeInternal,
+					Err:  err,
 				}
 
 				slog.ErrorContext(r.Context(), "catastrophic runtime panic recovered",
@@ -349,9 +348,8 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 				w.Header().Set("Retry-After", strconv.Itoa(retrySecs))
 
 				rateLimitErr := &apperr.Error{
-					Code:   apperr.CodeTooManyRequests,
-					Detail: apperr.CodeTooManyRequests.Detail(),
-					Err:    fmt.Errorf("rate limit exceeded for ip: %s", ip),
+					Code: apperr.CodeDeadlineExceeded,
+					Err:  fmt.Errorf("rate limit exceeded for ip: %s", ip),
 				}
 
 				respondError(w, r, rateLimitErr)
@@ -420,29 +418,32 @@ func RequireAuth(t *token.Manager) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				respondError(w, r, apperr.NewUnauthorized(nil, errMissingAuthHeader))
+				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errMissingAuthHeader)))
 				return
 			}
 
 			if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				respondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
+				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errInvalidAuthHeader)))
 				return
 			}
 
 			tokenStr := strings.TrimSpace(authHeader[7:])
 			if tokenStr == "" {
-				respondError(w, r, apperr.NewUnauthorized(nil, errInvalidAuthHeader))
+				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errInvalidAuthHeader)))
 				return
 			}
 
 			claims, err := t.VerifyAccess(tokenStr)
 			if err != nil {
 				if errors.Is(err, token.ErrTokenExpired) {
-					respondError(w, r, apperr.NewTokenExpired(err, errInvalidToken))
+					respondError(w, r,
+						// apperr.NewTokenExpired(err, errInvalidToken)
+						apperr.NewInternal(err, apperr.WithMsg(errInvalidToken)),
+					)
 					return
 				}
 
-				respondError(w, r, apperr.NewUnauthorized(err, "Invalid or corrupt authorization token."))
+				respondError(w, r, apperr.NewUnauthenticated(err, apperr.WithMsg("Invalid or corrupt authorization token.")))
 				return
 			}
 
@@ -455,9 +456,9 @@ func RequireAuth(t *token.Manager) func(http.Handler) http.Handler {
 func GetCtxClaims(ctx context.Context) (*token.Claims, error) {
 	claims, ok := ctx.Value(userClaimsKey).(*token.Claims)
 	if !ok {
-		return nil, apperr.NewUnauthorized(
+		return nil, apperr.NewUnauthenticated(
 			fmt.Errorf("claims not found in context"),
-			"Authentication is required to access this resource.",
+			apperr.WithMsg("Authentication is required to access this resource."),
 		)
 	}
 	return claims, nil

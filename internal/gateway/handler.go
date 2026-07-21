@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence"
 	"context"
 	"net/http"
 
@@ -40,17 +39,18 @@ type ServeWSQuery struct {
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
-	query, err := httpio.BindQuery[ServeWSQuery](r)
+	query, err := httpio.BindQuery[ServeWSQuery](nil, r)
 	if err != nil {
 		return err
 	}
 
 	ticketId, err := uuid.Parse(query.TicketID)
 	if err != nil {
-		return apperr.NewInvalidInput(
+		return apperr.NewInvalidArgument(
 			err,
-			"Invalid ticket format.",
-			apperr.Param("ticket_id", "Must be a valid UUID v4 format."),
+			apperr.WithMsg("Invalid ticket format."),
+			apperr.WithMeta("ticket_id", "Must be a valid UUID v4 format."),
+			// TODO: Bad request
 		)
 	}
 
@@ -60,15 +60,15 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	err = h.cache.Get(ctx, ticketKey, &ticket)
 	if err != nil {
-		return apperr.NewUnauthorized(err, "Websocket connection ticket is invalid or expired.")
+		return apperr.NewUnauthenticated(err, apperr.WithMsg("Websocket connection ticket is invalid or expired."))
 	}
 
 	_ = h.cache.Delete(ctx, ticketKey)
 
-	userPresence := presence.PresenceOnline
-	if query.Presence != nil {
-		userPresence = presence.Parse(*query.Presence)
-	}
+	// userPresence := user.PresenceOnline
+	// if query.Presence != nil {
+	// 	userPresence = user.ParsePresence(*query.Presence)
+	// }
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -77,7 +77,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	client := &Client{
 		UserID:   ticket.UserID,
-		Presence: userPresence,
+		Presence: nil,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
 	}

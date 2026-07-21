@@ -6,6 +6,7 @@ import (
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/db"
 
 	"github.com/google/uuid"
 )
@@ -22,6 +23,7 @@ type PresenceService interface {
 
 type Service struct {
 	cache cache.Manager
+	db    db.Store
 }
 
 func NewService(cache cache.Manager) *Service {
@@ -107,3 +109,30 @@ func (s *Service) GetPresenceBulkByUserIDs(ctx context.Context, userIDs []uuid.U
 
 	return activities, nil
 }
+
+// func (s *Service) GetMe(ctx context.Context, userID uuid.UUID) (View, error) {
+// 	var (
+// 		u  User
+// 		up UserProfile
+// 	)
+
+// 	g, gCtx := errgroup.WithContext(ctx)
+
+// 	g.Go(func() error {
+// 		var err error
+// 		u, err = s.db.UserGetByID(gCtx, userID)
+// 		return err
+// 	})
+
+// 	g.Go(func() error {
+// 		var err error
+// 		up, err = s.GetProfileByUserID(gCtx, userID)
+// 		return err
+// 	})
+
+// 	if err := g.Wait(); err != nil {
+// 		return View{}, err
+// 	}
+
+// 	return ToView(u, up), nil
+// }

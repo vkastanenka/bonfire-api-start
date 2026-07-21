@@ -1,14 +1,12 @@
 package outbox
 
 import (
-	"bonfire-api/internal/repository"
+	"bonfire-api/internal/db"
 	"context"
-	"encoding/json"
-	"fmt"
 )
 
 type Emitter interface {
-	OutboxEventCreate(ctx context.Context, arg repository.OutboxEventCreateParams) (repository.OutboxEvent, error)
+	OutboxEventCreate(ctx context.Context, arg db.OutboxEventCreateParams) (db.OutboxEvent, error)
 }
 
 type Type string
@@ -59,18 +57,18 @@ func EmitPresenceUpdated(ctx context.Context, db Emitter, payload PresenceUpdate
 }
 
 func emitEvent(ctx context.Context, db Emitter, eventType Type, payload any) error {
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("outbox: failed to marshal payload for %s: %w", eventType, err)
-	}
+	// jsonBytes, err := json.Marshal(payload)
+	// if err != nil {
+	// 	return fmt.Errorf("outbox: failed to marshal payload for %s: %w", eventType, err)
+	// }
 
-	_, err = db.OutboxEventCreate(ctx, repository.OutboxEventCreateParams{
-		EventType: string(eventType),
-		Payload:   jsonBytes,
-	})
-	if err != nil {
-		return repository.NewError(err, repository.ScopeOutboxEvent)
-	}
+	// _, err = db.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
+	// 	EventType: string(eventType),
+	// 	Payload:   jsonBytes,
+	// })
+	// if err != nil {
+	// 	return repository.NewError(err, repository.EntityOutboxEvent)
+	// }
 
 	return nil
 }

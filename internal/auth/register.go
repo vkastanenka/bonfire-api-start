@@ -1,22 +1,11 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/repository"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/sync/errgroup"
 )
 
 type RegisterRequest struct {
@@ -31,7 +20,7 @@ type RegisterResponse struct {
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterRequest](w, r)
+	req, err := httpio.BindJSON[RegisterRequest](nil, w, r)
 	if err != nil {
 		return err
 	}
@@ -75,151 +64,153 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
-	var passwordHash string
-	var availability user.CheckAvailabilityResult
+	// var passwordHash string
+	// var availability user.CheckAvailabilityResult
 
-	g, gCtx := errgroup.WithContext(ctx)
+	// g, gCtx := errgroup.WithContext(ctx)
 
-	g.Go(func() error {
-		var hErr error
-		passwordHash, hErr = crypto.HashPassword(p.Password)
-		return hErr
-	})
+	// g.Go(func() error {
+	// 	var hErr error
+	// 	passwordHash, hErr = crypto.HashPassword(p.Password)
+	// 	return hErr
+	// })
 
-	g.Go(func() error {
-		var aErr error
-		availability, aErr = s.user.CheckAvailability(gCtx, user.CheckAvailabilityParams{
-			Email:    p.Email,
-			Username: p.Username,
-		})
-		return aErr
-	})
+	// g.Go(func() error {
+	// 	var aErr error
+	// 	availability, aErr = s.user.CheckAvailability(gCtx, user.CheckAvailabilityParams{
+	// 		Email:    p.Email,
+	// 		Username: p.Username,
+	// 	})
+	// 	return aErr
+	// })
 
-	if err := g.Wait(); err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
+	// if err := g.Wait(); err != nil {
+	// 	return RegisterResult{}, apperr.NewInternal(err, "")
+	// }
 
-	if !availability.Email || !availability.Username {
-		return RegisterResult{}, newConflictError(availability)
-	}
+	// if !availability.Email || !availability.Username {
+	// 	return RegisterResult{}, newConflictError(availability)
+	// }
 
-	userID, err := uuid.NewV7()
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
+	// userID, err := uuid.NewV7()
+	// if err != nil {
+	// 	return RegisterResult{}, apperr.NewInternal(err, "")
+	// }
 
-	sessionID, err := uuid.NewV7()
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
+	// sessionID, err := uuid.NewV7()
+	// if err != nil {
+	// 	return RegisterResult{}, apperr.NewInternal(err, "")
+	// }
 
-	tokenPair, err := s.token.GeneratePair(token.PairParams{
-		UserID:    userID,
-		SessionID: sessionID,
-	})
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
+	// tokenPair, err := s.token.GeneratePair(token.PairParams{
+	// 	UserID:    userID,
+	// 	SessionID: sessionID,
+	// })
+	// if err != nil {
+	// 	return RegisterResult{}, apperr.NewInternal(err, "")
+	// }
 
-	evToken, _, err := s.token.GenerateEmailVerify(userID)
-	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err, "")
-	}
+	// evToken, _, err := s.token.GenerateEmailVerify(userID)
+	// if err != nil {
+	// 	return RegisterResult{}, apperr.NewInternal(err, "")
+	// }
 
-	hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
+	// hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
 
-	displayName := p.Username
-	if p.DisplayName != nil && *p.DisplayName != "" {
-		displayName = *p.DisplayName
-	}
+	// displayName := p.Username
+	// if p.DisplayName != nil && *p.DisplayName != "" {
+	// 	displayName = *p.DisplayName
+	// }
 
-	var sessionRow session.Session
+	// var sessionRow session.Session
 
-	persistCtx := context.WithoutCancel(ctx)
+	// persistCtx := context.WithoutCancel(ctx)
 
-	txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
+	// txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
 
-		userRaw, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
-			ID:           pgtype.UUID{Bytes: userID, Valid: true},
-			Email:        p.Email,
-			Username:     p.Username,
-			PasswordHash: passwordHash,
-		})
-		if err != nil {
-			return repository.NewError(err, repository.ScopeUser)
-		}
+	// 	userRaw, err := qtx.UserCreate(persistCtx, repository.UserCreateParams{
+	// 		ID:           pgtype.UUID{Bytes: userID, Valid: true},
+	// 		Email:        p.Email,
+	// 		Username:     p.Username,
+	// 		PasswordHash: passwordHash,
+	// 	})
+	// 	if err != nil {
+	// 		return repository.NewError(err, repository.ScopeUser)
+	// 	}
 
-		_, err = qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
-			UserID:      pgtype.UUID{Bytes: userID, Valid: true},
-			DisplayName: displayName,
-		})
-		if err != nil {
-			return repository.NewError(err, repository.ScopeUserProfile)
-		}
+	// 	_, err = qtx.UserProfileCreate(persistCtx, repository.UserProfileCreateParams{
+	// 		UserID:      pgtype.UUID{Bytes: userID, Valid: true},
+	// 		DisplayName: displayName,
+	// 	})
+	// 	if err != nil {
+	// 		return repository.NewError(err, repository.ScopeUserProfile)
+	// 	}
 
-		sessionRaw, err := qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
-			ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
-			UserID:           pgtype.UUID{Bytes: userID, Valid: true},
-			RefreshTokenHash: hashedRefreshToken,
-			ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshExpiresAt, Valid: true},
-			ClientIP:         p.ClientMeta.IP,
-			UserAgent:        p.ClientMeta.UserAgent,
-			OS:               p.ClientMeta.OS,
-			Browser:          p.ClientMeta.Browser,
-		})
-		if err != nil {
-			return repository.NewError(err, repository.ScopeSession)
-		}
+	// 	sessionRaw, err := qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
+	// 		ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
+	// 		UserID:           pgtype.UUID{Bytes: userID, Valid: true},
+	// 		RefreshTokenHash: hashedRefreshToken,
+	// 		ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshExpiresAt, Valid: true},
+	// 		ClientIP:         p.ClientMeta.IP,
+	// 		UserAgent:        p.ClientMeta.UserAgent,
+	// 		OS:               p.ClientMeta.OS,
+	// 		Browser:          p.ClientMeta.Browser,
+	// 	})
+	// 	if err != nil {
+	// 		return repository.NewError(err, repository.ScopeSession)
+	// 	}
 
-		sessionRow = session.FromRepository(sessionRaw)
-		userRow := user.FromRepository(userRaw)
+	// 	sessionRow = session.FromRepository(sessionRaw)
+	// 	userRow := user.FromRepository(userRaw)
 
-		err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
-			Email:    userRow.Email,
-			Username: userRow.Username,
-			Token:    evToken,
-		})
-		if err != nil {
-			return repository.NewError(err, repository.ScopeOutboxEvent)
-		}
+	// 	err = outbox.EmitRegister(persistCtx, qtx, outbox.RegisterPayload{
+	// 		Email:    userRow.Email,
+	// 		Username: userRow.Username,
+	// 		Token:    evToken,
+	// 	})
+	// 	if err != nil {
+	// 		return repository.NewError(err, repository.ScopeOutboxEvent)
+	// 	}
 
-		return nil
-	})
+	// 	return nil
+	// })
 
-	if txErr != nil {
-		return RegisterResult{}, txErr
-	}
+	// if txErr != nil {
+	// 	return RegisterResult{}, txErr
+	// }
 
-	sessionAuth := session.ToAuthView(sessionRow)
-	sessionKey := cache.SessionKey(sessionAuth.ID)
-	s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
+	// sessionAuth := session.ToAuthView(sessionRow)
+	// sessionKey := cache.SessionKey(sessionAuth.ID)
+	// s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
 
-	return RegisterResult{
-		AccessToken:           tokenPair.Access,
-		RefreshToken:          tokenPair.Refresh,
-		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
-	}, nil
+	// return RegisterResult{
+	// 	AccessToken:           tokenPair.Access,
+	// 	RefreshToken:          tokenPair.Refresh,
+	// 	RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
+	// }, nil
+	return RegisterResult{}, nil
 }
 
 func newConflictError(r user.CheckAvailabilityResult) error {
-	var params []apperr.InvalidParam
+	// var params []apperr.InvalidParam
 
-	if !r.Email {
-		params = append(params, apperr.InvalidParam{
-			Name:   "email",
-			Reason: "This email is already taken.",
-		})
-	}
-	if !r.Username {
-		params = append(params, apperr.InvalidParam{
-			Name:   "username",
-			Reason: "This username is already taken.",
-		})
-	}
+	// if !r.Email {
+	// 	params = append(params, apperr.InvalidParam{
+	// 		Name:   "email",
+	// 		Reason: "This email is already taken.",
+	// 	})
+	// }
+	// if !r.Username {
+	// 	params = append(params, apperr.InvalidParam{
+	// 		Name:   "username",
+	// 		Reason: "This username is already taken.",
+	// 	})
+	// }
 
-	return apperr.NewInvalidInput(
-		nil,
-		"Validation failed for the request.",
-		apperr.Params(params),
-	)
+	// return apperr.NewInvalidInput(
+	// 	nil,
+	// 	"Validation failed for the request.",
+	// 	apperr.Params(params),
+	// )
+	return nil
 }

@@ -10,9 +10,7 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/me"
 	"bonfire-api/internal/token"
-	"bonfire-api/internal/user"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -20,8 +18,8 @@ import (
 type Handlers struct {
 	Auth    *auth.Handler
 	Gateway *gateway.Handler
-	Me      *me.Handler
-	User    *user.Handler
+	// Me      *me.Handler
+	// User    *user.Handler
 }
 
 type Managers struct {

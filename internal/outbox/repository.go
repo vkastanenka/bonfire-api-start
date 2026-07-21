@@ -1,0 +1,47 @@
+package outbox
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/google/uuid"
+)
+
+type CreateParams struct {
+	EventType string
+	Payload   json.RawMessage
+}
+
+type ListParams struct {
+	Cursor *uuid.UUID
+	Limit  int32
+}
+
+type AcquireBatchParams struct {
+	Limit                  int32
+	WorkerID               uuid.UUID
+	LeaseDurationInSeconds int32
+}
+
+type RecordFailureParams struct {
+	ID        uuid.UUID
+	LastError string
+}
+
+type MarkDeadLetterParams struct {
+	ID     uuid.UUID
+	Reason string
+}
+
+type Repository interface {
+	Create(ctx context.Context, p CreateParams) (Event, error)
+	GetByID(ctx context.Context, id uuid.UUID) (Event, error)
+	List(ctx context.Context, p ListParams) ([]Event, error)
+	AcquireBatch(ctx context.Context, p AcquireBatchParams) ([]Event, error)
+	MarkProcessed(ctx context.Context, id uuid.UUID) (Event, error)
+	RecordFailure(ctx context.Context, p RecordFailureParams) (Event, error)
+	MarkDeadLetter(ctx context.Context, p MarkDeadLetterParams) (Event, error)
+	ResetAttempts(ctx context.Context, id uuid.UUID) (Event, error)
+	DeleteByID(ctx context.Context, id uuid.UUID) error
+	PurgeProcessed(ctx context.Context) error
+}

@@ -28,11 +28,11 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	defer cancel()
 
 	if err := h.db.Ping(ctx); err != nil {
-		return apperr.NewInternal(err, "")
+		return apperr.NewInternal(err)
 	}
 
 	if err := h.redis.Ping(ctx).Err(); err != nil {
-		return apperr.NewInternal(err, "")
+		return apperr.NewInternal(err)
 	}
 
 	httpio.RespondNoContent(w)

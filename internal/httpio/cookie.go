@@ -1,4 +1,4 @@
-package http
+package httpio
 
 import (
 	"net/http"

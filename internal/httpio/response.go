@@ -1,11 +1,9 @@
-package http
+package httpio
 
 import (
 	"bonfire-api/internal/apperr"
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -47,27 +45,27 @@ func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFun
 }
 
 func respondError(w http.ResponseWriter, r *http.Request, err error) {
-	var appErr *apperr.Error
+	// var appErr *apperr.Error
 
-	if errors.As(err, &appErr) {
-	} else if errors.Is(err, context.DeadlineExceeded) {
-		appErr = &apperr.Error{
-			Code:   apperr.CodeGatewayTimeout,
-			Detail: apperr.CodeGatewayTimeout.Detail(),
-			Err:    err,
-		}
-	} else {
-		appErr = &apperr.Error{
-			Code:   apperr.CodeInternal,
-			Detail: apperr.CodeInternal.Detail(),
-			Err:    err,
-		}
-	}
+	// if errors.As(err, &appErr) {
+	// } else if errors.Is(err, context.DeadlineExceeded) {
+	// 	appErr = &apperr.Error{
+	// 		Code:   apperr.CodeGatewayTimeout,
+	// 		Detail: apperr.CodeGatewayTimeout.Detail(),
+	// 		Err:    err,
+	// 	}
+	// } else {
+	// 	appErr = &apperr.Error{
+	// 		Code:   apperr.CodeInternal,
+	// 		Detail: apperr.CodeInternal.Detail(),
+	// 		Err:    err,
+	// 	}
+	// }
 
-	status, resp := MapToProblemDetails(r, appErr)
-	logError(r, appErr, resp, err)
+	// status, resp := MapToProblemDetails(r, appErr)
+	// logError(r, appErr, resp, err)
 
-	writeJSON(w, r, status, contentTypeProblem, resp)
+	// writeJSON(w, r, status, contentTypeProblem, resp)
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType string, data any) {
@@ -101,25 +99,25 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType s
 }
 
 func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, originalErr error) {
-	level := slog.LevelInfo
-	if appErr.Code == apperr.CodeInternal {
-		level = slog.LevelError
-	}
+	// level := slog.LevelInfo
+	// if appErr.Code == apperr.CodeInternal {
+	// 	level = slog.LevelError
+	// }
 
-	args := []any{
-		"http.method", r.Method,
-		"http.path", r.URL.Path,
-		"http.status_code", resp.Status,
-		slog.Group("error",
-			"code", appErr.Code,
-			"detail", appErr.Detail,
-			"raw", originalErr.Error(),
-		),
-	}
+	// args := []any{
+	// 	"http.method", r.Method,
+	// 	"http.path", r.URL.Path,
+	// 	"http.status_code", resp.Status,
+	// 	slog.Group("error",
+	// 		"code", appErr.Code,
+	// 		"detail", appErr.Detail,
+	// 		"raw", originalErr.Error(),
+	// 	),
+	// }
 
-	if len(appErr.InvalidParams) > 0 {
-		args = append(args, "error.invalid_params", appErr.InvalidParams)
-	}
+	// if len(appErr.InvalidParams) > 0 {
+	// 	args = append(args, "error.invalid_params", appErr.InvalidParams)
+	// }
 
-	slog.Log(r.Context(), level, "http request execution failed", args...)
+	// slog.Log(r.Context(), level, "http request execution failed", args...)
 }

@@ -2,16 +2,14 @@ package gateway
 
 import (
 	"bonfire-api/internal/cache"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/repository"
+	"bonfire-api/internal/db"
+
+	// "bonfire-api/internal/presence"
 	"bonfire-api/internal/sanitize"
-	"bonfire-api/internal/validator"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	// Added for pgtype.UUID mapping
@@ -25,68 +23,71 @@ type Hub struct {
 	unregister chan *Client
 	mu         sync.RWMutex
 
-	store       repository.Store
-	cache       cache.Manager
-	presenceSvc *presence.Service
+	store db.Store
+	cache cache.Manager
+	// presenceSvc *presence.Service
 }
 
-func NewHub(store repository.Store, cache cache.Manager, presenceSvc *presence.Service) *Hub {
+func NewHub(store db.Store, cache cache.Manager,
+
+// presenceSvc *presence.Service
+) *Hub {
 	return &Hub{
-		clients:     make(map[uuid.UUID]*Client),
-		register:    make(chan *Client),
-		unregister:  make(chan *Client),
-		store:       store,
-		cache:       cache,
-		presenceSvc: presenceSvc,
+		clients:    make(map[uuid.UUID]*Client),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		store:      store,
+		cache:      cache,
+		// presenceSvc: presenceSvc,
 	}
 }
 
 func (h *Hub) Run(ctx context.Context) {
 	go h.listenRedisPresence(ctx)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
+	// for {
+	// 	select {
+	// 	case <-ctx.Done():
+	// 		return
 
-		case client := <-h.register:
-			h.mu.Lock()
-			if oldClient, exists := h.clients[client.UserID]; exists {
-				oldClient.Close()
-			}
-			h.clients[client.UserID] = client
-			h.mu.Unlock()
+	// 	case client := <-h.register:
+	// 		h.mu.Lock()
+	// 		if oldClient, exists := h.clients[client.UserID]; exists {
+	// 			oldClient.Close()
+	// 		}
+	// 		h.clients[client.UserID] = client
+	// 		h.mu.Unlock()
 
-			go func(id uuid.UUID, initialPresence presence.Presence) {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
+	// 		go func(id uuid.UUID, initialPresence presence.Presence) {
+	// 			bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 			defer cancel()
 
-				_ = h.presenceSvc.Heartbeat(bgCtx, id, initialPresence)
-				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
-					UserID:   id.String(),
-					Presence: initialPresence.String(),
-				})
-			}(client.UserID, client.Presence)
+	// 			_ = h.presenceSvc.Heartbeat(bgCtx, id, initialPresence)
+	// 			_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+	// 				UserID:   id.String(),
+	// 				Presence: initialPresence.String(),
+	// 			})
+	// 		}(client.UserID, client.Presence)
 
-		case client := <-h.unregister:
-			h.mu.Lock()
-			if current, exists := h.clients[client.UserID]; exists && current == client {
-				delete(h.clients, client.UserID)
-				client.Close()
-			}
-			h.mu.Unlock()
+	// 	case client := <-h.unregister:
+	// 		h.mu.Lock()
+	// 		if current, exists := h.clients[client.UserID]; exists && current == client {
+	// 			delete(h.clients, client.UserID)
+	// 			client.Close()
+	// 		}
+	// 		h.mu.Unlock()
 
-			go func(id uuid.UUID) {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
+	// 		go func(id uuid.UUID) {
+	// 			bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 			defer cancel()
 
-				_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
-					UserID:   id.String(),
-					Presence: presence.PresenceOffline.String(),
-				})
-			}(client.UserID)
-		}
-	}
+	// 			_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+	// 				UserID:   id.String(),
+	// 				Presence: presence.PresenceOffline.String(),
+	// 			})
+	// 		}(client.UserID)
+	// 	}
+	// }
 }
 
 func (h *Hub) listenRedisPresence(ctx context.Context) {
@@ -177,22 +178,22 @@ func (h *Hub) handleUpdatePresence(client *Client, rawData json.RawMessage) {
 
 	sanitize.Normalize(&data)
 
-	if err := validator.Validate(&data); err != nil {
-		return
-	}
+	// if err := validator.Validate(&data); err != nil {
+	// 	return
+	// }
 
-	presenceEnum := presence.Parse(data.Presence)
+	// presenceEnum := presence.Parse(data.Presence)
 
-	client.SetPresence(presenceEnum)
+	// client.SetPresence(presenceEnum)
 
-	go func(id uuid.UUID, p presence.Presence) {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
+	// go func(id uuid.UUID, p presence.Presence) {
+	// 	bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 	defer cancel()
 
-		_ = h.presenceSvc.Heartbeat(bgCtx, id, p)
-		_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
-			UserID:   id.String(),
-			Presence: p.String(),
-		})
-	}(client.UserID, presenceEnum)
+	// 	_ = h.presenceSvc.Heartbeat(bgCtx, id, p)
+	// 	_ = outbox.EmitPresenceUpdated(bgCtx, h.store, outbox.PresenceUpdatedPayload{
+	// 		UserID:   id.String(),
+	// 		Presence: p.String(),
+	// 	})
+	// }(client.UserID, presenceEnum)
 }

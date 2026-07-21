@@ -1,11 +1,10 @@
 package gateway
 
 import (
+	"bonfire-api/internal/user"
 	"encoding/json"
 	"sync"
 	"time"
-
-	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -24,14 +23,14 @@ type WSMessage struct {
 
 type Client struct {
 	UserID   uuid.UUID
-	Presence presence.Presence
+	Presence *user.Presence
 	Conn     *websocket.Conn
 	Send     chan []byte
 	isClosed bool
 	mu       sync.RWMutex
 }
 
-func (c *Client) SetPresence(p presence.Presence) {
+func (c *Client) SetPresence(p *user.Presence) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Presence = p
