@@ -17,7 +17,7 @@ func NewOutboxEventHandler(repo outbox.Repository) *OutboxEventHandler {
 }
 
 type OutboxEventGetByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required,idSchema"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.Request) error {
@@ -36,7 +36,7 @@ func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.R
 }
 
 type ResetAttemptsPath struct {
-	ID uuid.UUID `path:"id" validate:"required,idSchema"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *OutboxEventHandler) OutboxEventResetAttempts(w http.ResponseWriter, r *http.Request) error {
@@ -55,7 +55,7 @@ func (h *OutboxEventHandler) OutboxEventResetAttempts(w http.ResponseWriter, r *
 }
 
 type OutboxEventDeleteByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required,idSchema"`
+	ID uuid.UUID `path:"id" validate:"required"`
 }
 
 func (h *OutboxEventHandler) Delete(w http.ResponseWriter, r *http.Request) error {

@@ -1,13 +1,15 @@
 package user
 
 import (
-	"fmt"
-	"strconv"
+	"errors"
+	"strings"
 	"time"
 )
 
 // TODO: Move to config
 const presenceTTL = 30 * time.Second
+
+var ErrInvalidPresence = errors.New("invalid presence status")
 
 type Presence uint8
 
@@ -32,48 +34,40 @@ var presenceNames = [...]string{
 	PresenceInvisible: "invisible",
 }
 
-var presenceValues = map[string]Presence{
-	"online":    PresenceOnline,
-	"offline":   PresenceOffline,
-	"idle":      PresenceIdle,
-	"busy":      PresenceBusy,
-	"dnd":       PresenceDND,
-	"invisible": PresenceInvisible,
+func NewPresence(raw string) (Presence, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	for i := 1; i < int(presenceMax); i++ {
+		if presenceNames[i] == s {
+			return Presence(i), nil
+		}
+	}
+	return PresenceUnknown, ErrInvalidPresence
 }
 
-func (p Presence) Valid() bool {
+func (p Presence) IsValid() bool {
 	return p > PresenceUnknown && p < presenceMax
 }
 
 func (p Presence) String() string {
-	if int(p) < len(presenceNames) {
+	if p.IsValid() {
 		return presenceNames[p]
 	}
-	return "offline"
+	return presenceNames[PresenceUnknown]
 }
 
-func ParsePresence(s string) Presence {
-	if p, ok := presenceValues[s]; ok {
-		return p
+func (p Presence) MarshalText() ([]byte, error) {
+	return []byte(p.String()), nil
+}
+
+func (p *Presence) UnmarshalText(text []byte) error {
+	if len(text) == 0 {
+		*p = PresenceUnknown
+		return nil
 	}
-	return PresenceUnknown
-}
-
-func (p Presence) MarshalJSON() ([]byte, error) {
-	return []byte(strconv.Quote(p.String())), nil
-}
-
-func (p *Presence) UnmarshalJSON(data []byte) error {
-	unquoted, err := strconv.Unquote(string(data))
+	parsed, err := NewPresence(string(text))
 	if err != nil {
-		return fmt.Errorf("invalid presence string: %w", err)
+		return err
 	}
-
-	parsed := ParsePresence(unquoted)
-	if !parsed.Valid() {
-		return fmt.Errorf("invalid presence status: %q", unquoted)
-	}
-
 	*p = parsed
 	return nil
 }

@@ -35,7 +35,7 @@ func NewService(cache cache.Manager) *Service {
 var _ PresenceService = (*Service)(nil)
 
 func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) error {
-	if !p.Valid() {
+	if !p.IsValid() {
 		return apperr.NewInvalidArgument(
 			nil,
 			apperr.WithMsg("Invalid presence status provided"),
@@ -71,7 +71,7 @@ func (s *Service) GetPresenceByUserID(ctx context.Context, userID uuid.UUID) (Pr
 		)
 	}
 
-	return ParsePresence(val), nil
+	return NewPresence(val)
 }
 
 func (s *Service) GetPresenceBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
@@ -80,32 +80,32 @@ func (s *Service) GetPresenceBulkByUserIDs(ctx context.Context, userIDs []uuid.U
 		return activities, nil
 	}
 
-	presenceKeys := make([]string, len(userIDs))
-	for i, id := range userIDs {
-		presenceKeys[i] = userPresenceKey(id)
-	}
+	// presenceKeys := make([]string, len(userIDs))
+	// for i, id := range userIDs {
+	// 	presenceKeys[i] = userPresenceKey(id)
+	// }
 
-	values, err := s.cache.MGet(ctx, presenceKeys...)
-	if err != nil {
-		return nil, apperr.NewInternal(
-			err,
-			apperr.WithMsg("Failed to bulk retrieve user presences"),
-			apperr.WithMeta("requested_count", fmt.Sprintf("%d", len(userIDs))),
-		)
-	}
+	// values, err := s.cache.MGet(ctx, presenceKeys...)
+	// if err != nil {
+	// 	return nil, apperr.NewInternal(
+	// 		err,
+	// 		apperr.WithMsg("Failed to bulk retrieve user presences"),
+	// 		apperr.WithMeta("requested_count", fmt.Sprintf("%d", len(userIDs))),
+	// 	)
+	// }
 
-	for i, id := range userIDs {
-		if values[i] == nil {
-			activities[id] = PresenceOffline
-			continue
-		}
+	// for i, id := range userIDs {
+	// 	if values[i] == nil {
+	// 		activities[id] = PresenceOffline
+	// 		continue
+	// 	}
 
-		if valStr, ok := values[i].(string); ok {
-			activities[id] = ParsePresence(valStr)
-		} else {
-			activities[id] = PresenceOffline
-		}
-	}
+	// 	if valStr, ok := values[i].(string); ok {
+	// 		activities[id] = NewPresence(valStr)
+	// 	} else {
+	// 		activities[id] = PresenceOffline
+	// 	}
+	// }
 
 	return activities, nil
 }
