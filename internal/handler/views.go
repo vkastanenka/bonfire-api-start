@@ -106,7 +106,7 @@ func ToSessionResponse(s session.Session) SessionResponse {
 		UserID:     s.UserID,
 		LastSeenAt: s.LastSeenAt,
 		ExpiresAt:  s.ExpiresAt,
-		ClientIP:   s.ClientIP,
+		ClientIP:   s.ClientIP.String(),
 		UserAgent:  s.UserAgent,
 		OS:         s.OS,
 		Browser:    s.Browser,

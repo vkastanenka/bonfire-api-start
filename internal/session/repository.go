@@ -12,7 +12,7 @@ import (
 type CreateParams struct {
 	ID               uuid.UUID
 	UserID           uuid.UUID
-	RefreshTokenHash []byte
+	RefreshTokenHash RefreshTokenHash
 	ExpiresAt        time.Time
 	ClientIP         netip.Addr
 	UserAgent        string
@@ -22,7 +22,7 @@ type CreateParams struct {
 
 type UpdateRefreshTokenParams struct {
 	ID               uuid.UUID
-	RefreshTokenHash []byte
+	RefreshTokenHash RefreshTokenHash
 	ExpiresAt        time.Time
 }
 

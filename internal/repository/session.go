@@ -23,7 +23,7 @@ func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.S
 	row, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
 		ID:               pgtype.UUID{Bytes: p.ID, Valid: p.ID != uuid.Nil},
 		UserID:           pgtype.UUID{Bytes: p.UserID, Valid: true},
-		RefreshTokenHash: p.RefreshTokenHash,
+		RefreshTokenHash: p.RefreshTokenHash.Bytes(),
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 		ClientIP:         p.ClientIP,
 		UserAgent:        p.UserAgent,
@@ -34,7 +34,7 @@ func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.S
 		return session.Session{}, NewError(err, EntitySession)
 	}
 
-	return sessionFromDB(row), nil
+	return sessionFromDB(row)
 }
 
 func (r *Session) Get(ctx context.Context, id uuid.UUID) (session.Session, error) {
@@ -42,19 +42,19 @@ func (r *Session) Get(ctx context.Context, id uuid.UUID) (session.Session, error
 	if err != nil {
 		return session.Session{}, NewError(err, EntitySession)
 	}
-	return sessionFromDB(row), nil
+	return sessionFromDB(row)
 }
 
 func (r *Session) UpdateRefreshToken(ctx context.Context, p session.UpdateRefreshTokenParams) (session.Session, error) {
 	row, err := r.store.SessionUpdateRefreshToken(ctx, db.SessionUpdateRefreshTokenParams{
 		ID:               pgtype.UUID{Bytes: p.ID, Valid: true},
-		RefreshTokenHash: p.RefreshTokenHash,
+		RefreshTokenHash: p.RefreshTokenHash.Bytes(),
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
 		return session.Session{}, NewError(err, EntitySession)
 	}
-	return sessionFromDB(row), nil
+	return sessionFromDB(row)
 }
 
 func (r *Session) UpdateLastSeen(ctx context.Context, id uuid.UUID) (session.Session, error) {
@@ -62,7 +62,7 @@ func (r *Session) UpdateLastSeen(ctx context.Context, id uuid.UUID) (session.Ses
 	if err != nil {
 		return session.Session{}, NewError(err, EntitySession)
 	}
-	return sessionFromDB(row), nil
+	return sessionFromDB(row)
 }
 
 func (r *Session) Revoke(ctx context.Context, id uuid.UUID) (session.Session, error) {
@@ -70,7 +70,7 @@ func (r *Session) Revoke(ctx context.Context, id uuid.UUID) (session.Session, er
 	if err != nil {
 		return session.Session{}, NewError(err, EntitySession)
 	}
-	return sessionFromDB(row), nil
+	return sessionFromDB(row)
 }
 
 func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
@@ -92,13 +92,18 @@ func (r *Session) DeleteAllExcept(ctx context.Context, p session.DeleteAllExcept
 	return nil
 }
 
-func sessionFromDB(row db.Session) session.Session {
+func sessionFromDB(row db.Session) (session.Session, error) {
+	tokenHash, err := session.NewRefreshTokenHash(row.RefreshTokenHash)
+	if err != nil {
+		return session.Session{}, NewError(err, EntitySession)
+	}
+
 	s := session.Session{
 		ID:               uuid.UUID(row.ID.Bytes),
 		UserID:           uuid.UUID(row.UserID.Bytes),
-		RefreshTokenHash: row.RefreshTokenHash,
+		RefreshTokenHash: tokenHash,
 		ExpiresAt:        row.ExpiresAt.Time,
-		ClientIP:         row.ClientIP.String(),
+		ClientIP:         row.ClientIP,
 		UserAgent:        row.UserAgent,
 		OS:               row.OS,
 		Browser:          row.Browser,
@@ -114,7 +119,7 @@ func sessionFromDB(row db.Session) session.Session {
 		s.LastSeenAt = row.LastSeenAt.Time
 	}
 
-	return s
+	return s, nil
 }
 
 var _ session.Repository = (*Session)(nil)
