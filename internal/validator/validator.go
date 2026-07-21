@@ -25,20 +25,12 @@ const (
 	errMaxCollection          = "Cannot contain more than %s items."
 )
 
-type Option func(*Validator)
-
-type Rule struct {
-	Tag          string
-	ValidatorFn  func(val string) bool
-	ErrorMessage string
-}
-
 type Validator struct {
 	validate      *goValidator.Validate
 	errorMessages map[string]string
 }
 
-func New(opts ...Option) *Validator {
+func New() *Validator {
 	v := goValidator.New()
 
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
@@ -57,53 +49,12 @@ func New(opts ...Option) *Validator {
 		return ""
 	})
 
-	v.RegisterAlias("idSchema", "uuid,len=36")
-	v.RegisterAlias("emailSchema", "email,max=255")
-
 	instance := &Validator{
 		validate:      v,
 		errorMessages: make(map[string]string),
 	}
 
-	for _, opt := range opts {
-		opt(instance)
-	}
-
 	return instance
-}
-
-func (v *Validator) RegisterValidation(tag string, fn func(val string) bool, customMsg ...string) {
-	v.validate.RegisterValidation(tag, func(fl goValidator.FieldLevel) bool {
-		field := fl.Field()
-		if field.Kind() == reflect.String {
-			return fn(field.String())
-		}
-		return false
-	})
-
-	if len(customMsg) > 0 && customMsg[0] != "" {
-		v.errorMessages[tag] = customMsg[0]
-	}
-}
-
-func (v *Validator) RegisterAlias(alias, tags string) {
-	v.validate.RegisterAlias(alias, tags)
-}
-
-func WithCustomRules(rules ...Rule) Option {
-	return func(v *Validator) {
-		for _, r := range rules {
-			v.RegisterValidation(r.Tag, r.ValidatorFn, r.ErrorMessage)
-		}
-	}
-}
-
-func WithSchemaAliases(aliases map[string]string) Option {
-	return func(v *Validator) {
-		for alias, tags := range aliases {
-			v.RegisterAlias(alias, tags)
-		}
-	}
 }
 
 func (v *Validator) Validate(s interface{}) error {

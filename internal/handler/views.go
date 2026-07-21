@@ -126,7 +126,7 @@ type UserResponse struct {
 func ToUserResponse(u user.User) UserResponse {
 	return UserResponse{
 		ID:                u.ID,
-		Username:          u.Username,
+		Username:          u.Username.String(), // Extracted string value
 		PreferredPresence: u.PreferredPresence,
 		IsVerified:        u.IsVerified(),
 		CreatedAt:         u.CreatedAt,
@@ -144,7 +144,7 @@ type UserProfileResponse struct {
 func ToUserProfileResponse(up user.Profile) UserProfileResponse {
 	return UserProfileResponse{
 		UserID:      up.UserID,
-		DisplayName: up.DisplayName,
+		DisplayName: up.DisplayName.String(), // Extracted string value
 		AvatarURL:   ptr.Map(up.AvatarURL),
 		CreatedAt:   up.CreatedAt,
 		UpdatedAt:   up.UpdatedAt,
@@ -156,8 +156,8 @@ type UserMeResponse struct {
 	Email             string         `json:"email"`
 	Username          string         `json:"username"`
 	DisplayName       string         `json:"display_name"`
-	AvatarURL         *string        `json:"avatar_url" validate:"omitempty"`
-	PreferredPresence *user.Presence `json:"presence" validate:"omitempty"`
+	AvatarURL         *string        `json:"avatar_url,omitempty"`
+	PreferredPresence *user.Presence `json:"presence,omitempty"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
 }
@@ -165,9 +165,9 @@ type UserMeResponse struct {
 func ToUserMeResponse(u user.User, p user.Profile) UserMeResponse {
 	return UserMeResponse{
 		ID:                u.ID,
-		Email:             u.Email,
-		Username:          u.Username,
-		DisplayName:       p.DisplayName,
+		Email:             u.Email.String(),       // Extracted string value
+		Username:          u.Username.String(),    // Extracted string value
+		DisplayName:       p.DisplayName.String(), // Extracted string value
 		AvatarURL:         ptr.Map(p.AvatarURL),
 		PreferredPresence: &u.PreferredPresence,
 		CreatedAt:         u.CreatedAt,

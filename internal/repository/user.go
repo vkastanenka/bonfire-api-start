@@ -21,8 +21,8 @@ func NewUser(store db.Store) *User {
 
 func (r *User) CheckAvailability(ctx context.Context, p user.CheckAvailabilityParams) (user.CheckAvailabilityResult, error) {
 	row, err := r.store.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
-		Email:    p.Email,
-		Username: p.Username,
+		Email:    p.Email.String(),
+		Username: p.Username.String(),
 	})
 	if err != nil {
 		return user.CheckAvailabilityResult{}, NewError(err, EntityUser)
@@ -37,15 +37,15 @@ func (r *User) CheckAvailability(ctx context.Context, p user.CheckAvailabilityPa
 func (r *User) Create(ctx context.Context, p user.CreateParams) (user.User, error) {
 	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
 		ID:           pgtype.UUID{Bytes: p.ID, Valid: p.ID != uuid.Nil},
-		Email:        p.Email,
-		Username:     p.Username,
+		Email:        p.Email.String(),
+		Username:     p.Username.String(),
 		PasswordHash: p.PasswordHash,
 	})
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
 
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
 func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
@@ -53,23 +53,23 @@ func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
-func (r *User) GetByEmail(ctx context.Context, email string) (user.User, error) {
-	row, err := r.store.UserGetByEmail(ctx, email)
+func (r *User) GetByEmail(ctx context.Context, email user.Email) (user.User, error) {
+	row, err := r.store.UserGetByEmail(ctx, email.String())
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
-func (r *User) GetByUsername(ctx context.Context, username string) (user.User, error) {
-	row, err := r.store.UserGetByUsername(ctx, username)
+func (r *User) GetByUsername(ctx context.Context, username user.Username) (user.User, error) {
+	row, err := r.store.UserGetByUsername(ctx, username.String())
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
 func (r *User) UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) (user.User, error) {
@@ -80,7 +80,7 @@ func (r *User) UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) 
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
 func (r *User) MarkVerified(ctx context.Context, id uuid.UUID) (user.User, error) {
@@ -88,18 +88,18 @@ func (r *User) MarkVerified(ctx context.Context, id uuid.UUID) (user.User, error
 	if err != nil {
 		return user.User{}, NewError(err, EntityUser)
 	}
-	return userFromDB(row), nil
+	return userFromDB(row)
 }
 
 func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (user.Profile, error) {
 	row, err := r.store.UserProfileCreate(ctx, db.UserProfileCreateParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
-		DisplayName: p.DisplayName,
+		DisplayName: p.DisplayName.String(),
 	})
 	if err != nil {
 		return user.Profile{}, NewError(err, EntityUserProfile)
 	}
-	return userProfileFromDB(row), nil
+	return userProfileFromDB(row)
 }
 
 func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
@@ -107,14 +107,24 @@ func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, 
 	if err != nil {
 		return user.Profile{}, NewError(err, EntityUserProfile)
 	}
-	return userProfileFromDB(row), nil
+	return userProfileFromDB(row)
 }
 
-func userFromDB(row db.User) user.User {
+func userFromDB(row db.User) (user.User, error) {
+	email, err := user.NewEmail(row.Email)
+	if err != nil {
+		return user.User{}, NewError(err, EntityUser)
+	}
+
+	username, err := user.NewUsername(row.Username)
+	if err != nil {
+		return user.User{}, NewError(err, EntityUser)
+	}
+
 	u := user.User{
 		ID:           uuid.UUID(row.ID.Bytes),
-		Email:        row.Email,
-		Username:     row.Username,
+		Email:        email,
+		Username:     username,
 		PasswordHash: row.PasswordHash,
 		CreatedAt:    row.CreatedAt.Time,
 		UpdatedAt:    row.UpdatedAt.Time,
@@ -128,13 +138,18 @@ func userFromDB(row db.User) user.User {
 		u.PreferredPresence = user.Presence(row.PreferredPresence.Int16)
 	}
 
-	return u
+	return u, nil
 }
 
-func userProfileFromDB(row db.UserProfile) user.Profile {
+func userProfileFromDB(row db.UserProfile) (user.Profile, error) {
+	displayName, err := user.NewProfileDisplayName(row.DisplayName)
+	if err != nil {
+		return user.Profile{}, NewError(err, EntityUserProfile)
+	}
+
 	up := user.Profile{
 		UserID:      uuid.UUID(row.UserID.Bytes),
-		DisplayName: row.DisplayName,
+		DisplayName: displayName,
 		CreatedAt:   row.CreatedAt.Time,
 		UpdatedAt:   row.UpdatedAt.Time,
 	}
@@ -143,7 +158,7 @@ func userProfileFromDB(row db.UserProfile) user.Profile {
 		up.AvatarURL = ptr.To(row.AvatarUrl.String)
 	}
 
-	return up
+	return up, nil
 }
 
 var _ user.Repository = (*User)(nil)

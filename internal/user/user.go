@@ -6,12 +6,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Rich Domain Model Example
-
 type User struct {
 	ID                uuid.UUID
-	Email             string
-	Username          string
+	Email             Email
+	Username          Username
 	PasswordHash      string
 	PreferredPresence Presence
 	VerifiedAt        *time.Time
@@ -25,7 +23,7 @@ func (u User) IsVerified() bool {
 
 type Profile struct {
 	UserID      uuid.UUID
-	DisplayName string
+	DisplayName ProfileDisplayName
 	AvatarURL   *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

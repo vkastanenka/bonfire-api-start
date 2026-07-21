@@ -20,7 +20,7 @@ func NewUserHandler(repo user.Repository) *UserHandler {
 }
 
 type GetByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required,idSchema"`
+	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
 func (h *UserHandler) UserGetByID(w http.ResponseWriter, r *http.Request) error {
@@ -39,8 +39,8 @@ func (h *UserHandler) UserGetByID(w http.ResponseWriter, r *http.Request) error 
 }
 
 type UserGetQuery struct {
-	Email    *string `form:"email" validate:"omitempty,emailSchema"`
-	Username *string `form:"username"  validate:"omitempty,userUsernameSchema"`
+	Email    user.Email    `form:"email"`
+	Username user.Username `form:"username"`
 }
 
 func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
@@ -49,20 +49,12 @@ func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	var email, username string
-	if query.Email != nil {
-		email = *query.Email
-	}
-	if query.Username != nil {
-		username = *query.Username
-	}
+	var userEntity user.User
 
-	var userRow user.User
-
-	if email != "" {
-		userRow, err = h.repo.GetByEmail(r.Context(), email)
-	} else if username != "" {
-		userRow, err = h.repo.GetByUsername(r.Context(), username)
+	if query.Email.IsValid() {
+		userEntity, err = h.repo.GetByEmail(r.Context(), query.Email)
+	} else if query.Username.IsValid() {
+		userEntity, err = h.repo.GetByUsername(r.Context(), query.Username)
 	} else {
 		return apperr.NewInvalidArgument(nil, apperr.WithMsg("either email or username query parameter must be provided"))
 	}
@@ -71,11 +63,11 @@ func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, ToUserResponse(userRow))
+	httpio.RespondOK(w, r, ToUserResponse(userEntity))
 	return nil
 }
 
-func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
+func (h *UserHandler) UserGetMe(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.GetCtxUserID(r.Context())
 	if err != nil {
 		return err

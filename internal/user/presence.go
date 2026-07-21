@@ -32,7 +32,6 @@ var presenceNames = [...]string{
 	PresenceInvisible: "invisible",
 }
 
-// Fast string-to-enum lookup map.
 var presenceValues = map[string]Presence{
 	"online":    PresenceOnline,
 	"offline":   PresenceOffline,

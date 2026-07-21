@@ -7,8 +7,8 @@ import (
 )
 
 type CheckAvailabilityParams struct {
-	Email    string
-	Username string
+	Email    Email
+	Username Username
 }
 
 type CheckAvailabilityResult struct {
@@ -18,8 +18,8 @@ type CheckAvailabilityResult struct {
 
 type CreateParams struct {
 	ID           uuid.UUID
-	Email        string
-	Username     string
+	Email        Email
+	Username     Username
 	PasswordHash string
 }
 
@@ -30,15 +30,15 @@ type UpdatePasswordParams struct {
 
 type CreateProfileParams struct {
 	UserID      uuid.UUID
-	DisplayName string
+	DisplayName ProfileDisplayName
 }
 
 type Repository interface {
 	CheckAvailability(ctx context.Context, p CheckAvailabilityParams) (CheckAvailabilityResult, error)
 	Create(ctx context.Context, p CreateParams) (User, error)
 	Get(ctx context.Context, id uuid.UUID) (User, error)
-	GetByEmail(ctx context.Context, email string) (User, error)
-	GetByUsername(ctx context.Context, username string) (User, error)
+	GetByEmail(ctx context.Context, email Email) (User, error)
+	GetByUsername(ctx context.Context, username Username) (User, error)
 	UpdatePassword(ctx context.Context, p UpdatePasswordParams) (User, error)
 	MarkVerified(ctx context.Context, id uuid.UUID) (User, error)
 	CreateProfile(ctx context.Context, p CreateProfileParams) (Profile, error)
