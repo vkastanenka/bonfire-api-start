@@ -1,13 +1,10 @@
-package user
+package presence
 
 import (
+	"bytes"
 	"errors"
-	"strings"
-	"time"
+	"unsafe"
 )
-
-// TODO: Move to config
-const presenceTTL = 30 * time.Second
 
 var ErrInvalidPresence = errors.New("invalid presence status")
 
@@ -34,10 +31,32 @@ var presenceNames = [...]string{
 	PresenceInvisible: "invisible",
 }
 
-func NewPresence(raw string) (Presence, error) {
-	s := strings.ToLower(strings.TrimSpace(raw))
+var presenceBytes = [...][]byte{
+	PresenceUnknown:   []byte("unknown"),
+	PresenceOnline:    []byte("online"),
+	PresenceOffline:   []byte("offline"),
+	PresenceIdle:      []byte("idle"),
+	PresenceBusy:      []byte("busy"),
+	PresenceDND:       []byte("dnd"),
+	PresenceInvisible: []byte("invisible"),
+}
+
+func New(raw string) (Presence, error) {
+	if raw == "" {
+		return PresenceUnknown, ErrInvalidPresence
+	}
+	b := unsafe.Slice(unsafe.StringData(raw), len(raw))
+	return ParseBytes(b)
+}
+
+func ParseBytes(b []byte) (Presence, error) {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return PresenceUnknown, ErrInvalidPresence
+	}
+
 	for i := 1; i < int(presenceMax); i++ {
-		if presenceNames[i] == s {
+		if bytes.EqualFold(presenceBytes[i], b) {
 			return Presence(i), nil
 		}
 	}
@@ -56,7 +75,10 @@ func (p Presence) String() string {
 }
 
 func (p Presence) MarshalText() ([]byte, error) {
-	return []byte(p.String()), nil
+	if p.IsValid() {
+		return presenceBytes[p], nil
+	}
+	return presenceBytes[PresenceUnknown], nil
 }
 
 func (p *Presence) UnmarshalText(text []byte) error {
@@ -64,7 +86,8 @@ func (p *Presence) UnmarshalText(text []byte) error {
 		*p = PresenceUnknown
 		return nil
 	}
-	parsed, err := NewPresence(string(text))
+
+	parsed, err := ParseBytes(text)
 	if err != nil {
 		return err
 	}

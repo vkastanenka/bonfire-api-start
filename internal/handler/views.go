@@ -6,6 +6,7 @@ import (
 
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
@@ -48,18 +49,18 @@ func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
 }
 
 type RelationshipResponse struct {
-	UserID      uuid.UUID         `json:"user_id"`
-	PeerID      uuid.UUID         `json:"peer_id"`
-	Type        relationship.Type `json:"type"`
-	ActorID     uuid.UUID         `json:"actor_id"`
-	IsInitiator bool              `json:"is_initiator"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	Username    string            `json:"username"`
-	DisplayName string            `json:"display_name"`
-	AvatarURL   *string           `json:"avatar_url"`
-	Presence    *user.Presence    `json:"presence"`
-	ChannelID   *uuid.UUID        `json:"channel_id"`
+	UserID      uuid.UUID          `json:"user_id"`
+	PeerID      uuid.UUID          `json:"peer_id"`
+	Type        relationship.Type  `json:"type"`
+	ActorID     uuid.UUID          `json:"actor_id"`
+	IsInitiator bool               `json:"is_initiator"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	Username    string             `json:"username"`
+	DisplayName string             `json:"display_name"`
+	AvatarURL   *string            `json:"avatar_url"`
+	Presence    *presence.Presence `json:"presence"`
+	ChannelID   *uuid.UUID         `json:"channel_id"`
 }
 
 func ToRelationshipResponse(
@@ -68,7 +69,7 @@ func ToRelationshipResponse(
 	peerUsername string,
 	peerDisplayName string,
 	peerAvatarURL *string,
-	peerPresence *user.Presence,
+	peerPresence *presence.Presence,
 	channelID *uuid.UUID,
 ) RelationshipResponse {
 	return RelationshipResponse{
@@ -116,11 +117,11 @@ func ToSessionResponse(s session.Session) SessionResponse {
 }
 
 type UserResponse struct {
-	ID                uuid.UUID     `json:"id"`
-	Username          string        `json:"username"`
-	PreferredPresence user.Presence `json:"preferred_presence,omitempty"`
-	IsVerified        bool          `json:"is_verified"`
-	CreatedAt         time.Time     `json:"created_at"`
+	ID                uuid.UUID          `json:"id"`
+	Username          string             `json:"username"`
+	PreferredPresence *presence.Presence `json:"preferred_presence,omitempty"`
+	IsVerified        bool               `json:"is_verified"`
+	CreatedAt         time.Time          `json:"created_at"`
 }
 
 func ToUserResponse(u user.User) UserResponse {
@@ -152,14 +153,14 @@ func ToUserProfileResponse(userID uuid.UUID, p user.Profile) UserProfileResponse
 }
 
 type UserMeResponse struct {
-	ID                uuid.UUID     `json:"id"`
-	Email             string        `json:"email"`
-	Username          string        `json:"username"`
-	DisplayName       string        `json:"display_name"`
-	AvatarURL         *string       `json:"avatar_url,omitempty"`
-	PreferredPresence user.Presence `json:"preferred_presence,omitempty"`
-	CreatedAt         time.Time     `json:"created_at"`
-	UpdatedAt         time.Time     `json:"updated_at"`
+	ID                uuid.UUID          `json:"id"`
+	Email             string             `json:"email"`
+	Username          string             `json:"username"`
+	DisplayName       string             `json:"display_name"`
+	AvatarURL         *string            `json:"avatar_url,omitempty"`
+	PreferredPresence *presence.Presence `json:"preferred_presence,omitempty"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 func ToUserMeResponse(u user.User) UserMeResponse {

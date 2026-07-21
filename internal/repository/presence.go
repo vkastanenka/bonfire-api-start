@@ -6,76 +6,96 @@ import (
 	"time"
 
 	"bonfire-api/internal/cache"
-	"bonfire-api/internal/user"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
 
-const presenceTTL = 5 * time.Minute
-
 type Presence struct {
-	cache cache.Manager
+	cache cache.Querier
+	ttl   time.Duration
 }
 
-func NewPresence(cache cache.Manager) *Presence {
-	return &Presence{cache: cache}
+func NewPresence(cache cache.Querier, ttl time.Duration) *Presence {
+	return &Presence{
+		cache: cache,
+		ttl:   ttl,
+	}
 }
 
-var _ user.PresenceRepository = (*Presence)(nil)
+func presenceKey(userID uuid.UUID) string {
+	return fmt.Sprintf("presence:%s", userID.String())
+}
 
-func (r *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p user.Presence) error {
+func (r *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
 	key := presenceKey(userID)
-	if err := r.cache.Set(ctx, key, p.String(), presenceTTL); err != nil {
+	if err := r.cache.Set(ctx, key, p.String(), r.ttl); err != nil {
 		return cache.NewError(err, cache.ScopePresence)
 	}
 	return nil
 }
 
-func (r *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (user.Presence, error) {
-	var val string
-	err := r.cache.Get(ctx, presenceKey(userID), &val)
+func (r *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
+	key := presenceKey(userID)
+
+	var raw string
+	err := r.cache.Get(ctx, key, &raw)
 	if cache.IsNotFoundError(err) {
-		return user.PresenceOffline, nil
+		return presence.PresenceOffline, nil
 	}
 	if err != nil {
-		return user.PresenceUnknown, cache.NewError(err, cache.ScopePresence)
+		return presence.PresenceUnknown, cache.NewError(err, cache.ScopePresence)
 	}
 
-	return user.NewPresence(val)
+	p, err := presence.New(raw)
+	if err != nil {
+		return presence.PresenceOffline, nil
+	}
+
+	return p, nil
 }
 
-func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]user.Presence, error) {
-	results := make(map[uuid.UUID]user.Presence, len(userIDs))
+func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
 	if len(userIDs) == 0 {
-		return results, nil
+		return make(map[uuid.UUID]presence.Presence), nil
 	}
 
-	// keys := make([]string, len(userIDs))
-	// for i, id := range userIDs {
-	// 	keys[i] = presenceKey(id)
-	// }
+	keys := make([]string, len(userIDs))
+	for i, id := range userIDs {
+		keys[i] = presenceKey(id)
+	}
 
-	// values, err := r.cache.MGet(ctx, keys...)
-	// if err != nil {
-	// 	return nil, cache.NewError(err, cache.ScopePresence)
-	// }
+	vals, err := r.cache.MGet(ctx, keys...)
+	if err != nil {
+		return nil, cache.NewError(err, cache.ScopePresence)
+	}
 
-	// for i, id := range userIDs {
-	// 	if values[i] == nil {
-	// 		results[id] = user.PresenceOffline
-	// 		continue
-	// 	}
+	result := make(map[uuid.UUID]presence.Presence, len(userIDs))
+	for i, val := range vals {
+		id := userIDs[i]
 
-	// 	if valStr, ok := values[i].(string); ok {
-	// 		results[id] = user.NewPresence(valStr)
-	// 	} else {
-	// 		results[id] = user.PresenceOffline
-	// 	}
-	// }
+		if val == nil {
+			result[id] = presence.PresenceOffline
+			continue
+		}
 
-	return results, nil
+		switch v := val.(type) {
+		case string:
+			if p, err := presence.New(v); err == nil {
+				result[id] = p
+				continue
+			}
+		case []byte:
+			if p, err := presence.ParseBytes(v); err == nil {
+				result[id] = p
+				continue
+			}
+		}
+
+		result[id] = presence.PresenceOffline
+	}
+
+	return result, nil
 }
 
-func presenceKey(userID uuid.UUID) string {
-	return fmt.Sprintf("user:{%s}:presence", userID.String())
-}
+var _ presence.Repository = (*Presence)(nil)

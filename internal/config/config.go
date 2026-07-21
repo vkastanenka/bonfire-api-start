@@ -44,6 +44,7 @@ type Config struct {
 	RedisMinIdleConns    int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"2"`
 	RedisConnMaxIdleTime time.Duration `env:"REDIS_CONN_MAX_IDLE_TIME" envDefault:"30m"`
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
+	PresenceTTL          time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
 }
 
 func (c *Config) IsDevelopment() bool {

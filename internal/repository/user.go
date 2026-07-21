@@ -6,6 +6,7 @@ import (
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -28,12 +29,12 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 		Email:             u.Email().String(),
 		Username:          u.Username().String(),
 		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: pgtype.Int2{Int16: int16(u.PreferredPresence()), Valid: u.PreferredPresence() != 0},
-		VerifiedAt:        pgtype.Timestamptz{Time: ptrValue(u.VerifiedAt()), Valid: u.VerifiedAt() != nil},
+		PreferredPresence: presenceToInt2(u.PreferredPresence()),
+		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
 		UserCreatedAt:     pgtype.Timestamptz{Time: u.CreatedAt(), Valid: true},
 		UserUpdatedAt:     pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
 		DisplayName:       prof.DisplayName().String(),
-		AvatarUrl:         pgtype.Text{String: ptrValue(prof.AvatarURL()), Valid: prof.AvatarURL() != nil},
+		AvatarUrl:         stringPtrToText(prof.AvatarURL()),
 		ProfileCreatedAt:  pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
 		ProfileUpdatedAt:  pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
 	})
@@ -48,8 +49,8 @@ func (r *User) Save(ctx context.Context, u *user.User) error {
 	_, err := r.q.UserUpdate(ctx, db.UserUpdateParams{
 		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
 		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: pgtype.Int2{Int16: int16(u.PreferredPresence()), Valid: u.PreferredPresence() != 0},
-		VerifiedAt:        pgtype.Timestamptz{Time: ptrValue(u.VerifiedAt()), Valid: u.VerifiedAt() != nil},
+		PreferredPresence: presenceToInt2(u.PreferredPresence()),
+		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
 		UpdatedAt:         pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
 	})
 	if err != nil {
@@ -64,7 +65,7 @@ func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
 	_, err := r.q.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
 		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
 		DisplayName: prof.DisplayName().String(),
-		AvatarUrl:   pgtype.Text{String: ptrValue(prof.AvatarURL()), Valid: prof.AvatarURL() != nil},
+		AvatarUrl:   stringPtrToText(prof.AvatarURL()),
 		CreatedAt:   pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
 		UpdatedAt:   pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
 	})
@@ -140,6 +141,12 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 		verifiedAt = &row.VerifiedAt.Time
 	}
 
+	var preferredPresence *presence.Presence
+	if row.PreferredPresence.Valid {
+		p := presence.Presence(row.PreferredPresence.Int16)
+		preferredPresence = &p
+	}
+
 	profile := user.ReconstituteProfile(
 		displayName,
 		avatarURL,
@@ -152,7 +159,7 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 		email,
 		username,
 		row.PasswordHash,
-		user.Presence(row.PreferredPresence.Int16),
+		preferredPresence,
 		verifiedAt,
 		row.CreatedAt.Time,
 		row.UpdatedAt.Time,
@@ -160,10 +167,23 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 	), nil
 }
 
-func ptrValue[T any](p *T) T {
+func presenceToInt2(p *presence.Presence) pgtype.Int2 {
 	if p == nil {
-		var zero T
-		return zero
+		return pgtype.Int2{Valid: false}
 	}
-	return *p
+	return pgtype.Int2{Int16: int16(*p), Valid: true}
+}
+
+func stringPtrToText(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: *s, Valid: true}
+}
+
+func timeToTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{Valid: false}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
 }

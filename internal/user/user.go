@@ -1,6 +1,7 @@
 package user
 
 import (
+	"bonfire-api/internal/presence"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,12 +12,11 @@ type User struct {
 	email             Email
 	username          Username
 	passwordHash      string
-	preferredPresence Presence
+	preferredPresence *presence.Presence
 	verifiedAt        *time.Time
 	createdAt         time.Time
 	updatedAt         time.Time
 
-	// Profile is an inner Entity managed directly by the User aggregate.
 	profile Profile
 }
 
@@ -40,35 +40,39 @@ func (u *User) ChangePassword(newHash string) {
 	u.updatedAt = time.Now().UTC()
 }
 
-func (u *User) SetPreferredPresence(presence Presence) {
-	if presence.IsValid() {
-		u.preferredPresence = presence
-		u.updatedAt = time.Now().UTC()
+func (u *User) SetPreferredPresence(p *presence.Presence) error {
+	if p != nil && !p.IsValid() {
+		return presence.ErrInvalidPresence
 	}
+
+	u.preferredPresence = p
+	u.updatedAt = time.Now().UTC()
+	return nil
 }
 
-func (u *User) ID() uuid.UUID               { return u.id }
-func (u *User) Email() Email                { return u.email }
-func (u *User) Username() Username          { return u.username }
-func (u *User) PasswordHash() string        { return u.passwordHash }
-func (u *User) PreferredPresence() Presence { return u.preferredPresence }
-func (u *User) VerifiedAt() *time.Time      { return u.verifiedAt }
-func (u *User) IsVerified() bool            { return u.verifiedAt != nil }
-func (u *User) CreatedAt() time.Time        { return u.createdAt }
-func (u *User) UpdatedAt() time.Time        { return u.updatedAt }
-func (u *User) Profile() Profile            { return u.profile }
+func (u *User) ID() uuid.UUID                         { return u.id }
+func (u *User) Email() Email                          { return u.email }
+func (u *User) Username() Username                    { return u.username }
+func (u *User) PasswordHash() string                  { return u.passwordHash }
+func (u *User) PreferredPresence() *presence.Presence { return u.preferredPresence }
+func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
+func (u *User) IsVerified() bool                      { return u.verifiedAt != nil }
+func (u *User) CreatedAt() time.Time                  { return u.createdAt }
+func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
+func (u *User) Profile() Profile                      { return u.profile }
 
 func NewUser(email Email, username Username, passwordHash string, displayName ProfileDisplayName) (*User, error) {
 	now := time.Now().UTC()
 	userID := uuid.Must(uuid.NewV7())
 
 	return &User{
-		id:           userID,
-		email:        email,
-		username:     username,
-		passwordHash: passwordHash,
-		createdAt:    now,
-		updatedAt:    now,
+		id:                userID,
+		email:             email,
+		username:          username,
+		passwordHash:      passwordHash,
+		preferredPresence: nil,
+		createdAt:         now,
+		updatedAt:         now,
 		profile: Profile{
 			displayName: displayName,
 			createdAt:   now,
@@ -82,7 +86,7 @@ func Reconstitute(
 	email Email,
 	username Username,
 	passwordHash string,
-	preferredPresence Presence,
+	preferredPresence *presence.Presence,
 	verifiedAt *time.Time,
 	createdAt, updatedAt time.Time,
 	profile Profile,
