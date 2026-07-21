@@ -1,7 +1,6 @@
 package user
 
 import (
-	"bonfire-api/internal/presence"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,7 +11,7 @@ type User struct {
 	Email        string
 	Username     string
 	PasswordHash string
-	Presence     *presence.Presence
+	Presence     Presence
 	VerifiedAt   *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

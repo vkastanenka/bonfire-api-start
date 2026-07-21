@@ -44,7 +44,7 @@ CREATE TABLE users(
     verified_at timestamp with time zone DEFAULT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    presence smallint DEFAULT NULL,
+    preferred_presence smallint DEFAULT NULL,
     email CITEXT NOT NULL UNIQUE,
     username CITEXT NOT NULL UNIQUE,
     password_hash text NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE users(
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 3 AND 255),
-    CONSTRAINT presence_values CHECK (presence IN (4, 5, 6))
+    CONSTRAINT presence_values CHECK (preferred_presence IN (4, 5, 6))
 );
 
 CREATE TRIGGER update_users_modtime

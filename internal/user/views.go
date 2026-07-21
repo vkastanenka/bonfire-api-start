@@ -2,22 +2,21 @@ package user
 
 import (
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/presence"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type AuthView struct {
-	ID           uuid.UUID          `json:"id"`
-	Email        string             `json:"email"`
-	Username     string             `json:"username"`
-	PasswordHash string             `json:"password_hash"`
-	Presence     *presence.Presence `json:"presence"`
-	VerifiedAt   *time.Time         `json:"verified_at"`
-	IsVerified   bool               `json:"is_verified"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
+	ID           uuid.UUID  `json:"id"`
+	Email        string     `json:"email"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"password_hash"`
+	Presence     Presence   `json:"presence"`
+	VerifiedAt   *time.Time `json:"verified_at"`
+	IsVerified   bool       `json:"is_verified"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 func ToAuthView(u User) AuthView {
@@ -26,7 +25,7 @@ func ToAuthView(u User) AuthView {
 		Email:        u.Email,
 		Username:     u.Username,
 		PasswordHash: u.PasswordHash,
-		Presence:     ptr.Map(u.Presence),
+		Presence:     u.Presence,
 		IsVerified:   u.IsVerified(),
 		VerifiedAt:   ptr.Map(u.VerifiedAt),
 		CreatedAt:    u.CreatedAt,
@@ -35,13 +34,13 @@ func ToAuthView(u User) AuthView {
 }
 
 type PublicView struct {
-	ID         uuid.UUID          `json:"id"`
-	Email      string             `json:"email"`
-	Username   string             `json:"username"`
-	Presence   *presence.Presence `json:"presence"`
-	IsVerified bool               `json:"is_verified"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
+	ID         uuid.UUID `json:"id"`
+	Email      string    `json:"email"`
+	Username   string    `json:"username"`
+	Presence   Presence  `json:"presence"`
+	IsVerified bool      `json:"is_verified"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func ToPublicView(u User) PublicView {
@@ -49,7 +48,7 @@ func ToPublicView(u User) PublicView {
 		ID:         u.ID,
 		Email:      u.Email,
 		Username:   u.Username,
-		Presence:   ptr.Map(u.Presence),
+		Presence:   u.Presence,
 		IsVerified: u.IsVerified(),
 		CreatedAt:  u.CreatedAt,
 		UpdatedAt:  u.UpdatedAt,

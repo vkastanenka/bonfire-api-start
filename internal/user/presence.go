@@ -1,4 +1,4 @@
-package presence
+package user
 
 import (
 	"encoding/json"

@@ -3,7 +3,6 @@ package db
 import (
 	// TODO: Remove dependency
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 
@@ -120,8 +119,7 @@ func userFromDB(row User) user.User {
 	}
 
 	if row.Presence.Valid {
-		p := presence.Presence(row.Presence.Int16)
-		u.Presence = &p
+		u.Presence = user.Presence(row.Presence.Int16)
 	}
 
 	return u

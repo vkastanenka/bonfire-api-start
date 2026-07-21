@@ -55,7 +55,7 @@ func NewError(err error, entity Entity) error {
 	if IsNotFoundError(err) {
 		return apperr.NewNotFound(
 			err,
-			apperr.WithMessage(fmt.Sprintf("The requested %s could not be found.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("The requested %s could not be found.", entity.String())),
 			options,
 		)
 	}
@@ -97,7 +97,7 @@ func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options 
 		// Foreign keys mean a referenced record is missing, return Bad Request / Not Found
 		return apperr.NewInvalidArgument(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
 			options,
 		)
 
@@ -118,35 +118,35 @@ func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options 
 	case pgCodeNumericOutOfRange:
 		return apperr.NewOutOfRange(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
 			options,
 		)
 
 	case pgCodeInvalidTextRepr:
 		return apperr.NewInvalidArgument(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
 			options,
 		)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
 		return apperr.NewAborted(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
 			options,
 		)
 
 	case pgCodeQueryCanceled:
 		return apperr.NewDeadlineExceeded(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
 			options,
 		)
 
 	default:
 		return apperr.NewInternal(
 			origErr,
-			apperr.WithMessage(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
+			apperr.WithMsg(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
 			options,
 		)
 	}
@@ -178,7 +178,7 @@ func (p dbErrorParams) handleConstraint(
 	return apperr.New(
 		code,
 		apperr.WithError(p.pgErr),
-		apperr.WithMessage(fallbackMsg),
+		apperr.WithMsg(fallbackMsg),
 		p.options,
 	)
 }
