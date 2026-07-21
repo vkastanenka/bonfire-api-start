@@ -1,52 +1,94 @@
-package httpio
+package handler
 
-// type View struct {
-// 	ID          uuid.UUID          `json:"id"`
-// 	Email       string             `json:"email"`
-// 	Username    string             `json:"username"`
-// 	DisplayName string             `json:"display_name"`
-// 	AvatarURL   *string            `json:"avatar_url" validate:"omitempty"`
-// 	Presence    *presence.Presence `json:"presence" validate:"omitempty"`
-// 	CreatedAt   time.Time          `json:"created_at"`
-// 	UpdatedAt   time.Time          `json:"updated_at"`
-// }
+import (
+	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/user"
+	"net/http"
 
-// func ToView(u user.User, p user.UserProfile) View {
-// 	return View{
-// 		ID:          u.ID,
-// 		Email:       u.Email,
-// 		Username:    u.Username,
-// 		DisplayName: p.DisplayName,
-// 		AvatarURL:   p.AvatarURL,
-// 		Presence:    u.Presence,
-// 		CreatedAt:   u.CreatedAt,
-// 		UpdatedAt:   u.UpdatedAt,
-// 	}
-// }
+	"github.com/google/uuid"
+)
 
-// type Handler struct {
-// 	service      *Service
-// 	relationship *relationship.Service
-// }
+type UserHandler struct {
+	repo user.Repository
+}
 
-// func NewHandler(service *Service, relationship *relationship.Service) *Handler {
-// 	return &Handler{service: service, relationship: relationship}
-// }
+func NewUserHandler(repo user.Repository) *UserHandler {
+	return &UserHandler{
+		repo: repo,
+	}
+}
 
-// func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) error {
-// 	userID, err := httpio.GetCtxUserID(r.Context())
-// 	if err != nil {
-// 		return err
-// 	}
+type GetByIDPath struct {
+	ID uuid.UUID `path:"id" validate:"required,idSchema"`
+}
 
-// 	data, err := h.service.GetByID(r.Context(), userID)
-// 	if err != nil {
-// 		return err
-// 	}
+func (h *UserHandler) UserGetByID(w http.ResponseWriter, r *http.Request) error {
+	path, err := httpio.BindPath[GetByIDPath](nil, r)
+	if err != nil {
+		return err
+	}
 
-// 	httpio.RespondOK(w, r, data)
-// 	return nil
-// }
+	userRow, err := h.repo.Get(r.Context(), path.ID)
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, ToUserResponse(userRow))
+	return nil
+}
+
+type UserGetQuery struct {
+	Email    *string `form:"email" validate:"omitempty,emailSchema"`
+	Username *string `form:"username"  validate:"omitempty,userUsernameSchema"`
+}
+
+func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
+	query, err := httpio.BindQuery[UserGetQuery](nil, r)
+	if err != nil {
+		return err
+	}
+
+	var email, username string
+	if query.Email != nil {
+		email = *query.Email
+	}
+	if query.Username != nil {
+		username = *query.Username
+	}
+
+	var userRow user.User
+
+	if email != "" {
+		userRow, err = h.repo.GetByEmail(r.Context(), email)
+	} else if username != "" {
+		userRow, err = h.repo.GetByUsername(r.Context(), username)
+	} else {
+		return apperr.NewInvalidArgument(nil, apperr.WithMsg("either email or username query parameter must be provided"))
+	}
+
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, ToUserResponse(userRow))
+	return nil
+}
+
+func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httpio.GetCtxUserID(r.Context())
+	if err != nil {
+		return err
+	}
+
+	data, err := h.repo.Get(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, data)
+	return nil
+}
 
 // type ListRelationshipsQuery struct {
 // 	Type *string `form:"type" validate:"omitempty,oneof=friends pending blocked"`

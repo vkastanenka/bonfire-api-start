@@ -41,6 +41,6 @@ type Repository interface {
 	GetByUsername(ctx context.Context, username string) (User, error)
 	UpdatePassword(ctx context.Context, p UpdatePasswordParams) (User, error)
 	MarkVerified(ctx context.Context, id uuid.UUID) (User, error)
-	CreateProfile(ctx context.Context, p CreateProfileParams) (UserProfile, error)
-	GetProfile(ctx context.Context, userID uuid.UUID) (UserProfile, error)
+	CreateProfile(ctx context.Context, p CreateProfileParams) (Profile, error)
+	GetProfile(ctx context.Context, userID uuid.UUID) (Profile, error)
 }

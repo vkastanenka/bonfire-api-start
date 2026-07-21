@@ -91,21 +91,21 @@ func (r *User) MarkVerified(ctx context.Context, id uuid.UUID) (user.User, error
 	return userFromDB(row), nil
 }
 
-func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (user.UserProfile, error) {
+func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (user.Profile, error) {
 	row, err := r.store.UserProfileCreate(ctx, db.UserProfileCreateParams{
 		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
 		DisplayName: p.DisplayName,
 	})
 	if err != nil {
-		return user.UserProfile{}, NewError(err, EntityUserProfile)
+		return user.Profile{}, NewError(err, EntityUserProfile)
 	}
 	return userProfileFromDB(row), nil
 }
 
-func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.UserProfile, error) {
+func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
 	row, err := r.store.UserProfileGet(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return user.UserProfile{}, NewError(err, EntityUserProfile)
+		return user.Profile{}, NewError(err, EntityUserProfile)
 	}
 	return userProfileFromDB(row), nil
 }
@@ -131,8 +131,8 @@ func userFromDB(row db.User) user.User {
 	return u
 }
 
-func userProfileFromDB(row db.UserProfile) user.UserProfile {
-	up := user.UserProfile{
+func userProfileFromDB(row db.UserProfile) user.Profile {
+	up := user.Profile{
 		UserID:      uuid.UUID(row.UserID.Bytes),
 		DisplayName: row.DisplayName,
 		CreatedAt:   row.CreatedAt.Time,

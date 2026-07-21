@@ -2,7 +2,7 @@ package outbox
 
 import (
 	"encoding/json"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,50 +11,30 @@ import (
 type Status uint8
 
 const (
-	StatusUnknown Status = iota
-	StatusPending
-	StatusProcessing
-	StatusProcessed
-	StatusDeadLetter
-	statusMax
+	StatusUnknown    Status = 0
+	StatusPending    Status = 1
+	StatusProcessing Status = 2
+	StatusProcessed  Status = 3
+	StatusDeadLetter Status = 4
 )
 
+var statusNames = [...]string{
+	StatusUnknown:    "UNKNOWN",
+	StatusPending:    "PENDING",
+	StatusProcessing: "PROCESSING",
+	StatusProcessed:  "PROCESSED",
+	StatusDeadLetter: "DEAD_LETTER",
+}
+
 func (s Status) Valid() bool {
-	return s > StatusUnknown && s < statusMax
+	return int(s) > int(StatusUnknown) && int(s) < len(statusNames)
 }
 
 func (s Status) String() string {
-	switch s {
-	case StatusPending:
-		return "pending"
-	case StatusProcessing:
-		return "processing"
-	case StatusProcessed:
-		return "processed"
-	case StatusDeadLetter:
-		return "dead_letter"
-	default:
-		return "unknown"
+	if int(s) >= 0 && int(s) < len(statusNames) {
+		return statusNames[s]
 	}
-}
-
-func (s Status) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.String())
-}
-
-func ParseStatus(s string) Status {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "pending":
-		return StatusPending
-	case "processing":
-		return StatusProcessing
-	case "processed":
-		return StatusProcessed
-	case "dead_letter":
-		return StatusDeadLetter
-	default:
-		return StatusUnknown
-	}
+	return fmt.Sprintf("STATUS_%d", s)
 }
 
 type Event struct {

@@ -23,7 +23,7 @@ func (u User) IsVerified() bool {
 	return u.VerifiedAt != nil
 }
 
-type UserProfile struct {
+type Profile struct {
 	UserID      uuid.UUID
 	DisplayName string
 	AvatarURL   *string
