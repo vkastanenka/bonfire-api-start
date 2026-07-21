@@ -77,6 +77,24 @@ CREATE TRIGGER update_user_profiles_modtime
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
+CREATE OR REPLACE VIEW user_aggregates AS
+SELECT
+    u.id,
+    u.email,
+    u.username,
+    u.password_hash,
+    u.preferred_presence,
+    u.verified_at,
+    u.created_at AS created_at,
+    u.updated_at AS updated_at,
+    p.display_name,
+    p.avatar_url,
+    p.created_at AS profile_created_at,
+    p.updated_at AS profile_updated_at
+FROM
+    users u
+    INNER JOIN user_profiles p ON u.id = p.user_id;
+
 CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

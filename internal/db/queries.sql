@@ -4,28 +4,29 @@ SELECT
         SELECT
             1
         FROM
-            users u
+            users
         WHERE
-            u.email = $1) AS email_available,
+            users.email = $1)::boolean AS email_available,
     NOT EXISTS (
         SELECT
             1
         FROM
-            users u
+            users
         WHERE
-            u.username = $2) AS username_available;
+            users.username = $2)::boolean AS username_available;
 
--- name: UserCreate :one
-INSERT INTO users(id, email, username, password_hash)
-    VALUES ($1, $2, $3, $4)
-RETURNING
-    *;
+-- name: UserCreateAggregate :exec
+WITH new_user AS (
+INSERT INTO users(id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at)
+        VALUES (@user_id, @email, @username, @password_hash, @preferred_presence, @verified_at, @user_created_at, @user_updated_at))
+    INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+        VALUES (@user_id, @display_name, @avatar_url, @profile_created_at, @profile_updated_at);
 
 -- name: UserGet :one
 SELECT
     *
 FROM
-    users
+    user_aggregates
 WHERE
     id = $1
 LIMIT 1;
@@ -34,7 +35,7 @@ LIMIT 1;
 SELECT
     *
 FROM
-    users
+    user_aggregates
 WHERE
     email = $1
 LIMIT 1;
@@ -43,46 +44,34 @@ LIMIT 1;
 SELECT
     *
 FROM
-    users
+    user_aggregates
 WHERE
     username = $1
 LIMIT 1;
 
--- name: UserUpdatePassword :one
+-- name: UserUpdate :one
 UPDATE
     users
 SET
-    password_hash = $2
+    password_hash = $2,
+    preferred_presence = $3,
+    verified_at = $4,
+    updated_at = $5
 WHERE
     id = $1
 RETURNING
     *;
 
--- name: UserMarkVerified :one
-UPDATE
-    users
-SET
-    verified_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND verified_at IS NULL
-RETURNING
-    *;
-
--- name: UserProfileCreate :one
-INSERT INTO user_profiles(user_id, display_name)
-    VALUES ($1, $2)
-RETURNING
-    *;
-
--- name: UserProfileGet :one
-SELECT
-    *
-FROM
-    user_profiles
-WHERE
-    user_id = $1
-LIMIT 1;
+-- name: UserProfileUpsert :one
+INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id)
+    DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        avatar_url = EXCLUDED.avatar_url,
+        updated_at = EXCLUDED.updated_at
+    RETURNING
+        *;
 
 -- name: SessionCreate :one
 INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
@@ -270,43 +259,38 @@ WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
 SELECT
     *
 FROM
-    relationships
-WHERE (user1_id = @user_id
-    OR user2_id = @user_id)
-AND (type != 3
-    OR actor_id = @user_id::uuid);
+    relationship_perspectives
+WHERE
+    user_id = $1;
 
 -- name: RelationshipsListPendingByUserID :many
 SELECT
     *
 FROM
-    relationships
-WHERE (user1_id = @user_id
-    OR user2_id = @user_id)
-AND type = 1;
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 1;
 
--- 1 = Pending
 -- name: RelationshipsListFriendsByUserID :many
 SELECT
     *
 FROM
-    relationships
-WHERE (user1_id = @user_id
-    OR user2_id = @user_id)
-AND type = 2;
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 2;
 
--- 2 = Friends
 -- name: RelationshipsListBlockedByUserID :many
 SELECT
     *
 FROM
-    relationships
-WHERE (user1_id = @user_id
-    OR user2_id = @user_id)
-AND type = 3 -- 3 = Blocked
-AND actor_id = @user_id::uuid;
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 3
+    AND actor_id = $1;
 
--- 3 = Blocked
 -- name: RelationshipGet :one
 SELECT
     *

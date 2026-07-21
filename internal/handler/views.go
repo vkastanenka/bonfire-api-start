@@ -125,11 +125,11 @@ type UserResponse struct {
 
 func ToUserResponse(u user.User) UserResponse {
 	return UserResponse{
-		ID:                u.ID,
-		Username:          u.Username.String(), // Extracted string value
-		PreferredPresence: u.PreferredPresence,
+		ID:                u.ID(),
+		Username:          u.Username().String(),
+		PreferredPresence: u.PreferredPresence(),
 		IsVerified:        u.IsVerified(),
-		CreatedAt:         u.CreatedAt,
+		CreatedAt:         u.CreatedAt(),
 	}
 }
 
@@ -141,36 +141,38 @@ type UserProfileResponse struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func ToUserProfileResponse(up user.Profile) UserProfileResponse {
+func ToUserProfileResponse(userID uuid.UUID, p user.Profile) UserProfileResponse {
 	return UserProfileResponse{
-		UserID:      up.UserID,
-		DisplayName: up.DisplayName.String(), // Extracted string value
-		AvatarURL:   ptr.Map(up.AvatarURL),
-		CreatedAt:   up.CreatedAt,
-		UpdatedAt:   up.UpdatedAt,
+		UserID:      userID,
+		DisplayName: p.DisplayName().String(),
+		AvatarURL:   p.AvatarURL(),
+		CreatedAt:   p.CreatedAt(),
+		UpdatedAt:   p.UpdatedAt(),
 	}
 }
 
 type UserMeResponse struct {
-	ID                uuid.UUID      `json:"id"`
-	Email             string         `json:"email"`
-	Username          string         `json:"username"`
-	DisplayName       string         `json:"display_name"`
-	AvatarURL         *string        `json:"avatar_url,omitempty"`
-	PreferredPresence *user.Presence `json:"presence,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	ID                uuid.UUID     `json:"id"`
+	Email             string        `json:"email"`
+	Username          string        `json:"username"`
+	DisplayName       string        `json:"display_name"`
+	AvatarURL         *string       `json:"avatar_url,omitempty"`
+	PreferredPresence user.Presence `json:"preferred_presence,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
-func ToUserMeResponse(u user.User, p user.Profile) UserMeResponse {
+func ToUserMeResponse(u user.User) UserMeResponse {
+	prof := u.Profile()
+
 	return UserMeResponse{
-		ID:                u.ID,
-		Email:             u.Email.String(),       // Extracted string value
-		Username:          u.Username.String(),    // Extracted string value
-		DisplayName:       p.DisplayName.String(), // Extracted string value
-		AvatarURL:         ptr.Map(p.AvatarURL),
-		PreferredPresence: &u.PreferredPresence,
-		CreatedAt:         u.CreatedAt,
-		UpdatedAt:         u.UpdatedAt,
+		ID:                u.ID(),
+		Email:             u.Email().String(),
+		Username:          u.Username().String(),
+		DisplayName:       prof.DisplayName().String(),
+		AvatarURL:         prof.AvatarURL(),
+		PreferredPresence: u.PreferredPresence(),
+		CreatedAt:         u.CreatedAt(),
+		UpdatedAt:         u.UpdatedAt(),
 	}
 }

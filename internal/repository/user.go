@@ -2,10 +2,10 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -13,153 +13,157 @@ import (
 )
 
 type User struct {
-	store db.Store
+	q db.Querier
 }
 
-func NewUser(store db.Store) *User {
-	return &User{store: store}
+func NewUser(q db.Querier) *User {
+	return &User{q: q}
 }
 
-func (r *User) CheckAvailability(ctx context.Context, p user.CheckAvailabilityParams) (user.CheckAvailabilityResult, error) {
-	row, err := r.store.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
-		Email:    p.Email.String(),
-		Username: p.Username.String(),
+func (r *User) Create(ctx context.Context, u *user.User) error {
+	prof := u.Profile()
+
+	err := r.q.UserCreateAggregate(ctx, db.UserCreateAggregateParams{
+		UserID:            pgtype.UUID{Bytes: u.ID(), Valid: true},
+		Email:             u.Email().String(),
+		Username:          u.Username().String(),
+		PasswordHash:      u.PasswordHash(),
+		PreferredPresence: pgtype.Int2{Int16: int16(u.PreferredPresence()), Valid: u.PreferredPresence() != 0},
+		VerifiedAt:        pgtype.Timestamptz{Time: ptrValue(u.VerifiedAt()), Valid: u.VerifiedAt() != nil},
+		UserCreatedAt:     pgtype.Timestamptz{Time: u.CreatedAt(), Valid: true},
+		UserUpdatedAt:     pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
+		DisplayName:       prof.DisplayName().String(),
+		AvatarUrl:         pgtype.Text{String: ptrValue(prof.AvatarURL()), Valid: prof.AvatarURL() != nil},
+		ProfileCreatedAt:  pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
+		ProfileUpdatedAt:  pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityUser)
+	}
+
+	return nil
+}
+
+func (r *User) Save(ctx context.Context, u *user.User) error {
+	_, err := r.q.UserUpdate(ctx, db.UserUpdateParams{
+		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
+		PasswordHash:      u.PasswordHash(),
+		PreferredPresence: pgtype.Int2{Int16: int16(u.PreferredPresence()), Valid: u.PreferredPresence() != 0},
+		VerifiedAt:        pgtype.Timestamptz{Time: ptrValue(u.VerifiedAt()), Valid: u.VerifiedAt() != nil},
+		UpdatedAt:         pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityUser)
+	}
+
+	return nil
+}
+
+func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
+	prof := u.Profile()
+	_, err := r.q.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
+		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
+		DisplayName: prof.DisplayName().String(),
+		AvatarUrl:   pgtype.Text{String: ptrValue(prof.AvatarURL()), Valid: prof.AvatarURL() != nil},
+		CreatedAt:   pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
+		UpdatedAt:   pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityUserProfile)
+	}
+
+	return nil
+}
+
+func (r *User) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
+	row, err := r.q.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+	return userFromRow(row)
+}
+
+func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
+	row, err := r.q.UserGetByEmail(ctx, email.String())
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+	return userFromRow(row)
+}
+
+func (r *User) GetByUsername(ctx context.Context, username user.Username) (*user.User, error) {
+	row, err := r.q.UserGetByUsername(ctx, username.String())
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+	return userFromRow(row)
+}
+
+func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (user.CheckAvailabilityResult, error) {
+	row, err := r.q.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
+		Email:    email.String(),
+		Username: username.String(),
 	})
 	if err != nil {
 		return user.CheckAvailabilityResult{}, db.NewError(err, db.EntityUser)
 	}
 
 	return user.CheckAvailabilityResult{
-		EmailAvailable:    row.EmailAvailable,
-		UsernameAvailable: row.UsernameAvailable,
+		EmailAvailable:    row.EmailAvailable.Bool,
+		UsernameAvailable: row.UsernameAvailable.Bool,
 	}, nil
 }
 
-func (r *User) Create(ctx context.Context, p user.CreateParams) (user.User, error) {
-	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
-		ID:           pgtype.UUID{Bytes: p.ID, Valid: p.ID != uuid.Nil},
-		Email:        p.Email.String(),
-		Username:     p.Username.String(),
-		PasswordHash: p.PasswordHash,
-	})
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-
-	return userFromDB(row)
-}
-
-func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
-	row, err := r.store.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-	return userFromDB(row)
-}
-
-func (r *User) GetByEmail(ctx context.Context, email user.Email) (user.User, error) {
-	row, err := r.store.UserGetByEmail(ctx, email.String())
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-	return userFromDB(row)
-}
-
-func (r *User) GetByUsername(ctx context.Context, username user.Username) (user.User, error) {
-	row, err := r.store.UserGetByUsername(ctx, username.String())
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-	return userFromDB(row)
-}
-
-func (r *User) UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) (user.User, error) {
-	row, err := r.store.UserUpdatePassword(ctx, db.UserUpdatePasswordParams{
-		ID:           pgtype.UUID{Bytes: p.ID, Valid: true},
-		PasswordHash: p.PasswordHash,
-	})
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-	return userFromDB(row)
-}
-
-func (r *User) MarkVerified(ctx context.Context, id uuid.UUID) (user.User, error) {
-	row, err := r.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
-	}
-	return userFromDB(row)
-}
-
-func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (user.Profile, error) {
-	row, err := r.store.UserProfileCreate(ctx, db.UserProfileCreateParams{
-		UserID:      pgtype.UUID{Bytes: p.UserID, Valid: true},
-		DisplayName: p.DisplayName.String(),
-	})
-	if err != nil {
-		return user.Profile{}, db.NewError(err, db.EntityUserProfile)
-	}
-	return userProfileFromDB(row)
-}
-
-func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
-	row, err := r.store.UserProfileGet(ctx, pgtype.UUID{Bytes: userID, Valid: true})
-	if err != nil {
-		return user.Profile{}, db.NewError(err, db.EntityUserProfile)
-	}
-	return userProfileFromDB(row)
-}
-
-func userFromDB(row db.User) (user.User, error) {
+func userFromRow(row db.UserAggregate) (*user.User, error) {
 	email, err := user.NewEmail(row.Email)
 	if err != nil {
-		return user.User{}, apperr.NewInvalidArgument(err)
+		return nil, apperr.NewInternal(err)
 	}
 
 	username, err := user.NewUsername(row.Username)
 	if err != nil {
-		return user.User{}, apperr.NewInvalidArgument(err)
+		return nil, apperr.NewInternal(err)
 	}
 
-	u := user.User{
-		ID:           uuid.UUID(row.ID.Bytes),
-		Email:        email,
-		Username:     username,
-		PasswordHash: row.PasswordHash,
-		CreatedAt:    row.CreatedAt.Time,
-		UpdatedAt:    row.UpdatedAt.Time,
-	}
-
-	if row.VerifiedAt.Valid {
-		u.VerifiedAt = ptr.To(row.VerifiedAt.Time)
-	}
-
-	if row.PreferredPresence.Valid {
-		u.PreferredPresence = user.Presence(row.PreferredPresence.Int16)
-	}
-
-	return u, nil
-}
-
-func userProfileFromDB(row db.UserProfile) (user.Profile, error) {
 	displayName, err := user.NewProfileDisplayName(row.DisplayName)
 	if err != nil {
-		return user.Profile{}, apperr.NewInvalidArgument(err)
+		return nil, apperr.NewInternal(err)
 	}
 
-	up := user.Profile{
-		UserID:      uuid.UUID(row.UserID.Bytes),
-		DisplayName: displayName,
-		CreatedAt:   row.CreatedAt.Time,
-		UpdatedAt:   row.UpdatedAt.Time,
-	}
-
+	var avatarURL *string
 	if row.AvatarUrl.Valid {
-		up.AvatarURL = ptr.To(row.AvatarUrl.String)
+		avatarURL = &row.AvatarUrl.String
 	}
 
-	return up, nil
+	var verifiedAt *time.Time
+	if row.VerifiedAt.Valid {
+		verifiedAt = &row.VerifiedAt.Time
+	}
+
+	profile := user.ReconstituteProfile(
+		displayName,
+		avatarURL,
+		row.ProfileCreatedAt.Time,
+		row.ProfileUpdatedAt.Time,
+	)
+
+	return user.Reconstitute(
+		uuid.UUID(row.ID.Bytes),
+		email,
+		username,
+		row.PasswordHash,
+		user.Presence(row.PreferredPresence.Int16),
+		verifiedAt,
+		row.CreatedAt.Time,
+		row.UpdatedAt.Time,
+		profile,
+	), nil
 }
 
-var _ user.Repository = (*User)(nil)
+func ptrValue[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
+}

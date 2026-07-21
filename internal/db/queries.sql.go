@@ -407,7 +407,6 @@ type RelationshipGetParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
-// 3 = Blocked
 func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
 	var i Relationship
@@ -489,32 +488,37 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 
 const relationshipsListBlockedByUserID = `-- name: RelationshipsListBlockedByUserID :many
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
 FROM
-    relationships
-WHERE (user1_id = $1
-    OR user2_id = $1)
-AND type = 3 -- 3 = Blocked
-AND actor_id = $1::uuid
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 3
+    AND actor_id = $1
 `
 
-// 2 = Friends
-func (q *Queries) RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+func (q *Queries) RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
 	rows, err := q.db.Query(ctx, relationshipsListBlockedByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Relationship
+	var items []RelationshipPerspective
 	for rows.Next() {
-		var i Relationship
+		var i RelationshipPerspective
 		if err := rows.Scan(
-			&i.User1ID,
-			&i.User2ID,
+			&i.UserID,
+			&i.PeerID,
+			&i.Type,
 			&i.ActorID,
+			&i.IsInitiator,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Type,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.UserPreferredPresence,
+			&i.ChannelID,
 		); err != nil {
 			return nil, err
 		}
@@ -528,31 +532,35 @@ func (q *Queries) RelationshipsListBlockedByUserID(ctx context.Context, userID p
 
 const relationshipsListByUserID = `-- name: RelationshipsListByUserID :many
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
 FROM
-    relationships
-WHERE (user1_id = $1
-    OR user2_id = $1)
-AND (type != 3
-    OR actor_id = $1::uuid)
+    relationship_perspectives
+WHERE
+    user_id = $1
 `
 
-func (q *Queries) RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+func (q *Queries) RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
 	rows, err := q.db.Query(ctx, relationshipsListByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Relationship
+	var items []RelationshipPerspective
 	for rows.Next() {
-		var i Relationship
+		var i RelationshipPerspective
 		if err := rows.Scan(
-			&i.User1ID,
-			&i.User2ID,
+			&i.UserID,
+			&i.PeerID,
+			&i.Type,
 			&i.ActorID,
+			&i.IsInitiator,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Type,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.UserPreferredPresence,
+			&i.ChannelID,
 		); err != nil {
 			return nil, err
 		}
@@ -566,31 +574,36 @@ func (q *Queries) RelationshipsListByUserID(ctx context.Context, userID pgtype.U
 
 const relationshipsListFriendsByUserID = `-- name: RelationshipsListFriendsByUserID :many
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
 FROM
-    relationships
-WHERE (user1_id = $1
-    OR user2_id = $1)
-AND type = 2
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 2
 `
 
-// 1 = Pending
-func (q *Queries) RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+func (q *Queries) RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
 	rows, err := q.db.Query(ctx, relationshipsListFriendsByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Relationship
+	var items []RelationshipPerspective
 	for rows.Next() {
-		var i Relationship
+		var i RelationshipPerspective
 		if err := rows.Scan(
-			&i.User1ID,
-			&i.User2ID,
+			&i.UserID,
+			&i.PeerID,
+			&i.Type,
 			&i.ActorID,
+			&i.IsInitiator,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Type,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.UserPreferredPresence,
+			&i.ChannelID,
 		); err != nil {
 			return nil, err
 		}
@@ -604,30 +617,36 @@ func (q *Queries) RelationshipsListFriendsByUserID(ctx context.Context, userID p
 
 const relationshipsListPendingByUserID = `-- name: RelationshipsListPendingByUserID :many
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
 FROM
-    relationships
-WHERE (user1_id = $1
-    OR user2_id = $1)
-AND type = 1
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND type = 1
 `
 
-func (q *Queries) RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error) {
+func (q *Queries) RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
 	rows, err := q.db.Query(ctx, relationshipsListPendingByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Relationship
+	var items []RelationshipPerspective
 	for rows.Next() {
-		var i Relationship
+		var i RelationshipPerspective
 		if err := rows.Scan(
-			&i.User1ID,
-			&i.User2ID,
+			&i.UserID,
+			&i.PeerID,
+			&i.Type,
 			&i.ActorID,
+			&i.IsInitiator,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Type,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.UserPreferredPresence,
+			&i.ChannelID,
 		); err != nil {
 			return nil, err
 		}
@@ -874,16 +893,16 @@ SELECT
         SELECT
             1
         FROM
-            users u
+            users
         WHERE
-            u.email = $1) AS email_available,
+            users.email = $1)::boolean AS email_available,
     NOT EXISTS (
         SELECT
             1
         FROM
-            users u
+            users
         WHERE
-            u.username = $2) AS username_available
+            users.username = $2)::boolean AS username_available
 `
 
 type UserCheckAvailabilityParams struct {
@@ -892,8 +911,8 @@ type UserCheckAvailabilityParams struct {
 }
 
 type UserCheckAvailabilityRow struct {
-	EmailAvailable    bool `json:"email_available"`
-	UsernameAvailable bool `json:"username_available"`
+	EmailAvailable    pgtype.Bool `json:"email_available"`
+	UsernameAvailable pgtype.Bool `json:"username_available"`
 }
 
 func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error) {
@@ -903,161 +922,165 @@ func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvaila
 	return i, err
 }
 
-const userCreate = `-- name: UserCreate :one
-INSERT INTO users(id, email, username, password_hash)
-    VALUES ($1, $2, $3, $4)
-RETURNING
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+const userCreateAggregate = `-- name: UserCreateAggregate :exec
+WITH new_user AS (
+INSERT INTO users(id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at)
+        VALUES ($1, $6, $7, $8, $9, $10, $11, $12))
+    INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
 `
 
-type UserCreateParams struct {
-	ID           pgtype.UUID `json:"id"`
-	Email        string      `json:"email"`
-	Username     string      `json:"username"`
-	PasswordHash string      `json:"password_hash"`
+type UserCreateAggregateParams struct {
+	UserID            pgtype.UUID        `json:"user_id"`
+	DisplayName       string             `json:"display_name"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
+	ProfileCreatedAt  pgtype.Timestamptz `json:"profile_created_at"`
+	ProfileUpdatedAt  pgtype.Timestamptz `json:"profile_updated_at"`
+	Email             string             `json:"email"`
+	Username          string             `json:"username"`
+	PasswordHash      string             `json:"password_hash"`
+	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	UserCreatedAt     pgtype.Timestamptz `json:"user_created_at"`
+	UserUpdatedAt     pgtype.Timestamptz `json:"user_updated_at"`
 }
 
-func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
-	row := q.db.QueryRow(ctx, userCreate,
-		arg.ID,
+func (q *Queries) UserCreateAggregate(ctx context.Context, arg UserCreateAggregateParams) error {
+	_, err := q.db.Exec(ctx, userCreateAggregate,
+		arg.UserID,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.ProfileCreatedAt,
+		arg.ProfileUpdatedAt,
 		arg.Email,
 		arg.Username,
 		arg.PasswordHash,
+		arg.PreferredPresence,
+		arg.VerifiedAt,
+		arg.UserCreatedAt,
+		arg.UserUpdatedAt,
 	)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PreferredPresence,
-		&i.Email,
-		&i.Username,
-		&i.PasswordHash,
-	)
-	return i, err
+	return err
 }
 
 const userGet = `-- name: UserGet :one
 SELECT
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
 FROM
-    users
+    user_aggregates
 WHERE
     id = $1
 LIMIT 1
 `
 
-func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
+func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, error) {
 	row := q.db.QueryRow(ctx, userGet, id)
-	var i User
+	var i UserAggregate
 	err := row.Scan(
 		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.PreferredPresence,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.ProfileCreatedAt,
+		&i.ProfileUpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
 FROM
-    users
+    user_aggregates
 WHERE
     email = $1
 LIMIT 1
 `
 
-func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error) {
+func (q *Queries) UserGetByEmail(ctx context.Context, email string) (UserAggregate, error) {
 	row := q.db.QueryRow(ctx, userGetByEmail, email)
-	var i User
+	var i UserAggregate
 	err := row.Scan(
 		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.PreferredPresence,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.ProfileCreatedAt,
+		&i.ProfileUpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
 FROM
-    users
+    user_aggregates
 WHERE
     username = $1
 LIMIT 1
 `
 
-func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User, error) {
+func (q *Queries) UserGetByUsername(ctx context.Context, username string) (UserAggregate, error) {
 	row := q.db.QueryRow(ctx, userGetByUsername, username)
-	var i User
+	var i UserAggregate
 	err := row.Scan(
 		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.PasswordHash,
+		&i.PreferredPresence,
+		&i.VerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.ProfileCreatedAt,
+		&i.ProfileUpdatedAt,
 	)
 	return i, err
 }
 
-const userMarkVerified = `-- name: UserMarkVerified :one
-UPDATE
-    users
-SET
-    verified_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND verified_at IS NULL
-RETURNING
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+const userProfileUpsert = `-- name: UserProfileUpsert :one
+INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id)
+    DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        avatar_url = EXCLUDED.avatar_url,
+        updated_at = EXCLUDED.updated_at
+    RETURNING
+        user_id, created_at, updated_at, display_name, avatar_url
 `
 
-func (q *Queries) UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, userMarkVerified, id)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.PreferredPresence,
-		&i.Email,
-		&i.Username,
-		&i.PasswordHash,
+type UserProfileUpsertParams struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileUpsert,
+		arg.UserID,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
-	return i, err
-}
-
-const userProfileCreate = `-- name: UserProfileCreate :one
-INSERT INTO user_profiles(user_id, display_name)
-    VALUES ($1, $2)
-RETURNING
-    user_id, created_at, updated_at, display_name, avatar_url
-`
-
-type UserProfileCreateParams struct {
-	UserID      pgtype.UUID `json:"user_id"`
-	DisplayName string      `json:"display_name"`
-}
-
-func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileCreate, arg.UserID, arg.DisplayName)
 	var i UserProfile
 	err := row.Scan(
 		&i.UserID,
@@ -1069,47 +1092,36 @@ func (q *Queries) UserProfileCreate(ctx context.Context, arg UserProfileCreatePa
 	return i, err
 }
 
-const userProfileGet = `-- name: UserProfileGet :one
-SELECT
-    user_id, created_at, updated_at, display_name, avatar_url
-FROM
-    user_profiles
-WHERE
-    user_id = $1
-LIMIT 1
-`
-
-func (q *Queries) UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileGet, userID)
-	var i UserProfile
-	err := row.Scan(
-		&i.UserID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DisplayName,
-		&i.AvatarUrl,
-	)
-	return i, err
-}
-
-const userUpdatePassword = `-- name: UserUpdatePassword :one
+const userUpdate = `-- name: UserUpdate :one
 UPDATE
     users
 SET
-    password_hash = $2
+    password_hash = $2,
+    preferred_presence = $3,
+    verified_at = $4,
+    updated_at = $5
 WHERE
     id = $1
 RETURNING
     id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 `
 
-type UserUpdatePasswordParams struct {
-	ID           pgtype.UUID `json:"id"`
-	PasswordHash string      `json:"password_hash"`
+type UserUpdateParams struct {
+	ID                pgtype.UUID        `json:"id"`
+	PasswordHash      string             `json:"password_hash"`
+	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error) {
-	row := q.db.QueryRow(ctx, userUpdatePassword, arg.ID, arg.PasswordHash)
+func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdate,
+		arg.ID,
+		arg.PasswordHash,
+		arg.PreferredPresence,
+		arg.VerifiedAt,
+		arg.UpdatedAt,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,

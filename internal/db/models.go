@@ -90,6 +90,21 @@ type User struct {
 	PasswordHash      string             `json:"password_hash"`
 }
 
+type UserAggregate struct {
+	ID                pgtype.UUID        `json:"id"`
+	Email             string             `json:"email"`
+	Username          string             `json:"username"`
+	PasswordHash      string             `json:"password_hash"`
+	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DisplayName       string             `json:"display_name"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
+	ProfileCreatedAt  pgtype.Timestamptz `json:"profile_created_at"`
+	ProfileUpdatedAt  pgtype.Timestamptz `json:"profile_updated_at"`
+}
+
 type UserProfile struct {
 	UserID      pgtype.UUID        `json:"user_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`

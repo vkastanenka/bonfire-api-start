@@ -23,16 +23,13 @@ type Querier interface {
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
-	// 3 = Blocked
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
 	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error)
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
-	// 2 = Friends
-	RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
-	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
-	// 1 = Pending
-	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
-	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]Relationship, error)
+	RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
@@ -43,14 +40,12 @@ type Querier interface {
 	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
 	SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
-	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
-	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
-	UserGetByEmail(ctx context.Context, email string) (User, error)
-	UserGetByUsername(ctx context.Context, username string) (User, error)
-	UserMarkVerified(ctx context.Context, id pgtype.UUID) (User, error)
-	UserProfileCreate(ctx context.Context, arg UserProfileCreateParams) (UserProfile, error)
-	UserProfileGet(ctx context.Context, userID pgtype.UUID) (UserProfile, error)
-	UserUpdatePassword(ctx context.Context, arg UserUpdatePasswordParams) (User, error)
+	UserCreateAggregate(ctx context.Context, arg UserCreateAggregateParams) error
+	UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, error)
+	UserGetByEmail(ctx context.Context, email string) (UserAggregate, error)
+	UserGetByUsername(ctx context.Context, username string) (UserAggregate, error)
+	UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error)
+	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)
