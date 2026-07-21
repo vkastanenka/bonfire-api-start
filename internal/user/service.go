@@ -5,34 +5,21 @@ import (
 	"fmt"
 
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/db"
 
 	"github.com/google/uuid"
 )
 
-func userPresenceKey(userID uuid.UUID) string {
-	return fmt.Sprintf("user:{%s}:presence", userID.String())
-}
-
-type PresenceService interface {
-	Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) error
-	GetPresenceByUserID(ctx context.Context, userID uuid.UUID) (Presence, error)
-	GetPresenceBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
-}
-
 type Service struct {
-	cache cache.Manager
-	db    db.Store
+	userRepo     Repository
+	presenceRepo PresenceRepository
 }
 
-func NewService(cache cache.Manager) *Service {
+func NewService(userRepo Repository, presenceRepo PresenceRepository) *Service {
 	return &Service{
-		cache: cache,
+		userRepo:     userRepo,
+		presenceRepo: presenceRepo,
 	}
 }
-
-var _ PresenceService = (*Service)(nil)
 
 func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) error {
 	if !p.IsValid() {
@@ -43,96 +30,13 @@ func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID, p Presence) e
 		)
 	}
 
-	key := userPresenceKey(userID)
-	if err := s.cache.Set(ctx, key, p.String(), presenceTTL); err != nil {
-		return apperr.NewInternal(
-			err,
-			apperr.WithMsg("Failed to record user presence heartbeat"),
-			apperr.WithMeta("user_id", userID.String()),
-		)
-	}
-
-	return nil
+	return s.presenceRepo.SetPresence(ctx, userID, p)
 }
 
 func (s *Service) GetPresenceByUserID(ctx context.Context, userID uuid.UUID) (Presence, error) {
-	var val string
-	err := s.cache.Get(ctx, userPresenceKey(userID), &val)
-
-	if cache.IsNotFoundError(err) {
-		return PresenceOffline, nil
-	}
-
-	if err != nil {
-		return PresenceUnknown, apperr.NewInternal(
-			err,
-			apperr.WithMsg("Failed to retrieve user presence"),
-			apperr.WithMeta("user_id", userID.String()),
-		)
-	}
-
-	return NewPresence(val)
+	return s.presenceRepo.GetPresence(ctx, userID)
 }
 
 func (s *Service) GetPresenceBulkByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
-	activities := make(map[uuid.UUID]Presence, len(userIDs))
-	if len(userIDs) == 0 {
-		return activities, nil
-	}
-
-	// presenceKeys := make([]string, len(userIDs))
-	// for i, id := range userIDs {
-	// 	presenceKeys[i] = userPresenceKey(id)
-	// }
-
-	// values, err := s.cache.MGet(ctx, presenceKeys...)
-	// if err != nil {
-	// 	return nil, apperr.NewInternal(
-	// 		err,
-	// 		apperr.WithMsg("Failed to bulk retrieve user presences"),
-	// 		apperr.WithMeta("requested_count", fmt.Sprintf("%d", len(userIDs))),
-	// 	)
-	// }
-
-	// for i, id := range userIDs {
-	// 	if values[i] == nil {
-	// 		activities[id] = PresenceOffline
-	// 		continue
-	// 	}
-
-	// 	if valStr, ok := values[i].(string); ok {
-	// 		activities[id] = NewPresence(valStr)
-	// 	} else {
-	// 		activities[id] = PresenceOffline
-	// 	}
-	// }
-
-	return activities, nil
+	return s.presenceRepo.GetPresenceBulk(ctx, userIDs)
 }
-
-// func (s *Service) GetMe(ctx context.Context, userID uuid.UUID) (View, error) {
-// 	var (
-// 		u  User
-// 		up UserProfile
-// 	)
-
-// 	g, gCtx := errgroup.WithContext(ctx)
-
-// 	g.Go(func() error {
-// 		var err error
-// 		u, err = s.db.UserGetByID(gCtx, userID)
-// 		return err
-// 	})
-
-// 	g.Go(func() error {
-// 		var err error
-// 		up, err = s.GetProfileByUserID(gCtx, userID)
-// 		return err
-// 	})
-
-// 	if err := g.Wait(); err != nil {
-// 		return View{}, err
-// 	}
-
-// 	return ToView(u, up), nil
-// }

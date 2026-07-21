@@ -44,3 +44,9 @@ type Repository interface {
 	CreateProfile(ctx context.Context, p CreateProfileParams) (Profile, error)
 	GetProfile(ctx context.Context, userID uuid.UUID) (Profile, error)
 }
+
+type PresenceRepository interface {
+	SetPresence(ctx context.Context, userID uuid.UUID, p Presence) error
+	GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error)
+	GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
+}
