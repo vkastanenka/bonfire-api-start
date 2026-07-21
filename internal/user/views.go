@@ -7,6 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// JSON Tags on Views inside Domain: AuthView, PublicView, and PublicProfileView are Presentation Layer DTOs (Data Transfer Objects).
+// They have json:"..." tags and ptr map dependencies.
+// They belong in your HTTP / API transport layer, not inside the core user package.
+
 type AuthView struct {
 	ID           uuid.UUID  `json:"id"`
 	Email        string     `json:"email"`
