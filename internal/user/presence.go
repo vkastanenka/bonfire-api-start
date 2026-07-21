@@ -1,7 +1,6 @@
 package user
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -64,18 +63,24 @@ func Parse(s string) Presence {
 }
 
 func (p Presence) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("%q", p.String())), nil
+	s := p.String()
+	b := make([]byte, 0, len(s)+2)
+	b = append(b, '"')
+	b = append(b, s...)
+	b = append(b, '"')
+	return b, nil
 }
 
 func (p *Presence) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
+	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
+		return fmt.Errorf("invalid presence status: %s", string(data))
 	}
 
-	parsed := Parse(s)
+	unquoted := string(data[1 : len(data)-1])
+
+	parsed := Parse(unquoted)
 	if !parsed.Valid() {
-		return fmt.Errorf("invalid presence status: %q", s)
+		return fmt.Errorf("invalid presence status: %q", unquoted)
 	}
 
 	*p = parsed
