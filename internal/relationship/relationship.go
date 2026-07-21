@@ -1,62 +1,10 @@
 package relationship
 
 import (
-	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
-
-type Type int16
-
-const (
-	TypeUnknown Type = iota // 0 (Implicitly the Go zero-value)
-	TypePending             // 1
-	TypeFriends             // 2
-	TypeBlocked             // 3
-	typeMax                 // 4 (Boundary marker)
-)
-
-func (t Type) Valid() bool {
-	return t > TypeUnknown && t < typeMax
-}
-
-func (t Type) String() string {
-	switch t {
-	case TypePending:
-		return "pending"
-	case TypeFriends:
-		return "friends"
-	case TypeBlocked:
-		return "blocked"
-	default:
-		return "unknown"
-	}
-}
-
-func Parse(s string) Type {
-	switch s {
-	case "pending":
-		return TypePending
-	case "friends":
-		return TypeFriends
-	case "blocked":
-		return TypeBlocked
-	default:
-		return TypeUnknown
-	}
-}
-
-func (t Type) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("%q", t.String())), nil
-}
-
-func (t *Type) UnmarshalJSON(data []byte) error {
-	data = bytes.Trim(data, "\"")
-	*t = Parse(string(data))
-	return nil
-}
 
 type Relationship struct {
 	User1ID   uuid.UUID `json:"user_1_id"`
