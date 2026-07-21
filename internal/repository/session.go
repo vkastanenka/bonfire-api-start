@@ -31,7 +31,7 @@ func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.S
 		Browser:          p.Browser,
 	})
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 
 	return sessionFromDB(row)
@@ -40,7 +40,7 @@ func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.S
 func (r *Session) Get(ctx context.Context, id uuid.UUID) (session.Session, error) {
 	row, err := r.store.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 	return sessionFromDB(row)
 }
@@ -52,7 +52,7 @@ func (r *Session) UpdateRefreshToken(ctx context.Context, p session.UpdateRefres
 		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
 	})
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 	return sessionFromDB(row)
 }
@@ -60,7 +60,7 @@ func (r *Session) UpdateRefreshToken(ctx context.Context, p session.UpdateRefres
 func (r *Session) UpdateLastSeen(ctx context.Context, id uuid.UUID) (session.Session, error) {
 	row, err := r.store.SessionUpdateLastSeen(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 	return sessionFromDB(row)
 }
@@ -68,7 +68,7 @@ func (r *Session) UpdateLastSeen(ctx context.Context, id uuid.UUID) (session.Ses
 func (r *Session) Revoke(ctx context.Context, id uuid.UUID) (session.Session, error) {
 	row, err := r.store.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 	return sessionFromDB(row)
 }
@@ -76,7 +76,7 @@ func (r *Session) Revoke(ctx context.Context, id uuid.UUID) (session.Session, er
 func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
 	err := r.store.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return NewError(err, EntitySession)
+		return db.NewError(err, db.EntitySession)
 	}
 	return nil
 }
@@ -87,7 +87,7 @@ func (r *Session) DeleteAllExcept(ctx context.Context, p session.DeleteAllExcept
 		ID:     pgtype.UUID{Bytes: p.SessionID, Valid: true},
 	})
 	if err != nil {
-		return NewError(err, EntitySession)
+		return db.NewError(err, db.EntitySession)
 	}
 	return nil
 }
@@ -95,7 +95,7 @@ func (r *Session) DeleteAllExcept(ctx context.Context, p session.DeleteAllExcept
 func sessionFromDB(row db.Session) (session.Session, error) {
 	tokenHash, err := session.NewRefreshTokenHash(row.RefreshTokenHash)
 	if err != nil {
-		return session.Session{}, NewError(err, EntitySession)
+		return session.Session{}, db.NewError(err, db.EntitySession)
 	}
 
 	s := session.Session{

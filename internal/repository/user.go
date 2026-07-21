@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/user"
@@ -25,7 +26,7 @@ func (r *User) CheckAvailability(ctx context.Context, p user.CheckAvailabilityPa
 		Username: p.Username.String(),
 	})
 	if err != nil {
-		return user.CheckAvailabilityResult{}, NewError(err, EntityUser)
+		return user.CheckAvailabilityResult{}, db.NewError(err, db.EntityUser)
 	}
 
 	return user.CheckAvailabilityResult{
@@ -42,7 +43,7 @@ func (r *User) Create(ctx context.Context, p user.CreateParams) (user.User, erro
 		PasswordHash: p.PasswordHash,
 	})
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 
 	return userFromDB(row)
@@ -51,7 +52,7 @@ func (r *User) Create(ctx context.Context, p user.CreateParams) (user.User, erro
 func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
 	row, err := r.store.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 	return userFromDB(row)
 }
@@ -59,7 +60,7 @@ func (r *User) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
 func (r *User) GetByEmail(ctx context.Context, email user.Email) (user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email.String())
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 	return userFromDB(row)
 }
@@ -67,7 +68,7 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (user.User, err
 func (r *User) GetByUsername(ctx context.Context, username user.Username) (user.User, error) {
 	row, err := r.store.UserGetByUsername(ctx, username.String())
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 	return userFromDB(row)
 }
@@ -78,7 +79,7 @@ func (r *User) UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) 
 		PasswordHash: p.PasswordHash,
 	})
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 	return userFromDB(row)
 }
@@ -86,7 +87,7 @@ func (r *User) UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) 
 func (r *User) MarkVerified(ctx context.Context, id uuid.UUID) (user.User, error) {
 	row, err := r.store.UserMarkVerified(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, db.NewError(err, db.EntityUser)
 	}
 	return userFromDB(row)
 }
@@ -97,7 +98,7 @@ func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (u
 		DisplayName: p.DisplayName.String(),
 	})
 	if err != nil {
-		return user.Profile{}, NewError(err, EntityUserProfile)
+		return user.Profile{}, db.NewError(err, db.EntityUserProfile)
 	}
 	return userProfileFromDB(row)
 }
@@ -105,7 +106,7 @@ func (r *User) CreateProfile(ctx context.Context, p user.CreateProfileParams) (u
 func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, error) {
 	row, err := r.store.UserProfileGet(ctx, pgtype.UUID{Bytes: userID, Valid: true})
 	if err != nil {
-		return user.Profile{}, NewError(err, EntityUserProfile)
+		return user.Profile{}, db.NewError(err, db.EntityUserProfile)
 	}
 	return userProfileFromDB(row)
 }
@@ -113,12 +114,12 @@ func (r *User) GetProfile(ctx context.Context, userID uuid.UUID) (user.Profile, 
 func userFromDB(row db.User) (user.User, error) {
 	email, err := user.NewEmail(row.Email)
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, apperr.NewInvalidArgument(err)
 	}
 
 	username, err := user.NewUsername(row.Username)
 	if err != nil {
-		return user.User{}, NewError(err, EntityUser)
+		return user.User{}, apperr.NewInvalidArgument(err)
 	}
 
 	u := user.User{
@@ -144,7 +145,7 @@ func userFromDB(row db.User) (user.User, error) {
 func userProfileFromDB(row db.UserProfile) (user.Profile, error) {
 	displayName, err := user.NewProfileDisplayName(row.DisplayName)
 	if err != nil {
-		return user.Profile{}, NewError(err, EntityUserProfile)
+		return user.Profile{}, apperr.NewInvalidArgument(err)
 	}
 
 	up := user.Profile{

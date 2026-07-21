@@ -9,14 +9,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var incrWithTTLScript = redis.NewScript(`
-	local current = redis.call("INCR", KEYS[1])
-	if current == 1 then
-		redis.call("EXPIRE", KEYS[1], ARGV[1])
-	end
-	return current
-`)
-
 func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	var bytes []byte
 	var err error
@@ -85,6 +77,14 @@ func (q *Queries) Exists(ctx context.Context, key string) (bool, error) {
 	}
 	return count > 0, nil
 }
+
+var incrWithTTLScript = redis.NewScript(`
+	local current = redis.call("INCR", KEYS[1])
+	if current == 1 then
+		redis.call("EXPIRE", KEYS[1], ARGV[1])
+	end
+	return current
+`)
 
 func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	seconds := int64(ttl.Seconds())
