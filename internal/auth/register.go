@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/user"
 	"context"
 	"net/http"
 	"time"
@@ -191,7 +190,10 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	return RegisterResult{}, nil
 }
 
-func newConflictError(r user.CheckAvailabilityResult) error {
+func newConflictError(
+	// r user.CheckAvailabilityResult
+	r error,
+) error {
 	// var params []apperr.InvalidParam
 
 	// if !r.Email {

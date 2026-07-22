@@ -22,6 +22,48 @@ func NewService(repo Repository) *Service {
 	}
 }
 
+// type CreateUserParams struct {
+// 	Email       Email
+// 	Username    Username
+// 	Password    Password // Raw password value object
+// 	DisplayName ProfileDisplayName
+// }
+
+// // Create handles initial user creation and persistence.
+// func (s *Service) Create(ctx context.Context, p CreateUserParams, passwordHasher PasswordHasher) (*User, error) {
+// 	// 1. Check uniqueness/availability first
+// 	emailAvail, usernameAvail, err := s.repo.CheckAvailability(ctx, p.Email, p.Username)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to check availability: %w", err)
+// 	}
+
+// 	if !emailAvail {
+// 		return nil, apperr.NewAlreadyExists(errors.New("email already taken"), apperr.WithMsg("Email is already registered"))
+// 	}
+// 	if !usernameAvail {
+// 		return nil, apperr.NewAlreadyExists(errors.New("username already taken"), apperr.WithMsg("Username is already taken"))
+// 	}
+
+// 	// 2. Hash the raw password (via an injected hasher interface)
+// 	hashedPassword, err := passwordHasher.Hash(p.Password.String())
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to hash password: %w", err)
+// 	}
+
+// 	// 3. Instantiate domain aggregate
+// 	u, err := NewUser(p.Email, p.Username, hashedPassword, p.DisplayName)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// 4. Persist aggregate root
+// 	if err := s.repo.Create(ctx, u); err != nil {
+// 		return nil, fmt.Errorf("failed to persist user: %w", err)
+// 	}
+
+// 	return u, nil
+// }
+
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	if id == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
