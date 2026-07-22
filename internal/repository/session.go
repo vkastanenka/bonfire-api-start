@@ -1,10 +1,12 @@
+// internal/repository/session.go
 package repository
 
 import (
 	"context"
+	"time"
 
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
@@ -12,65 +14,58 @@ import (
 )
 
 type Session struct {
-	store db.Store
+	store db.Querier
 }
 
-func NewSession(store db.Store) *Session {
+func NewSession(store db.Querier) *Session {
 	return &Session{store: store}
 }
 
-func (r *Session) Create(ctx context.Context, p session.CreateParams) (session.Session, error) {
-	row, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
-		ID:               pgtype.UUID{Bytes: p.ID, Valid: p.ID != uuid.Nil},
-		UserID:           pgtype.UUID{Bytes: p.UserID, Valid: true},
-		RefreshTokenHash: p.RefreshTokenHash.Bytes(),
-		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
-		ClientIP:         p.ClientIP,
-		UserAgent:        p.UserAgent,
-		OS:               p.OS,
-		Browser:          p.Browser,
+func (r *Session) Create(ctx context.Context, s *session.Session) error {
+	_, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
+		ID:               pgtype.UUID{Bytes: s.ID(), Valid: s.ID() != uuid.Nil},
+		UserID:           pgtype.UUID{Bytes: s.UserID(), Valid: true},
+		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
+		ExpiresAt:        pgtype.Timestamptz{Time: s.ExpiresAt(), Valid: true},
+		ClientIP:         s.ClientIP(),
+		UserAgent:        s.UserAgent(),
+		OS:               s.OS(),
+		Browser:          s.Browser(),
 	})
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
+		return db.NewError(err, db.EntitySession)
 	}
 
-	return sessionFromDB(row)
+	return nil
 }
 
-func (r *Session) Get(ctx context.Context, id uuid.UUID) (session.Session, error) {
+func (r *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
 	row, err := r.store.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 	return sessionFromDB(row)
 }
 
-func (r *Session) UpdateRefreshToken(ctx context.Context, p session.UpdateRefreshTokenParams) (session.Session, error) {
-	row, err := r.store.SessionUpdateRefreshToken(ctx, db.SessionUpdateRefreshTokenParams{
-		ID:               pgtype.UUID{Bytes: p.ID, Valid: true},
-		RefreshTokenHash: p.RefreshTokenHash.Bytes(),
-		ExpiresAt:        pgtype.Timestamptz{Time: p.ExpiresAt, Valid: true},
+func (r *Session) Save(ctx context.Context, s *session.Session) error {
+	if s.IsRevoked() {
+		_, err := r.store.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: s.ID(), Valid: true})
+		if err != nil {
+			return db.NewError(err, db.EntitySession)
+		}
+		return nil
+	}
+
+	_, err := r.store.SessionUpdateRefreshToken(ctx, db.SessionUpdateRefreshTokenParams{
+		ID:               pgtype.UUID{Bytes: s.ID(), Valid: true},
+		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
+		ExpiresAt:        pgtype.Timestamptz{Time: s.ExpiresAt(), Valid: true},
 	})
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
+		return db.NewError(err, db.EntitySession)
 	}
-	return sessionFromDB(row)
-}
 
-func (r *Session) UpdateLastSeen(ctx context.Context, id uuid.UUID) (session.Session, error) {
-	row, err := r.store.SessionUpdateLastSeen(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
-	}
-	return sessionFromDB(row)
-}
-
-func (r *Session) Revoke(ctx context.Context, id uuid.UUID) (session.Session, error) {
-	row, err := r.store.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
-	}
-	return sessionFromDB(row)
+	return nil
 }
 
 func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
@@ -81,10 +76,10 @@ func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *Session) DeleteAllExcept(ctx context.Context, p session.DeleteAllExceptParams) error {
+func (r *Session) DeleteAllExcept(ctx context.Context, userID uuid.UUID, exceptSessionID uuid.UUID) error {
 	err := r.store.SessionDeleteAllExcept(ctx, db.SessionDeleteAllExceptParams{
-		UserID: pgtype.UUID{Bytes: p.UserID, Valid: true},
-		ID:     pgtype.UUID{Bytes: p.SessionID, Valid: true},
+		UserID: pgtype.UUID{Bytes: userID, Valid: true},
+		ID:     pgtype.UUID{Bytes: exceptSessionID, Valid: true},
 	})
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
@@ -92,34 +87,32 @@ func (r *Session) DeleteAllExcept(ctx context.Context, p session.DeleteAllExcept
 	return nil
 }
 
-func sessionFromDB(row db.Session) (session.Session, error) {
+// Reconstitution Helper
+func sessionFromDB(row db.Session) (*session.Session, error) {
 	tokenHash, err := session.NewRefreshTokenHash(row.RefreshTokenHash)
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.EntitySession)
+		return nil, apperr.NewInternal(err)
 	}
 
-	s := session.Session{
-		ID:               uuid.UUID(row.ID.Bytes),
-		UserID:           uuid.UUID(row.UserID.Bytes),
-		RefreshTokenHash: tokenHash,
-		ExpiresAt:        row.ExpiresAt.Time,
-		ClientIP:         row.ClientIP,
-		UserAgent:        row.UserAgent,
-		OS:               row.OS,
-		Browser:          row.Browser,
-		CreatedAt:        row.CreatedAt.Time,
-		UpdatedAt:        row.UpdatedAt.Time,
-	}
-
+	var revokedAt *time.Time
 	if row.RevokedAt.Valid {
-		s.RevokedAt = ptr.To(row.RevokedAt.Time)
+		revokedAt = &row.RevokedAt.Time
 	}
 
-	if row.LastSeenAt.Valid {
-		s.LastSeenAt = row.LastSeenAt.Time
-	}
-
-	return s, nil
+	return session.Reconstitute(
+		uuid.UUID(row.ID.Bytes),
+		uuid.UUID(row.UserID.Bytes),
+		tokenHash,
+		row.ClientIP,
+		row.UserAgent,
+		row.OS,
+		row.Browser,
+		row.ExpiresAt.Time,
+		row.LastSeenAt.Time,
+		row.CreatedAt.Time,
+		row.UpdatedAt.Time,
+		revokedAt,
+	), nil
 }
 
 var _ session.Repository = (*Session)(nil)

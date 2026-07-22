@@ -61,7 +61,7 @@ func (u *User) CreatedAt() time.Time                  { return u.createdAt }
 func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
 func (u *User) Profile() Profile                      { return u.profile }
 
-func NewUser(email Email, username Username, passwordHash string, displayName ProfileDisplayName) (*User, error) {
+func New(email Email, username Username, passwordHash string, displayName ProfileDisplayName) (*User, error) {
 	now := time.Now().UTC()
 	userID := uuid.Must(uuid.NewV7())
 
