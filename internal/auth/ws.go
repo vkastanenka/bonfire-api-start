@@ -1,31 +1,42 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
 	"context"
+	"errors"
 	"time"
+
+	"bonfire-api/internal/apperr"
 
 	"github.com/google/uuid"
 )
 
-// TODO: Update to config
+// WSTicketTTL is the single-use lifespan of a WebSocket handshake ticket.
 const WSTicketTTL = 20 * time.Second
 
 type WSTicketData struct {
 	UserID uuid.UUID `json:"user_id"`
 }
 
+// WSTicket generates a single-use, short-lived ticket for establishing a WebSocket connection.
 func (s *Service) WSTicket(ctx context.Context, p WSTicketData) (uuid.UUID, error) {
+	// 1. Guard Input
+	if p.UserID == uuid.Nil {
+		return uuid.Nil, apperr.NewInvalidArgument(
+			errors.New("user ID cannot be nil"),
+			apperr.WithMsg("Invalid user ID"),
+		)
+	}
+
+	// 2. Generate UUIDv7 Ticket ID
 	ticketID, err := uuid.NewV7()
 	if err != nil {
 		return uuid.Nil, apperr.NewInternal(err, apperr.WithMsg("Failed to generate websocket ticket"))
 	}
 
-	// ticketKey := cache.WSTicketKey(ticketID)
-	// err = s.cache.Set(ctx, ticketKey, p, WSTicketTTL)
-	// if err != nil {
-	// 	return uuid.Nil, err
-	// }
+	// 3. Persist Ticket in Ephemeral Store (Redis/Key-Value)
+	if err := s.tickets.SetTicket(ctx, ticketID, p.UserID, WSTicketTTL); err != nil {
+		return uuid.Nil, apperr.NewInternal(err, apperr.WithMsg("Failed to store websocket ticket"))
+	}
 
 	return ticketID, nil
 }

@@ -26,6 +26,7 @@ type SessionRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*session.Session, error)
 	Update(ctx context.Context, s *session.Session) error
 	Revoke(ctx context.Context, id uuid.UUID) error
+	RevokeByUserID(ctx context.Context, userID uuid.UUID) error
 }
 
 type SessionStore interface {
@@ -37,16 +38,25 @@ type SessionStore interface {
 type ShieldStore interface {
 	GetCooldown(ctx context.Context, scope, action, identifier string) (bool, error)
 	SetCooldown(ctx context.Context, scope, action, identifier string, ttl time.Duration) error
-	IncrementFailures(ctx context.Context, key string, window time.Duration) (int64, error)
-	Lockout(ctx context.Context, key string, duration time.Duration) error
 	IsLocked(ctx context.Context, key string) (bool, error)
+	Lockout(ctx context.Context, key string, duration time.Duration) error
+	IncrementFailures(ctx context.Context, key string, window time.Duration) (int64, error)
 	ResetFailures(ctx context.Context, key string) error
+	IsTokenConsumed(ctx context.Context, tokenID string) (bool, error)
+	MarkTokenConsumed(ctx context.Context, tokenID string, ttl time.Duration) error
+}
+
+type TicketStore interface {
+	SetTicket(ctx context.Context, ticketID uuid.UUID, userID uuid.UUID, ttl time.Duration) error
+	ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, error)
 }
 
 type TokenProvider interface {
 	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
 	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
 	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
+	VerifyPasswordReset(tokenStr string) (token.Claims, error)
+	VerifyEmailVerify(tokenStr string) (token.Claims, error)
 	VerifyRefresh(tokenStr string) (token.Claims, error)
 }
 
@@ -61,6 +71,7 @@ type UserRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
 	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (emailAvail bool, usernameAvail bool, err error)
+	Save(ctx context.Context, u *user.User) error
 }
 
 type Service struct {
@@ -69,6 +80,7 @@ type Service struct {
 	sessions     SessionRepository
 	sessionCache SessionStore
 	shield       ShieldStore
+	tickets      TicketStore
 	tokens       TokenProvider
 	users        UserRepository
 }

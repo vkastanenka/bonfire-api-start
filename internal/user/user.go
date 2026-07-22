@@ -2,6 +2,7 @@ package user
 
 import (
 	"bonfire-api/internal/presence"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,9 +36,14 @@ func (u *User) Verify(at time.Time) {
 	}
 }
 
-func (u *User) ChangePassword(newHash string) {
+func (u *User) UpdatePassword(newHash string) error {
+	if newHash == "" {
+		return errors.New("password hash cannot be empty")
+	}
+
 	u.passwordHash = newHash
 	u.updatedAt = time.Now().UTC()
+	return nil
 }
 
 func (u *User) SetPreferredPresence(p *presence.Presence) error {

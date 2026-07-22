@@ -1,13 +1,17 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"context"
+	"errors"
+	"log/slog"
 	"time"
-)
 
-const (
-	errInvalidResetToken = "Invalid or expired reset token."
+	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/session"
+
+	"github.com/google/uuid"
 )
 
 type ResetPasswordParams struct {
@@ -22,80 +26,111 @@ type ResetPasswordResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
+// ResetPassword verifies the reset token, updates the user's password, invalidates
+// all active sessions, and logs the user in with a fresh session pair.
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
-	// claims, err := s.token.VerifyPasswordReset(p.Token)
-	// if err != nil {
-	// 	return ResetPasswordResult{}, apperr.NewTokenExpired(err, "")
-	// }
+	// 1. Guard Input
+	if p.Token == "" {
+		return ResetPasswordResult{}, apperr.NewInvalidArgument(
+			errors.New("reset token is required"),
+			apperr.WithMsg("Invalid or expired reset token."),
+		)
+	}
 
-	// sessionID, err := uuid.NewV7()
-	// if err != nil {
-	// 	return ResetPasswordResult{}, apperr.NewInternal(err, "")
-	// }
+	// 2. Verify Password Reset Token Claims
+	claims, err := s.tokens.VerifyPasswordReset(p.Token)
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewPermissionDenied(err)
+	}
 
-	// tokenPair, err := s.token.GeneratePair(token.PairParams{
-	// 	UserID:    claims.UserID,
-	// 	SessionID: sessionID,
-	// })
-	// if err != nil {
-	// 	return ResetPasswordResult{}, apperr.NewInternal(err, "")
-	// }
+	// 3. Fetch User Aggregate
+	u, err := s.users.Get(ctx, claims.UserID)
+	if err != nil {
+		if apperr.IsNotFound(err) {
+			return ResetPasswordResult{}, apperr.NewPermissionDenied(err)
+		}
+		return ResetPasswordResult{}, err
+	}
 
-	// hashedRefreshToken := crypto.HashToken(tokenPair.Refresh)
+	// 4. Hash New Password
+	passwordHash, err := crypto.HashPassword(p.Password)
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err)
+	}
 
-	// hashedPasswordBytes, err := crypto.HashPassword(p.Password)
-	// if err != nil {
-	// 	return ResetPasswordResult{}, apperr.NewInternal(err, "")
-	// }
+	// 5. Mutate User Domain Aggregate State
+	if err := u.UpdatePassword(passwordHash); err != nil {
+		return ResetPasswordResult{}, apperr.NewInvalidArgument(err, apperr.WithMsg("Invalid password."))
+	}
 
-	// var sessionRaw repository.Session
+	// 6. Generate New Session ID & Tokens (ID Synchronization)
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err)
+	}
 
-	// persistCtx := context.WithoutCancel(ctx)
+	tokenPair, err := s.tokens.GeneratePair(u.ID(), sessionID)
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err)
+	}
 
-	// txErr := s.store.ExecTx(persistCtx, func(qtx *repository.Queries) error {
-	// 	err = qtx.SessionDeleteByUserID(persistCtx, pgtype.UUID{Bytes: claims.UserID, Valid: true})
-	// 	if err != nil {
-	// 		return err
-	// 	}
+	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err)
+	}
 
-	// 	_, err = qtx.UserUpdatePassword(persistCtx, repository.UserUpdatePasswordParams{
-	// 		ID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
-	// 		PasswordHash: string(hashedPasswordBytes),
-	// 	})
-	// 	if err != nil {
-	// 		return err
-	// 	}
+	newSession, err := session.New(
+		sessionID,
+		u.ID(),
+		tokenHash,
+		tokenPair.RefreshExpiresAt,
+		p.ClientMeta.IP,
+		p.ClientMeta.UserAgent,
+		p.ClientMeta.OS,
+		p.ClientMeta.Browser,
+	)
+	if err != nil {
+		return ResetPasswordResult{}, apperr.NewInternal(err)
+	}
 
-	// 	sessionRaw, err = qtx.SessionCreate(persistCtx, repository.SessionCreateParams{
-	// 		ID:               pgtype.UUID{Bytes: sessionID, Valid: true},
-	// 		UserID:           pgtype.UUID{Bytes: claims.UserID, Valid: true},
-	// 		RefreshTokenHash: hashedRefreshToken,
-	// 		ExpiresAt:        pgtype.Timestamptz{Time: tokenPair.RefreshExpiresAt, Valid: true},
-	// 		ClientIP:         p.ClientMeta.IP,
-	// 		UserAgent:        p.ClientMeta.UserAgent,
-	// 		OS:               p.ClientMeta.OS,
-	// 		Browser:          p.ClientMeta.Browser,
-	// 	})
-	// 	if err != nil {
-	// 		return repository.NewError(err, repository.ScopeSession)
-	// 	}
+	// 7. TRANSACTION: Atomically revoke existing sessions, update password, and create new session
+	persistCtx := context.WithoutCancel(ctx)
 
-	// 	return nil
-	// })
+	txErr := s.tx.ExecTx(persistCtx, func(txCtx context.Context) error {
+		// Invalidate all existing active sessions for security
+		if err := s.sessions.RevokeByUserID(txCtx, u.ID()); err != nil {
+			return err
+		}
 
-	// if txErr != nil {
-	// 	return ResetPasswordResult{}, txErr
-	// }
+		// Save updated user aggregate (contains new password hash & updated timestamp)
+		if err := s.users.Save(txCtx, u); err != nil {
+			return err
+		}
 
-	// sessionRow := session.FromRepository(sessionRaw)
-	// sessionAuth := session.ToAuthView(sessionRow)
-	// sessionKey := cache.SessionKey(sessionAuth.ID)
-	// s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
+		// Create new session
+		if err := s.sessions.Create(txCtx, newSession); err != nil {
+			return err
+		}
 
-	// return ResetPasswordResult{
-	// 	AccessToken:           tokenPair.Access,
-	// 	RefreshToken:          tokenPair.Refresh,
-	// 	RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
-	// }, nil
-	return ResetPasswordResult{}, nil
+		return nil
+	})
+
+	if txErr != nil {
+		return ResetPasswordResult{}, txErr
+	}
+
+	// 8. Cache New Session Non-blockingly
+	if err := s.sessionCache.Set(persistCtx, newSession); err != nil {
+		slog.WarnContext(persistCtx, "failed to cache session after password reset",
+			"error", err,
+			"session_id", newSession.ID(),
+			"user_id", u.ID(),
+		)
+	}
+
+	return ResetPasswordResult{
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
+	}, nil
 }

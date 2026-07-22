@@ -28,6 +28,10 @@ func failureCountKey(key string) string {
 	return fmt.Sprintf("shield:failures:{%s}", key)
 }
 
+func consumedTokenKey(tokenID string) string {
+	return fmt.Sprintf("shield:consumed_token:{%s}", tokenID)
+}
+
 func (r *Shield) GetCooldown(ctx context.Context, scope, action, identifier string) (bool, error) {
 	k := cooldownKey(scope, action, identifier)
 
@@ -97,6 +101,33 @@ func (r *Shield) ResetFailures(ctx context.Context, key string) error {
 	k := failureCountKey(key)
 
 	if err := r.q.Delete(ctx, k); err != nil && !cache.IsNotFoundError(err) {
+		return cache.NewError(err, cache.ScopeCooldown)
+	}
+
+	return nil
+}
+
+// IsTokenConsumed checks whether a single-use token (by JTI / ID) has already been used.
+func (r *Shield) IsTokenConsumed(ctx context.Context, tokenID string) (bool, error) {
+	k := consumedTokenKey(tokenID)
+
+	var dummy bool
+	err := r.q.Get(ctx, k, &dummy)
+	if cache.IsNotFoundError(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, cache.NewError(err, cache.ScopeCooldown)
+	}
+
+	return true, nil
+}
+
+// MarkTokenConsumed marks a single-use token as consumed for the remaining TTL of the token.
+func (r *Shield) MarkTokenConsumed(ctx context.Context, tokenID string, ttl time.Duration) error {
+	k := consumedTokenKey(tokenID)
+
+	if err := r.q.Set(ctx, k, true, ttl); err != nil {
 		return cache.NewError(err, cache.ScopeCooldown)
 	}
 

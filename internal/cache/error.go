@@ -21,6 +21,7 @@ const (
 	ScopeRateLimit Scope = "rate_limit"
 	ScopeSession   Scope = "session"
 	ScopeStore     Scope = "store"
+	ScopeTicket    Scope = "ticket"
 )
 
 func (s Scope) String() string {
