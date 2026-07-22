@@ -32,20 +32,18 @@ type Querier interface {
 	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
+	SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error
 	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
 	SessionDeleteAllExpired(ctx context.Context) error
-	SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID) error
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
-	SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error)
-	SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error)
-	SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error)
+	SessionSave(ctx context.Context, arg SessionSaveParams) (Session, error)
 	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
 	UserCreateAggregate(ctx context.Context, arg UserCreateAggregateParams) error
 	UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, error)
 	UserGetByEmail(ctx context.Context, email string) (UserAggregate, error)
 	UserGetByUsername(ctx context.Context, username string) (UserAggregate, error)
-	UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error)
-	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)
+	UserProfileSave(ctx context.Context, arg UserProfileSaveParams) (UserProfile, error)
+	UserSave(ctx context.Context, arg UserSaveParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

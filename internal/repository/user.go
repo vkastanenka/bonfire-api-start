@@ -46,7 +46,7 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 }
 
 func (r *User) Save(ctx context.Context, u *user.User) error {
-	_, err := r.q.UserUpdate(ctx, db.UserUpdateParams{
+	_, err := r.q.UserSave(ctx, db.UserSaveParams{
 		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
 		PasswordHash:      u.PasswordHash(),
 		PreferredPresence: presenceToInt2(u.PreferredPresence()),
@@ -62,7 +62,7 @@ func (r *User) Save(ctx context.Context, u *user.User) error {
 
 func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
 	prof := u.Profile()
-	_, err := r.q.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
+	_, err := r.q.UserProfileSave(ctx, db.UserProfileSaveParams{
 		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
 		DisplayName: prof.DisplayName().String(),
 		AvatarUrl:   stringPtrToText(prof.AvatarURL()),

@@ -49,7 +49,7 @@ WHERE
     username = $1
 LIMIT 1;
 
--- name: UserUpdate :one
+-- name: UserSave :one
 UPDATE
     users
 SET
@@ -62,7 +62,7 @@ WHERE
 RETURNING
     *;
 
--- name: UserProfileUpsert :one
+-- name: UserProfileSave :one
 INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (user_id)
@@ -74,8 +74,8 @@ ON CONFLICT (user_id)
         *;
 
 -- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, revoked_at, client_ip, user_agent, os, browser, last_seen_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING
     *;
 
@@ -88,40 +88,17 @@ WHERE
     id = $1
 LIMIT 1;
 
--- name: SessionUpdateRefreshToken :one
+-- name: SessionSave :one
 UPDATE
     sessions
 SET
     refresh_token_hash = $2,
     expires_at = $3,
-    last_seen_at = CURRENT_TIMESTAMP
+    last_seen_at = $4,
+    revoked_at = $5,
+    updated_at = $6
 WHERE
     id = $1
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
-RETURNING
-    *;
-
--- name: SessionUpdateLastSeen :one
-UPDATE
-    sessions
-SET
-    last_seen_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
-RETURNING
-    *;
-
--- name: SessionUpdateRevoked :one
-UPDATE
-    sessions
-SET
-    revoked_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND revoked_at IS NULL
 RETURNING
     *;
 
@@ -129,7 +106,7 @@ RETURNING
 DELETE FROM sessions
 WHERE id = $1;
 
--- name: SessionDeleteByUserID :exec
+-- name: SessionDeleteAllByUserID :exec
 DELETE FROM sessions
 WHERE user_id = $1;
 

@@ -659,8 +659,8 @@ func (q *Queries) RelationshipsListPendingByUserID(ctx context.Context, userID p
 }
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, client_ip, user_agent, os, browser)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, revoked_at, client_ip, user_agent, os, browser, last_seen_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING
     id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
@@ -670,10 +670,14 @@ type SessionCreateParams struct {
 	UserID           pgtype.UUID        `json:"user_id"`
 	RefreshTokenHash []byte             `json:"refresh_token_hash"`
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
 	ClientIP         netip.Addr         `json:"client_ip"`
 	UserAgent        string             `json:"user_agent"`
 	OS               string             `json:"os"`
 	Browser          string             `json:"browser"`
+	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error) {
@@ -682,10 +686,14 @@ func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (S
 		arg.UserID,
 		arg.RefreshTokenHash,
 		arg.ExpiresAt,
+		arg.RevokedAt,
 		arg.ClientIP,
 		arg.UserAgent,
 		arg.OS,
 		arg.Browser,
+		arg.LastSeenAt,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	var i Session
 	err := row.Scan(
@@ -715,6 +723,16 @@ func (q *Queries) SessionDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const sessionDeleteAllByUserID = `-- name: SessionDeleteAllByUserID :exec
+DELETE FROM sessions
+WHERE user_id = $1
+`
+
+func (q *Queries) SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, sessionDeleteAllByUserID, userID)
+	return err
+}
+
 const sessionDeleteAllExcept = `-- name: SessionDeleteAllExcept :exec
 DELETE FROM sessions
 WHERE user_id = $1
@@ -738,16 +756,6 @@ WHERE expires_at <= CURRENT_TIMESTAMP
 
 func (q *Queries) SessionDeleteAllExpired(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, sessionDeleteAllExpired)
-	return err
-}
-
-const sessionDeleteByUserID = `-- name: SessionDeleteByUserID :exec
-DELETE FROM sessions
-WHERE user_id = $1
-`
-
-func (q *Queries) SessionDeleteByUserID(ctx context.Context, userID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, sessionDeleteByUserID, userID)
 	return err
 }
 
@@ -781,94 +789,39 @@ func (q *Queries) SessionGet(ctx context.Context, id pgtype.UUID) (Session, erro
 	return i, err
 }
 
-const sessionUpdateLastSeen = `-- name: SessionUpdateLastSeen :one
-UPDATE
-    sessions
-SET
-    last_seen_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
-RETURNING
-    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
-`
-
-func (q *Queries) SessionUpdateLastSeen(ctx context.Context, id pgtype.UUID) (Session, error) {
-	row := q.db.QueryRow(ctx, sessionUpdateLastSeen, id)
-	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.LastSeenAt,
-		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ClientIP,
-		&i.RefreshTokenHash,
-		&i.UserAgent,
-		&i.OS,
-		&i.Browser,
-	)
-	return i, err
-}
-
-const sessionUpdateRefreshToken = `-- name: SessionUpdateRefreshToken :one
+const sessionSave = `-- name: SessionSave :one
 UPDATE
     sessions
 SET
     refresh_token_hash = $2,
     expires_at = $3,
-    last_seen_at = CURRENT_TIMESTAMP
+    last_seen_at = $4,
+    revoked_at = $5,
+    updated_at = $6
 WHERE
     id = $1
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
 RETURNING
     id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
 `
 
-type SessionUpdateRefreshTokenParams struct {
+type SessionSaveParams struct {
 	ID               pgtype.UUID        `json:"id"`
 	RefreshTokenHash []byte             `json:"refresh_token_hash"`
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) SessionUpdateRefreshToken(ctx context.Context, arg SessionUpdateRefreshTokenParams) (Session, error) {
-	row := q.db.QueryRow(ctx, sessionUpdateRefreshToken, arg.ID, arg.RefreshTokenHash, arg.ExpiresAt)
-	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.LastSeenAt,
-		&i.ExpiresAt,
-		&i.RevokedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ClientIP,
-		&i.RefreshTokenHash,
-		&i.UserAgent,
-		&i.OS,
-		&i.Browser,
+func (q *Queries) SessionSave(ctx context.Context, arg SessionSaveParams) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionSave,
+		arg.ID,
+		arg.RefreshTokenHash,
+		arg.ExpiresAt,
+		arg.LastSeenAt,
+		arg.RevokedAt,
+		arg.UpdatedAt,
 	)
-	return i, err
-}
-
-const sessionUpdateRevoked = `-- name: SessionUpdateRevoked :one
-UPDATE
-    sessions
-SET
-    revoked_at = CURRENT_TIMESTAMP
-WHERE
-    id = $1
-    AND revoked_at IS NULL
-RETURNING
-    id, user_id, last_seen_at, expires_at, revoked_at, created_at, updated_at, client_ip, refresh_token_hash, user_agent, os, browser
-`
-
-func (q *Queries) SessionUpdateRevoked(ctx context.Context, id pgtype.UUID) (Session, error) {
-	row := q.db.QueryRow(ctx, sessionUpdateRevoked, id)
 	var i Session
 	err := row.Scan(
 		&i.ID,
@@ -1053,7 +1006,7 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (UserA
 	return i, err
 }
 
-const userProfileUpsert = `-- name: UserProfileUpsert :one
+const userProfileSave = `-- name: UserProfileSave :one
 INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (user_id)
@@ -1065,7 +1018,7 @@ ON CONFLICT (user_id)
         user_id, created_at, updated_at, display_name, avatar_url
 `
 
-type UserProfileUpsertParams struct {
+type UserProfileSaveParams struct {
 	UserID      pgtype.UUID        `json:"user_id"`
 	DisplayName string             `json:"display_name"`
 	AvatarUrl   pgtype.Text        `json:"avatar_url"`
@@ -1073,8 +1026,8 @@ type UserProfileUpsertParams struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileUpsert,
+func (q *Queries) UserProfileSave(ctx context.Context, arg UserProfileSaveParams) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileSave,
 		arg.UserID,
 		arg.DisplayName,
 		arg.AvatarUrl,
@@ -1092,7 +1045,7 @@ func (q *Queries) UserProfileUpsert(ctx context.Context, arg UserProfileUpsertPa
 	return i, err
 }
 
-const userUpdate = `-- name: UserUpdate :one
+const userSave = `-- name: UserSave :one
 UPDATE
     users
 SET
@@ -1106,7 +1059,7 @@ RETURNING
     id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
 `
 
-type UserUpdateParams struct {
+type UserSaveParams struct {
 	ID                pgtype.UUID        `json:"id"`
 	PasswordHash      string             `json:"password_hash"`
 	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
@@ -1114,8 +1067,8 @@ type UserUpdateParams struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error) {
-	row := q.db.QueryRow(ctx, userUpdate,
+func (q *Queries) UserSave(ctx context.Context, arg UserSaveParams) (User, error) {
+	row := q.db.QueryRow(ctx, userSave,
 		arg.ID,
 		arg.PasswordHash,
 		arg.PreferredPresence,
