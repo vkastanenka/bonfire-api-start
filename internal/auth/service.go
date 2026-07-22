@@ -1,13 +1,42 @@
 package auth
 
-type Service struct {
-	// store       repository.Store
-	// cache       cache.Store
-	// token       *token.Manager
-	// session     *session.Service
-	// user        *user.Service
-	// flightGroup singleflight.Group
+import (
+	"bonfire-api/internal/user"
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type CooldownRepository interface {
+	Get(ctx context.Context, scope, action, identifier string) (bool, error)
+	Set(ctx context.Context, scope, action, identifier string, ttl time.Duration) error
 }
+
+type TokenProvider interface {
+	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
+}
+
+type UserService interface {
+	GetByEmail(ctx context.Context, rawEmail string) (*user.User, error)
+}
+
+type Service struct {
+	cooldown CooldownRepository
+	token    TokenProvider
+	user     UserService
+}
+
+// type Service struct {
+// 	cooldown cooldown.Repository
+// 	user     user.Service
+// 	token    *token.Provider
+// 	// store       repository.Store
+// 	// cache       cache.Store
+// 	// session     *session.Service
+// 	// user        *user.Service
+// 	// flightGroup singleflight.Group
+// }
 
 func NewService(
 // store repository.Store,

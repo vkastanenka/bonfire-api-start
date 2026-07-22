@@ -16,6 +16,7 @@ type Scope string
 const (
 	ScopeAuth      Scope = "auth"
 	ScopeEvents    Scope = "events"
+	ScopeCooldown  Scope = "cooldown"
 	ScopePresence  Scope = "presence"
 	ScopeRateLimit Scope = "rate_limit"
 	ScopeSession   Scope = "session"

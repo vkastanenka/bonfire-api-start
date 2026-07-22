@@ -16,6 +16,8 @@ type Presence struct {
 	ttl time.Duration
 }
 
+var _ presence.Repository = (*Presence)(nil)
+
 func NewPresence(q cache.Querier, ttl time.Duration) *Presence {
 	return &Presence{
 		q:   q,
@@ -97,5 +99,3 @@ func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (ma
 
 	return result, nil
 }
-
-var _ presence.Repository = (*Presence)(nil)

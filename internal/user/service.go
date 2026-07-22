@@ -12,18 +12,28 @@ import (
 	"github.com/google/uuid"
 )
 
-type Service struct {
+type Service interface {
+	CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail bool, usernameAvail bool, err error)
+	Get(ctx context.Context, id uuid.UUID) (*User, error)
+	GetByEmail(ctx context.Context, email Email) (*User, error)
+	GetByUsername(ctx context.Context, username Username) (*User, error)
+	SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error)
+	UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error)
+	VerifyAccount(ctx context.Context, id uuid.UUID) error
+}
+
+type service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{
+func NewService(repo Repository) *service {
+	return &service{
 		repo: repo,
 	}
 }
 
 // Get retrieves a user aggregate by its unique UUID.
-func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
+func (s *service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	if id == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
 	}
@@ -36,10 +46,14 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	return u, nil
 }
 
-// GetByEmail retrieves a user aggregate by its value object Email.
-func (s *Service) GetByEmail(ctx context.Context, email Email) (*User, error) {
-	if !email.IsValid() {
-		return nil, apperr.NewInvalidArgument(errors.New("invalid email address"), apperr.WithMsg("Invalid email address"))
+// GetByEmail retrieves a user aggregate by a raw email string.
+func (s *service) GetByEmail(ctx context.Context, rawEmail string) (*User, error) {
+	email, err := NewEmail(rawEmail)
+	if err != nil || !email.IsValid() {
+		return nil, apperr.NewInvalidArgument(
+			errors.New("invalid email address"),
+			apperr.WithMsg("Invalid email address"),
+		)
 	}
 
 	u, err := s.repo.GetByEmail(ctx, email)
@@ -51,7 +65,7 @@ func (s *Service) GetByEmail(ctx context.Context, email Email) (*User, error) {
 }
 
 // GetByUsername retrieves a user aggregate by its value object Username.
-func (s *Service) GetByUsername(ctx context.Context, username Username) (*User, error) {
+func (s *service) GetByUsername(ctx context.Context, username Username) (*User, error) {
 	if !username.IsValid() {
 		return nil, apperr.NewInvalidArgument(errors.New("invalid username"), apperr.WithMsg("Invalid username"))
 	}
@@ -71,7 +85,7 @@ type UpdateProfileParams struct {
 }
 
 // UpdateProfile mutates a user's profile and persists the updated profile record.
-func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
+func (s *service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
 	if p.UserID == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
 	}
@@ -95,7 +109,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 }
 
 // SetPreferredPresence mutates a user's default presence and updates the user record.
-func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error) {
+func (s *service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error) {
 	if id == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
 	}
@@ -117,7 +131,7 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *pre
 }
 
 // VerifyAccount verifies a user's account idempotently and updates the user record.
-func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
+func (s *service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
 		return apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
 	}
@@ -141,7 +155,7 @@ func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 }
 
 // CheckAvailability queries whether an email address and username are available for registration.
-func (s *Service) CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail, usernameAvail bool, err error) {
+func (s *service) CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail, usernameAvail bool, err error) {
 	if !email.IsValid() {
 		return false, false, apperr.NewInvalidArgument(errors.New("invalid email address"), apperr.WithMsg("Invalid email address"))
 	}

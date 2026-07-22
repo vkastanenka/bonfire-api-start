@@ -9,10 +9,28 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	DefaultAccessTTL        = 15 * time.Minute
+	DefaultRefreshTTL       = 7 * 24 * time.Hour
+	DefaultEmailVerifyTTL   = 24 * time.Hour
+	DefaultPasswordResetTTL = 15 * time.Minute
+	DefaultClockLeeway      = 5 * time.Second
+)
+
+var (
+	ErrTokenExpired          = errors.New("token has expired")
+	ErrTokenMalformed        = errors.New("token is malformed")
+	ErrTokenSignatureInvalid = errors.New("token signature is invalid")
+	ErrTokenInvalid          = errors.New("token is invalid")
+	ErrIssuerMismatch        = errors.New("token issuer is invalid")
+	ErrVariantMismatch       = errors.New("token type mismatch")
+	ErrInternal              = errors.New("internal cryptographic error")
+)
+
 type Claims struct {
 	UserID    uuid.UUID `json:"uid"`
 	SessionID uuid.UUID `json:"sid"`
-	Type      Type      `json:"type"`
+	Variant   Variant   `json:"var"`
 	jwt.RegisteredClaims
 }
 
@@ -22,132 +40,86 @@ type Config struct {
 	VerifySecret        string
 	PasswordResetSecret string
 	Issuer              string
+
+	AccessTTL        time.Duration
+	RefreshTTL       time.Duration
+	EmailVerifyTTL   time.Duration
+	PasswordResetTTL time.Duration
 }
 
-type Type string
-
-const (
-	TypeAccess        Type = "access"
-	TypeRefresh       Type = "refresh"
-	TypeEmailVerify   Type = "email-verify"
-	TypePasswordReset Type = "password-reset"
-)
-
-const (
-	AccessTTL        = 15 * time.Minute
-	RefreshTTL       = 7 * 24 * time.Hour
-	EmailVerifyTTL   = 24 * time.Hour
-	PasswordResetTTL = 15 * time.Minute
-)
-
-var (
-	ErrTokenExpired          = errors.New("token has expired")
-	ErrTokenMalformed        = errors.New("token is malformed")
-	ErrTokenSignatureInvalid = errors.New("token signature is invalid")
-	ErrTokenInvalid          = errors.New("token is invalid")
-	ErrIssuerMismatch        = errors.New("token issuer is invalid")
-	ErrTypeMismatch          = errors.New("token type mismatch")
-	ErrInternal              = errors.New("internal cryptographic error")
-)
-
-type Manager struct {
+type Provider struct {
 	issuer  string
-	secrets map[Type][]byte
+	secrets map[Variant][]byte
+	ttls    map[Variant]time.Duration
 }
 
-func NewManager(cfg Config) (*Manager, error) {
+func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" || cfg.VerifySecret == "" || cfg.PasswordResetSecret == "" {
-		return nil, fmt.Errorf("token manager initialization failed: critical secrets cannot be empty")
+		return nil, fmt.Errorf("token provider initialization failed: critical secrets cannot be empty")
 	}
 
 	if cfg.Issuer == "" {
 		cfg.Issuer = "bonfire-api"
 	}
 
-	return &Manager{
+	accessTTL := cfg.AccessTTL
+	if accessTTL <= 0 {
+		accessTTL = DefaultAccessTTL
+	}
+
+	refreshTTL := cfg.RefreshTTL
+	if refreshTTL <= 0 {
+		refreshTTL = DefaultRefreshTTL
+	}
+
+	emailVerifyTTL := cfg.EmailVerifyTTL
+	if emailVerifyTTL <= 0 {
+		emailVerifyTTL = DefaultEmailVerifyTTL
+	}
+
+	passwordResetTTL := cfg.PasswordResetTTL
+	if passwordResetTTL <= 0 {
+		passwordResetTTL = DefaultPasswordResetTTL
+	}
+
+	return &Provider{
 		issuer: cfg.Issuer,
-		secrets: map[Type][]byte{
-			TypeAccess:        []byte(cfg.AccessSecret),
-			TypeRefresh:       []byte(cfg.RefreshSecret),
-			TypeEmailVerify:   []byte(cfg.VerifySecret),
-			TypePasswordReset: []byte(cfg.PasswordResetSecret),
+		secrets: map[Variant][]byte{
+			VariantAccess:        []byte(cfg.AccessSecret),
+			VariantRefresh:       []byte(cfg.RefreshSecret),
+			VariantEmailVerify:   []byte(cfg.VerifySecret),
+			VariantPasswordReset: []byte(cfg.PasswordResetSecret),
+		},
+		ttls: map[Variant]time.Duration{
+			VariantAccess:        accessTTL,
+			VariantRefresh:       refreshTTL,
+			VariantEmailVerify:   emailVerifyTTL,
+			VariantPasswordReset: passwordResetTTL,
 		},
 	}, nil
 }
 
-type PairParams struct {
-	UserID    uuid.UUID
-	SessionID uuid.UUID
-}
-
-type Pair struct {
-	Access           string    `json:"access_token"`
-	AccessExpiresAt  time.Time `json:"access_token_expires_at"`
-	Refresh          string    `json:"refresh_token"`
-	RefreshExpiresAt time.Time `json:"refresh_token_expires_at"`
-}
-
-func (m *Manager) GeneratePair(p PairParams) (Pair, error) {
-	access, accessExpiresAt, err := m.GenerateAccess(p)
-	if err != nil {
-		return Pair{}, err
-	}
-
-	refresh, refreshExpiresAt, err := m.GenerateRefresh(p)
-	if err != nil {
-		return Pair{}, err
-	}
-
-	return Pair{
-		Access:           access,
-		AccessExpiresAt:  accessExpiresAt,
-		Refresh:          refresh,
-		RefreshExpiresAt: refreshExpiresAt,
-	}, nil
-}
-
-func (m *Manager) GenerateAccess(p PairParams) (string, time.Time, error) {
-	return m.generate(TypeAccess, AccessTTL, Claims{
-		UserID:    p.UserID,
-		SessionID: p.SessionID,
-	})
-}
-
-func (m *Manager) GenerateRefresh(p PairParams) (string, time.Time, error) {
-	return m.generate(TypeRefresh, RefreshTTL, Claims{
-		UserID:    p.UserID,
-		SessionID: p.SessionID,
-	})
-}
-
-func (m *Manager) GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error) {
-	return m.generate(TypeEmailVerify, EmailVerifyTTL, Claims{
-		UserID: userID,
-	})
-}
-
-func (m *Manager) GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error) {
-	return m.generate(TypePasswordReset, PasswordResetTTL, Claims{
-		UserID: userID,
-	})
-}
-
-func (m *Manager) generate(tokenType Type, ttl time.Duration, claims Claims) (string, time.Time, error) {
-	secret, exists := m.secrets[tokenType]
+func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.Time, error) {
+	secret, exists := p.secrets[tokenVariant]
 	if !exists || len(secret) == 0 {
-		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenType)
+		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenVariant)
+	}
+
+	ttl, exists := p.ttls[tokenVariant]
+	if !exists || ttl <= 0 {
+		return "", time.Time{}, fmt.Errorf("%w: missing ttl configuration for type %s", ErrInternal, tokenVariant)
 	}
 
 	now := time.Now()
 	expiresAt := now.Add(ttl)
 
-	claims.Type = tokenType
+	claims.Variant = tokenVariant
 	claims.RegisteredClaims = jwt.RegisteredClaims{
 		ID:        uuid.NewString(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(expiresAt),
-		Issuer:    m.issuer,
+		Issuer:    p.issuer,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -159,34 +131,23 @@ func (m *Manager) generate(tokenType Type, ttl time.Duration, claims Claims) (st
 	return signedToken, expiresAt, nil
 }
 
-func (m *Manager) VerifyAccess(tokenStr string) (*Claims, error) {
-	return m.verify(TypeAccess, tokenStr)
-}
-
-func (m *Manager) VerifyRefresh(tokenStr string) (*Claims, error) {
-	return m.verify(TypeRefresh, tokenStr)
-}
-
-func (m *Manager) VerifyEmailVerify(tokenStr string) (*Claims, error) {
-	return m.verify(TypeEmailVerify, tokenStr)
-}
-
-func (m *Manager) VerifyPasswordReset(tokenStr string) (*Claims, error) {
-	return m.verify(TypePasswordReset, tokenStr)
-}
-
-func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {
-	secret, exists := m.secrets[tokenType]
+func (p *Provider) verify(tokenVariant Variant, tokenStr string) (*Claims, error) {
+	secret, exists := p.secrets[tokenVariant]
 	if !exists || len(secret) == 0 {
-		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, tokenType)
+		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, tokenVariant)
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing algorithm variant: %v", t.Header["alg"])
-		}
-		return secret, nil
-	})
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&Claims{},
+		func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing algorithm variant: %v", t.Header["alg"])
+			}
+			return secret, nil
+		},
+		jwt.WithLeeway(DefaultClockLeeway),
+	)
 
 	if err != nil {
 		switch {
@@ -206,12 +167,12 @@ func (m *Manager) verify(tokenType Type, tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("%w: claims structure corrupt or invalid", ErrTokenInvalid)
 	}
 
-	if claims.Issuer != m.issuer {
-		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, m.issuer, claims.Issuer)
+	if claims.Issuer != p.issuer {
+		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, p.issuer, claims.Issuer)
 	}
 
-	if claims.Type != tokenType {
-		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrTypeMismatch, tokenType, claims.Type)
+	if claims.Variant != tokenVariant {
+		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrVariantMismatch, tokenVariant, claims.Variant)
 	}
 
 	return claims, nil

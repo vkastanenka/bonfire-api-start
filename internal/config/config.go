@@ -21,6 +21,10 @@ type Config struct {
 	EmailVerifySecret    string        `env:"JWT_EMAIL_VERIFY_SECRET,required"`
 	PasswordResetSecret  string        `env:"JWT_PASSWORD_RESET_SECRET,required"`
 	PasswordMFASecret    string        `env:"JWT_PASSWORD_MFA_SECRET,required"`
+	JWTAccessTTL         time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
+	JWTRefreshTTL        time.Duration `env:"JWT_REFRESH_TTL" envDefault:"168h"`
+	JWTEmailVerifyTTL    time.Duration `env:"JWT_EMAIL_VERIFY_TTL" envDefault:"24h"`
+	JWTPasswordResetTTL  time.Duration `env:"JWT_PASSWORD_RESET_TTL" envDefault:"15m"`
 	ResendApiKey         string        `env:"RESEND_API_KEY"`
 	EmailFromAddress     string        `env:"EMAIL_FROM_ADDRESS"`
 	FrontendURL          string        `env:"FRONTEND_URL"`
