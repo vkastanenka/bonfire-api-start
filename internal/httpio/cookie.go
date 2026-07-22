@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const CookieRefreshToken = "refresh_token"
+const CookieRefreshToken = "refresh-token"
 
 func CookieGetRefreshToken(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(CookieRefreshToken)

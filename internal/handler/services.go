@@ -17,7 +17,7 @@ type AuthService interface {
 	ResendVerify(ctx context.Context, userID uuid.UUID) error
 	ResetPassword(ctx context.Context, p auth.ResetPasswordParams) (auth.ResetPasswordResult, error)
 	VerifyEmail(ctx context.Context, tokenStr string) error
-	WSTicket(ctx context.Context, p auth.WSTicketData) (uuid.UUID, error)
+	WSTicket(ctx context.Context, uid uuid.UUID) (uuid.UUID, error)
 }
 
 type UserService interface {

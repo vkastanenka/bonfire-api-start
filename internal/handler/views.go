@@ -123,7 +123,7 @@ type UserResponse struct {
 	CreatedAt         time.Time          `json:"created_at"`
 }
 
-func ToUserResponse(u user.User) UserResponse {
+func ToUserResponse(u *user.User) UserResponse {
 	return UserResponse{
 		ID:                u.ID(),
 		Username:          u.Username().String(),

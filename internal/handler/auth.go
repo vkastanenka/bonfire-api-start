@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/httpio"
 	"net/http"
@@ -8,18 +9,23 @@ import (
 
 type AuthHandler struct {
 	service AuthService
+	bind    *httpio.Bind
 }
 
-func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{}
+func NewAuthHandler(service AuthService, bind *httpio.Bind) *AuthHandler {
+	return &AuthHandler{
+		service: service,
+		bind:    bind,
+	}
 }
 
 type ForgotPasswordRequest struct {
-	Email string `json:"email" mod:"email" validate:"identity_email"`
+	Email string `json:"email" mod:"email" validate:"required,email,max=255"`
 }
 
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ForgotPasswordRequest](nil, w, r)
+	var req ForgotPasswordRequest
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
@@ -33,8 +39,8 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" mod:"email" validate:"identity_email"`
-	Password string `json:"password" validate:"identity_password"`
+	Email    string `json:"email" mod:"email" validate:"required,email,max=255"`
+	Password string `json:"password" validate:"required,min=12,max=255"`
 }
 
 type LoginResponse struct {
@@ -42,7 +48,8 @@ type LoginResponse struct {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[LoginRequest](nil, w, r)
+	var req LoginRequest
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
@@ -66,7 +73,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
 	httpio.RespondOK(w, r, LoginResponse{AccessToken: data.AccessToken})
-
 	return nil
 }
 
@@ -77,7 +83,7 @@ type RefreshResponse struct {
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
-		// return apperr.NewUnauthorized(err, "Missing refresh token, please log in.")
+		return apperr.NewUnauthenticated(err, apperr.WithMsg("Missing refresh token, please log in."))
 	}
 
 	data, err := h.service.Refresh(r.Context(), auth.RefreshParams{
@@ -94,10 +100,10 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 }
 
 type RegisterRequest struct {
-	Email       string  `json:"email" mod:"email" validate:"identity_email"`
-	Username    string  `json:"username" mod:"text" validate:"identity_username"`
-	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
-	Password    string  `json:"password" validate:"identity_password"`
+	Email       string  `json:"email" mod:"email" validate:"required,email,max=255"`
+	Username    string  `json:"username" mod:"text" validate:"required,alphanum,min=3,max=32"`
+	DisplayName *string `json:"displayName,omitempty" mod:"text" validate:"min=3,max=32"`
+	Password    string  `json:"password" validate:"required,min=12,max=255"`
 }
 
 type RegisterResponse struct {
@@ -105,7 +111,8 @@ type RegisterResponse struct {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterRequest](nil, w, r)
+	var req RegisterRequest
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
@@ -146,8 +153,8 @@ func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error
 }
 
 type ResetPasswordRequest struct {
-	Token    string `json:"token" validate:"required"`
-	Password string `json:"password" validate:"identity_password"`
+	Token    string `json:"token" validate:"required,token"`
+	Password string `json:"password" validate:"required,min=12,max=255"`
 }
 
 type ResetPasswordResponse struct {
@@ -155,7 +162,8 @@ type ResetPasswordResponse struct {
 }
 
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ResetPasswordRequest](nil, w, r)
+	var req ResetPasswordRequest
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
@@ -180,11 +188,12 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) erro
 }
 
 type VerifyEmailRequest struct {
-	Token string `json:"token" validate:"required"`
+	Token string `json:"token" validate:"required,token"`
 }
 
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[VerifyEmailRequest](nil, w, r)
+	var req VerifyEmailRequest
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
@@ -207,9 +216,7 @@ func (h *AuthHandler) WSTicket(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	ticket, err := h.service.WSTicket(r.Context(), auth.WSTicketData{
-		UserID: claims.UserID,
-	})
+	ticket, err := h.service.WSTicket(r.Context(), claims.UserID)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ const (
 	ctxClaimsKey  ctxKey = "claims"
 	ctxMetaKey    ctxKey = "meta"
 	ctxReqIDKey   ctxKey = "request-id"
-	ctxTraceIDKey ctxKey = "request-id"
+	ctxTraceIDKey ctxKey = "trace-id"
 )
 
 func CtxGetMeta(ctx context.Context) (ClientMeta, error) {

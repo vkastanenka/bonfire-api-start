@@ -49,6 +49,8 @@ func New() *Validator {
 		return ""
 	})
 
+	v.RegisterAlias("token", "max=1024")
+
 	instance := &Validator{
 		validate:      v,
 		errorMessages: make(map[string]string),

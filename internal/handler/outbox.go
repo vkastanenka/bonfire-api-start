@@ -10,18 +10,20 @@ import (
 
 type OutboxEventHandler struct {
 	repo outbox.Repository
+	bind *httpio.Bind
 }
 
-func NewOutboxEventHandler(repo outbox.Repository) *OutboxEventHandler {
-	return &OutboxEventHandler{repo: repo}
+func NewOutboxEventHandler(repo outbox.Repository, bind *httpio.Bind) *OutboxEventHandler {
+	return &OutboxEventHandler{repo: repo, bind: bind}
 }
 
 type OutboxEventGetByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
 func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[OutboxEventGetByIDPath](nil, r)
+	var path OutboxEventGetByIDPath
+	err := h.bind.Path(r, &path)
 	if err != nil {
 		return err
 	}
@@ -36,11 +38,12 @@ func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.R
 }
 
 type ResetAttemptsPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
 func (h *OutboxEventHandler) OutboxEventResetAttempts(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[ResetAttemptsPath](nil, r)
+	var path ResetAttemptsPath
+	err := h.bind.Path(r, &path)
 	if err != nil {
 		return err
 	}
@@ -55,11 +58,12 @@ func (h *OutboxEventHandler) OutboxEventResetAttempts(w http.ResponseWriter, r *
 }
 
 type OutboxEventDeleteByIDPath struct {
-	ID uuid.UUID `path:"id" validate:"required"`
+	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
 func (h *OutboxEventHandler) Delete(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[OutboxEventDeleteByIDPath](nil, r)
+	var path OutboxEventDeleteByIDPath
+	err := h.bind.Path(r, &path)
 	if err != nil {
 		return err
 	}
