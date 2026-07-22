@@ -8,8 +8,8 @@ import (
 )
 
 type CreateParams struct {
-	EventType string
-	Payload   json.RawMessage
+	Variant string
+	Payload any
 }
 
 type ListParams struct {
@@ -33,8 +33,12 @@ type MarkDeadLetterParams struct {
 	Reason string
 }
 
+// Handler defines a callback interface for processing a specific outbox event.
+type Handler func(ctx context.Context, payload json.RawMessage) error
+
+// Repository defines all operations for outbox persistence.
 type Repository interface {
-	Create(ctx context.Context, p CreateParams) (Event, error)
+	Publish(ctx context.Context, p CreateParams) (Event, error)
 	Get(ctx context.Context, id uuid.UUID) (Event, error)
 	List(ctx context.Context, p ListParams) ([]Event, error)
 	AcquireBatch(ctx context.Context, p AcquireBatchParams) ([]Event, error)

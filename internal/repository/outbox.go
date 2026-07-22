@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 
@@ -18,14 +19,21 @@ type Outbox struct {
 	q db.Querier
 }
 
+var _ outbox.Repository = (*Outbox)(nil)
+
 func NewOutbox(q db.Querier) *Outbox {
 	return &Outbox{q: q}
 }
 
-func (o *Outbox) Create(ctx context.Context, p outbox.CreateParams) (outbox.Event, error) {
+func (o *Outbox) Publish(ctx context.Context, p outbox.CreateParams) (outbox.Event, error) {
+	jsonBytes, err := json.Marshal(p.Payload)
+	if err != nil {
+		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to marshal outbox event payload"))
+	}
+
 	row, err := o.q.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
-		EventType: p.EventType,
-		Payload:   []byte(p.Payload),
+		EventType: p.Variant,
+		Payload:   jsonBytes,
 	})
 	if err != nil {
 		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to create outbox event"))
@@ -200,5 +208,3 @@ func outboxFromDB(row db.OutboxEvent) outbox.Event {
 
 	return e
 }
-
-var _ outbox.Repository = (*Outbox)(nil)

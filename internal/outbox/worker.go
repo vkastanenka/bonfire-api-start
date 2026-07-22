@@ -2,47 +2,48 @@ package outbox
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
-
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/email"
 
 	"github.com/google/uuid"
 )
 
 type Worker struct {
 	id            uuid.UUID
-	cache         cache.Manager
 	repository    Repository
-	mailer        email.Mailer
 	pollInterval  time.Duration
 	leaseDuration int32
 	batchSize     int32
+	handlers      map[string]Handler
+	handlersMu    sync.RWMutex
 	wg            sync.WaitGroup
 	cancel        context.CancelFunc
 }
 
 func NewWorker(
-	cache cache.Manager,
 	repository Repository,
-	mailer email.Mailer,
 	pollInterval time.Duration,
 	leaseDuration int32,
 	batchSize int32,
 ) *Worker {
 	return &Worker{
 		id:            uuid.New(),
-		cache:         cache,
 		repository:    repository,
-		mailer:        mailer,
 		pollInterval:  pollInterval,
 		leaseDuration: leaseDuration,
 		batchSize:     batchSize,
+		handlers:      make(map[string]Handler),
 	}
+}
+
+// RegisterHandler registers a callback function for a specific event type string.
+func (w *Worker) RegisterHandler(eventType string, handler Handler) {
+	w.handlersMu.Lock()
+	defer w.handlersMu.Unlock()
+	w.handlers[eventType] = handler
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -105,58 +106,18 @@ func (w *Worker) processBatch(ctx context.Context) {
 }
 
 func (w *Worker) executeEvent(ctx context.Context, event Event) {
-	var executionErr error
-	var isFatal bool
+	w.handlersMu.RLock()
+	handler, exists := w.handlers[event.EventType]
+	w.handlersMu.RUnlock()
 
-	switch Type(event.EventType) {
-	case EventAuthRegister:
-		var payload RegisterPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			executionErr, isFatal = err, true
-			break
-		}
-		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
-
-	case EventAuthResendVerification:
-		var payload ResendVerificationPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			executionErr, isFatal = err, true
-			break
-		}
-		executionErr = w.mailer.SendRegisterEmail(ctx, payload.Email, payload.Username, payload.Token)
-
-	case EventAuthForgotPassword:
-		var payload ForgotPasswordPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			executionErr, isFatal = err, true
-			break
-		}
-		slog.Info(("EventAuthForgotPassword triggered!"))
-		executionErr = w.mailer.SendPasswordResetEmail(ctx, payload.Email, payload.Token)
-
-	// case EventPresenceUpdated:
-	// 	var payload PresenceUpdatedPayload
-	// 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-	// 		executionErr, isFatal = err, true
-	// 		break
-	// 	}
-
-	// 	userIdStr := uuid.MustParse(payload.UserID)
-	// 	presenceEnum := cache.ParsePresence(payload.Presence)
-
-	// 	if err := w.cache.Heartbeat(ctx, userIdStr, presenceEnum); err != nil {
-	// 		executionErr = fmt.Errorf("failed to sync heartbeat to redis: %w", err)
-	// 		break
-	// 	}
-
-	// 	if err := w.cache.Publish(ctx, "presence:updated", payload); err != nil {
-	// 		executionErr = fmt.Errorf("failed to broadcast presence pubsub: %w", err)
-	// 	}
-
-	default:
+	if !exists {
 		slog.WarnContext(ctx, "unhandled event type dropped", "event_type", event.EventType, "event_id", event.ID)
-		executionErr, isFatal = errors.New("unhandled event type"), true
+		w.handleFailure(ctx, event, fmt.Errorf("no handler registered for event type: %s", event.EventType), true)
+		return
 	}
+
+	executionErr := handler(ctx, event.Payload)
+	isFatal := false
 
 	if executionErr != nil {
 		if errors.Is(executionErr, context.Canceled) {
@@ -217,3 +178,27 @@ func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFa
 		}
 	}
 }
+
+// func main() {
+//     // ...
+//     worker := outbox.NewWorker(outboxRepo, 5*time.Second, 60, 10)
+
+//     // Register Auth Handlers
+//     worker.RegisterHandler(auth.EventForgotPassword, func(ctx context.Context, raw json.RawMessage) error {
+//         var p auth.ForgotPasswordPayload
+//         if err := json.Unmarshal(raw, &p); err != nil {
+//             return fmt.Errorf("malformed forgot password payload: %w", err)
+//         }
+//         return mailer.SendPasswordResetEmail(ctx, p.Email, p.Token)
+//     })
+
+//     worker.RegisterHandler(auth.EventRegister, func(ctx context.Context, raw json.RawMessage) error {
+//         var p auth.RegisterPayload
+//         if err := json.Unmarshal(raw, &p); err != nil {
+//             return fmt.Errorf("malformed register payload: %w", err)
+//         }
+//         return mailer.SendRegisterEmail(ctx, p.Email, p.Username, p.Token)
+//     })
+
+//     worker.Start(ctx)
+// }

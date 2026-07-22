@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/outbox"
 	"context"
 	"log/slog"
 	"time"
