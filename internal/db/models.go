@@ -46,13 +46,13 @@ type Relationship struct {
 	ActorID   pgtype.UUID        `json:"actor_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
+	Variant   int16              `json:"variant"`
 }
 
 type RelationshipPerspective struct {
 	UserID                pgtype.UUID        `json:"user_id"`
 	PeerID                pgtype.UUID        `json:"peer_id"`
-	Type                  int16              `json:"type"`
+	Variant               int16              `json:"variant"`
 	ActorID               pgtype.UUID        `json:"actor_id"`
 	IsInitiator           bool               `json:"is_initiator"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`

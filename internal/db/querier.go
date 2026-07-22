@@ -23,13 +23,17 @@ type Querier interface {
 	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
-	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
-	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error)
-	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
-	RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
-	RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
-	RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
-	RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error)
+	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)
+	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error)
+	// ============================================================================
+	// READ MODEL / PROJECTIONS (CQRS)
+	// Explicit projection queries serving UI display requirements
+	// ============================================================================
+	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
+	// Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
+	// Pass NULL to @filter_variant to retrieve all relationship perspectives.
+	RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error)
+	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error

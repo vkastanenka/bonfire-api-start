@@ -232,45 +232,14 @@ WHERE id = $1;
 DELETE FROM outbox_events
 WHERE processed_at <(CURRENT_TIMESTAMP - INTERVAL '7 days');
 
--- name: RelationshipsListByUserID :many
-SELECT
-    *
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1;
-
--- name: RelationshipsListPendingByUserID :many
-SELECT
-    *
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 1;
-
--- name: RelationshipsListFriendsByUserID :many
-SELECT
-    *
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 2;
-
--- name: RelationshipsListBlockedByUserID :many
-SELECT
-    *
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 3
-    AND actor_id = $1;
-
 -- name: RelationshipGet :one
 SELECT
-    *
+    user1_id,
+    user2_id,
+    actor_id,
+    variant,
+    created_at,
+    updated_at
 FROM
     relationships
 WHERE
@@ -279,7 +248,12 @@ WHERE
 
 -- name: RelationshipGetForUpdate :one
 SELECT
-    *
+    user1_id,
+    user2_id,
+    actor_id,
+    variant,
+    created_at,
+    updated_at
 FROM
     relationships
 WHERE
@@ -288,12 +262,20 @@ WHERE
 FOR UPDATE;
 
 -- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, type, actor_id)
-    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @type, @actor_id)
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant)
+    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @actor_id, @variant)
 ON CONFLICT (user1_id, user2_id)
-    DO UPDATE SET type = EXCLUDED.type, actor_id = EXCLUDED.actor_id, updated_at = CURRENT_TIMESTAMP
-RETURNING
-    *;
+    DO UPDATE SET
+        variant = EXCLUDED.variant,
+        actor_id = EXCLUDED.actor_id,
+        updated_at = CURRENT_TIMESTAMP
+    RETURNING
+        user1_id,
+        user2_id,
+        actor_id,
+        variant,
+        created_at,
+        updated_at;
 
 -- name: RelationshipDelete :exec
 DELETE FROM relationships
@@ -304,6 +286,55 @@ WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
 DELETE FROM relationships
 WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
     AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
-    AND (type != 3 -- 3 = Blocked
+    AND (variant != 3 -- 3 = Blocked
         OR actor_id = @actor_id::uuid);
+
+-- ============================================================================
+-- READ MODEL / PROJECTIONS (CQRS)
+-- Explicit projection queries serving UI display requirements
+-- ============================================================================
+-- name: RelationshipPerspectiveGet :one
+SELECT
+    user_id,
+    peer_id,
+    variant,
+    actor_id,
+    is_initiator,
+    created_at,
+    updated_at,
+    username,
+    display_name,
+    avatar_url,
+    user_preferred_presence,
+    channel_id
+FROM
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND peer_id = $2;
+
+-- name: RelationshipPerspectivesList :many
+-- Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
+-- Pass NULL to @filter_variant to retrieve all relationship perspectives.
+SELECT
+    user_id,
+    peer_id,
+    variant,
+    actor_id,
+    is_initiator,
+    created_at,
+    updated_at,
+    username,
+    display_name,
+    avatar_url,
+    user_preferred_presence,
+    channel_id
+FROM
+    relationship_perspectives
+WHERE
+    user_id = @user_id::uuid
+    AND (sqlc.narg('filter_variant') IS NULL
+        OR variant = sqlc.narg('filter_variant'))
+ORDER BY
+    updated_at DESC;
 

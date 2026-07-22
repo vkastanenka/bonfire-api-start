@@ -17,6 +17,8 @@ type Session struct {
 	q db.Querier
 }
 
+var _ session.Repository = (*Session)(nil)
+
 func NewSession(q db.Querier) *Session {
 	return &Session{q: q}
 }

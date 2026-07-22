@@ -17,6 +17,8 @@ type User struct {
 	q db.Querier
 }
 
+var _ user.Repository = (*User)(nil)
+
 func NewUser(q db.Querier) *User {
 	return &User{q: q}
 }

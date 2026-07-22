@@ -158,88 +158,91 @@ CREATE TABLE relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     actor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    type SMALLINT NOT NULL, -- (1 = pending, 2 = friends, 3 = blocked)
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    variant smallint NOT NULL, -- (1 = pending, 2 = friends, 3 = blocked)
     PRIMARY KEY (user1_id, user2_id),
-    -- CRITICAL: Enforce alphabetical order to ensure A->B and B->A are the same row
     CONSTRAINT user_order CHECK (user1_id < user2_id),
-    CONSTRAINT valid_relationship_type CHECK (type IN (1, 2, 3))
+    CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
+    CONSTRAINT valid_relationship_variant CHECK (variant IN (1, 2, 3))
 );
 
-CREATE INDEX idx_relationships_user2_type ON relationships(user2_id, type);
+-- Covered by Primary Key: (user1_id, user2_id)
+-- Needed for Perspective B lookup:
+CREATE INDEX idx_relationships_user2_variant ON relationships(user2_id, variant);
 
 CREATE TRIGGER update_relationships_modtime
     BEFORE UPDATE ON relationships
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
 
+-- ============================================================================
+-- READ MODEL VIEW (Optimized Projection View)
+-- ============================================================================
 CREATE OR REPLACE VIEW relationship_perspectives AS
--- ==========================================
--- PERSPECTIVE A: The querying user is user1_id, looking at user2_id (the peer)
--- ==========================================
+-- Perspective A: Querying user is user1_id (peer is user2_id)
 SELECT
     r.user1_id AS user_id,
     r.user2_id AS peer_id,
-    r.type,
+    r.variant,
     r.actor_id,
-(r.actor_id = r.user1_id) AS is_initiator, -- TRUE = Sent by user1, FALSE = Received by user1
+(r.actor_id = r.user1_id) AS is_initiator,
     r.created_at,
     r.updated_at,
     u2.username,
     p2.display_name,
     p2.avatar_url,
-    u2.preferred_presence AS user_preferred_presence, -- Matches 'preferred_presence' column in users table
-(
-        SELECT
-            cm1.channel_id
-        FROM channel_members cm1
-        JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
-        JOIN channels c ON cm1.channel_id = c.id
-        WHERE
-            c.type = 1 -- 1 = DM Channel
-            AND cm1.user_id = r.user1_id
-            AND cm2.user_id = r.user2_id LIMIT 1) AS channel_id
+    u2.preferred_presence AS user_preferred_presence,
+    dm.channel_id
 FROM
     relationships r
     JOIN users u2 ON r.user2_id = u2.id
-    LEFT JOIN user_profiles p2 ON r.user2_id = p2.user_id -- Matches 'user_profiles'
-WHERE
--- SECURITY: If blocked (type = 3), ONLY show this row to the blocker (user1_id)
-(r.type != 3
+    LEFT JOIN user_profiles p2 ON r.user2_id = p2.user_id
+    LEFT JOIN LATERAL (
+        SELECT
+            cm1.channel_id
+        FROM
+            channel_members cm1
+            JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+            JOIN channels c ON cm1.channel_id = c.id
+        WHERE
+            c.variant = 1 -- DM Channel
+            AND cm1.user_id = r.user1_id
+            AND cm2.user_id = r.user2_id
+        LIMIT 1) dm ON TRUE
+WHERE (r.variant != 3
     OR r.actor_id = r.user1_id)
 UNION ALL
--- ==========================================
--- PERSPECTIVE B: The querying user is user2_id, looking at user1_id (the peer)
--- ==========================================
+-- Perspective B: Querying user is user2_id (peer is user1_id)
 SELECT
     r.user2_id AS user_id,
     r.user1_id AS peer_id,
-    r.type,
+    r.variant,
     r.actor_id,
-(r.actor_id = r.user2_id) AS is_initiator, -- TRUE = Sent by user2, FALSE = Received by user2
+(r.actor_id = r.user2_id) AS is_initiator,
     r.created_at,
     r.updated_at,
     u1.username,
     p1.display_name,
     p1.avatar_url,
-    u1.preferred_presence AS user_preferred_presence, -- Matches 'preferred_presence' column in users table
-(
-        SELECT
-            cm1.channel_id
-        FROM channel_members cm1
-        JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
-        JOIN channels c ON cm1.channel_id = c.id
-        WHERE
-            c.type = 1 -- 1 = DM Channel
-            AND cm1.user_id = r.user1_id
-            AND cm2.user_id = r.user2_id LIMIT 1) AS channel_id
+    u1.preferred_presence AS user_preferred_presence,
+    dm.channel_id
 FROM
     relationships r
     JOIN users u1 ON r.user1_id = u1.id
-    LEFT JOIN user_profiles p1 ON r.user1_id = p1.user_id -- Matches 'user_profiles'
-WHERE
--- SECURITY: If blocked (type = 3), ONLY show this row to the blocker (user2_id)
-(r.type != 3
+    LEFT JOIN user_profiles p1 ON r.user1_id = p1.user_id
+    LEFT JOIN LATERAL (
+        SELECT
+            cm1.channel_id
+        FROM
+            channel_members cm1
+            JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+            JOIN channels c ON cm1.channel_id = c.id
+        WHERE
+            c.variant = 1 -- DM Channel
+            AND cm1.user_id = r.user2_id
+            AND cm2.user_id = r.user1_id
+        LIMIT 1) dm ON TRUE
+WHERE (r.variant != 3
     OR r.actor_id = r.user2_id);
 

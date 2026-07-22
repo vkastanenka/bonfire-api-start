@@ -2,6 +2,7 @@ package relationship
 
 import (
 	"context"
+	"time"
 
 	"bonfire-api/internal/apperr"
 
@@ -18,55 +19,68 @@ func NewService(repo Repository) *Service {
 	}
 }
 
-func (s *Service) List(ctx context.Context, uid uuid.UUID, t Type) ([]Relationship, error) {
-	if !t.Valid() && t != TypeUnknown {
+// ListPerspectives retrieves user-centric relationship projections (read models).
+func (s *Service) ListPerspectives(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
+	if filter != nil && !filter.IsValid() {
 		return nil, apperr.NewInvalidArgument(nil, apperr.WithMsg("invalid relationship status filter"))
 	}
 
-	res, err := s.repo.ListByUserID(ctx, uid, t)
+	perspectives, err := s.repo.ListPerspectives(ctx, userID, filter)
 	if err != nil {
 		if apperr.IsNotFound(err) {
-			return []Relationship{}, nil
+			return []Perspective{}, nil
 		}
 		return nil, err
 	}
 
-	return res, nil
+	return perspectives, nil
 }
 
-func (s *Service) SendFriendRequest(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
-	if aid == pid {
-		return apperr.NewInvalidArgument(nil, apperr.WithMsg("cannot add yourself as a friend"))
-	}
-
-	rel, err := s.repo.Get(ctx, GetParams{
-		User1ID: aid,
-		User2ID: pid,
-	})
-
+// GetPerspective retrieves a single relationship projection for a specific user and peer.
+func (s *Service) GetPerspective(ctx context.Context, userID, peerID uuid.UUID) (*Perspective, error) {
+	perspective, err := s.repo.GetPerspective(ctx, userID, peerID)
 	if err != nil {
 		if apperr.IsNotFound(err) {
-			_, err = s.repo.Upsert(ctx, UpsertParams{
-				User1ID: aid,
-				User2ID: pid,
-				Type:    TypePending,
-				ActorID: aid,
-			})
-			return err
+			return nil, apperr.NewNotFound(err, apperr.WithMsg("relationship projection not found"))
+		}
+		return nil, err
+	}
+	return perspective, nil
+}
+
+// SendFriendRequest initiates a request or auto-accepts an existing inverse pending request.
+func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.UUID) error {
+	if actorID == targetID {
+		return apperr.NewInvalidArgument(ErrSelfRelationship, apperr.WithMsg("cannot add yourself as a friend"))
+	}
+
+	u1, u2 := sortUserIDs(actorID, targetID)
+
+	rel, err := s.repo.Get(ctx, u1, u2)
+	if err != nil {
+		if apperr.IsNotFound(err) {
+			// Construct fresh relationship aggregate
+			newRel, reqErr := Request(actorID, targetID)
+			if reqErr != nil {
+				return apperr.NewInvalidArgument(reqErr, apperr.WithMsg(reqErr.Error()))
+			}
+
+			return s.repo.Upsert(ctx, newRel)
 		}
 		return err
 	}
 
-	switch rel.Type {
-	case TypeFriends:
+	switch rel.Variant() {
+	case VariantFriends:
 		return apperr.NewAlreadyExists(nil, apperr.WithMsg("already friends"))
 
-	case TypeBlocked:
-		return apperr.NewPermissionDenied(nil, apperr.WithMsg("cannot interact with this user"))
+	case VariantBlocked:
+		return apperr.NewPermissionDenied(ErrRelationshipBlocked, apperr.WithMsg("cannot interact with this user"))
 
-	case TypePending:
-		if rel.ActorID != aid {
-			return s.AcceptFriendRequest(ctx, aid, pid)
+	case VariantPending:
+		// If the recipient sends a request back, turn it into an acceptance
+		if rel.ActorID() != actorID {
+			return s.AcceptFriendRequest(ctx, actorID, targetID)
 		}
 		return apperr.NewAlreadyExists(nil, apperr.WithMsg("friend request already pending"))
 	}
@@ -74,11 +88,11 @@ func (s *Service) SendFriendRequest(ctx context.Context, aid uuid.UUID, pid uuid
 	return nil
 }
 
-func (s *Service) AcceptFriendRequest(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
-	rel, err := s.repo.GetForUpdate(ctx, GetParams{
-		User1ID: aid,
-		User2ID: pid,
-	})
+// AcceptFriendRequest transitions a pending relationship into a friendship.
+func (s *Service) AcceptFriendRequest(ctx context.Context, actorID, peerID uuid.UUID) error {
+	u1, u2 := sortUserIDs(actorID, peerID)
+
+	rel, err := s.repo.GetForUpdate(ctx, u1, u2)
 	if err != nil {
 		if apperr.IsNotFound(err) {
 			return apperr.NewNotFound(err, apperr.WithMsg("no pending request to accept"))
@@ -86,61 +100,64 @@ func (s *Service) AcceptFriendRequest(ctx context.Context, aid uuid.UUID, pid uu
 		return err
 	}
 
-	if rel.Type != TypePending {
-		return apperr.NewFailedPrecondition(nil, apperr.WithMsg("no pending request to accept"))
+	// Apply aggregate transition logic
+	if err := rel.Accept(actorID); err != nil {
+		return apperr.NewInvalidArgument(err, apperr.WithMsg(err.Error()))
 	}
 
-	if rel.ActorID == aid {
-		return apperr.NewInvalidArgument(nil, apperr.WithMsg("cannot accept your own request"))
-	}
-
-	_, err = s.repo.Upsert(ctx, UpsertParams{
-		User1ID: aid,
-		User2ID: pid,
-		Type:    TypeFriends,
-		ActorID: aid,
-	})
-	return err
+	return s.repo.Upsert(ctx, rel)
 }
 
-func (s *Service) Block(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
-	if aid == pid {
-		return apperr.NewInvalidArgument(nil, apperr.WithMsg("cannot block yourself"))
+// Block transitions a relationship state into blocked by the acting user.
+func (s *Service) Block(ctx context.Context, actorID, peerID uuid.UUID) error {
+	if actorID == peerID {
+		return apperr.NewInvalidArgument(ErrSelfRelationship, apperr.WithMsg("cannot block yourself"))
 	}
 
-	rel, err := s.repo.Get(ctx, GetParams{
-		User1ID: aid,
-		User2ID: pid,
-	})
+	u1, u2 := sortUserIDs(actorID, peerID)
 
-	if err == nil && rel.Type == TypeBlocked {
-		if rel.ActorID != aid {
-			return nil
-		}
-	} else if err != nil && !apperr.IsNotFound(err) {
+	rel, err := s.repo.Get(ctx, u1, u2)
+	if err != nil && !apperr.IsNotFound(err) {
 		return err
 	}
 
-	_, err = s.repo.Upsert(ctx, UpsertParams{
-		User1ID: aid,
-		User2ID: pid,
-		Type:    TypeBlocked,
-		ActorID: aid,
-	})
-	return err
+	if apperr.IsNotFound(err) {
+		// Create a new relationship aggregate directly in blocked state
+		rel = Reconstitute(u1, u2, actorID, VariantBlocked, time.Now().UTC(), time.Now().UTC())
+	} else {
+		// Mutate existing relationship aggregate
+		if err := rel.Block(actorID); err != nil {
+			return apperr.NewInvalidArgument(err, apperr.WithMsg(err.Error()))
+		}
+	}
+
+	return s.repo.Upsert(ctx, rel)
 }
 
-func (s *Service) DeleteVerified(ctx context.Context, aid uuid.UUID, pid uuid.UUID) error {
-	return s.repo.DeleteVerified(ctx, DeleteVerifiedParams{
-		User1ID: aid,
-		User2ID: pid,
-		ActorID: aid,
-	})
+// DeleteVerified removes a relationship while enforcing blocking safeguards at the database level.
+func (s *Service) DeleteVerified(ctx context.Context, actorID, peerID uuid.UUID) error {
+	u1, u2 := sortUserIDs(actorID, peerID)
+
+	err := s.repo.DeleteVerified(ctx, u1, u2, actorID)
+	if err != nil {
+		if apperr.IsNotFound(err) {
+			return apperr.NewNotFound(err, apperr.WithMsg("relationship not found"))
+		}
+		return err
+	}
+	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) error {
-	return s.repo.Delete(ctx, DeleteParams{
-		User1ID: user1ID,
-		User2ID: user2ID,
-	})
+// Delete removes a relationship aggregate given two participant IDs.
+func (s *Service) Delete(ctx context.Context, user1ID, user2ID uuid.UUID) error {
+	u1, u2 := sortUserIDs(user1ID, user2ID)
+
+	err := s.repo.Delete(ctx, u1, u2)
+	if err != nil {
+		if apperr.IsNotFound(err) {
+			return apperr.NewNotFound(err, apperr.WithMsg("relationship not found"))
+		}
+		return err
+	}
+	return nil
 }

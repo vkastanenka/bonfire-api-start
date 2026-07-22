@@ -377,7 +377,7 @@ const relationshipDeleteVerified = `-- name: RelationshipDeleteVerified :exec
 DELETE FROM relationships
 WHERE user1_id = LEAST($1::uuid, $2::uuid)
     AND user2_id = GREATEST($1::uuid, $2::uuid)
-    AND (type != 3 -- 3 = Blocked
+    AND (variant != 3 -- 3 = Blocked
         OR actor_id = $3::uuid)
 `
 
@@ -394,7 +394,12 @@ func (q *Queries) RelationshipDeleteVerified(ctx context.Context, arg Relationsh
 
 const relationshipGet = `-- name: RelationshipGet :one
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user1_id,
+    user2_id,
+    actor_id,
+    variant,
+    created_at,
+    updated_at
 FROM
     relationships
 WHERE
@@ -407,23 +412,37 @@ type RelationshipGetParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
-func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
+type RelationshipGetRow struct {
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Variant   int16              `json:"variant"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error) {
 	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
-	var i Relationship
+	var i RelationshipGetRow
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Type,
 	)
 	return i, err
 }
 
 const relationshipGetForUpdate = `-- name: RelationshipGetForUpdate :one
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    user1_id,
+    user2_id,
+    actor_id,
+    variant,
+    created_at,
+    updated_at
 FROM
     relationships
 WHERE
@@ -437,225 +456,193 @@ type RelationshipGetForUpdateParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
-func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error) {
+type RelationshipGetForUpdateRow struct {
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Variant   int16              `json:"variant"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, relationshipGetForUpdate, arg.User1ID, arg.User2ID)
-	var i Relationship
+	var i RelationshipGetForUpdateRow
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Type,
 	)
 	return i, err
 }
 
+const relationshipPerspectiveGet = `-- name: RelationshipPerspectiveGet :one
+SELECT
+    user_id,
+    peer_id,
+    variant,
+    actor_id,
+    is_initiator,
+    created_at,
+    updated_at,
+    username,
+    display_name,
+    avatar_url,
+    user_preferred_presence,
+    channel_id
+FROM
+    relationship_perspectives
+WHERE
+    user_id = $1
+    AND peer_id = $2
+`
+
+type RelationshipPerspectiveGetParams struct {
+	UserID pgtype.UUID `json:"user_id"`
+	PeerID pgtype.UUID `json:"peer_id"`
+}
+
+// ============================================================================
+// READ MODEL / PROJECTIONS (CQRS)
+// Explicit projection queries serving UI display requirements
+// ============================================================================
+func (q *Queries) RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error) {
+	row := q.db.QueryRow(ctx, relationshipPerspectiveGet, arg.UserID, arg.PeerID)
+	var i RelationshipPerspective
+	err := row.Scan(
+		&i.UserID,
+		&i.PeerID,
+		&i.Variant,
+		&i.ActorID,
+		&i.IsInitiator,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Username,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.UserPreferredPresence,
+		&i.ChannelID,
+	)
+	return i, err
+}
+
+const relationshipPerspectivesList = `-- name: RelationshipPerspectivesList :many
+SELECT
+    user_id,
+    peer_id,
+    variant,
+    actor_id,
+    is_initiator,
+    created_at,
+    updated_at,
+    username,
+    display_name,
+    avatar_url,
+    user_preferred_presence,
+    channel_id
+FROM
+    relationship_perspectives
+WHERE
+    user_id = $1::uuid
+    AND ($2 IS NULL
+        OR variant = $2)
+ORDER BY
+    updated_at DESC
+`
+
+type RelationshipPerspectivesListParams struct {
+	UserID        pgtype.UUID `json:"user_id"`
+	FilterVariant interface{} `json:"filter_variant"`
+}
+
+// Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
+// Pass NULL to @filter_variant to retrieve all relationship perspectives.
+func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error) {
+	rows, err := q.db.Query(ctx, relationshipPerspectivesList, arg.UserID, arg.FilterVariant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RelationshipPerspective
+	for rows.Next() {
+		var i RelationshipPerspective
+		if err := rows.Scan(
+			&i.UserID,
+			&i.PeerID,
+			&i.Variant,
+			&i.ActorID,
+			&i.IsInitiator,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarUrl,
+			&i.UserPreferredPresence,
+			&i.ChannelID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const relationshipUpsert = `-- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, type, actor_id)
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant)
     VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4)
 ON CONFLICT (user1_id, user2_id)
-    DO UPDATE SET type = EXCLUDED.type, actor_id = EXCLUDED.actor_id, updated_at = CURRENT_TIMESTAMP
-RETURNING
-    user1_id, user2_id, actor_id, created_at, updated_at, type
+    DO UPDATE SET
+        variant = EXCLUDED.variant,
+        actor_id = EXCLUDED.actor_id,
+        updated_at = CURRENT_TIMESTAMP
+    RETURNING
+        user1_id,
+        user2_id,
+        actor_id,
+        variant,
+        created_at,
+        updated_at
 `
 
 type RelationshipUpsertParams struct {
 	User1ID pgtype.UUID `json:"user1_id"`
 	User2ID pgtype.UUID `json:"user2_id"`
-	Type    int16       `json:"type"`
 	ActorID pgtype.UUID `json:"actor_id"`
+	Variant int16       `json:"variant"`
 }
 
-func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
+type RelationshipUpsertRow struct {
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Variant   int16              `json:"variant"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error) {
 	row := q.db.QueryRow(ctx, relationshipUpsert,
 		arg.User1ID,
 		arg.User2ID,
-		arg.Type,
 		arg.ActorID,
+		arg.Variant,
 	)
-	var i Relationship
+	var i RelationshipUpsertRow
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Type,
 	)
 	return i, err
-}
-
-const relationshipsListBlockedByUserID = `-- name: RelationshipsListBlockedByUserID :many
-SELECT
-    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 3
-    AND actor_id = $1
-`
-
-func (q *Queries) RelationshipsListBlockedByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
-	rows, err := q.db.Query(ctx, relationshipsListBlockedByUserID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RelationshipPerspective
-	for rows.Next() {
-		var i RelationshipPerspective
-		if err := rows.Scan(
-			&i.UserID,
-			&i.PeerID,
-			&i.Type,
-			&i.ActorID,
-			&i.IsInitiator,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Username,
-			&i.DisplayName,
-			&i.AvatarUrl,
-			&i.UserPreferredPresence,
-			&i.ChannelID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const relationshipsListByUserID = `-- name: RelationshipsListByUserID :many
-SELECT
-    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-`
-
-func (q *Queries) RelationshipsListByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
-	rows, err := q.db.Query(ctx, relationshipsListByUserID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RelationshipPerspective
-	for rows.Next() {
-		var i RelationshipPerspective
-		if err := rows.Scan(
-			&i.UserID,
-			&i.PeerID,
-			&i.Type,
-			&i.ActorID,
-			&i.IsInitiator,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Username,
-			&i.DisplayName,
-			&i.AvatarUrl,
-			&i.UserPreferredPresence,
-			&i.ChannelID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const relationshipsListFriendsByUserID = `-- name: RelationshipsListFriendsByUserID :many
-SELECT
-    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 2
-`
-
-func (q *Queries) RelationshipsListFriendsByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
-	rows, err := q.db.Query(ctx, relationshipsListFriendsByUserID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RelationshipPerspective
-	for rows.Next() {
-		var i RelationshipPerspective
-		if err := rows.Scan(
-			&i.UserID,
-			&i.PeerID,
-			&i.Type,
-			&i.ActorID,
-			&i.IsInitiator,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Username,
-			&i.DisplayName,
-			&i.AvatarUrl,
-			&i.UserPreferredPresence,
-			&i.ChannelID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const relationshipsListPendingByUserID = `-- name: RelationshipsListPendingByUserID :many
-SELECT
-    user_id, peer_id, type, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, user_preferred_presence, channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1
-    AND type = 1
-`
-
-func (q *Queries) RelationshipsListPendingByUserID(ctx context.Context, userID pgtype.UUID) ([]RelationshipPerspective, error) {
-	rows, err := q.db.Query(ctx, relationshipsListPendingByUserID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RelationshipPerspective
-	for rows.Next() {
-		var i RelationshipPerspective
-		if err := rows.Scan(
-			&i.UserID,
-			&i.PeerID,
-			&i.Type,
-			&i.ActorID,
-			&i.IsInitiator,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Username,
-			&i.DisplayName,
-			&i.AvatarUrl,
-			&i.UserPreferredPresence,
-			&i.ChannelID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const sessionCreate = `-- name: SessionCreate :one
