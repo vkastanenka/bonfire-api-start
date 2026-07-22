@@ -100,19 +100,16 @@ func (r *User) GetByUsername(ctx context.Context, username user.Username) (*user
 	return userFromRow(row)
 }
 
-func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (user.CheckAvailabilityResult, error) {
+func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
 	row, err := r.q.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
 		Email:    email.String(),
 		Username: username.String(),
 	})
 	if err != nil {
-		return user.CheckAvailabilityResult{}, db.NewError(err, db.EntityUser)
+		return false, false, db.NewError(err, db.EntityUser)
 	}
 
-	return user.CheckAvailabilityResult{
-		EmailAvailable:    row.EmailAvailable.Bool,
-		UsernameAvailable: row.UsernameAvailable.Bool,
-	}, nil
+	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
 }
 
 func userFromRow(row db.UserAggregate) (*user.User, error) {

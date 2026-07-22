@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/user"
 	"net/http"
@@ -24,17 +23,17 @@ type GetByIDPath struct {
 }
 
 func (h *UserHandler) UserGetByID(w http.ResponseWriter, r *http.Request) error {
-	path, err := httpio.BindPath[GetByIDPath](nil, r)
-	if err != nil {
-		return err
-	}
+	// path, err := httpio.BindPath[GetByIDPath](nil, r)
+	// if err != nil {
+	// 	return err
+	// }
 
-	userRow, err := h.repo.Get(r.Context(), path.ID)
-	if err != nil {
-		return err
-	}
+	// userRow, err := h.repo.Get(r.Context(), path.ID)
+	// if err != nil {
+	// 	return err
+	// }
 
-	httpio.RespondOK(w, r, ToUserResponse(userRow))
+	// httpio.RespondOK(w, r, ToUserResponse(userRow))
 	return nil
 }
 
@@ -44,26 +43,26 @@ type UserGetQuery struct {
 }
 
 func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
-	query, err := httpio.BindQuery[UserGetQuery](nil, r)
-	if err != nil {
-		return err
-	}
+	// _, err := httpio.BindQuery[UserGetQuery](nil, r)
+	// if err != nil {
+	// 	return err
+	// }
 
-	var userEntity user.User
+	// var userEntity user.User
 
-	if query.Email.IsValid() {
-		userEntity, err = h.repo.GetByEmail(r.Context(), query.Email)
-	} else if query.Username.IsValid() {
-		userEntity, err = h.repo.GetByUsername(r.Context(), query.Username)
-	} else {
-		return apperr.NewInvalidArgument(nil, apperr.WithMsg("either email or username query parameter must be provided"))
-	}
+	// if query.Email.IsValid() {
+	// 	userEntity, err = h.repo.GetByEmail(r.Context(), query.Email)
+	// } else if query.Username.IsValid() {
+	// 	userEntity, err = h.repo.GetByUsername(r.Context(), query.Username)
+	// } else {
+	// 	return apperr.NewInvalidArgument(nil, apperr.WithMsg("either email or username query parameter must be provided"))
+	// }
 
-	if err != nil {
-		return err
-	}
+	// if err != nil {
+	// 	return err
+	// }
 
-	httpio.RespondOK(w, r, ToUserResponse(userEntity))
+	// httpio.RespondOK(w, r, ToUserResponse(userEntity))
 	return nil
 }
 
