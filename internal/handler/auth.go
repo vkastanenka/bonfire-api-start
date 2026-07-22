@@ -53,9 +53,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	data, err := h.service.Login(r.Context(), auth.LoginParams{
-		Email:      req.Email,
-		Password:   req.Password,
-		ClientMeta: clientMeta,
+		Email:     req.Email,
+		Password:  req.Password,
+		IP:        clientMeta.IP,
+		UserAgent: clientMeta.UserAgent,
+		OS:        clientMeta.OS,
+		Browser:   clientMeta.Browser,
 	})
 	if err != nil {
 		return err

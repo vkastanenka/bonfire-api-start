@@ -7,7 +7,7 @@ import (
 
 const CookieRefreshToken = "refresh_token"
 
-func GetCookieRefreshToken(r *http.Request) (string, error) {
+func CookieGetRefreshToken(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(CookieRefreshToken)
 	if err != nil {
 		return "", err
@@ -15,25 +15,25 @@ func GetCookieRefreshToken(r *http.Request) (string, error) {
 	return cookie.Value, nil
 }
 
-type SetCookieRefreshTokenParams struct {
-	Token   string
-	Expires time.Time
-}
+func CookieSetRefreshToken(w http.ResponseWriter, token string, expires time.Time) {
+	maxAge := int(time.Until(expires).Seconds())
+	if maxAge < 0 {
+		maxAge = 0
+	}
 
-func SetCookieRefreshToken(w http.ResponseWriter, p SetCookieRefreshTokenParams) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieRefreshToken,
-		Value:    p.Token,
+		Value:    token,
 		Path:     "/",
-		Expires:  p.Expires,
-		MaxAge:   int(time.Until(p.Expires).Seconds()),
+		Expires:  expires,
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
 
-func ClearCookieRefreshToken(w http.ResponseWriter) {
+func CookieClearRefreshToken(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieRefreshToken,
 		Value:    "",
