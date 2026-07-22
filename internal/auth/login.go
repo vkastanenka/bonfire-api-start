@@ -11,6 +11,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -42,11 +43,17 @@ type LoginResult struct {
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
 	defer crypto.ConstantWindow(loginTimingWindow)()
 
-	email := sanitize.Email(p.Email)
+	email, err := user.NewEmail(sanitize.Email(p.Email))
+	if err != nil || !email.IsValid() {
+		return LoginResult{}, apperr.NewInvalidArgument(
+			errors.New("invalid email address"),
+			apperr.WithMsg("Invalid email address"),
+		)
+	}
 
-	isLocked, err := s.shield.IsLocked(ctx, email)
+	isLocked, err := s.shield.IsLocked(ctx, email.String())
 	if err != nil {
-		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", email)
+		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", email.String())
 	} else if isLocked {
 		return LoginResult{}, newLockedError()
 	}
@@ -55,13 +62,13 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	if err != nil {
 		if apperr.IsNotFound(err) {
 			crypto.CompareDummyPassword(p.Password)
-			return LoginResult{}, s.handleInvalidPassword(ctx, email)
+			return LoginResult{}, s.handleInvalidPassword(ctx, email.String())
 		}
 		return LoginResult{}, err
 	}
 
 	if err = crypto.ComparePassword(userRow.PasswordHash(), p.Password); err != nil {
-		return LoginResult{}, s.handleInvalidPassword(ctx, email)
+		return LoginResult{}, s.handleInvalidPassword(ctx, email.String())
 	}
 
 	sessionID, err := uuid.NewV7()
@@ -103,8 +110,8 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		slog.WarnContext(persistCtx, "failed to update session cache during login", "error", err, "session_id", newSession.ID())
 	}
 
-	if err := s.shield.ResetFailures(persistCtx, email); err != nil {
-		slog.WarnContext(persistCtx, "failed to reset login failure count", "error", err, "email", email)
+	if err := s.shield.ResetFailures(persistCtx, email.String()); err != nil {
+		slog.WarnContext(persistCtx, "failed to reset login failure count", "error", err, "email", email.String())
 	}
 
 	return LoginResult{

@@ -11,6 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
+type Transactor interface {
+	// ExecTx executes fn within a database transaction.
+	// If fn returns an error, the transaction is rolled back.
+	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
 type OutboxRepository interface {
 	Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error)
 }
@@ -40,20 +46,31 @@ type ShieldStore interface {
 type TokenProvider interface {
 	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
 	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
+	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
 	VerifyRefresh(tokenStr string) (token.Claims, error)
 }
 
-type UserService interface {
-	GetByEmail(ctx context.Context, rawEmail string) (*user.User, error)
+type RegisterUserTxParams struct {
+	User         *user.User
+	Session      *session.Session
+	OutboxParams outbox.PublishParams
+}
+
+type UserRepository interface {
+	Create(ctx context.Context, u *user.User) error
+	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
+	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
+	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (emailAvail bool, usernameAvail bool, err error)
 }
 
 type Service struct {
+	tx           Transactor
 	outbox       OutboxRepository
 	sessions     SessionRepository
 	sessionCache SessionStore
 	shield       ShieldStore
 	tokens       TokenProvider
-	users        UserService
+	users        UserRepository
 }
 
 // type Service struct {

@@ -155,12 +155,21 @@ func (s *service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 }
 
 // CheckAvailability queries whether an email address and username are available for registration.
-func (s *service) CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail, usernameAvail bool, err error) {
-	if !email.IsValid() {
-		return false, false, apperr.NewInvalidArgument(errors.New("invalid email address"), apperr.WithMsg("Invalid email address"))
+func (s *service) CheckAvailability(ctx context.Context, rawEmail, rawUsername string) (emailAvail, usernameAvail bool, err error) {
+	email, err := NewEmail(rawEmail)
+	if err != nil || !email.IsValid() {
+		return false, false, apperr.NewInvalidArgument(
+			errors.New("invalid email address"),
+			apperr.WithMsg("Invalid email address"),
+		)
 	}
-	if !username.IsValid() {
-		return false, false, apperr.NewInvalidArgument(errors.New("invalid username"), apperr.WithMsg("Invalid username"))
+
+	username, err := NewUsername(rawUsername)
+	if err != nil || !email.IsValid() {
+		return false, false, apperr.NewInvalidArgument(
+			errors.New("invalid username"),
+			apperr.WithMsg("Invalid username"),
+		)
 	}
 
 	return s.repo.CheckAvailability(ctx, email, username)

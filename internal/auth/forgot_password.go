@@ -5,7 +5,9 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/user"
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 )
@@ -19,11 +21,17 @@ const (
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
-	email := sanitize.Email(rawEmail)
+	email, err := user.NewEmail(sanitize.Email(rawEmail))
+	if err != nil || !email.IsValid() {
+		return apperr.NewInvalidArgument(
+			errors.New("invalid email address"),
+			apperr.WithMsg("Invalid email address"),
+		)
+	}
 
-	onCooldown, err := s.shield.GetCooldown(ctx, "auth", "forgot-password", email)
+	onCooldown, err := s.shield.GetCooldown(ctx, "auth", "forgot-password", email.String())
 	if err != nil {
-		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
+		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email.String())
 	} else if onCooldown {
 		// Silent pass to prevent enumeration
 		return nil
@@ -32,8 +40,8 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	persistCtx := context.WithoutCancel(ctx)
 
 	// Always set cooldown regardless of user existence to prevent account enumeration
-	if err := s.shield.SetCooldown(persistCtx, "auth", "forgot-password", email, forgotPasswordCooldown); err != nil {
-		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
+	if err := s.shield.SetCooldown(persistCtx, "auth", "forgot-password", email.String(), forgotPasswordCooldown); err != nil {
+		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email.String())
 	}
 
 	userRow, err := s.users.GetByEmail(ctx, email)
