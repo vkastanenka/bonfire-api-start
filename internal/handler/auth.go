@@ -47,7 +47,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	clientMeta, err := httpio.GetClientMeta(r.Context())
+	clientMeta, err := httpio.CtxGetMeta(r.Context())
 	if err != nil {
 		return err
 	}
@@ -64,10 +64,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
 	httpio.RespondOK(w, r, LoginResponse{AccessToken: data.AccessToken})
 
 	return nil
@@ -78,7 +75,7 @@ type RefreshResponse struct {
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
-	refreshToken, err := httpio.GetCookieRefreshToken(r)
+	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
 		// return apperr.NewUnauthorized(err, "Missing refresh token, please log in.")
 	}
@@ -90,10 +87,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
 	httpio.RespondOK(w, r, RefreshResponse{AccessToken: data.AccessToken})
 
 	return nil
@@ -116,7 +110,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	clientMeta, err := httpio.GetClientMeta(r.Context())
+	clientMeta, err := httpio.CtxGetMeta(r.Context())
 	if err != nil {
 		return err
 	}
@@ -132,16 +126,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
 	httpio.RespondCreated(w, r, RegisterResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
 func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
+	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
@@ -169,7 +160,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	clientMeta, err := httpio.GetClientMeta(r.Context())
+	clientMeta, err := httpio.CtxGetMeta(r.Context())
 	if err != nil {
 		return err
 	}
@@ -183,10 +174,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
 	httpio.RespondOK(w, r, RegisterResponse{AccessToken: data.AccessToken})
 	return nil
 }
@@ -214,7 +202,7 @@ type WSTicketResponse struct {
 }
 
 func (h *AuthHandler) WSTicket(w http.ResponseWriter, r *http.Request) error {
-	claims, err := httpio.GetCtxClaims(r.Context())
+	claims, err := httpio.CtxGetClaims(r.Context())
 	if err != nil {
 		return err
 	}

@@ -67,7 +67,7 @@ func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *UserHandler) UserGetMe(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
+	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
