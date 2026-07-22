@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/auth"
 	"bonfire-api/internal/httpio"
 	"context"
 	"net/http"
@@ -23,22 +22,25 @@ type TicketCacher interface {
 type Handler struct {
 	hub   *Hub
 	cache TicketCacher
+	bind  *httpio.Bind
 }
 
-func NewHandler(hub *Hub, cache TicketCacher) *Handler {
+func NewHandler(hub *Hub, cache TicketCacher, bind *httpio.Bind) *Handler {
 	return &Handler{
 		hub:   hub,
 		cache: cache,
+		bind:  bind,
 	}
 }
 
 type ServeWSQuery struct {
-	TicketID string  `form:"ticket_id" validate:"required"`
+	TicketID string  `form:"ticket-id" validate:"required,uuid"`
 	Presence *string `form:"presence"  validate:"omitempty,presence"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
-	query, err := httpio.BindQuery[ServeWSQuery](nil, r)
+	var query ServeWSQuery
+	err := h.bind.Query(r, query)
 	if err != nil {
 		return err
 	}
@@ -48,7 +50,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return apperr.NewInvalidArgument(
 			err,
 			apperr.WithMsg("Invalid ticket format."),
-			apperr.WithMeta("ticket_id", "Must be a valid UUID v4 format."),
+			apperr.WithMeta("ticket-id", "Must be a valid UUID v4 format."),
 			// TODO: Bad request
 		)
 	}
@@ -56,7 +58,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	// ticketKey := cache.WSTicketKey(ticketId)
 	ticketKey := ""
-	var ticket auth.WSTicketData
+	var ticket uuid.UUID
 
 	err = h.cache.Get(ctx, ticketKey, &ticket)
 	if err != nil {
@@ -76,7 +78,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := &Client{
-		UserID:   ticket.UserID,
+		UserID:   ticket,
 		Presence: nil,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
