@@ -3,50 +3,12 @@ package auth
 import (
 	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 	"time"
 )
 
 const (
 	errInvalidResetToken = "Invalid or expired reset token."
 )
-
-type ResetPasswordRequest struct {
-	Token    string `json:"token" validate:"required"`
-	Password string `json:"password" validate:"identity_password"`
-}
-
-type ResetPasswordResponse struct {
-	AccessToken string `json:"access_token"`
-}
-
-func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ResetPasswordRequest](nil, w, r)
-	if err != nil {
-		return err
-	}
-
-	clientMeta, err := httpio.GetClientMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.ResetPassword(r.Context(), ResetPasswordParams{
-		req.Token,
-		req.Password,
-		clientMeta,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
-	httpio.RespondOK(w, r, RegisterResponse{AccessToken: data.AccessToken})
-	return nil
-}
 
 type ResetPasswordParams struct {
 	Token      string

@@ -1,27 +1,11 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/google/uuid"
 )
-
-func (h *Handler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.GetCtxUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.ResendVerify(r.Context(), userID); err != nil {
-		return err
-	}
-
-	httpio.RespondNoContent(w)
-	return nil
-}
 
 func AuthCooldownResendVerificationKey(userID uuid.UUID) string {
 	return fmt.Sprintf("auth:cooldown:resend-verify:{%s}", userID.String())

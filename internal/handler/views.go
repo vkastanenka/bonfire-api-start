@@ -7,7 +7,6 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 
@@ -48,45 +47,45 @@ func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
 	}
 }
 
-type RelationshipResponse struct {
-	UserID      uuid.UUID          `json:"user_id"`
-	PeerID      uuid.UUID          `json:"peer_id"`
-	Type        relationship.Type  `json:"type"`
-	ActorID     uuid.UUID          `json:"actor_id"`
-	IsInitiator bool               `json:"is_initiator"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	Username    string             `json:"username"`
-	DisplayName string             `json:"display_name"`
-	AvatarURL   *string            `json:"avatar_url"`
-	Presence    *presence.Presence `json:"presence"`
-	ChannelID   *uuid.UUID         `json:"channel_id"`
-}
+// type RelationshipResponse struct {
+// 	UserID      uuid.UUID            `json:"user_id"`
+// 	PeerID      uuid.UUID            `json:"peer_id"`
+// 	Variant     relationship.Variant `json:"type"`
+// 	ActorID     uuid.UUID            `json:"actor_id"`
+// 	IsInitiator bool                 `json:"is_initiator"`
+// 	CreatedAt   time.Time            `json:"created_at"`
+// 	UpdatedAt   time.Time            `json:"updated_at"`
+// 	Username    string               `json:"username"`
+// 	DisplayName string               `json:"display_name"`
+// 	AvatarURL   *string              `json:"avatar_url"`
+// 	Presence    *presence.Presence   `json:"presence"`
+// 	ChannelID   *uuid.UUID           `json:"channel_id"`
+// }
 
-func ToRelationshipResponse(
-	r relationship.Relationship,
-	queryingUserID uuid.UUID,
-	peerUsername string,
-	peerDisplayName string,
-	peerAvatarURL *string,
-	peerPresence *presence.Presence,
-	channelID *uuid.UUID,
-) RelationshipResponse {
-	return RelationshipResponse{
-		UserID:      queryingUserID,
-		PeerID:      r.GetPeerID(queryingUserID),
-		Type:        r.Type,
-		ActorID:     r.ActorID,
-		IsInitiator: r.ActorID == queryingUserID,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
-		Username:    peerUsername,
-		DisplayName: peerDisplayName,
-		AvatarURL:   peerAvatarURL,
-		Presence:    peerPresence,
-		ChannelID:   channelID,
-	}
-}
+// func ToRelationshipResponse(
+// 	r relationship.Relationship,
+// 	queryingUserID uuid.UUID,
+// 	peerUsername string,
+// 	peerDisplayName string,
+// 	peerAvatarURL *string,
+// 	peerPresence *presence.Presence,
+// 	channelID *uuid.UUID,
+// ) RelationshipResponse {
+// 	return RelationshipResponse{
+// 		UserID:      queryingUserID,
+// 		PeerID:      r.GetPeerID(queryingUserID),
+// 		Variant:     r.Variant,
+// 		ActorID:     r.ActorID,
+// 		IsInitiator: r.ActorID == queryingUserID,
+// 		CreatedAt:   r.CreatedAt,
+// 		UpdatedAt:   r.UpdatedAt,
+// 		Username:    peerUsername,
+// 		DisplayName: peerDisplayName,
+// 		AvatarURL:   peerAvatarURL,
+// 		Presence:    peerPresence,
+// 		ChannelID:   channelID,
+// 	}
+// }
 
 type SessionResponse struct {
 	ID         uuid.UUID `json:"id"`
@@ -103,16 +102,16 @@ type SessionResponse struct {
 
 func ToSessionResponse(s session.Session) SessionResponse {
 	return SessionResponse{
-		ID:         s.ID,
-		UserID:     s.UserID,
-		LastSeenAt: s.LastSeenAt,
-		ExpiresAt:  s.ExpiresAt,
-		ClientIP:   s.ClientIP.String(),
-		UserAgent:  s.UserAgent,
-		OS:         s.OS,
-		Browser:    s.Browser,
-		CreatedAt:  s.CreatedAt,
-		UpdatedAt:  s.UpdatedAt,
+		ID:         s.ID(),
+		UserID:     s.UserID(),
+		LastSeenAt: s.LastSeenAt(),
+		ExpiresAt:  s.ExpiresAt(),
+		ClientIP:   s.ClientIP().String(),
+		UserAgent:  s.UserAgent(),
+		OS:         s.OS(),
+		Browser:    s.Browser(),
+		CreatedAt:  s.CreatedAt(),
+		UpdatedAt:  s.UpdatedAt(),
 	}
 }
 

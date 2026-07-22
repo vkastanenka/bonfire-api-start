@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 	"time"
 )
 
@@ -14,32 +12,6 @@ const (
 	errSessionExpired   = "Session expired. Please log in again."
 	errSessionMalformed = "Invalid session format."
 )
-
-type RefreshResponse struct {
-	AccessToken string `json:"access_token"`
-}
-
-func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) error {
-	refreshToken, err := httpio.GetCookieRefreshToken(r)
-	if err != nil {
-		// return apperr.NewUnauthorized(err, "Missing refresh token, please log in.")
-	}
-
-	data, err := h.service.Refresh(r.Context(), RefreshParams{
-		RefreshToken: refreshToken,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
-	httpio.RespondOK(w, r, RefreshResponse{AccessToken: data.AccessToken})
-
-	return nil
-}
 
 type RefreshParams struct {
 	RefreshToken string

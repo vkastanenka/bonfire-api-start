@@ -1,28 +1,8 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 )
-
-type VerifyEmailRequest struct {
-	Token string `json:"token" validate:"required"`
-}
-
-func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[VerifyEmailRequest](nil, w, r)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.VerifyEmail(r.Context(), req.Token); err != nil {
-		return err
-	}
-
-	httpio.RespondNoContent(w)
-	return nil
-}
 
 func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// claims, err := s.token.VerifyEmailVerify(tokenStr)

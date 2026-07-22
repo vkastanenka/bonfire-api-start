@@ -3,50 +3,8 @@ package auth
 import (
 	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 	"time"
 )
-
-type RegisterRequest struct {
-	Email       string  `json:"email" mod:"email" validate:"identity_email"`
-	Username    string  `json:"username" mod:"text" validate:"identity_username"`
-	DisplayName *string `json:"display_name" mod:"text" validate:"profile_display_name"`
-	Password    string  `json:"password" validate:"identity_password"`
-}
-
-type RegisterResponse struct {
-	AccessToken string `json:"access_token"`
-}
-
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[RegisterRequest](nil, w, r)
-	if err != nil {
-		return err
-	}
-
-	clientMeta, err := httpio.GetClientMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.Register(r.Context(), RegisterParams{
-		Email:       req.Email,
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
-		ClientMeta:  clientMeta,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
-	httpio.RespondCreated(w, r, RegisterResponse{AccessToken: data.AccessToken})
-	return nil
-}
 
 type RegisterParams struct {
 	Email       string

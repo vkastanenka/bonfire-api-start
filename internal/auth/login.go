@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 	"time"
 )
 
@@ -13,44 +12,6 @@ const (
 	loginMaxAttempts     = 5
 	loginLockoutDuration = 15 * time.Minute
 )
-
-type LoginRequest struct {
-	Email    string `json:"email" mod:"email" validate:"identity_email"`
-	Password string `json:"password" validate:"identity_password"`
-}
-
-type LoginResponse struct {
-	AccessToken string `json:"access_token"`
-}
-
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[LoginRequest](nil, w, r)
-	if err != nil {
-		return err
-	}
-
-	clientMeta, err := httpio.GetClientMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.Login(r.Context(), LoginParams{
-		Email:      req.Email,
-		Password:   req.Password,
-		ClientMeta: clientMeta,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.SetCookieRefreshToken(w, httpio.SetCookieRefreshTokenParams{
-		Token:   data.RefreshToken,
-		Expires: data.RefreshTokenExpiresAt,
-	})
-	httpio.RespondOK(w, r, LoginResponse{AccessToken: data.AccessToken})
-
-	return nil
-}
 
 type LoginParams struct {
 	Email      string

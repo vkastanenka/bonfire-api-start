@@ -2,9 +2,7 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/httpio"
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,27 +10,6 @@ import (
 
 // TODO: Update to config
 const WSTicketTTL = 20 * time.Second
-
-type WSTicketResponse struct {
-	Ticket string `json:"ticket"`
-}
-
-func (h *Handler) WSTicket(w http.ResponseWriter, r *http.Request) error {
-	claims, err := httpio.GetCtxClaims(r.Context())
-	if err != nil {
-		return err
-	}
-
-	ticket, err := h.service.WSTicket(r.Context(), WSTicketData{
-		UserID: claims.UserID,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, WSTicketResponse{Ticket: ticket.String()})
-	return nil
-}
 
 type WSTicketData struct {
 	UserID uuid.UUID `json:"user_id"`

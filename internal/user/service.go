@@ -22,48 +22,7 @@ func NewService(repo Repository) *Service {
 	}
 }
 
-// type CreateUserParams struct {
-// 	Email       Email
-// 	Username    Username
-// 	Password    Password // Raw password value object
-// 	DisplayName ProfileDisplayName
-// }
-
-// // Create handles initial user creation and persistence.
-// func (s *Service) Create(ctx context.Context, p CreateUserParams, passwordHasher PasswordHasher) (*User, error) {
-// 	// 1. Check uniqueness/availability first
-// 	emailAvail, usernameAvail, err := s.repo.CheckAvailability(ctx, p.Email, p.Username)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to check availability: %w", err)
-// 	}
-
-// 	if !emailAvail {
-// 		return nil, apperr.NewAlreadyExists(errors.New("email already taken"), apperr.WithMsg("Email is already registered"))
-// 	}
-// 	if !usernameAvail {
-// 		return nil, apperr.NewAlreadyExists(errors.New("username already taken"), apperr.WithMsg("Username is already taken"))
-// 	}
-
-// 	// 2. Hash the raw password (via an injected hasher interface)
-// 	hashedPassword, err := passwordHasher.Hash(p.Password.String())
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to hash password: %w", err)
-// 	}
-
-// 	// 3. Instantiate domain aggregate
-// 	u, err := NewUser(p.Email, p.Username, hashedPassword, p.DisplayName)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// 4. Persist aggregate root
-// 	if err := s.repo.Create(ctx, u); err != nil {
-// 		return nil, fmt.Errorf("failed to persist user: %w", err)
-// 	}
-
-// 	return u, nil
-// }
-
+// Get retrieves a user aggregate by its unique UUID.
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	if id == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
@@ -77,9 +36,24 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	return u, nil
 }
 
+// GetByEmail retrieves a user aggregate by its value object Email.
+func (s *Service) GetByEmail(ctx context.Context, email Email) (*User, error) {
+	if !email.IsValid() {
+		return nil, apperr.NewInvalidArgument(errors.New("invalid email address"), apperr.WithMsg("Invalid email address"))
+	}
+
+	u, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	return u, nil
+}
+
+// GetByUsername retrieves a user aggregate by its value object Username.
 func (s *Service) GetByUsername(ctx context.Context, username Username) (*User, error) {
 	if !username.IsValid() {
-		return nil, apperr.NewInvalidArgument(errors.New("username cannot be empty"), apperr.WithMsg("Invalid username"))
+		return nil, apperr.NewInvalidArgument(errors.New("invalid username"), apperr.WithMsg("Invalid username"))
 	}
 
 	u, err := s.repo.GetByUsername(ctx, username)
@@ -96,9 +70,14 @@ type UpdateProfileParams struct {
 	AvatarURL   *string
 }
 
+// UpdateProfile mutates a user's profile and persists the updated profile record.
 func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
 	if p.UserID == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
+	}
+
+	if !p.DisplayName.IsValid() {
+		return nil, apperr.NewInvalidArgument(errors.New("invalid display name"), apperr.WithMsg("Invalid display name"))
 	}
 
 	u, err := s.repo.Get(ctx, p.UserID)
@@ -115,6 +94,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	return u, nil
 }
 
+// SetPreferredPresence mutates a user's default presence and updates the user record.
 func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error) {
 	if id == uuid.Nil {
 		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
@@ -136,6 +116,7 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *pre
 	return u, nil
 }
 
+// VerifyAccount verifies a user's account idempotently and updates the user record.
 func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
 		return apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
@@ -147,7 +128,7 @@ func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	}
 
 	if u.IsVerified() {
-		return nil // Idempotent: already verified
+		return nil // Idempotent
 	}
 
 	u.Verify(time.Now().UTC())
@@ -159,6 +140,14 @@ func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// CheckAvailability queries whether an email address and username are available for registration.
 func (s *Service) CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail, usernameAvail bool, err error) {
+	if !email.IsValid() {
+		return false, false, apperr.NewInvalidArgument(errors.New("invalid email address"), apperr.WithMsg("Invalid email address"))
+	}
+	if !username.IsValid() {
+		return false, false, apperr.NewInvalidArgument(errors.New("invalid username"), apperr.WithMsg("Invalid username"))
+	}
+
 	return s.repo.CheckAvailability(ctx, email, username)
 }

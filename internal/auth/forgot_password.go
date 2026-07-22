@@ -1,10 +1,8 @@
 package auth
 
 import (
-	"bonfire-api/internal/httpio"
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 )
 
@@ -12,24 +10,6 @@ const (
 	forgotPasswordTimingWindow = 35 * time.Millisecond
 	forgotPasswordCooldown     = 1 * time.Minute
 )
-
-type ForgotPasswordReq struct {
-	Email string `json:"email" mod:"email" validate:"identity_email"`
-}
-
-func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
-	req, err := httpio.BindJSON[ForgotPasswordReq](nil, w, r)
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.ForgotPassword(r.Context(), req.Email); err != nil {
-		return err
-	}
-
-	httpio.RespondNoContent(w)
-	return nil
-}
 
 func AuthCooldownForgotPasswordKey(email string) string {
 	return fmt.Sprintf("auth:cooldown:forgot-password:{%s}", email)
