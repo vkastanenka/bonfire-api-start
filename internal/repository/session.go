@@ -14,15 +14,15 @@ import (
 )
 
 type Session struct {
-	store db.Querier
+	q db.Querier
 }
 
-func NewSession(store db.Querier) *Session {
-	return &Session{store: store}
+func NewSession(q db.Querier) *Session {
+	return &Session{q: q}
 }
 
 func (r *Session) Create(ctx context.Context, s *session.Session) error {
-	_, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
+	_, err := r.q.SessionCreate(ctx, db.SessionCreateParams{
 		ID:               pgtype.UUID{Bytes: s.ID(), Valid: s.ID() != uuid.Nil},
 		UserID:           pgtype.UUID{Bytes: s.UserID(), Valid: true},
 		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
@@ -40,7 +40,7 @@ func (r *Session) Create(ctx context.Context, s *session.Session) error {
 }
 
 func (r *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
-	row, err := r.store.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.q.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return nil, db.NewError(err, db.EntitySession)
 	}
@@ -49,14 +49,14 @@ func (r *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, erro
 
 func (r *Session) Save(ctx context.Context, s *session.Session) error {
 	if s.IsRevoked() {
-		_, err := r.store.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: s.ID(), Valid: true})
+		_, err := r.q.SessionUpdateRevoked(ctx, pgtype.UUID{Bytes: s.ID(), Valid: true})
 		if err != nil {
 			return db.NewError(err, db.EntitySession)
 		}
 		return nil
 	}
 
-	_, err := r.store.SessionUpdateRefreshToken(ctx, db.SessionUpdateRefreshTokenParams{
+	_, err := r.q.SessionUpdateRefreshToken(ctx, db.SessionUpdateRefreshTokenParams{
 		ID:               pgtype.UUID{Bytes: s.ID(), Valid: true},
 		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
 		ExpiresAt:        pgtype.Timestamptz{Time: s.ExpiresAt(), Valid: true},
@@ -69,7 +69,7 @@ func (r *Session) Save(ctx context.Context, s *session.Session) error {
 }
 
 func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	err := r.q.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
 	}
@@ -77,7 +77,7 @@ func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *Session) DeleteAllExcept(ctx context.Context, userID uuid.UUID, exceptSessionID uuid.UUID) error {
-	err := r.store.SessionDeleteAllExcept(ctx, db.SessionDeleteAllExceptParams{
+	err := r.q.SessionDeleteAllExcept(ctx, db.SessionDeleteAllExceptParams{
 		UserID: pgtype.UUID{Bytes: userID, Valid: true},
 		ID:     pgtype.UUID{Bytes: exceptSessionID, Valid: true},
 	})

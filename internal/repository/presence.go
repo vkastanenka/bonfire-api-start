@@ -12,14 +12,14 @@ import (
 )
 
 type Presence struct {
-	cache cache.Querier
-	ttl   time.Duration
+	q   cache.Querier
+	ttl time.Duration
 }
 
-func NewPresence(cache cache.Querier, ttl time.Duration) *Presence {
+func NewPresence(q cache.Querier, ttl time.Duration) *Presence {
 	return &Presence{
-		cache: cache,
-		ttl:   ttl,
+		q:   q,
+		ttl: ttl,
 	}
 }
 
@@ -29,7 +29,7 @@ func presenceKey(userID uuid.UUID) string {
 
 func (r *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
 	key := presenceKey(userID)
-	if err := r.cache.Set(ctx, key, p.String(), r.ttl); err != nil {
+	if err := r.q.Set(ctx, key, p.String(), r.ttl); err != nil {
 		return cache.NewError(err, cache.ScopePresence)
 	}
 	return nil
@@ -39,7 +39,7 @@ func (r *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.
 	key := presenceKey(userID)
 
 	var raw string
-	err := r.cache.Get(ctx, key, &raw)
+	err := r.q.Get(ctx, key, &raw)
 	if cache.IsNotFoundError(err) {
 		return presence.PresenceOffline, nil
 	}
@@ -65,7 +65,7 @@ func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (ma
 		keys[i] = presenceKey(id)
 	}
 
-	vals, err := r.cache.MGet(ctx, keys...)
+	vals, err := r.q.MGet(ctx, keys...)
 	if err != nil {
 		return nil, cache.NewError(err, cache.ScopePresence)
 	}
