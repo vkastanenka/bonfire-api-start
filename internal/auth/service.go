@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
@@ -13,6 +14,10 @@ type CooldownRepository interface {
 	Set(ctx context.Context, scope, action, identifier string, ttl time.Duration) error
 }
 
+type OutboxRepository interface {
+	Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error)
+}
+
 type TokenProvider interface {
 	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
 }
@@ -23,6 +28,7 @@ type UserService interface {
 
 type Service struct {
 	cooldown CooldownRepository
+	outbox   OutboxRepository
 	token    TokenProvider
 	user     UserService
 }

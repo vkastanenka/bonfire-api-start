@@ -2,19 +2,21 @@ package auth
 
 import (
 	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/outbox"
 	"context"
 	"log/slog"
 	"time"
 )
 
+// TODO: Move to config
 const (
 	forgotPasswordTimingWindow = 35 * time.Millisecond
 	forgotPasswordCooldown     = 1 * time.Minute
 )
 
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
-	// defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
+	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
 	onCooldown, err := s.cooldown.Get(ctx, "auth", "forgot-password", rawEmail)
 	if err != nil {
@@ -38,16 +40,20 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 
 	persistCtx := context.WithoutCancel(ctx)
 
-	if err := outbox.EmitForgotPassword(persistCtx, s.store, outbox.ForgotPasswordPayload{
-		Email: email,
-		Token: t,
-	}); err != nil {
+	_, err = s.outbox.Publish(persistCtx, outbox.PublishParams{
+		Variant: EventForgotPassword,
+		Payload: ForgotPasswordPayload{
+			Email: userRow.Email().String(),
+			Token: t,
+		},
+	})
+	if err != nil {
 		return err
 	}
 
-	// if err := s.cache.Set(persistCtx, cooldownKey, true, forgotPasswordCooldown); err != nil {
-	// 	slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
-	// }
+	if err := s.cooldown.Set(persistCtx, "auth", "forgot-password", userRow.Email().String(), forgotPasswordCooldown); err != nil {
+		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", userRow.Email().String())
+	}
 
 	return nil
 }

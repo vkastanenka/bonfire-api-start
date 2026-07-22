@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type CreateParams struct {
+type PublishParams struct {
 	Variant string
 	Payload any
 }
@@ -38,7 +38,7 @@ type Handler func(ctx context.Context, payload json.RawMessage) error
 
 // Repository defines all operations for outbox persistence.
 type Repository interface {
-	Publish(ctx context.Context, p CreateParams) (Event, error)
+	Publish(ctx context.Context, p PublishParams) (Event, error)
 	Get(ctx context.Context, id uuid.UUID) (Event, error)
 	List(ctx context.Context, p ListParams) ([]Event, error)
 	AcquireBatch(ctx context.Context, p AcquireBatchParams) ([]Event, error)

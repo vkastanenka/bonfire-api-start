@@ -25,7 +25,7 @@ func NewOutbox(q db.Querier) *Outbox {
 	return &Outbox{q: q}
 }
 
-func (o *Outbox) Publish(ctx context.Context, p outbox.CreateParams) (outbox.Event, error) {
+func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
 	jsonBytes, err := json.Marshal(p.Payload)
 	if err != nil {
 		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to marshal outbox event payload"))

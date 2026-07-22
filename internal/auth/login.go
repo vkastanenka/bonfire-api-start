@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TODO: Move to config?
+// TODO: Move to config
 const (
 	loginMaxAttempts     = 5
 	loginLockoutDuration = 15 * time.Minute
