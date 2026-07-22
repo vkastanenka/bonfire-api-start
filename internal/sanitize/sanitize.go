@@ -52,9 +52,9 @@ func Normalize(s any) {
 			for _, d := range directives {
 				switch strings.TrimSpace(d) {
 				case "email":
-					str = SanitizeEmail(str)
+					str = Email(str)
 				case "text":
-					str = SanitizeText(str)
+					str = Text(str)
 				}
 			}
 
@@ -63,11 +63,11 @@ func Normalize(s any) {
 	}
 }
 
-func SanitizeEmail(input string) string {
+func Email(input string) string {
 	return strings.ToLower(strings.TrimSpace(input))
 }
 
-func SanitizeText(input string) string {
+func Text(input string) string {
 	input = strings.TrimSpace(input)
 
 	var sb strings.Builder

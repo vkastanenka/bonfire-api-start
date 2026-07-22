@@ -28,14 +28,18 @@ type Session struct {
 	updatedAt        time.Time
 }
 
-// New constructs a brand new active session aggregate root.
+// session/session.go
 func New(
+	id uuid.UUID, // Pass explicit ID so token generator and session stay in sync
 	userID uuid.UUID,
 	tokenHash RefreshTokenHash,
 	expiresAt time.Time,
 	clientIP netip.Addr,
 	userAgent, os, browser string,
 ) (*Session, error) {
+	if id == uuid.Nil {
+		return nil, errors.New("session ID cannot be nil")
+	}
 	if userID == uuid.Nil {
 		return nil, errors.New("user ID cannot be nil")
 	}
@@ -45,7 +49,7 @@ func New(
 
 	now := time.Now().UTC()
 	return &Session{
-		id:               uuid.New(), // Or allow db/uuidv7 generation
+		id:               id,
 		userID:           userID,
 		refreshTokenHash: tokenHash,
 		clientIP:         clientIP,

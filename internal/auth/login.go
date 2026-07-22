@@ -1,22 +1,35 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/httpio"
 	"context"
+	"errors"
+	"log/slog"
+	"net/netip"
 	"time"
+
+	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/session"
+
+	"github.com/google/uuid"
 )
 
-// TODO: Move to config
+// TODO: Move to configuration
 const (
+	loginTimingWindow    = 35 * time.Millisecond
 	loginMaxAttempts     = 5
+	loginFailureTTL      = 1 * time.Hour
 	loginLockoutDuration = 15 * time.Minute
 )
 
 type LoginParams struct {
-	Email      string
-	Password   string
-	ClientMeta httpio.ClientMeta
+	Email     string
+	Password  string
+	IP        netip.Addr
+	UserAgent string
+	OS        string
+	Browser   string
 }
 
 type LoginResult struct {
@@ -25,111 +38,112 @@ type LoginResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
+// auth/login.go
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
-	// lockoutKey := cache.AuthLoginLockoutKey(p.Email)
-	// var isLocked bool
-	// err := s.cache.Get(ctx, lockoutKey, &isLocked)
-	// if err == nil && isLocked {
-	// 	return LoginResult{}, newLockedError()
-	// } else if err != nil && !cache.IsNotFoundError(err) {
-	// 	slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", p.Email)
-	// }
+	defer crypto.ConstantWindow(loginTimingWindow)()
 
-	// userRow, err := s.user.GetByEmail(ctx, p.Email)
-	// if err != nil {
-	// 	if repository.IsNotFoundError(err) {
-	// 		crypto.CompareDummyPassword(p.Password)
-	// 		return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
-	// 	}
-	// 	return LoginResult{}, err
-	// }
+	email := sanitize.Email(p.Email)
 
-	// userAuth := user.ToAuthView(userRow)
+	isLocked, err := s.shield.IsLocked(ctx, email)
+	if err != nil {
+		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", email)
+	} else if isLocked {
+		return LoginResult{}, newLockedError()
+	}
 
-	// if err = crypto.ComparePassword(userAuth.PasswordHash, p.Password); err != nil {
-	// 	return LoginResult{}, s.handleInvalidPassword(ctx, p.Email, lockoutKey)
-	// }
+	userRow, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		if apperr.IsNotFound(err) {
+			crypto.CompareDummyPassword(p.Password)
+			return LoginResult{}, s.handleInvalidPassword(ctx, email)
+		}
+		return LoginResult{}, err
+	}
 
-	// sessionID, err := uuid.NewV7()
-	// if err != nil {
-	// 	return LoginResult{}, apperr.NewInternal(err, "")
-	// }
+	if err = crypto.ComparePassword(userRow.PasswordHash(), p.Password); err != nil {
+		return LoginResult{}, s.handleInvalidPassword(ctx, email)
+	}
 
-	// tokenPair, err := s.token.GeneratePair(token.PairParams{
-	// 	UserID:    userAuth.ID,
-	// 	SessionID: sessionID,
-	// })
-	// if err != nil {
-	// 	return LoginResult{}, apperr.NewInternal(err, "")
-	// }
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return LoginResult{}, apperr.NewInternal(err)
+	}
 
-	// persistCtx := context.WithoutCancel(ctx)
+	tokenPair, err := s.tokens.GeneratePair(userRow.ID(), sessionID)
+	if err != nil {
+		return LoginResult{}, apperr.NewInternal(err)
+	}
 
-	// sessionRow, err := s.session.Create(persistCtx, session.CreateParams{
-	// 	ID:               &sessionID,
-	// 	UserID:           userAuth.ID,
-	// 	RefreshTokenHash: crypto.HashToken(tokenPair.Refresh),
-	// 	ExpiresAt:        tokenPair.RefreshExpiresAt,
-	// 	ClientIP:         p.ClientMeta.IP,
-	// 	UserAgent:        p.ClientMeta.UserAgent,
-	// 	OS:               p.ClientMeta.OS,
-	// 	Browser:          p.ClientMeta.Browser,
-	// })
-	// if err != nil {
-	// 	return LoginResult{}, err
-	// }
+	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
+	if err != nil {
+		return LoginResult{}, apperr.NewInternal(err)
+	}
 
-	// sessionAuth := session.ToAuthView(sessionRow)
-	// sessionKey := cache.SessionKey(sessionAuth.ID)
-	// s.cache.Set(ctx, sessionKey, sessionAuth, time.Until(sessionAuth.ExpiresAt))
-	// s.cache.Delete(persistCtx, cache.AuthLoginFailuresKey(p.Email))
+	newSession, err := session.New(
+		sessionID,
+		userRow.ID(),
+		tokenHash,
+		tokenPair.RefreshExpiresAt,
+		p.IP,
+		p.UserAgent,
+		p.OS,
+		p.Browser,
+	)
+	if err != nil {
+		return LoginResult{}, apperr.NewInternal(err)
+	}
 
-	// return LoginResult{
-	// 	AccessToken:           tokenPair.Access,
-	// 	RefreshToken:          tokenPair.Refresh,
-	// 	RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
-	// }, nil
-	return LoginResult{}, nil
+	persistCtx := context.WithoutCancel(ctx)
+
+	if err := s.sessions.Create(persistCtx, newSession); err != nil {
+		return LoginResult{}, err
+	}
+
+	if err := s.sessionCache.Set(persistCtx, newSession); err != nil {
+		slog.WarnContext(persistCtx, "failed to update session cache during login", "error", err, "session_id", newSession.ID())
+	}
+
+	if err := s.shield.ResetFailures(persistCtx, email); err != nil {
+		slog.WarnContext(persistCtx, "failed to reset login failure count", "error", err, "email", email)
+	}
+
+	return LoginResult{
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
+	}, nil
 }
 
-func (s *Service) handleInvalidPassword(ctx context.Context, email string, lockoutKey string) error {
-	return apperr.NewInternal(nil)
-	// persistCtx := context.WithoutCancel(ctx)
-	// failureKey := cache.AuthLoginFailuresKey(email)
+func (s *Service) handleInvalidPassword(ctx context.Context, email string) error {
+	persistCtx := context.WithoutCancel(ctx)
 
-	// attempts, err := s.cache.Increment(persistCtx, failureKey, 1*time.Hour)
-	// if err != nil {
-	// 	slog.ErrorContext(persistCtx, "failed to increment login failures",
-	// 		"error", err,
-	// 		"email", email,
-	// 	)
-	// 	return newCredentialsError()
-	// }
+	attempts, err := s.shield.IncrementFailures(persistCtx, email, loginFailureTTL)
+	if err != nil {
+		slog.ErrorContext(persistCtx, "failed to increment login failures", "error", err, "email", email)
+		return newCredentialsError()
+	}
 
-	// if attempts >= loginMaxAttempts {
-	// 	if err := s.cache.Set(persistCtx, lockoutKey, true, loginLockoutDuration); err != nil {
-	// 		slog.ErrorContext(persistCtx, "failed to set login lockout",
-	// 			"error", err,
-	// 			"email", email,
-	// 		)
-	// 	}
-	// 	return newLockedError()
-	// }
+	if attempts >= loginMaxAttempts {
+		if err := s.shield.Lockout(persistCtx, email, loginLockoutDuration); err != nil {
+			slog.ErrorContext(persistCtx, "failed to set login lockout", "error", err, "email", email)
+		}
+		return newLockedError()
+	}
 
-	// return newCredentialsError()
+	return newCredentialsError()
 }
 
 func newLockedError() error {
-	return apperr.NewInternal(nil)
-	// return apperr.New(nil, "Account locked from too many failed attempts. Please try again later.")
+	return apperr.NewPermissionDenied(
+		errors.New("account locked"),
+	)
 }
 
 func newCredentialsError() error {
-	return apperr.NewInternal(nil)
-	// return apperr.NewUnauthorized(
-	// 	nil,
-	// 	"",
-	// 	apperr.Param("email", "invalid email"),
-	// 	apperr.Param("password", "invalid password"),
-	// )
+	return apperr.NewPermissionDenied(
+		errors.New("invalid credentials"),
+		// "Invalid email or password.",
+		// apperr.Param("email", "invalid credentials"),
+		// apperr.Param("password", "invalid credentials"),
+	)
 }

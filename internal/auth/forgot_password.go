@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/sanitize"
 	"context"
 	"log/slog"
 	"time"
@@ -18,14 +19,24 @@ const (
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
-	onCooldown, err := s.cooldown.Get(ctx, "auth", "forgot-password", rawEmail)
+	email := sanitize.Email(rawEmail)
+
+	onCooldown, err := s.shield.GetCooldown(ctx, "auth", "forgot-password", email)
 	if err != nil {
-		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", rawEmail)
+		slog.ErrorContext(ctx, "forgot password cooldown lookup failed", "error", err, "email", email)
 	} else if onCooldown {
+		// Silent pass to prevent enumeration
 		return nil
 	}
 
-	userRow, err := s.user.GetByEmail(ctx, rawEmail)
+	persistCtx := context.WithoutCancel(ctx)
+
+	// Always set cooldown regardless of user existence to prevent account enumeration
+	if err := s.shield.SetCooldown(persistCtx, "auth", "forgot-password", email, forgotPasswordCooldown); err != nil {
+		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", email)
+	}
+
+	userRow, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
 		if apperr.IsNotFound(err) {
 			return nil
@@ -33,12 +44,10 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 		return err
 	}
 
-	t, _, err := s.token.GeneratePasswordReset(userRow.ID())
+	t, _, err := s.tokens.GeneratePasswordReset(userRow.ID())
 	if err != nil {
 		return apperr.NewInternal(err)
 	}
-
-	persistCtx := context.WithoutCancel(ctx)
 
 	_, err = s.outbox.Publish(persistCtx, outbox.PublishParams{
 		Variant: EventForgotPassword,
@@ -49,10 +58,6 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	if err := s.cooldown.Set(persistCtx, "auth", "forgot-password", userRow.Email().String(), forgotPasswordCooldown); err != nil {
-		slog.WarnContext(persistCtx, "failed to set forgot password cooldown", "error", err, "email", userRow.Email().String())
 	}
 
 	return nil
