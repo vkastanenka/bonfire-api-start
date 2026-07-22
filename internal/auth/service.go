@@ -17,6 +17,9 @@ type OutboxRepository interface {
 
 type SessionRepository interface {
 	Create(ctx context.Context, s *session.Session) error
+	GetByID(ctx context.Context, id uuid.UUID) (*session.Session, error)
+	Update(ctx context.Context, s *session.Session) error
+	Revoke(ctx context.Context, id uuid.UUID) error
 }
 
 type SessionStore interface {
@@ -37,6 +40,7 @@ type ShieldStore interface {
 type TokenProvider interface {
 	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
 	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
+	VerifyRefresh(tokenStr string) (token.Claims, error)
 }
 
 type UserService interface {
@@ -48,7 +52,7 @@ type Service struct {
 	sessions     SessionRepository
 	sessionCache SessionStore
 	shield       ShieldStore
-	tokens        TokenProvider
+	tokens       TokenProvider
 	users        UserService
 }
 
