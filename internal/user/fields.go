@@ -1,10 +1,12 @@
 package user
 
 import (
-	"bonfire-api/internal/presence"
 	"errors"
 	"regexp"
 	"strings"
+
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/sanitize"
 )
 
 var (
@@ -18,7 +20,7 @@ type Email struct {
 }
 
 func NewEmail(raw string) (Email, error) {
-	s := strings.TrimSpace(strings.ToLower(raw))
+	s := sanitize.Email(raw)
 	if s == "" {
 		return Email{}, ErrEmailEmpty
 	}
@@ -149,6 +151,25 @@ func (p *Password) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func NewPreferredPresence(raw string) (*presence.Presence, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+
+	p, err := presence.New(s)
+	if err != nil {
+		return nil, presence.ErrInvalidPresence
+	}
+
+	switch p {
+	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
+		return &p, nil
+	default:
+		return nil, presence.ErrInvalidPresence
+	}
+}
+
 var (
 	ErrProfileDisplayNameEmpty    = errors.New("display name cannot be empty")
 	ErrProfileDisplayNameTooShort = errors.New("display name must be at least 3 characters")
@@ -160,7 +181,7 @@ type ProfileDisplayName struct {
 }
 
 func NewProfileDisplayName(raw string) (ProfileDisplayName, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.Text(raw)
 	if s == "" {
 		return ProfileDisplayName{}, ErrProfileDisplayNameEmpty
 	}
@@ -192,23 +213,4 @@ func (d *ProfileDisplayName) UnmarshalText(text []byte) error {
 	}
 	*d = parsed
 	return nil
-}
-
-func NewPreferredPresence(raw string) (*presence.Presence, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return nil, presence.ErrInvalidPresence
-	}
-
-	p, err := presence.New(s)
-	if err != nil {
-		return nil, presence.ErrInvalidPresence
-	}
-
-	switch p {
-	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
-		return &p, nil
-	default:
-		return nil, presence.ErrInvalidPresence
-	}
 }
