@@ -54,7 +54,7 @@ func (r *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Ev
 }
 
 func (r *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.OutboxEventGet(ctx, db.UUID(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -66,13 +66,8 @@ func (r *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
 }
 
 func (r *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event, error) {
-	var pgCursor pgtype.UUID
-	if p.Cursor != nil {
-		pgCursor = pgtype.UUID{Bytes: *p.Cursor, Valid: true}
-	}
-
 	rows, err := r.store.OutboxEventList(ctx, db.OutboxEventListParams{
-		Column1: pgCursor,
+		Column1: db.UUIDPtr(p.Cursor),
 		Limit:   p.Limit,
 	})
 	if err != nil {
@@ -95,7 +90,7 @@ func (r *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) 
 
 	rows, err := r.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
 		Limit:    p.Limit,
-		LockedBy: pgtype.UUID{Bytes: p.WorkerID, Valid: true},
+		LockedBy: db.UUID(p.WorkerID),
 		Column3:  leaseIntervalStr,
 	})
 	if err != nil {
@@ -114,7 +109,7 @@ func (r *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) 
 }
 
 func (r *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.OutboxEventMarkProcessed(ctx, db.UUID(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -126,9 +121,14 @@ func (r *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event,
 }
 
 func (r *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams) (outbox.Event, error) {
+	var lastErrPtr *string
+	if p.LastError != "" {
+		lastErrPtr = &p.LastError
+	}
+
 	row, err := r.store.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
-		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
-		LastError: pgtype.Text{String: p.LastError, Valid: p.LastError != ""},
+		ID:        db.UUID(p.ID),
+		LastError: db.Text(lastErrPtr),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -141,9 +141,14 @@ func (r *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams
 }
 
 func (r *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterParams) (outbox.Event, error) {
+	var reasonPtr *string
+	if p.Reason != "" {
+		reasonPtr = &p.Reason
+	}
+
 	row, err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
-		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
-		LastError: pgtype.Text{String: p.Reason, Valid: p.Reason != ""},
+		ID:        db.UUID(p.ID),
+		LastError: db.Text(reasonPtr),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -156,7 +161,7 @@ func (r *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterPara
 }
 
 func (r *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.OutboxEventResetAttempts(ctx, db.UUID(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -168,7 +173,7 @@ func (r *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event,
 }
 
 func (r *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	err := r.store.OutboxEventDelete(ctx, db.UUID(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errs.NotFound("outbox event not found").Wrap(err)
@@ -187,35 +192,18 @@ func (r *Outbox) PurgeProcessed(ctx context.Context) error {
 }
 
 func outboxFromDB(row db.OutboxEvent) outbox.Event {
-	e := outbox.Event{
-		ID:            uuid.UUID(row.ID.Bytes),
-		EventType:     row.EventType,
-		Payload:       row.Payload,
-		Attempts:      row.Attempts,
-		MaxAttempts:   row.MaxAttempts,
-		NextAttemptAt: row.NextAttemptAt.Time,
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
+	return outbox.Event{
+		ID:             uuid.UUID(row.ID.Bytes),
+		EventType:      row.EventType,
+		Payload:        row.Payload,
+		Attempts:       row.Attempts,
+		MaxAttempts:    row.MaxAttempts,
+		NextAttemptAt:  row.NextAttemptAt.Time.UTC(),
+		CreatedAt:      row.CreatedAt.Time.UTC(),
+		UpdatedAt:      row.UpdatedAt.Time.UTC(),
+		ProcessedAt:    db.TimePtr(row.ProcessedAt),
+		LockedBy:       db.UUIDPtrFromDB(row.LockedBy),
+		LeaseExpiresAt: db.TimePtr(row.LeaseExpiresAt),
+		LastError:      db.StringPtr(row.LastError),
 	}
-
-	if row.ProcessedAt.Valid {
-		t := row.ProcessedAt.Time
-		e.ProcessedAt = &t
-	}
-
-	if row.LockedBy.Valid {
-		id := uuid.UUID(row.LockedBy.Bytes)
-		e.LockedBy = &id
-	}
-
-	if row.LeaseExpiresAt.Valid {
-		t := row.LeaseExpiresAt.Time
-		e.LeaseExpiresAt = &t
-	}
-
-	if row.LastError.Valid {
-		e.LastError = &row.LastError.String
-	}
-
-	return e
 }

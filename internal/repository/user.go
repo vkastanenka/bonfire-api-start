@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"time"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
@@ -35,18 +34,18 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 	prof := u.Profile()
 
 	err := r.store.UserCreateAggregate(ctx, db.UserCreateAggregateParams{
-		UserID:            pgtype.UUID{Bytes: u.ID(), Valid: true},
+		UserID:            db.UUID(u.ID()),
 		Email:             u.Email().String(),
 		Username:          u.Username().String(),
 		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: presenceToInt2(u.PreferredPresence()),
-		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
-		UserCreatedAt:     pgtype.Timestamptz{Time: u.CreatedAt(), Valid: true},
-		UserUpdatedAt:     pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
+		PreferredPresence: db.Int2Ptr(u.PreferredPresence()),
+		VerifiedAt:        db.TimestamptzPtr(u.VerifiedAt()),
+		UserCreatedAt:     db.Timestamptz(u.CreatedAt()),
+		UserUpdatedAt:     db.Timestamptz(u.UpdatedAt()),
 		DisplayName:       prof.DisplayName().String(),
-		AvatarUrl:         stringPtrToText(prof.AvatarURL()),
-		ProfileCreatedAt:  pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
-		ProfileUpdatedAt:  pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
+		AvatarUrl:         db.Text(prof.AvatarURL()),
+		ProfileCreatedAt:  db.Timestamptz(prof.CreatedAt()),
+		ProfileUpdatedAt:  db.Timestamptz(prof.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
@@ -56,7 +55,7 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 }
 
 func (r *User) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
-	row, err := r.store.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.UserGet(ctx, db.UUID(id))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
 	}
@@ -93,13 +92,13 @@ func (r *User) CheckAvailability(ctx context.Context, email user.Email, username
 
 func (r *User) Update(ctx context.Context, u *user.User) error {
 	_, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
-		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
+		ID:                db.UUID(u.ID()),
 		Email:             u.Email().String(),
 		Username:          u.Username().String(),
 		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: presenceToInt2(u.PreferredPresence()),
-		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
-		UpdatedAt:         pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
+		PreferredPresence: db.Int2Ptr(u.PreferredPresence()),
+		VerifiedAt:        db.TimestamptzPtr(u.VerifiedAt()),
+		UpdatedAt:         db.Timestamptz(u.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
@@ -108,60 +107,55 @@ func (r *User) Update(ctx context.Context, u *user.User) error {
 	return nil
 }
 
-func (r *User) UpsertProfile(ctx context.Context, u *user.User) error {
-	prof := u.Profile()
-
+func (r *User) UpsertProfile(ctx context.Context, userID uuid.UUID, prof *user.Profile) error {
 	_, err := r.store.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
-		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
-		CreatedAt:   pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
-		UpdatedAt:   pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
+		UserID:      db.UUID(userID),
+		CreatedAt:   db.Timestamptz(prof.CreatedAt()),
+		UpdatedAt:   db.Timestamptz(prof.UpdatedAt()),
 		DisplayName: prof.DisplayName().String(),
-		AvatarUrl:   stringPtrToText(prof.AvatarURL()),
+		AvatarUrl:   db.Text(prof.AvatarURL()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUserProfile)
 	}
-
 	return nil
 }
 
 func userFromRow(row db.UserAggregate) (*user.User, error) {
+	userID := uuid.UUID(row.ID.Bytes).String()
+
 	email, err := user.NewEmail(row.Email)
 	if err != nil {
-		return nil, errs.Internal("").Wrap(err)
+		return nil, errs.Internal("failed to parse user email from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta("email", row.Email).
+			Resource("User", userID, "", "database aggregate row mapping")
 	}
 
 	username, err := user.NewUsername(row.Username)
 	if err != nil {
-		return nil, errs.Internal("").Wrap(err)
+		return nil, errs.Internal("failed to parse username from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta("username", row.Username).
+			Resource("User", userID, "", "database aggregate row mapping")
 	}
 
 	displayName, err := user.NewProfileDisplayName(row.DisplayName)
 	if err != nil {
-		return nil, errs.Internal("").Wrap(err)
-	}
-
-	var avatarURL *string
-	if row.AvatarUrl.Valid {
-		avatarURL = &row.AvatarUrl.String
-	}
-
-	var verifiedAt *time.Time
-	if row.VerifiedAt.Valid {
-		verifiedAt = &row.VerifiedAt.Time
-	}
-
-	var preferredPresence *presence.Presence
-	if row.PreferredPresence.Valid {
-		p := presence.Presence(row.PreferredPresence.Int16)
-		preferredPresence = &p
+		return nil, errs.Internal("failed to parse profile display name from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta("display_name", row.DisplayName).
+			Resource("UserProfile", userID, "", "database aggregate row mapping")
 	}
 
 	profile := user.ReconstituteProfile(
 		displayName,
-		avatarURL,
-		row.ProfileCreatedAt.Time,
-		row.ProfileUpdatedAt.Time,
+		db.StringPtr(row.AvatarUrl),
+		row.ProfileCreatedAt.Time.UTC(),
+		row.ProfileUpdatedAt.Time.UTC(),
 	)
 
 	return user.Reconstitute(
@@ -169,31 +163,10 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 		email,
 		username,
 		row.PasswordHash,
-		preferredPresence,
-		verifiedAt,
-		row.CreatedAt.Time,
-		row.UpdatedAt.Time,
+		db.Int16Ptr[presence.Presence](row.PreferredPresence),
+		db.TimePtr(row.VerifiedAt),
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
 		profile,
 	), nil
-}
-
-func presenceToInt2(p *presence.Presence) pgtype.Int2 {
-	if p == nil {
-		return pgtype.Int2{Valid: false}
-	}
-	return pgtype.Int2{Int16: int16(*p), Valid: true}
-}
-
-func stringPtrToText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func timeToTimestamptz(t *time.Time) pgtype.Timestamptz {
-	if t == nil {
-		return pgtype.Timestamptz{Valid: false}
-	}
-	return pgtype.Timestamptz{Time: *t, Valid: true}
 }

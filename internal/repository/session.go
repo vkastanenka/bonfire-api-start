@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"net/netip"
-	"time"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
@@ -33,18 +32,18 @@ func NewSession(store SessionStore) *Session {
 
 func (r *Session) Create(ctx context.Context, s *session.Session) error {
 	_, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
-		ID:               pgtype.UUID{Bytes: s.ID(), Valid: true},
-		UserID:           pgtype.UUID{Bytes: s.UserID(), Valid: true},
+		ID:               db.UUID(s.ID()),
+		UserID:           db.UUID(s.UserID()),
 		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
-		ExpiresAt:        pgtype.Timestamptz{Time: s.ExpiresAt(), Valid: true},
+		ExpiresAt:        db.Timestamptz(s.ExpiresAt()),
 		ClientIP:         s.ClientIP(),
 		UserAgent:        s.UserAgent(),
 		OS:               s.OS(),
 		Browser:          s.Browser(),
-		LastSeenAt:       pgtype.Timestamptz{Time: s.LastSeenAt(), Valid: true},
-		RevokedAt:        timeToTimestamptz(s.RevokedAt()),
-		CreatedAt:        pgtype.Timestamptz{Time: s.CreatedAt(), Valid: true},
-		UpdatedAt:        pgtype.Timestamptz{Time: s.UpdatedAt(), Valid: true},
+		LastSeenAt:       db.Timestamptz(s.LastSeenAt()),
+		RevokedAt:        db.TimestamptzPtr(s.RevokedAt()),
+		CreatedAt:        db.Timestamptz(s.CreatedAt()),
+		UpdatedAt:        db.Timestamptz(s.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
@@ -55,12 +54,12 @@ func (r *Session) Create(ctx context.Context, s *session.Session) error {
 
 func (r *Session) Save(ctx context.Context, s *session.Session) error {
 	_, err := r.store.SessionSave(ctx, db.SessionSaveParams{
-		ID:               pgtype.UUID{Bytes: s.ID(), Valid: true},
+		ID:               db.UUID(s.ID()),
 		RefreshTokenHash: s.RefreshTokenHash().Bytes(),
-		ExpiresAt:        pgtype.Timestamptz{Time: s.ExpiresAt(), Valid: true},
-		LastSeenAt:       pgtype.Timestamptz{Time: s.LastSeenAt(), Valid: true},
-		RevokedAt:        timeToTimestamptz(s.RevokedAt()),
-		UpdatedAt:        pgtype.Timestamptz{Time: s.UpdatedAt(), Valid: true},
+		ExpiresAt:        db.Timestamptz(s.ExpiresAt()),
+		LastSeenAt:       db.Timestamptz(s.LastSeenAt()),
+		RevokedAt:        db.TimestamptzPtr(s.RevokedAt()),
+		UpdatedAt:        db.Timestamptz(s.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
@@ -70,7 +69,7 @@ func (r *Session) Save(ctx context.Context, s *session.Session) error {
 }
 
 func (r *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
-	row, err := r.store.SessionGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.SessionGet(ctx, db.UUID(id))
 	if err != nil {
 		return nil, db.NewError(err, db.EntitySession)
 	}
@@ -79,7 +78,7 @@ func (r *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, erro
 }
 
 func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.SessionDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	err := r.store.SessionDelete(ctx, db.UUID(id))
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
 	}
@@ -88,7 +87,7 @@ func (r *Session) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *Session) DeleteAllByUserID(ctx context.Context, userID uuid.UUID) error {
-	err := r.store.SessionDeleteAllByUserID(ctx, pgtype.UUID{Bytes: userID, Valid: true})
+	err := r.store.SessionDeleteAllByUserID(ctx, db.UUID(userID))
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
 	}
@@ -98,8 +97,8 @@ func (r *Session) DeleteAllByUserID(ctx context.Context, userID uuid.UUID) error
 
 func (r *Session) DeleteAllExcept(ctx context.Context, userID, currentSessionID uuid.UUID) error {
 	err := r.store.SessionDeleteAllExcept(ctx, db.SessionDeleteAllExceptParams{
-		UserID: pgtype.UUID{Bytes: userID, Valid: true},
-		ID:     pgtype.UUID{Bytes: currentSessionID, Valid: true},
+		UserID: db.UUID(userID),
+		ID:     db.UUID(currentSessionID),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntitySession)
@@ -118,19 +117,23 @@ func (r *Session) DeleteAllExpired(ctx context.Context) error {
 }
 
 func sessionFromRow(row db.Session) (*session.Session, error) {
+	sessionID := uuid.UUID(row.ID.Bytes).String()
+
 	clientIP, err := netip.ParseAddr(row.ClientIP.String())
 	if err != nil {
-		return nil, errs.Internal("").Wrap(err)
-	}
-
-	var revokedAt *time.Time
-	if row.RevokedAt.Valid {
-		revokedAt = &row.RevokedAt.Time
+		return nil, errs.Internal("failed to parse client IP from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta("client_ip", row.ClientIP.String()).
+			Resource("Session", sessionID, "", "database row mapping")
 	}
 
 	tokenHash, err := session.NewRefreshTokenHash(row.RefreshTokenHash)
 	if err != nil {
-		return nil, errs.Internal("").Wrap(err)
+		return nil, errs.Internal("failed to parse refresh token hash from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Resource("Session", sessionID, "", "database row mapping")
 	}
 
 	return session.Reconstitute(
@@ -141,10 +144,10 @@ func sessionFromRow(row db.Session) (*session.Session, error) {
 		row.UserAgent,
 		row.OS,
 		row.Browser,
-		row.ExpiresAt.Time,
-		row.LastSeenAt.Time,
-		row.CreatedAt.Time,
-		row.UpdatedAt.Time,
-		revokedAt,
+		row.ExpiresAt.Time.UTC(),
+		row.LastSeenAt.Time.UTC(),
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
+		db.TimePtr(row.RevokedAt),
 	), nil
 }
