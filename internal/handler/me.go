@@ -1,42 +1,46 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/user"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
 
+type MeUserService interface {
+	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
+}
+
 type MeHandler struct {
-	users user.Service
+	users MeUserService
 	// relationships relationship.Service
 	// channels      channel.Service
-	// presence presence.Service
+	// presence      presence.Service
 }
 
 func NewMeHandler(
-	u user.Service,
-	r relationship.Service,
+	u MeUserService,
+	// r relationship.Service,
 	// c channel.Service,
-	p presence.Service,
+	// p presence.Service,
 ) *MeHandler {
 	return &MeHandler{
 		users: u,
 		// relationships: r,
 		// channels:      c,
-		// presence: p,
+		// presence:      p,
 	}
 }
 
 type MeResponse struct {
-	User UserResponse `json:"user"`
-	// Relationships []relationship.Perspective `json:"relationships"`
-	// Channels      []channel.PrivateChannelResponse   `json:"channels"`
-	// Presences map[uuid.UUID]presence.Presence `json:"presences"`
+	User UserMeResponse `json:"user"`
+	// Relationships []relationship.Perspective             `json:"relationships"`
+	// Channels      []channel.PrivateChannelResponse       `json:"channels"`
+	// Presences     map[uuid.UUID]presence.Presence        `json:"presences"`
 }
 
 func (h *MeHandler) Get(w http.ResponseWriter, r *http.Request) error {
@@ -75,7 +79,7 @@ func (h *MeHandler) Get(w http.ResponseWriter, r *http.Request) error {
 	// 	return err
 	// })
 
-	// Wait for all 3 domain queries to complete concurrently
+	// Wait for all concurrent queries to complete
 	if err := g.Wait(); err != nil {
 		return err
 	}
@@ -89,23 +93,10 @@ func (h *MeHandler) Get(w http.ResponseWriter, r *http.Request) error {
 
 	// 5. Construct mapped DTO response
 	httpio.RespondOK(w, r, MeResponse{
-		User: ToUserResponse(meUser),
+		User: ToUserMeResponse(*meUser),
 		// Relationships: ToRelationshipResponse(relPersp),
 		// Channels:      ToChannelResponses(privChannels),
-		// Presences: presences,
+		// Presences:     presences,
 	})
 	return nil
 }
-
-// func extractPeerIDs(perspectives []relationship.Perspective) []uuid.UUID {
-// 	seen := make(map[uuid.UUID]struct{}, len(perspectives))
-// 	peerIDs := make([]uuid.UUID, 0, len(perspectives))
-
-// 	for _, p := range perspectives {
-// 		if _, exists := seen[p.PeerID]; !exists {
-// 			seen[p.PeerID] = struct{}{}
-// 			peerIDs = append(peerIDs, p.PeerID)
-// 		}
-// 	}
-// 	return peerIDs
-// }

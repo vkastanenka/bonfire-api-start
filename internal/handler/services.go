@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 
@@ -21,11 +20,11 @@ type AuthService interface {
 }
 
 type UserService interface {
-	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (emailAvail bool, usernameAvail bool, err error)
+	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error)
+	Create(ctx context.Context, u *user.User) error
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
 	GetByUsername(ctx context.Context, username user.Username) (*user.User, error)
-	SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*user.User, error)
-	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*user.User, error)
-	VerifyAccount(ctx context.Context, id uuid.UUID) error
+	Update(ctx context.Context, u *user.User) error
+	UpsertProfile(ctx context.Context, userID uuid.UUID, prof *user.Profile) error
 }

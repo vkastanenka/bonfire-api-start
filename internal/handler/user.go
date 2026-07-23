@@ -1,8 +1,9 @@
 package handler
 
 import (
-	"bonfire-api/internal/httpio"
 	"net/http"
+
+	"bonfire-api/internal/httpio"
 
 	"github.com/google/uuid"
 )
@@ -35,21 +36,6 @@ func (h *User) UserGet(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	httpio.RespondOK(w, r, ToUserResponse(userRow))
-	return nil
-}
-
-func (h *User) UserGetMe(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.Get(r.Context(), userID)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, data)
+	httpio.RespondOK(w, r, ToUserResponse(*userRow))
 	return nil
 }

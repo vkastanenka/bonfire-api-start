@@ -16,18 +16,18 @@ import (
 
 type OutboxEventResponse struct {
 	ID             uuid.UUID       `json:"id"`
-	EventType      string          `json:"event_type"`
+	EventType      string          `json:"eventType"`
 	Payload        json.RawMessage `json:"payload"`
 	Status         string          `json:"status"`
 	Attempts       int32           `json:"attempts"`
-	MaxAttempts    int32           `json:"max_attempts"`
-	NextAttemptAt  time.Time       `json:"next_attempt_at"`
-	ProcessedAt    *time.Time      `json:"processed_at,omitempty"`
-	LockedBy       *uuid.UUID      `json:"locked_by,omitempty"`
-	LeaseExpiresAt *time.Time      `json:"lease_expires_at,omitempty"`
-	LastError      *string         `json:"last_error,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	MaxAttempts    int32           `json:"maxAttempts"`
+	NextAttemptAt  time.Time       `json:"nextAttemptAt"`
+	ProcessedAt    *time.Time      `json:"processedAt,omitempty"`
+	LockedBy       *uuid.UUID      `json:"lockedBy,omitempty"`
+	LeaseExpiresAt *time.Time      `json:"leaseExpiresAt,omitempty"`
+	LastError      *string         `json:"lastError,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
 }
 
 func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
@@ -49,18 +49,18 @@ func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
 }
 
 type RelationshipResponse struct {
-	UserID      uuid.UUID            `json:"user_id"`
-	PeerID      uuid.UUID            `json:"peer_id"`
+	UserID      uuid.UUID            `json:"userId"`
+	PeerID      uuid.UUID            `json:"peerId"`
 	Variant     relationship.Variant `json:"type"`
-	ActorID     uuid.UUID            `json:"actor_id"`
-	IsInitiator bool                 `json:"is_initiator"`
-	CreatedAt   time.Time            `json:"created_at"`
-	UpdatedAt   time.Time            `json:"updated_at"`
+	ActorID     uuid.UUID            `json:"actorId"`
+	IsInitiator bool                 `json:"isInitiator"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	UpdatedAt   time.Time            `json:"updatedAt"`
 	Username    string               `json:"username"`
-	DisplayName string               `json:"display_name"`
-	AvatarURL   *string              `json:"avatar_url"`
-	Presence    *presence.Presence   `json:"presence"`
-	ChannelID   *uuid.UUID           `json:"channel_id"`
+	DisplayName string               `json:"displayName"`
+	AvatarURL   *string              `json:"avatarUrl,omitempty"`
+	Presence    *presence.Presence   `json:"presence,omitempty"`
+	ChannelID   *uuid.UUID           `json:"channelId,omitempty"`
 }
 
 func ToRelationshipResponse(
@@ -90,15 +90,15 @@ func ToRelationshipResponse(
 
 type SessionResponse struct {
 	ID         uuid.UUID `json:"id"`
-	UserID     uuid.UUID `json:"user_id"`
-	LastSeenAt time.Time `json:"last_seen_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	ClientIP   string    `json:"client_ip"`
-	UserAgent  string    `json:"user_agent"`
+	UserID     uuid.UUID `json:"userId"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	ClientIP   string    `json:"clientIp"`
+	UserAgent  string    `json:"userAgent"`
 	OS         string    `json:"os"`
 	Browser    string    `json:"browser"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 func ToSessionResponse(s session.Session) SessionResponse {
@@ -117,38 +117,24 @@ func ToSessionResponse(s session.Session) SessionResponse {
 }
 
 type UserResponse struct {
-	ID                uuid.UUID          `json:"id"`
-	Username          string             `json:"username"`
-	PreferredPresence *presence.Presence `json:"preferred_presence,omitempty"`
-	IsVerified        bool               `json:"is_verified"`
-	CreatedAt         time.Time          `json:"created_at"`
+	ID          uuid.UUID `json:"id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"displayName"`
+	AvatarURL   *string   `json:"avatarUrl,omitempty"`
+	IsVerified  bool      `json:"isVerified"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
-func ToUserResponse(u *user.User) UserResponse {
+func ToUserResponse(u user.User) UserResponse {
+	prof := u.Profile()
+
 	return UserResponse{
-		ID:                u.ID(),
-		Username:          u.Username().String(),
-		PreferredPresence: u.PreferredPresence(),
-		IsVerified:        u.IsVerified(),
-		CreatedAt:         u.CreatedAt(),
-	}
-}
-
-type UserProfileResponse struct {
-	UserID      uuid.UUID `json:"user_id"`
-	DisplayName string    `json:"display_name"`
-	AvatarURL   *string   `json:"avatar_url,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-func ToUserProfileResponse(userID uuid.UUID, p user.Profile) UserProfileResponse {
-	return UserProfileResponse{
-		UserID:      userID,
-		DisplayName: p.DisplayName().String(),
-		AvatarURL:   p.AvatarURL(),
-		CreatedAt:   p.CreatedAt(),
-		UpdatedAt:   p.UpdatedAt(),
+		ID:          u.ID(),
+		Username:    u.Username().String(),
+		DisplayName: prof.DisplayName().String(),
+		AvatarURL:   prof.AvatarURL(),
+		IsVerified:  u.VerifiedAt() != nil,
+		CreatedAt:   u.CreatedAt(),
 	}
 }
 
@@ -156,11 +142,13 @@ type UserMeResponse struct {
 	ID                uuid.UUID          `json:"id"`
 	Email             string             `json:"email"`
 	Username          string             `json:"username"`
-	DisplayName       string             `json:"display_name"`
-	AvatarURL         *string            `json:"avatar_url,omitempty"`
-	PreferredPresence *presence.Presence `json:"preferred_presence,omitempty"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	DisplayName       string             `json:"displayName"`
+	AvatarURL         *string            `json:"avatarUrl,omitempty"`
+	PreferredPresence *presence.Presence `json:"preferredPresence,omitempty"`
+	IsVerified        bool               `json:"isVerified"`
+	VerifiedAt        *time.Time         `json:"verifiedAt,omitempty"`
+	CreatedAt         time.Time          `json:"createdAt"`
+	UpdatedAt         time.Time          `json:"updatedAt"`
 }
 
 func ToUserMeResponse(u user.User) UserMeResponse {
@@ -173,6 +161,8 @@ func ToUserMeResponse(u user.User) UserMeResponse {
 		DisplayName:       prof.DisplayName().String(),
 		AvatarURL:         prof.AvatarURL(),
 		PreferredPresence: u.PreferredPresence(),
+		IsVerified:        u.VerifiedAt() != nil,
+		VerifiedAt:        u.VerifiedAt(),
 		CreatedAt:         u.CreatedAt(),
 		UpdatedAt:         u.UpdatedAt(),
 	}
