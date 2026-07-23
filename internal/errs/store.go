@@ -1,4 +1,4 @@
-package apperr
+package errs
 
 import "sync/atomic"
 
@@ -8,7 +8,7 @@ func init() {
 	domain.Store("unknown.service")
 }
 
-func Init(serviceDomain string) {
+func NewStore(serviceDomain string) {
 	if serviceDomain != "" {
 		domain.Store(serviceDomain)
 	}
