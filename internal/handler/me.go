@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -15,18 +16,22 @@ type MeUserService interface {
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 }
 
+type MePresenceService interface {
+	GetBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
+}
+
 type MeHandler struct {
-	users MeUserService
+	users    MeUserService
+	presence MePresenceService
 	// relationships relationship.Service
 	// channels      channel.Service
-	// presence      presence.Service
 }
 
 func NewMeHandler(
 	u MeUserService,
+	p MePresenceService,
 	// r relationship.Service,
 	// c channel.Service,
-	// p presence.Service,
 ) *MeHandler {
 	return &MeHandler{
 		users: u,
@@ -37,10 +42,10 @@ func NewMeHandler(
 }
 
 type MeResponse struct {
-	User UserMeResponse `json:"user"`
+	User      UserMeResponse                  `json:"user"`
+	Presences map[uuid.UUID]presence.Presence `json:"presences"`
 	// Relationships []relationship.Perspective             `json:"relationships"`
 	// Channels      []channel.PrivateChannelResponse       `json:"channels"`
-	// Presences     map[uuid.UUID]presence.Presence        `json:"presences"`
 }
 
 func (h *MeHandler) Get(w http.ResponseWriter, r *http.Request) error {
