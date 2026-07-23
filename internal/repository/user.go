@@ -14,12 +14,12 @@ import (
 )
 
 type User struct {
-	q db.Querier
+	q db.Store
 }
 
 var _ user.Repository = (*User)(nil)
 
-func NewUser(q db.Querier) *User {
+func NewUser(q db.Store) *User {
 	return &User{q: q}
 }
 

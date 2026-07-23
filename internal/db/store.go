@@ -1,3 +1,4 @@
+// internal/db/store.go
 package db
 
 import (
@@ -11,25 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Store interface {
-	Querier
-	ExecTx(ctx context.Context, fn func(Querier) error) error
-}
-
-type store struct {
+type Store struct {
 	*Queries
-	db *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
-func NewStore(db *pgxpool.Pool) Store {
-	return &store{
-		Queries: New(db),
-		db:      db,
+// Returns concrete *Store
+func NewStore(pool *pgxpool.Pool) *Store {
+	cdb := newContextDB(pool)
+	return &Store{
+		Queries: New(cdb),
+		pool:    pool,
 	}
 }
 
-func (s *store) ExecTx(ctx context.Context, fn func(q Querier) error) (err error) {
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
+func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error {
+	// 1. If we are ALREADY inside a transaction, reuse it.
+	// Do NOT start a new one, do NOT create a savepoint, do NOT commit/rollback here.
+	if _, ok := ExtractTx(ctx); ok {
+		return fn(ctx)
+	}
+
+	// 2. Outer-most call: Begin a real database transaction.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -49,9 +54,9 @@ func (s *store) ExecTx(ctx context.Context, fn func(q Querier) error) (err error
 		}
 	}()
 
-	qtx := s.WithTx(tx)
+	txCtx := InjectTx(ctx, tx)
 
-	if err = fn(qtx); err != nil {
+	if err = fn(txCtx); err != nil {
 		return err
 	}
 

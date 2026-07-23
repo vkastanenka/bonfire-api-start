@@ -12,13 +12,13 @@ import (
 )
 
 type Presence struct {
-	q   cache.Querier
+	q   cache.Store
 	ttl time.Duration
 }
 
 var _ presence.Repository = (*Presence)(nil)
 
-func NewPresence(q cache.Querier, ttl time.Duration) *Presence {
+func NewPresence(q cache.Store, ttl time.Duration) *Presence {
 	return &Presence{
 		q:   q,
 		ttl: ttl,

@@ -27,28 +27,24 @@ var _ Querier = (*Queries)(nil)
 type Store interface {
 	Querier
 	ExecPipeline(ctx context.Context, fn func(Querier) error) error
+	Subscribe(ctx context.Context, channel string) (Subscription, error)
 }
 
-type Manager interface {
-	Store
-	MessageBus
-}
-
-type manager struct {
+type store struct {
 	*Queries
 	client *redis.Client
 }
 
-func NewManager(client *redis.Client) Manager {
-	return &manager{
+func NewStore(client *redis.Client) Store {
+	return &store{
 		Queries: New(client),
 		client:  client,
 	}
 }
 
-func (m *manager) ExecPipeline(ctx context.Context, fn func(Querier) error) error {
-	pipe := m.client.Pipeline()
-	qpipe := m.WithPipeline(pipe)
+func (s *store) ExecPipeline(ctx context.Context, fn func(Querier) error) error {
+	pipe := s.client.Pipeline()
+	qpipe := s.WithPipeline(pipe)
 
 	if err := fn(qpipe); err != nil {
 		pipe.Discard()
@@ -62,8 +58,8 @@ func (m *manager) ExecPipeline(ctx context.Context, fn func(Querier) error) erro
 	return nil
 }
 
-func (m *manager) Subscribe(ctx context.Context, channel string) (Subscription, error) {
-	pb := m.client.Subscribe(ctx, channel)
+func (s *store) Subscribe(ctx context.Context, channel string) (Subscription, error) {
+	pb := s.client.Subscribe(ctx, channel)
 
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

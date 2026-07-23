@@ -7,13 +7,18 @@ import (
 	"os/signal"
 	"syscall"
 
+	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/email"
 	"bonfire-api/internal/logger"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/repository"
+	"bonfire-api/internal/store"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -92,29 +97,38 @@ func run(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	// cacheMgr := cache.NewManager(cacheConn)
-	// store := repository.NewStore(dbConn)
-	// rateLimiter := redis_rate.NewLimiter(cacheConn)
-	// mailer := email.NewMailer(email.Config{
-	// 	ResendAPIKey: cfg.ResendApiKey,
-	// 	FromAddress:  cfg.EmailFromAddress,
-	// 	FrontendURL:  cfg.FrontendURL,
-	// 	OverrideTo:   cfg.EmailOverrideTo,
-	// })
+	dbStore := db.NewStore(dbConn)
+	cacheStore := cache.NewStore(cacheConn)
+	rateLimiter := redis_rate.NewLimiter(cacheConn)
+	mailer := email.NewMailer(email.Config{
+		ResendAPIKey: cfg.ResendApiKey,
+		FromAddress:  cfg.EmailFromAddress,
+		FrontendURL:  cfg.FrontendURL,
+		OverrideTo:   cfg.EmailOverrideTo,
+	})
 
-	// outboxRepo := repository.NewOutbox()
-	// // sessionSvc := session.NewService(store)
-	// relationshipSvc := relationship.NewService(store)
-	// userSvc := user.NewService(store)
-	// meSvc := me.NewService(userSvc)
-	// presenceSvc := presence.NewService(cacheMgr)
-	// authService := auth.NewService(
-	// 	store,
-	// 	cacheMgr,
-	// 	tokenMgr,
-	// 	sessionSvc,
-	// 	userSvc,
-	// )
+	outboxRepo := repository.NewOutbox(dbStore)
+	relationshipRepo := repository.NewRelationship(dbStore)
+	sessionRepo := repository.NewSession(dbStore)
+	userRepo := repository.NewUser(dbStore)
+
+	presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
+	sessionStore := store.NewSession(cacheStore)
+	shieldStore := store.NewShield(cacheStore)
+	ticketStore := store.NewTicket(cacheStore)
+
+	relationshipSvc := relationship.NewService(relationshipRepo)
+	presenceSvc := presence.NewService(presenceStore)
+	userSvc := user.NewService(userRepo)
+	authService := auth.NewService(
+		dbStore,
+		outboxRepo,
+		sessionRepo,
+		userRepo,
+		sessionStore,
+		ticketStore,
+		tokens,
+	)
 
 	// outboxWorker := outbox.NewWorker(
 	// 	cacheMgr,
@@ -136,8 +150,8 @@ func run(cfg *config.Config) error {
 	// userHandler := user.NewHandler(userSvc)
 
 	app := &Application{
-		Config: cfg,
-		// RateLimiter: rateLimiter,
+		Config:      cfg,
+		RateLimiter: rateLimiter,
 		// Handlers: Handlers{
 		// 	Auth:    authHandler,
 		// 	Gateway: gatewayHandler,

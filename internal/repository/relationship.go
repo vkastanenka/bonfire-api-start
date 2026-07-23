@@ -11,12 +11,12 @@ import (
 )
 
 type Relationship struct {
-	q db.Querier
+	q db.Store
 }
 
 var _ relationship.Repository = (*Relationship)(nil)
 
-func NewRelationship(q db.Querier) *Relationship {
+func NewRelationship(q db.Store) *Relationship {
 	return &Relationship{q: q}
 }
 

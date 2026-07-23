@@ -162,7 +162,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	if err := s.sessionCache.Set(persistCtx, newSession); err != nil {
+	if err := s.sessionStore.Set(persistCtx, newSession); err != nil {
 		slog.WarnContext(persistCtx, "failed to set session cache during registration",
 			"error", err,
 			"session_id", newSession.ID(),

@@ -10,19 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-type TicketStore struct {
-	q cache.Querier
+type Ticket struct {
+	q cache.Store
 }
 
-func NewTicketStore(q cache.Querier) *TicketStore {
-	return &TicketStore{q: q}
+func NewTicket(q cache.Store) *Ticket {
+	return &Ticket{q: q}
 }
 
 func ticketKey(id uuid.UUID) string {
 	return fmt.Sprintf("ticket:{%s}", id.String())
 }
 
-func (s *TicketStore) SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error {
+func (s *Ticket) SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error {
 	k := ticketKey(ticketID)
 	if err := s.q.Set(ctx, k, userID, ttl); err != nil {
 		return cache.NewError(err, cache.ScopeTicket)
@@ -30,7 +30,7 @@ func (s *TicketStore) SetTicket(ctx context.Context, ticketID, userID uuid.UUID,
 	return nil
 }
 
-func (s *TicketStore) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, error) {
+func (s *Ticket) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, error) {
 	k := ticketKey(ticketID)
 
 	var userID uuid.UUID

@@ -33,10 +33,8 @@ type MarkDeadLetterParams struct {
 	Reason string
 }
 
-// Handler defines a callback interface for processing a specific outbox event.
 type Handler func(ctx context.Context, payload json.RawMessage) error
 
-// Repository defines all operations for outbox persistence.
 type Repository interface {
 	Publish(ctx context.Context, p PublishParams) (Event, error)
 	Get(ctx context.Context, id uuid.UUID) (Event, error)

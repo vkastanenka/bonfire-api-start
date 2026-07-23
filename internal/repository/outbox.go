@@ -16,13 +16,13 @@ import (
 )
 
 type Outbox struct {
-	q db.Querier
+	store db.Store
 }
 
 var _ outbox.Repository = (*Outbox)(nil)
 
-func NewOutbox(q db.Querier) *Outbox {
-	return &Outbox{q: q}
+func NewOutbox(store db.Store) *Outbox {
+	return &Outbox{store: store}
 }
 
 func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
@@ -31,7 +31,7 @@ func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Ev
 		return outbox.Event{}, errs.Internal("failed to marshal outbox event payload").Wrap(err)
 	}
 
-	row, err := o.q.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
+	row, err := o.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
 		EventType: p.Variant,
 		Payload:   jsonBytes,
 	})
@@ -43,7 +43,7 @@ func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Ev
 }
 
 func (o *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.q.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := o.store.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -60,7 +60,7 @@ func (o *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event,
 		pgCursor = pgtype.UUID{Bytes: *p.Cursor, Valid: true}
 	}
 
-	rows, err := o.q.OutboxEventList(ctx, db.OutboxEventListParams{
+	rows, err := o.store.OutboxEventList(ctx, db.OutboxEventListParams{
 		Column1: pgCursor,
 		Limit:   p.Limit,
 	})
@@ -82,7 +82,7 @@ func (o *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event,
 func (o *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) ([]outbox.Event, error) {
 	leaseIntervalStr := strconv.Itoa(int(p.LeaseDurationInSeconds))
 
-	rows, err := o.q.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
+	rows, err := o.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
 		Limit:    p.Limit,
 		LockedBy: pgtype.UUID{Bytes: p.WorkerID, Valid: true},
 		Column3:  leaseIntervalStr,
@@ -103,7 +103,7 @@ func (o *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) 
 }
 
 func (o *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.q.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := o.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -115,7 +115,7 @@ func (o *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event,
 }
 
 func (o *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams) (outbox.Event, error) {
-	row, err := o.q.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
+	row, err := o.store.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.LastError, Valid: p.LastError != ""},
 	})
@@ -130,7 +130,7 @@ func (o *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams
 }
 
 func (o *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterParams) (outbox.Event, error) {
-	row, err := o.q.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
+	row, err := o.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.Reason, Valid: p.Reason != ""},
 	})
@@ -145,7 +145,7 @@ func (o *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterPara
 }
 
 func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.q.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := o.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -157,7 +157,7 @@ func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event,
 }
 
 func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
-	err := o.q.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	err := o.store.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errs.NotFound("outbox event not found").Wrap(err)
@@ -168,7 +168,7 @@ func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (o *Outbox) PurgeProcessed(ctx context.Context) error {
-	err := o.q.OutboxEventPurgeProcessed(ctx)
+	err := o.store.OutboxEventPurgeProcessed(ctx)
 	if err != nil {
 		return errs.Internal("failed to purge processed outbox events").Wrap(err)
 	}

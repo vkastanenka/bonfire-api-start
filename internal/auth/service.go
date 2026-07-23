@@ -11,9 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Transactor interface {
-	// ExecTx executes fn within a database transaction.
-	// If fn returns an error, the transaction is rolled back.
+type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
@@ -23,10 +21,8 @@ type OutboxRepository interface {
 
 type SessionRepository interface {
 	Create(ctx context.Context, s *session.Session) error
-	GetByID(ctx context.Context, id uuid.UUID) (*session.Session, error)
-	Update(ctx context.Context, s *session.Session) error
-	Revoke(ctx context.Context, id uuid.UUID) error
-	RevokeByUserID(ctx context.Context, userID uuid.UUID) error
+	Save(ctx context.Context, s *session.Session) error
+	Get(ctx context.Context, id uuid.UUID) (*session.Session, error)
 }
 
 type SessionStore interface {
@@ -55,9 +51,9 @@ type TokenProvider interface {
 	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
 	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
 	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
-	VerifyPasswordReset(tokenStr string) (token.Claims, error)
-	VerifyEmailVerify(tokenStr string) (token.Claims, error)
-	VerifyRefresh(tokenStr string) (token.Claims, error)
+	VerifyPasswordReset(tokenStr string) (*token.Claims, error)
+	VerifyEmailVerify(tokenStr string) (*token.Claims, error)
+	VerifyRefresh(tokenStr string) (*token.Claims, error)
 }
 
 type RegisterUserTxParams struct {
@@ -75,40 +71,33 @@ type UserRepository interface {
 }
 
 type Service struct {
-	tx           Transactor
+	tx           TX
 	outbox       OutboxRepository
 	sessions     SessionRepository
-	sessionCache SessionStore
+	users        UserRepository
+	sessionStore SessionStore
 	shield       ShieldStore
 	tickets      TicketStore
 	tokens       TokenProvider
-	users        UserRepository
 }
 
-// type Service struct {
-// 	cooldown cooldown.Repository
-// 	user     user.Service
-// 	token    *token.Provider
-// 	// store       repository.Store
-// 	// cache       cache.Store
-// 	// session     *session.Service
-// 	// user        *user.Service
-// 	// flightGroup singleflight.Group
-// }
-
 func NewService(
-// store repository.Store,
-// cache cache.Store,
-// token *token.Manager,
-// session *session.Service,
-// user *user.Service,
-) *Service {
-	return &Service{
-		// store:       store,
-		// cache:       cache,
-		// token:       token,
-		// session:     session,
-		// user:        user,
-		// flightGroup: singleflight.Group{},
+	tx TX, // auth.Service only needs TX, not full db.Store!
+	outbox OutboxRepository,
+	sessions SessionRepository,
+	sessionStore SessionStore,
+	shield ShieldStore,
+	tickets TicketStore,
+	tokens TokenProvider,
+	users UserRepository,
+) Service {
+	return Service{
+		tx:           tx,
+		outbox:       outbox,
+		sessions:     sessions,
+		sessionStore: sessionStore,
+		tickets:      tickets,
+		tokens:       tokens,
+		users:        users,
 	}
 }

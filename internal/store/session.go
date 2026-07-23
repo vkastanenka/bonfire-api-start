@@ -13,10 +13,10 @@ import (
 )
 
 type Session struct {
-	q cache.Querier
+	q cache.Store
 }
 
-func NewSession(q cache.Querier) *Session {
+func NewSession(q cache.Store) *Session {
 	return &Session{q: q}
 }
 

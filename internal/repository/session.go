@@ -14,12 +14,12 @@ import (
 )
 
 type Session struct {
-	q db.Querier
+	q db.Store
 }
 
 var _ session.Repository = (*Session)(nil)
 
-func NewSession(q db.Querier) *Session {
+func NewSession(q db.Store) *Session {
 	return &Session{q: q}
 }
 

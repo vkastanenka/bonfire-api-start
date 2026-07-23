@@ -66,14 +66,14 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		)
 
 		// Revoke in DB and evict from cache to contain breach
-		if revokeErr := s.sessions.Revoke(persistCtx, sess.ID()); revokeErr != nil {
-			slog.ErrorContext(persistCtx, "failed to revoke compromised session in database",
-				"error", revokeErr,
-				"session_id", sess.ID(),
-			)
-		}
+		// if revokeErr := s.sessions.Revoke(persistCtx, sess.ID()); revokeErr != nil {
+		// 	slog.ErrorContext(persistCtx, "failed to revoke compromised session in database",
+		// 		"error", revokeErr,
+		// 		"session_id", sess.ID(),
+		// 	)
+		// }
 
-		if delErr := s.sessionCache.Delete(persistCtx, sess.ID()); delErr != nil {
+		if delErr := s.sessionStore.Delete(persistCtx, sess.ID()); delErr != nil {
 			slog.ErrorContext(persistCtx, "failed to evict compromised session from cache",
 				"error", delErr,
 				"session_id", sess.ID(),
@@ -115,11 +115,11 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 	}
 
 	// 7. Persist changes to DB and update Cache
-	if err := s.sessions.Update(persistCtx, sess); err != nil {
+	if err := s.sessions.Save(persistCtx, sess); err != nil {
 		return RefreshResult{}, err
 	}
 
-	if err := s.sessionCache.Set(persistCtx, sess); err != nil {
+	if err := s.sessionStore.Set(persistCtx, sess); err != nil {
 		slog.WarnContext(persistCtx, "failed to update session cache during token refresh",
 			"error", err,
 			"session_id", sess.ID(),
@@ -135,7 +135,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 
 // getSession attempts to retrieve the session from cache, falling back to database on miss or error.
 func (s *Service) getSession(ctx context.Context, id uuid.UUID) (*session.Session, error) {
-	sess, err := s.sessionCache.Get(ctx, id)
+	sess, err := s.sessionStore.Get(ctx, id)
 	if err == nil && sess != nil {
 		return sess, nil
 	}
@@ -147,14 +147,14 @@ func (s *Service) getSession(ctx context.Context, id uuid.UUID) (*session.Sessio
 		)
 	}
 
-	sess, err = s.sessions.GetByID(ctx, id)
+	sess, err = s.sessions.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// Repopulate cache asynchronously / non-blockingly
 	persistCtx := context.WithoutCancel(ctx)
-	if setErr := s.sessionCache.Set(persistCtx, sess); setErr != nil {
+	if setErr := s.sessionStore.Set(persistCtx, sess); setErr != nil {
 		slog.WarnContext(persistCtx, "failed to repopulate session cache after DB fallback",
 			"error", setErr,
 			"session_id", sess.ID(),

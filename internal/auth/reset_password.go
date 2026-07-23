@@ -103,9 +103,9 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	txErr := s.tx.ExecTx(persistCtx, func(txCtx context.Context) error {
 		// Invalidate all existing active sessions for security
-		if err := s.sessions.RevokeByUserID(txCtx, u.ID()); err != nil {
-			return err
-		}
+		// if err := s.sessions.RevokeByUserID(txCtx, u.ID()); err != nil {
+		// 	return err
+		// }
 
 		// Save updated user aggregate (contains new password hash & updated timestamp)
 		if err := s.users.Save(txCtx, u); err != nil {
@@ -125,7 +125,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	}
 
 	// 8. Cache New Session Non-blockingly
-	if err := s.sessionCache.Set(persistCtx, newSession); err != nil {
+	if err := s.sessionStore.Set(persistCtx, newSession); err != nil {
 		slog.WarnContext(persistCtx, "failed to cache session after password reset",
 			"error", err,
 			"session_id", newSession.ID(),

@@ -9,10 +9,10 @@ import (
 )
 
 type Shield struct {
-	q cache.Querier
+	q cache.Store
 }
 
-func NewShield(q cache.Querier) *Shield {
+func NewShield(q cache.Store) *Shield {
 	return &Shield{q: q}
 }
 
@@ -107,7 +107,6 @@ func (r *Shield) ResetFailures(ctx context.Context, key string) error {
 	return nil
 }
 
-// IsTokenConsumed checks whether a single-use token (by JTI / ID) has already been used.
 func (r *Shield) IsTokenConsumed(ctx context.Context, tokenID string) (bool, error) {
 	k := consumedTokenKey(tokenID)
 
@@ -123,7 +122,6 @@ func (r *Shield) IsTokenConsumed(ctx context.Context, tokenID string) (bool, err
 	return true, nil
 }
 
-// MarkTokenConsumed marks a single-use token as consumed for the remaining TTL of the token.
 func (r *Shield) MarkTokenConsumed(ctx context.Context, tokenID string, ttl time.Duration) error {
 	k := consumedTokenKey(tokenID)
 

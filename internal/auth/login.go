@@ -105,7 +105,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	if err := s.sessionCache.Set(persistCtx, newSession); err != nil {
+	if err := s.sessionStore.Set(persistCtx, newSession); err != nil {
 		slog.WarnContext(persistCtx, "failed to update session cache during login", "error", err, "session_id", newSession.ID())
 	}
 
