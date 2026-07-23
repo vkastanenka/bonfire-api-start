@@ -34,84 +34,80 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-type Config struct {
-	AccessSecret        string
-	RefreshSecret       string
-	VerifySecret        string
-	PasswordResetSecret string
-	Issuer              string
+type VariantConfig struct {
+	Secret string
+	TTL    time.Duration
+}
 
-	AccessTTL        time.Duration
-	RefreshTTL       time.Duration
-	EmailVerifyTTL   time.Duration
-	PasswordResetTTL time.Duration
+type Config struct {
+	Issuer        string
+	Access        VariantConfig
+	Refresh       VariantConfig
+	EmailVerify   VariantConfig
+	PasswordReset VariantConfig
+}
+
+type variantConfig struct {
+	secret []byte
+	ttl    time.Duration
 }
 
 type Provider struct {
-	issuer  string
-	secrets map[Variant][]byte
-	ttls    map[Variant]time.Duration
+	issuer   string
+	variants map[Variant]variantConfig
 }
 
 func NewProvider(cfg Config) (*Provider, error) {
-	if cfg.AccessSecret == "" || cfg.RefreshSecret == "" || cfg.VerifySecret == "" || cfg.PasswordResetSecret == "" {
-		return nil, fmt.Errorf("token provider initialization failed: critical secrets cannot be empty")
-	}
-
 	if cfg.Issuer == "" {
 		cfg.Issuer = "bonfire-api"
 	}
 
-	accessTTL := cfg.AccessTTL
-	if accessTTL <= 0 {
-		accessTTL = DefaultAccessTTL
+	specs := map[Variant]VariantConfig{
+		VariantAccess:        cfg.Access,
+		VariantRefresh:       cfg.Refresh,
+		VariantEmailVerify:   cfg.EmailVerify,
+		VariantPasswordReset: cfg.PasswordReset,
 	}
 
-	refreshTTL := cfg.RefreshTTL
-	if refreshTTL <= 0 {
-		refreshTTL = DefaultRefreshTTL
+	defaults := map[Variant]time.Duration{
+		VariantAccess:        DefaultAccessTTL,
+		VariantRefresh:       DefaultRefreshTTL,
+		VariantEmailVerify:   DefaultEmailVerifyTTL,
+		VariantPasswordReset: DefaultPasswordResetTTL,
 	}
 
-	emailVerifyTTL := cfg.EmailVerifyTTL
-	if emailVerifyTTL <= 0 {
-		emailVerifyTTL = DefaultEmailVerifyTTL
-	}
+	variants := make(map[Variant]variantConfig, len(specs))
 
-	passwordResetTTL := cfg.PasswordResetTTL
-	if passwordResetTTL <= 0 {
-		passwordResetTTL = DefaultPasswordResetTTL
+	for variant, spec := range specs {
+		if spec.Secret == "" {
+			return nil, fmt.Errorf("token provider initialization failed: secret for %q cannot be empty", variant)
+		}
+
+		ttl := spec.TTL
+		if ttl <= 0 {
+			ttl = defaults[variant]
+		}
+
+		variants[variant] = variantConfig{
+			secret: []byte(spec.Secret),
+			ttl:    ttl,
+		}
 	}
 
 	return &Provider{
-		issuer: cfg.Issuer,
-		secrets: map[Variant][]byte{
-			VariantAccess:        []byte(cfg.AccessSecret),
-			VariantRefresh:       []byte(cfg.RefreshSecret),
-			VariantEmailVerify:   []byte(cfg.VerifySecret),
-			VariantPasswordReset: []byte(cfg.PasswordResetSecret),
-		},
-		ttls: map[Variant]time.Duration{
-			VariantAccess:        accessTTL,
-			VariantRefresh:       refreshTTL,
-			VariantEmailVerify:   emailVerifyTTL,
-			VariantPasswordReset: passwordResetTTL,
-		},
+		issuer:   cfg.Issuer,
+		variants: variants,
 	}, nil
 }
 
 func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.Time, error) {
-	secret, exists := p.secrets[tokenVariant]
-	if !exists || len(secret) == 0 {
-		return "", time.Time{}, fmt.Errorf("%w: missing signing key for type %s", ErrInternal, tokenVariant)
-	}
-
-	ttl, exists := p.ttls[tokenVariant]
-	if !exists || ttl <= 0 {
-		return "", time.Time{}, fmt.Errorf("%w: missing ttl configuration for type %s", ErrInternal, tokenVariant)
+	spec, exists := p.variants[tokenVariant]
+	if !exists || len(spec.secret) == 0 {
+		return "", time.Time{}, fmt.Errorf("%w: missing signing configuration for type %s", ErrInternal, tokenVariant)
 	}
 
 	now := time.Now()
-	expiresAt := now.Add(ttl)
+	expiresAt := now.Add(spec.ttl)
 
 	claims.Variant = tokenVariant
 	claims.RegisteredClaims = jwt.RegisteredClaims{
@@ -123,7 +119,7 @@ func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.T
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString(secret)
+	signedToken, err := token.SignedString(spec.secret)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("%w: signing failed: %v", ErrInternal, err)
 	}
@@ -132,9 +128,9 @@ func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.T
 }
 
 func (p *Provider) verify(tokenVariant Variant, tokenStr string) (*Claims, error) {
-	secret, exists := p.secrets[tokenVariant]
-	if !exists || len(secret) == 0 {
-		return nil, fmt.Errorf("%w: missing verification key for type %s", ErrInternal, tokenVariant)
+	spec, exists := p.variants[tokenVariant]
+	if !exists || len(spec.secret) == 0 {
+		return nil, fmt.Errorf("%w: missing verification configuration for type %s", ErrInternal, tokenVariant)
 	}
 
 	token, err := jwt.ParseWithClaims(
@@ -144,7 +140,7 @@ func (p *Provider) verify(tokenVariant Variant, tokenStr string) (*Claims, error
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing algorithm variant: %v", t.Header["alg"])
 			}
-			return secret, nil
+			return spec.secret, nil
 		},
 		jwt.WithLeeway(DefaultClockLeeway),
 	)

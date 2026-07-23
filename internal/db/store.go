@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -27,30 +28,36 @@ func NewStore(db *pgxpool.Pool) Store {
 	}
 }
 
-func (s *store) ExecTx(ctx context.Context, fn func(Querier) error) error {
+func (s *store) ExecTx(ctx context.Context, fn func(q Querier) error) (err error) {
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
+	defer func() {
+		if err != nil {
+			rbCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			rbErr := tx.Rollback(rbCtx)
+			if rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+				if !errors.Is(ctx.Err(), context.Canceled) {
+					slog.Error("transaction rollback failed", "original_error", err, "rollback_error", rbErr)
+				}
+				err = fmt.Errorf("tx error: %w (rollback failed: %v)", err, rbErr)
+			}
+		}
+	}()
+
 	qtx := s.WithTx(tx)
 
-	err = fn(qtx)
-	if err != nil {
-		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		rbErr := tx.Rollback(rollbackCtx)
-		cancel()
-
-		if rbErr != nil {
-			slog.Error("transaction rollback failed entirely", "original_error", err, "rollback_error", rbErr)
-			return fmt.Errorf("tx error: %w, rollback error: %v", err, rbErr)
-		}
-
+	if err = fn(qtx); err != nil {
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
 	return nil
 }

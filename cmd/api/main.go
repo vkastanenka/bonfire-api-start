@@ -7,8 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/db"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/logger"
+	"bonfire-api/internal/repository"
+	"bonfire-api/internal/token"
+
+	"github.com/go-redis/redis_rate/v10"
 )
 
 func main() {
@@ -38,44 +45,56 @@ func run(cfg *config.Config) error {
 	)
 	defer stop()
 
-	// pdbPool, err := postgres.NewPool(ctx, postgres.Config{
-	// 	ConnString:      cfg.DatabaseURL,
-	// 	MaxConns:        cfg.DBMaxConns,
-	// 	MinConns:        cfg.DBMinConns,
-	// 	MaxConnLifetime: cfg.DBMaxConnLifetime,
-	// 	MaxConnIdleTime: cfg.DBMaxConnIdleTime,
-	// 	HealthCheck:     cfg.DBHealthCheck,
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-	// defer pdbPool.Close()
+	dbConn, err := db.NewConn(ctx, db.ConnConfig{
+		ConnString:      cfg.DatabaseURL,
+		MaxConns:        cfg.DBMaxConns,
+		MinConns:        cfg.DBMinConns,
+		MaxConnLifetime: cfg.DBMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+		HealthCheck:     cfg.DBHealthCheck,
+	})
+	if err != nil {
+		return err
+	}
+	defer dbConn.Close()
 
-	// rdbClient, err := redis.NewClient(ctx, redis.Config{
-	// 	ConnString:      cfg.RedisURL,
-	// 	PoolSize:        cfg.RedisPoolSize,
-	// 	MinIdleConns:    cfg.RedisMinIdleConns,
-	// 	ConnMaxIdleTime: cfg.RedisConnMaxIdleTime,
-	// 	ConnMaxLifetime: cfg.RedisConnMaxLifetime,
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-	// defer rdbClient.Close()
+	cacheConn, err := cache.NewConn(ctx, cache.ConnConfig{
+		ConnString:      cfg.RedisURL,
+		PoolSize:        cfg.RedisPoolSize,
+		MinIdleConns:    cfg.RedisMinIdleConns,
+		ConnMaxIdleTime: cfg.RedisConnMaxIdleTime,
+		ConnMaxLifetime: cfg.RedisConnMaxLifetime,
+	})
+	if err != nil {
+		return err
+	}
+	defer cacheConn.Close()
 
-	// tokenMgr, err := token.NewManager(token.Config{
-	// 	AccessSecret:        cfg.AccessSecret,
-	// 	RefreshSecret:       cfg.RefreshSecret,
-	// 	VerifySecret:        cfg.EmailVerifySecret,
-	// 	PasswordResetSecret: cfg.PasswordResetSecret,
-	// 	Issuer:              cfg.TokenIssuer,
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-	// cacheMgr := cache.NewManager(rdbClient)
-	// store := repository.NewStore(pdbPool)
-	// rateLimiter := redis_rate.NewLimiter(rdbClient)
+	tokens, err := token.NewProvider(token.Config{
+		Issuer: cfg.TokenIssuer,
+		Access: token.VariantConfig{
+			Secret: cfg.AccessSecret,
+			TTL:    cfg.JWTAccessTTL,
+		},
+		Refresh: token.VariantConfig{
+			Secret: cfg.RefreshSecret,
+			TTL:    cfg.JWTRefreshTTL,
+		},
+		EmailVerify: token.VariantConfig{
+			Secret: cfg.EmailVerifySecret,
+			TTL:    cfg.JWTEmailVerifyTTL,
+		},
+		PasswordReset: token.VariantConfig{
+			Secret: cfg.PasswordResetSecret,
+			TTL:    cfg.JWTPasswordResetTTL,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	// cacheMgr := cache.NewManager(cacheConn)
+	// store := repository.NewStore(dbConn)
+	// rateLimiter := redis_rate.NewLimiter(cacheConn)
 	// mailer := email.NewMailer(email.Config{
 	// 	ResendAPIKey: cfg.ResendApiKey,
 	// 	FromAddress:  cfg.EmailFromAddress,
@@ -83,7 +102,7 @@ func run(cfg *config.Config) error {
 	// 	OverrideTo:   cfg.EmailOverrideTo,
 	// })
 
-	// // outboxSvc := outbox.NewService(store)
+	// outboxRepo := repository.NewOutbox()
 	// // sessionSvc := session.NewService(store)
 	// relationshipSvc := relationship.NewService(store)
 	// userSvc := user.NewService(store)
