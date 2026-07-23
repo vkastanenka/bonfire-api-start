@@ -144,18 +144,6 @@ func (e *Error) Meta(key, value string) *Error {
 	return e
 }
 
-func (e *Error) FieldViolation(field, description, reason string) *Error {
-	if e == nil {
-		return nil
-	}
-	if fv, err := NewFieldViolation(field, description, reason); err == nil {
-		if br, err := NewBadRequest(*fv); err == nil {
-			e.Detail(br)
-		}
-	}
-	return e
-}
-
 func (e *Error) Retry(delay time.Duration) *Error {
 	if e == nil {
 		return nil
@@ -168,6 +156,28 @@ func (e *Error) Debug(detail string, stack ...string) *Error {
 		return nil
 	}
 	if info, err := NewDebugInfo(detail, stack...); err == nil {
+		e.Detail(info)
+	}
+	return e
+}
+
+func (e *Error) FieldViolation(field, description, reason string) *Error {
+	if e == nil {
+		return nil
+	}
+	if fv, err := NewFieldViolation(field, description, reason); err == nil {
+		if br, err := NewBadRequest(*fv); err == nil {
+			e.Detail(br)
+		}
+	}
+	return e
+}
+
+func (e *Error) Request(requestID, servingData string) *Error {
+	if e == nil {
+		return nil
+	}
+	if info, err := NewRequestInfo(requestID, servingData); err == nil {
 		e.Detail(info)
 	}
 	return e

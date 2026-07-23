@@ -3,7 +3,7 @@ package httpio
 import (
 	"context"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/token"
 
 	"net/netip"
@@ -23,10 +23,15 @@ const (
 func CtxGetMeta(ctx context.Context) (ClientMeta, error) {
 	meta, ok := ctx.Value(ctxMetaKey).(ClientMeta)
 	if !ok {
-		return ClientMeta{IP: netip.IPv4Unspecified()}, apperr.NewInternal(
-			nil,
-			apperr.WithMsg("An unexpected system error occurred while processing request metadata."),
-		)
+		err := errs.Internal("client metadata missing from request context").
+			Reason("MISSING_CONTEXT_META")
+
+		if reqID := CtxGetReqID(ctx); reqID != "" {
+			if reqInfo, e := errs.NewRequestInfo(reqID, ""); e == nil {
+				err.Detail(reqInfo)
+			}
+		}
+		return ClientMeta{IP: netip.IPv4Unspecified()}, err
 	}
 	return meta, nil
 }
@@ -42,10 +47,8 @@ func CtxGetIP(ctx context.Context) (netip.Addr, error) {
 func CtxGetClaims(ctx context.Context) (*token.Claims, error) {
 	claims, ok := ctx.Value(ctxClaimsKey).(*token.Claims)
 	if !ok {
-		return nil, apperr.NewUnauthenticated(
-			nil,
-			apperr.WithMsg("Authentication is required to access this resource."),
-		)
+		return nil, errs.Unauthenticated("authentication token missing or invalid").
+			Reason("AUTH_TOKEN_MISSING")
 	}
 	return claims, nil
 }
@@ -59,7 +62,7 @@ func CtxGetUserID(ctx context.Context) (uuid.UUID, error) {
 }
 
 func CtxGetReqID(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxTraceIDKey).(string); ok {
+	if v, ok := ctx.Value(ctxReqIDKey).(string); ok {
 		return v
 	}
 	return ""

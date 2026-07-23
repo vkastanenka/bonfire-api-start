@@ -2,11 +2,10 @@ package errs
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
+	"unsafe"
 )
 
 // https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto
@@ -56,82 +55,48 @@ var codeNames = [...]string{
 	CodeUnauthenticated:    "UNAUTHENTICATED",
 }
 
-var codeBytes = [...][]byte{
-	CodeOK:                 []byte("OK"),
-	CodeCancelled:          []byte("CANCELLED"),
-	CodeUnknown:            []byte("UNKNOWN"),
-	CodeInvalidArgument:    []byte("INVALID_ARGUMENT"),
-	CodeDeadlineExceeded:   []byte("DEADLINE_EXCEEDED"),
-	CodeNotFound:           []byte("NOT_FOUND"),
-	CodeAlreadyExists:      []byte("ALREADY_EXISTS"),
-	CodePermissionDenied:   []byte("PERMISSION_DENIED"),
-	CodeResourceExhausted:  []byte("RESOURCE_EXHAUSTED"),
-	CodeFailedPrecondition: []byte("FAILED_PRECONDITION"),
-	CodeAborted:            []byte("ABORTED"),
-	CodeOutOfRange:         []byte("OUT_OF_RANGE"),
-	CodeUnimplemented:      []byte("UNIMPLEMENTED"),
-	CodeInternal:           []byte("INTERNAL"),
-	CodeUnavailable:        []byte("UNAVAILABLE"),
-	CodeDataLoss:           []byte("DATA_LOSS"),
-	CodeUnauthenticated:    []byte("UNAUTHENTICATED"),
-}
-
 var codeMessages = [...]string{
-	CodeOK:                 "The operation completed successfully.",
-	CodeCancelled:          "The operation was cancelled.",
-	CodeUnknown:            "An unknown system error occurred.",
-	CodeInvalidArgument:    "An invalid argument was provided.",
-	CodeDeadlineExceeded:   "The deadline expired before the operation could complete.",
-	CodeNotFound:           "The requested entity could not be found.",
-	CodeAlreadyExists:      "The entity you attempted to create already exists.",
-	CodePermissionDenied:   "You do not have permission to execute this operation.",
-	CodeResourceExhausted:  "A resource or rate quota has been exhausted.",
-	CodeFailedPrecondition: "The operation was rejected because the system is not in a state required for execution.",
-	CodeAborted:            "The operation was aborted.",
-	CodeOutOfRange:         "The operation was attempted past the valid bounds or index range.",
-	CodeUnimplemented:      "This system capability is not implemented or enabled in this service.",
-	CodeInternal:           "An internal error occurred.",
-	CodeUnavailable:        "The service is temporarily unavailable. Please retry later.",
-	CodeDataLoss:           "Unrecoverable data loss or system corruption occurred.",
-	CodeUnauthenticated:    "The request lacks valid credentials.",
+	CodeOK:                 "Success.",
+	CodeCancelled:          "Request cancelled.",
+	CodeUnknown:            "An unexpected error occurred.",
+	CodeInvalidArgument:    "Invalid input provided.",
+	CodeDeadlineExceeded:   "Request timed out.",
+	CodeNotFound:           "Resource not found.",
+	CodeAlreadyExists:      "Resource already exists.",
+	CodePermissionDenied:   "Permission denied.",
+	CodeResourceExhausted:  "Rate limit or quota exceeded.",
+	CodeFailedPrecondition: "System state prevents execution.",
+	CodeAborted:            "Operation aborted.",
+	CodeOutOfRange:         "Value out of valid range.",
+	CodeUnimplemented:      "Feature not supported.",
+	CodeInternal:           "Internal server error.",
+	CodeUnavailable:        "Service temporarily unavailable.",
+	CodeDataLoss:           "Data loss occurred.",
+	CodeUnauthenticated:    "Authentication required.",
 }
 
-// Parse converts a raw string name (e.g. "NOT_FOUND") into a Code using zero-alloc string conversion.
 func Parse(raw string) (Code, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
+	if raw == "" {
 		return CodeUnknown, ErrInvalidCode
 	}
-	for i := 0; i < int(codeMax); i++ {
-		if strings.EqualFold(codeNames[i], s) {
-			return Code(i), nil
-		}
-	}
-	if n, err := strconv.ParseInt(s, 10, 32); err == nil {
-		c := Code(n)
-		if c.IsValid() {
-			return c, nil
-		}
-	}
-	return CodeUnknown, ErrInvalidCode
+	b := unsafe.Slice(unsafe.StringData(raw), len(raw))
+	return ParseBytes(b)
 }
 
-// ParseBytes parses a byte slice representing a code name or numeric string into a Code.
 func ParseBytes(b []byte) (Code, error) {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 {
 		return CodeUnknown, ErrInvalidCode
 	}
 
-	// 1. Check for standard name match (case-insensitive)
 	for i := 0; i < int(codeMax); i++ {
-		if bytes.EqualFold(codeBytes[i], b) {
+		nameBytes := unsafe.Slice(unsafe.StringData(codeNames[i]), len(codeNames[i]))
+		if bytes.EqualFold(nameBytes, b) {
 			return Code(i), nil
 		}
 	}
 
-	// 2. Fallback: attempt parsing as a raw integer string (e.g. "5")
-	if n, err := strconv.ParseInt(string(b), 10, 32); err == nil {
+	if n, err := strconv.ParseInt(unsafe.String(unsafe.SliceData(b), len(b)), 10, 32); err == nil {
 		c := Code(n)
 		if c.IsValid() {
 			return c, nil
@@ -162,46 +127,41 @@ func (c Code) Message() string {
 func (c Code) HTTPStatus() int {
 	switch c {
 	case CodeOK:
-		return 200 // OK
+		return 200
 	case CodeInvalidArgument, CodeOutOfRange:
-		return 400 // Bad Request
+		return 400
 	case CodeUnauthenticated:
-		return 401 // Unauthorized
+		return 401
 	case CodePermissionDenied:
-		return 403 // Forbidden
+		return 403
 	case CodeNotFound:
-		return 404 // Not Found
+		return 404
 	case CodeAlreadyExists, CodeAborted:
-		return 409 // Conflict
+		return 409
 	case CodeFailedPrecondition:
-		return 412 // Precondition Failed
+		return 412
 	case CodeResourceExhausted:
-		return 429 // Too Many Requests
+		return 429
 	case CodeCancelled:
-		return 499 // Client Closed Request
+		return 499
 	case CodeUnimplemented:
-		return 501 // Not Implemented
+		return 501
 	case CodeUnavailable:
-		return 503 // Service Unavailable
+		return 503
 	case CodeDeadlineExceeded:
-		return 504 // Gateway Timeout
+		return 504
 	default:
-		return 500 // Internal Server Error (CodeInternal, CodeUnknown, CodeDataLoss)
+		return 500
 	}
 }
 
-// --- Encoding Interfaces ---
-
 func (c Code) MarshalText() ([]byte, error) {
-	if c.IsValid() {
-		return codeBytes[c], nil
-	}
 	return []byte(c.String()), nil
 }
 
 func (c *Code) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
-		*c = CodeUnknown
+		*c = CodeOK
 		return nil
 	}
 
@@ -214,31 +174,25 @@ func (c *Code) UnmarshalText(text []byte) error {
 }
 
 func (c Code) MarshalJSON() ([]byte, error) {
-	if c.IsValid() {
-		cb := codeBytes[c]
-		b := make([]byte, 0, len(cb)+2)
-		b = append(b, '"')
-		b = append(b, cb...)
-		b = append(b, '"')
-		return b, nil
-	}
-	return json.Marshal(c.String())
+	s := c.String()
+	b := make([]byte, 0, len(s)+2)
+	b = append(b, '"')
+	b = append(b, s...)
+	b = append(b, '"')
+	return b, nil
 }
 
 func (c *Code) UnmarshalJSON(b []byte) error {
-	if len(b) == 0 || string(b) == "null" {
+	if len(b) == 0 || bytes.Equal(b, []byte("null")) {
 		*c = CodeOK
 		return nil
 	}
 
-	// 1. Handle JSON string representation ("NOT_FOUND")
 	if b[0] == '"' && b[len(b)-1] == '"' {
 		return c.UnmarshalText(b[1 : len(b)-1])
 	}
 
-	// 2. Handle JSON raw numeric representation (5)
-	var n int32
-	if err := json.Unmarshal(b, &n); err == nil {
+	if n, err := strconv.ParseInt(string(b), 10, 32); err == nil {
 		code := Code(n)
 		if code.IsValid() {
 			*c = code

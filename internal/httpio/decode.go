@@ -12,8 +12,6 @@ import (
 	"reflect"
 	"strings"
 
-	"bonfire-api/internal/apperr"
-
 	"github.com/go-playground/form"
 )
 
