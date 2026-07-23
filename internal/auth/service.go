@@ -63,15 +63,16 @@ type RegisterUserTxParams struct {
 }
 
 type UserRepository interface {
+	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error)
 	Create(ctx context.Context, u *user.User) error
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
-	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (emailAvail bool, usernameAvail bool, err error)
+	GetByUsername(ctx context.Context, username user.Username) (*user.User, error)
 	Save(ctx context.Context, u *user.User) error
+	SaveProfile(ctx context.Context, u *user.User) error
 }
 
 type Service struct {
-	tx           TX
 	outbox       OutboxRepository
 	sessions     SessionRepository
 	users        UserRepository
@@ -79,17 +80,18 @@ type Service struct {
 	shield       ShieldStore
 	tickets      TicketStore
 	tokens       TokenProvider
+	tx           TX
 }
 
 func NewService(
-	tx TX, // auth.Service only needs TX, not full db.Store!
 	outbox OutboxRepository,
 	sessions SessionRepository,
+	users UserRepository,
 	sessionStore SessionStore,
 	shield ShieldStore,
 	tickets TicketStore,
 	tokens TokenProvider,
-	users UserRepository,
+	tx TX,
 ) Service {
 	return Service{
 		tx:           tx,

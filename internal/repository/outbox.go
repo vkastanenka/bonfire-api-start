@@ -16,22 +16,22 @@ import (
 )
 
 type Outbox struct {
-	store db.Store
+	store Store
 }
 
 var _ outbox.Repository = (*Outbox)(nil)
 
-func NewOutbox(store db.Store) *Outbox {
+func NewOutbox(store Store) *Outbox {
 	return &Outbox{store: store}
 }
 
-func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
+func (r *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
 	jsonBytes, err := json.Marshal(p.Payload)
 	if err != nil {
 		return outbox.Event{}, errs.Internal("failed to marshal outbox event payload").Wrap(err)
 	}
 
-	row, err := o.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
+	row, err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
 		EventType: p.Variant,
 		Payload:   jsonBytes,
 	})
@@ -42,8 +42,8 @@ func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Ev
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.store.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
+	row, err := r.store.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -54,13 +54,13 @@ func (o *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event, error) {
+func (r *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event, error) {
 	var pgCursor pgtype.UUID
 	if p.Cursor != nil {
 		pgCursor = pgtype.UUID{Bytes: *p.Cursor, Valid: true}
 	}
 
-	rows, err := o.store.OutboxEventList(ctx, db.OutboxEventListParams{
+	rows, err := r.store.OutboxEventList(ctx, db.OutboxEventListParams{
 		Column1: pgCursor,
 		Limit:   p.Limit,
 	})
@@ -79,10 +79,10 @@ func (o *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event,
 	return events, nil
 }
 
-func (o *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) ([]outbox.Event, error) {
+func (r *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) ([]outbox.Event, error) {
 	leaseIntervalStr := strconv.Itoa(int(p.LeaseDurationInSeconds))
 
-	rows, err := o.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
+	rows, err := r.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
 		Limit:    p.Limit,
 		LockedBy: pgtype.UUID{Bytes: p.WorkerID, Valid: true},
 		Column3:  leaseIntervalStr,
@@ -102,8 +102,8 @@ func (o *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) 
 	return events, nil
 }
 
-func (o *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
+	row, err := r.store.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -114,8 +114,8 @@ func (o *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event,
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams) (outbox.Event, error) {
-	row, err := o.store.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
+func (r *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams) (outbox.Event, error) {
+	row, err := r.store.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.LastError, Valid: p.LastError != ""},
 	})
@@ -129,8 +129,8 @@ func (o *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterParams) (outbox.Event, error) {
-	row, err := o.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
+func (r *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterParams) (outbox.Event, error) {
+	row, err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
 		ID:        pgtype.UUID{Bytes: p.ID, Valid: true},
 		LastError: pgtype.Text{String: p.Reason, Valid: p.Reason != ""},
 	})
@@ -144,8 +144,8 @@ func (o *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterPara
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := o.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
+	row, err := r.store.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
@@ -156,8 +156,8 @@ func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event,
 	return outboxFromDB(row), nil
 }
 
-func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
-	err := o.store.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
+func (r *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
+	err := r.store.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errs.NotFound("outbox event not found").Wrap(err)
@@ -167,8 +167,8 @@ func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (o *Outbox) PurgeProcessed(ctx context.Context) error {
-	err := o.store.OutboxEventPurgeProcessed(ctx)
+func (r *Outbox) PurgeProcessed(ctx context.Context) error {
+	err := r.store.OutboxEventPurgeProcessed(ctx)
 	if err != nil {
 		return errs.Internal("failed to purge processed outbox events").Wrap(err)
 	}

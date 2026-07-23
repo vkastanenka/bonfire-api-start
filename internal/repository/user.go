@@ -14,19 +14,19 @@ import (
 )
 
 type User struct {
-	q db.Store
+	store Store
 }
 
 var _ user.Repository = (*User)(nil)
 
-func NewUser(q db.Store) *User {
-	return &User{q: q}
+func NewUser(store Store) *User {
+	return &User{store: store}
 }
 
 func (r *User) Create(ctx context.Context, u *user.User) error {
 	prof := u.Profile()
 
-	err := r.q.UserCreateAggregate(ctx, db.UserCreateAggregateParams{
+	err := r.store.UserCreateAggregate(ctx, db.UserCreateAggregateParams{
 		UserID:            pgtype.UUID{Bytes: u.ID(), Valid: true},
 		Email:             u.Email().String(),
 		Username:          u.Username().String(),
@@ -48,7 +48,7 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 }
 
 func (r *User) Save(ctx context.Context, u *user.User) error {
-	_, err := r.q.UserSave(ctx, db.UserSaveParams{
+	_, err := r.store.UserSave(ctx, db.UserSaveParams{
 		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
 		PasswordHash:      u.PasswordHash(),
 		PreferredPresence: presenceToInt2(u.PreferredPresence()),
@@ -64,7 +64,7 @@ func (r *User) Save(ctx context.Context, u *user.User) error {
 
 func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
 	prof := u.Profile()
-	_, err := r.q.UserProfileSave(ctx, db.UserProfileSaveParams{
+	_, err := r.store.UserProfileSave(ctx, db.UserProfileSaveParams{
 		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
 		DisplayName: prof.DisplayName().String(),
 		AvatarUrl:   stringPtrToText(prof.AvatarURL()),
@@ -79,7 +79,7 @@ func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
 }
 
 func (r *User) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
-	row, err := r.q.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	row, err := r.store.UserGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
 	}
@@ -87,7 +87,7 @@ func (r *User) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
 }
 
 func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
-	row, err := r.q.UserGetByEmail(ctx, email.String())
+	row, err := r.store.UserGetByEmail(ctx, email.String())
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
 	}
@@ -95,7 +95,7 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, er
 }
 
 func (r *User) GetByUsername(ctx context.Context, username user.Username) (*user.User, error) {
-	row, err := r.q.UserGetByUsername(ctx, username.String())
+	row, err := r.store.UserGetByUsername(ctx, username.String())
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
 	}
@@ -103,7 +103,7 @@ func (r *User) GetByUsername(ctx context.Context, username user.Username) (*user
 }
 
 func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
-	row, err := r.q.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
+	row, err := r.store.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
 		Email:    email.String(),
 		Username: username.String(),
 	})

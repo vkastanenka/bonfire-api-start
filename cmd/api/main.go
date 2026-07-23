@@ -121,13 +121,14 @@ func run(cfg *config.Config) error {
 	presenceSvc := presence.NewService(presenceStore)
 	userSvc := user.NewService(userRepo)
 	authService := auth.NewService(
-		dbStore,
 		outboxRepo,
 		sessionRepo,
 		userRepo,
 		sessionStore,
+		shieldStore,
 		ticketStore,
 		tokens,
+		dbStore,
 	)
 
 	// outboxWorker := outbox.NewWorker(
