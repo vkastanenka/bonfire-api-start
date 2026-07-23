@@ -1,23 +1,36 @@
 package httpio
 
 import (
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const (
-	contentTypeJSON    = "application/json"
-	contentTypeProblem = "application/problem+json"
+	contentTypeJSON = "application/json"
 )
 
 var bufferPool = sync.Pool{
 	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, 2048))
 	},
+}
+
+type Error struct {
+	Code    int           `json:"code"`
+	Message string        `json:"message"`
+	Status  string        `json:"status"`
+	Details []errs.Detail `json:"details,omitempty"`
+}
+
+type ErrorResponse struct {
+	Error Error `json:"error"`
 }
 
 func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T) {
@@ -45,27 +58,36 @@ func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFun
 }
 
 func respondError(w http.ResponseWriter, r *http.Request, err error) {
-	// var appErr *apperr.Error
+	var e *errs.Error
 
-	// if errors.As(err, &appErr) {
-	// } else if errors.Is(err, context.DeadlineExceeded) {
-	// 	appErr = &apperr.Error{
-	// 		Code:   apperr.CodeGatewayTimeout,
-	// 		Detail: apperr.CodeGatewayTimeout.Detail(),
-	// 		Err:    err,
-	// 	}
-	// } else {
-	// 	appErr = &apperr.Error{
-	// 		Code:   apperr.CodeInternal,
-	// 		Detail: apperr.CodeInternal.Detail(),
-	// 		Err:    err,
-	// 	}
-	// }
+	switch {
+	case errors.As(err, &e):
+	case errors.Is(err, context.DeadlineExceeded):
+		e = errs.DeadlineExceeded("Request timed out processing.").Wrap(err)
+	case errors.Is(err, context.Canceled):
+		e = errs.Aborted("Client closed connection mid-request.").Wrap(err)
+	default:
+		e = errs.Internal("An unexpected error occurred.").Wrap(err)
+	}
 
-	// status, resp := MapToProblemDetails(r, appErr)
-	// logError(r, appErr, resp, err)
+	httpCode := e.Code.HTTPStatus()
 
-	// writeJSON(w, r, status, contentTypeProblem, resp)
+	publicMsg := e.Message
+	if httpCode >= 500 {
+		publicMsg = errs.CodeInternal.Message()
+	}
+
+	respPayload := ErrorResponse{
+		Error: Error{
+			Code:    httpCode,
+			Message: publicMsg,
+			Status:  e.Code.String(),
+			Details: e.Details,
+		},
+	}
+
+	logError(r, e, httpCode)
+	writeJSON(w, r, httpCode, contentTypeJSON, respPayload)
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType string, data any) {
@@ -87,9 +109,9 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType s
 			"http.path", r.URL.Path,
 		)
 
-		w.Header().Set("Content-Type", contentTypeProblem)
+		w.Header().Set("Content-Type", contentTypeJSON)
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"type":"https://api.bonfire.com/errors/internal","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred during payload encoding."}`))
+		_, _ = w.Write([]byte(`{"error":{"code":500,"message":"An unexpected error occurred during payload encoding.","status":"INTERNAL"}}`))
 		return
 	}
 
@@ -98,26 +120,30 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType s
 	_, _ = w.Write(buf.Bytes())
 }
 
-func logError(r *http.Request, appErr *apperr.Error, resp ProblemDetails, originalErr error) {
-	// level := slog.LevelInfo
-	// if appErr.Code == apperr.CodeInternal {
-	// 	level = slog.LevelError
-	// }
+func logError(r *http.Request, e *errs.Error, httpCode int) {
+	level := slog.LevelInfo
+	if httpCode >= 500 {
+		level = slog.LevelError
+	} else if httpCode >= 400 {
+		level = slog.LevelWarn
+	}
 
-	// args := []any{
-	// 	"http.method", r.Method,
-	// 	"http.path", r.URL.Path,
-	// 	"http.status_code", resp.Status,
-	// 	slog.Group("error",
-	// 		"code", appErr.Code,
-	// 		"detail", appErr.Detail,
-	// 		"raw", originalErr.Error(),
-	// 	),
-	// }
+	attrs := []any{
+		"http.method", r.Method,
+		"http.path", r.URL.Path,
+		"http.status_code", httpCode,
+		"error.code", e.Code.String(),
+		"error.message", e.Message,
+		"time", time.Now().UTC().Format(time.RFC3339),
+	}
 
-	// if len(appErr.InvalidParams) > 0 {
-	// 	args = append(args, "error.invalid_params", appErr.InvalidParams)
-	// }
+	if unwrapped := e.Unwrap(); unwrapped != nil {
+		attrs = append(attrs, "error.raw", unwrapped.Error())
+	}
 
-	// slog.Log(r.Context(), level, "http request execution failed", args...)
+	if len(e.Details) > 0 {
+		attrs = append(attrs, "error.details", e.Details)
+	}
+
+	slog.Log(r.Context(), level, "http request execution failed", attrs...)
 }

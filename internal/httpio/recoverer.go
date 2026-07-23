@@ -1,7 +1,7 @@
 package httpio
 
 import (
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -25,8 +25,8 @@ func Recoverer(next http.Handler) http.Handler {
 					err = fmt.Errorf("%v", rvr)
 				}
 
-				appErr := &apperr.Error{
-					Code: apperr.CodeInternal,
+				appErr := &errs.Error{
+					Code: errs.CodeInternal,
 					Err:  err,
 				}
 

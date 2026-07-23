@@ -1,7 +1,7 @@
 package httpio
 
 import (
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"context"
 	"fmt"
 	"log/slog"
@@ -68,8 +68,8 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 				}
 				w.Header().Set("Retry-After", strconv.Itoa(retrySecs))
 
-				rateLimitErr := &apperr.Error{
-					Code: apperr.CodeDeadlineExceeded,
+				rateLimitErr := &errs.Error{
+					Code: errs.CodeDeadlineExceeded,
 					Err:  fmt.Errorf("rate limit exceeded for ip: %s", ip),
 				}
 

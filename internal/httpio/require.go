@@ -1,12 +1,13 @@
 package httpio
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/token"
 	"context"
 	"errors"
 	"net/http"
 	"strings"
+
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/token"
 )
 
 const (
@@ -22,18 +23,27 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errMissingAuthHeader)))
+				respondError(w, r,
+					errs.Unauthenticated(errMissingAuthHeader).
+						Reason("AUTH_HEADER_MISSING"),
+				)
 				return
 			}
 
 			if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errInvalidAuthHeader)))
+				respondError(w, r,
+					errs.Unauthenticated(errInvalidAuthHeader).
+						Reason("AUTH_HEADER_INVALID"),
+				)
 				return
 			}
 
 			tokenStr := strings.TrimSpace(authHeader[7:])
 			if tokenStr == "" {
-				respondError(w, r, apperr.NewUnauthenticated(nil, apperr.WithMsg(errInvalidAuthHeader)))
+				respondError(w, r,
+					errs.Unauthenticated(errInvalidAuthHeader).
+						Reason("AUTH_HEADER_INVALID"),
+				)
 				return
 			}
 
@@ -41,12 +51,18 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 			if err != nil {
 				if errors.Is(err, token.ErrTokenExpired) {
 					respondError(w, r,
-						apperr.NewPermissionDenied(err, apperr.WithMsg(errInvalidToken)),
+						errs.Unauthenticated(errInvalidToken).
+							Reason("TOKEN_EXPIRED").
+							Wrap(err),
 					)
 					return
 				}
 
-				respondError(w, r, apperr.NewUnauthenticated(err, apperr.WithMsg("Invalid or corrupt authorization token.")))
+				respondError(w, r,
+					errs.Unauthenticated("Invalid or corrupt authorization token.").
+						Reason("TOKEN_INVALID").
+						Wrap(err),
+				)
 				return
 			}
 

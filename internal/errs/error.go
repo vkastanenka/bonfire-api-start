@@ -26,10 +26,15 @@ func As(err error) *Error {
 }
 
 func New(code Code, msg string) *Error {
+	if msg == "" {
+		msg = code.Message()
+	}
+
 	e := &Error{
 		Code:    code,
 		Message: msg,
 	}
+
 	if info, err := NewErrorInfo(code.String(), getDomain(), nil); err == nil {
 		e.Detail(info)
 	}
