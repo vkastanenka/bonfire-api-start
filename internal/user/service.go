@@ -2,20 +2,18 @@ package user
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
 
 type Service interface {
-	CheckAvailability(ctx context.Context, email Email, username Username) (emailAvail bool, usernameAvail bool, err error)
+	CheckAvailability(ctx context.Context, rawEmail, rawUsername string) (emailAvail bool, usernameAvail bool, err error)
 	Get(ctx context.Context, id uuid.UUID) (*User, error)
-	GetByEmail(ctx context.Context, email Email) (*User, error)
+	GetByEmail(ctx context.Context, rawEmail string) (*User, error)
 	GetByUsername(ctx context.Context, username Username) (*User, error)
 	SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error)
 	UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error)
@@ -35,7 +33,7 @@ func NewService(repo Repository) *service {
 // Get retrieves a user aggregate by its unique UUID.
 func (s *service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	if id == uuid.Nil {
-		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
+		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
 	u, err := s.repo.Get(ctx, id)
@@ -50,10 +48,7 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 func (s *service) GetByEmail(ctx context.Context, rawEmail string) (*User, error) {
 	email, err := NewEmail(rawEmail)
 	if err != nil || !email.IsValid() {
-		return nil, apperr.NewInvalidArgument(
-			errors.New("invalid email address"),
-			apperr.WithMsg("Invalid email address"),
-		)
+		return nil, errs.InvalidArgument("invalid email address")
 	}
 
 	u, err := s.repo.GetByEmail(ctx, email)
@@ -67,7 +62,7 @@ func (s *service) GetByEmail(ctx context.Context, rawEmail string) (*User, error
 // GetByUsername retrieves a user aggregate by its value object Username.
 func (s *service) GetByUsername(ctx context.Context, username Username) (*User, error) {
 	if !username.IsValid() {
-		return nil, apperr.NewInvalidArgument(errors.New("invalid username"), apperr.WithMsg("Invalid username"))
+		return nil, errs.InvalidArgument("invalid username")
 	}
 
 	u, err := s.repo.GetByUsername(ctx, username)
@@ -87,11 +82,11 @@ type UpdateProfileParams struct {
 // UpdateProfile mutates a user's profile and persists the updated profile record.
 func (s *service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
 	if p.UserID == uuid.Nil {
-		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
+		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
 	if !p.DisplayName.IsValid() {
-		return nil, apperr.NewInvalidArgument(errors.New("invalid display name"), apperr.WithMsg("Invalid display name"))
+		return nil, errs.InvalidArgument("invalid display name")
 	}
 
 	u, err := s.repo.Get(ctx, p.UserID)
@@ -102,7 +97,7 @@ func (s *service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	u.UpdateProfile(p.DisplayName, p.AvatarURL)
 
 	if err := s.repo.SaveProfile(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to save profile: %w", err)
+		return nil, errs.Internal("failed to save profile").Wrap(err)
 	}
 
 	return u, nil
@@ -111,7 +106,7 @@ func (s *service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 // SetPreferredPresence mutates a user's default presence and updates the user record.
 func (s *service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *presence.Presence) (*User, error) {
 	if id == uuid.Nil {
-		return nil, apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
+		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
 	u, err := s.repo.Get(ctx, id)
@@ -120,11 +115,11 @@ func (s *service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *pre
 	}
 
 	if err := u.SetPreferredPresence(p); err != nil {
-		return nil, apperr.NewInvalidArgument(err, apperr.WithMsg("Invalid presence value"))
+		return nil, errs.InvalidArgument("invalid presence value").Wrap(err)
 	}
 
 	if err := s.repo.Save(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to save user presence: %w", err)
+		return nil, errs.Internal("failed to save user presence").Wrap(err)
 	}
 
 	return u, nil
@@ -133,7 +128,7 @@ func (s *service) SetPreferredPresence(ctx context.Context, id uuid.UUID, p *pre
 // VerifyAccount verifies a user's account idempotently and updates the user record.
 func (s *service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
-		return apperr.NewInvalidArgument(errors.New("user ID cannot be empty"), apperr.WithMsg("Invalid user ID"))
+		return errs.InvalidArgument("user ID cannot be empty")
 	}
 
 	u, err := s.repo.Get(ctx, id)
@@ -148,7 +143,7 @@ func (s *service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 	u.Verify(time.Now().UTC())
 
 	if err := s.repo.Save(ctx, u); err != nil {
-		return fmt.Errorf("failed to verify account: %w", err)
+		return errs.Internal("failed to verify account").Wrap(err)
 	}
 
 	return nil
@@ -158,18 +153,12 @@ func (s *service) VerifyAccount(ctx context.Context, id uuid.UUID) error {
 func (s *service) CheckAvailability(ctx context.Context, rawEmail, rawUsername string) (emailAvail, usernameAvail bool, err error) {
 	email, err := NewEmail(rawEmail)
 	if err != nil || !email.IsValid() {
-		return false, false, apperr.NewInvalidArgument(
-			errors.New("invalid email address"),
-			apperr.WithMsg("Invalid email address"),
-		)
+		return false, false, errs.InvalidArgument("invalid email address")
 	}
 
 	username, err := NewUsername(rawUsername)
-	if err != nil || !email.IsValid() {
-		return false, false, apperr.NewInvalidArgument(
-			errors.New("invalid username"),
-			apperr.WithMsg("Invalid username"),
-		)
+	if err != nil || !username.IsValid() {
+		return false, false, errs.InvalidArgument("invalid username")
 	}
 
 	return s.repo.CheckAvailability(ctx, email, username)

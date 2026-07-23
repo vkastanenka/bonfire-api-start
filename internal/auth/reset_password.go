@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/session"
 
@@ -31,23 +31,26 @@ type ResetPasswordResult struct {
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
 	// 1. Guard Input
 	if p.Token == "" {
-		return ResetPasswordResult{}, apperr.NewInvalidArgument(
-			errors.New("reset token is required"),
-			apperr.WithMsg("Invalid or expired reset token."),
-		)
+		return ResetPasswordResult{}, errs.InvalidArgument("Reset token is required.").
+			FieldViolation("token", "Reset token is required.", "REQUIRED").
+			Wrap(errors.New("reset token is required"))
 	}
 
 	// 2. Verify Password Reset Token Claims
 	claims, err := s.tokens.VerifyPasswordReset(p.Token)
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewPermissionDenied(err)
+		return ResetPasswordResult{}, errs.Unauthenticated("Invalid or expired reset token.").
+			FieldViolation("token", "Invalid or expired reset token.", "INVALID_TOKEN").
+			Wrap(err)
 	}
 
 	// 3. Fetch User Aggregate
 	u, err := s.users.Get(ctx, claims.UserID)
 	if err != nil {
-		if apperr.IsNotFound(err) {
-			return ResetPasswordResult{}, apperr.NewPermissionDenied(err)
+		if errs.IsNotFound(err) {
+			return ResetPasswordResult{}, errs.Unauthenticated("Invalid or expired reset token.").
+				FieldViolation("token", "User associated with this token no longer exists.", "USER_NOT_FOUND").
+				Wrap(err)
 		}
 		return ResetPasswordResult{}, err
 	}
@@ -55,28 +58,30 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	// 4. Hash New Password
 	passwordHash, err := crypto.HashPassword(p.Password)
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewInternal(err)
+		return ResetPasswordResult{}, errs.Internal("failed to hash new password").Wrap(err)
 	}
 
 	// 5. Mutate User Domain Aggregate State
 	if err := u.UpdatePassword(passwordHash); err != nil {
-		return ResetPasswordResult{}, apperr.NewInvalidArgument(err, apperr.WithMsg("Invalid password."))
+		return ResetPasswordResult{}, errs.InvalidArgument("Invalid password.").
+			FieldViolation("password", "Password does not meet validation criteria.", "INVALID_PASSWORD").
+			Wrap(err)
 	}
 
 	// 6. Generate New Session ID & Tokens (ID Synchronization)
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewInternal(err)
+		return ResetPasswordResult{}, errs.Internal("failed to generate session ID").Wrap(err)
 	}
 
 	tokenPair, err := s.tokens.GeneratePair(u.ID(), sessionID)
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewInternal(err)
+		return ResetPasswordResult{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}
 
 	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewInternal(err)
+		return ResetPasswordResult{}, errs.Internal("failed to hash refresh token").Wrap(err)
 	}
 
 	newSession, err := session.New(
@@ -90,7 +95,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		p.ClientMeta.Browser,
 	)
 	if err != nil {
-		return ResetPasswordResult{}, apperr.NewInternal(err)
+		return ResetPasswordResult{}, errs.Internal("failed to instantiate session").Wrap(err)
 	}
 
 	// 7. TRANSACTION: Atomically revoke existing sessions, update password, and create new session

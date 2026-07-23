@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
@@ -29,26 +29,26 @@ type RefreshResult struct {
 func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, error) {
 	tokenStr := strings.TrimSpace(p.RefreshToken)
 	if tokenStr == "" {
-		return RefreshResult{}, apperr.NewInvalidArgument(
-			errors.New("missing refresh token"),
-		)
+		return RefreshResult{}, errs.Unauthenticated("Missing refresh token.").
+			FieldViolation("refresh_token", "Refresh token is required.", "REQUIRED").
+			Wrap(errors.New("missing refresh token"))
 	}
 
 	// 1. Verify token signature & parse claims
 	claims, err := s.tokens.VerifyRefresh(tokenStr)
 	if err != nil {
-		return RefreshResult{}, apperr.NewInvalidArgument(
-			err,
-		)
+		return RefreshResult{}, errs.Unauthenticated("Invalid or expired refresh token.").
+			FieldViolation("refresh_token", "Invalid or expired refresh token.", "INVALID_TOKEN").
+			Wrap(err)
 	}
 
 	// 2. Fetch session (Cache-first with DB fallback)
 	sess, err := s.getSession(ctx, claims.SessionID)
 	if err != nil {
-		if apperr.IsNotFound(err) {
-			return RefreshResult{}, apperr.NewInvalidArgument(
-				err,
-			)
+		if errs.IsNotFound(err) {
+			return RefreshResult{}, errs.Unauthenticated("Session not found.").
+				FieldViolation("refresh_token", "Session associated with this token no longer exists.", "SESSION_NOT_FOUND").
+				Wrap(err)
 		}
 		return RefreshResult{}, err
 	}
@@ -80,38 +80,38 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 			)
 		}
 
-		return RefreshResult{}, apperr.NewInvalidArgument(
-			errors.New("refresh token reuse detected"),
-		)
+		return RefreshResult{}, errs.Unauthenticated("Invalid refresh token.").
+			FieldViolation("refresh_token", "Token reuse detected.", "TOKEN_REUSE").
+			Wrap(errors.New("refresh token reuse detected"))
 	}
 
 	// 4. Validate session state
 	if sess.IsRevoked() {
-		return RefreshResult{}, apperr.NewInvalidArgument(
-			errors.New("session revoked"),
-		)
+		return RefreshResult{}, errs.Unauthenticated("Session has been revoked.").
+			FieldViolation("refresh_token", "Session has been revoked.", "SESSION_REVOKED").
+			Wrap(errors.New("session revoked"))
 	}
 
 	if sess.IsExpired() {
-		return RefreshResult{}, apperr.NewInvalidArgument(
-			errors.New("session expired"),
-		)
+		return RefreshResult{}, errs.Unauthenticated("Session has expired.").
+			FieldViolation("refresh_token", "Session has expired.", "SESSION_EXPIRED").
+			Wrap(errors.New("session expired"))
 	}
 
 	// 5. Generate new token pair
 	tokenPair, err := s.tokens.GeneratePair(sess.UserID(), sess.ID())
 	if err != nil {
-		return RefreshResult{}, apperr.NewInternal(err)
+		return RefreshResult{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}
 
 	newHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
 	if err != nil {
-		return RefreshResult{}, apperr.NewInternal(err)
+		return RefreshResult{}, errs.Internal("failed to hash refresh token").Wrap(err)
 	}
 
 	// 6. Mutate domain entity
 	if err := sess.RotateToken(newHash, tokenPair.RefreshExpiresAt); err != nil {
-		return RefreshResult{}, apperr.NewPermissionDenied(err)
+		return RefreshResult{}, errs.Internal("failed to rotate session token").Wrap(err)
 	}
 
 	// 7. Persist changes to DB and update Cache

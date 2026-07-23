@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
@@ -117,17 +117,17 @@ func (r *User) CheckAvailability(ctx context.Context, email user.Email, username
 func userFromRow(row db.UserAggregate) (*user.User, error) {
 	email, err := user.NewEmail(row.Email)
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, errs.Internal("").Wrap(err)
 	}
 
 	username, err := user.NewUsername(row.Username)
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, errs.Internal("").Wrap(err)
 	}
 
 	displayName, err := user.NewProfileDisplayName(row.DisplayName)
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, errs.Internal("").Wrap(err)
 	}
 
 	var avatarURL *string

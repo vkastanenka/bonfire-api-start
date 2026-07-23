@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -43,112 +43,105 @@ func NewError(err error, entity Entity) error {
 		return nil
 	}
 
-	var appErr *apperr.Error
-	if errors.As(err, &appErr) {
+	if appErr := errs.As(err); appErr != nil {
 		return err
 	}
 
-	meta := apperr.WithMeta("entity", entity.String())
-	resourceInfo := apperr.WithResourceInfo("db", entity.String(), "", "")
-	options := apperr.WithOptions(meta, resourceInfo)
-
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(
-			err,
-			apperr.WithMsg(fmt.Sprintf("The requested %s could not be found.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.NotFound(fmt.Sprintf("The requested %s could not be found.", entity.String())),
+			entity,
+		).Wrap(err)
 	}
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return handlePgError(err, pgErr, entity, options)
+		return handlePgError(err, pgErr, entity)
 	}
 
-	return apperr.NewInternal(err, options)
+	return attachContext(
+		errs.Internal(fmt.Sprintf("An error occurred operating on %s.", entity.String())),
+		entity,
+	).Wrap(err)
 }
 
 func IsNotFoundError(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
-func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity, options apperr.Option) error {
+func attachContext(e *errs.Error, entity Entity) *errs.Error {
+	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", "")
+}
+
+func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity) error {
 	p := dbErrorParams{
 		origErr: origErr,
 		pgErr:   pgErr,
 		entity:  entity,
-		options: options,
 	}
 
 	switch pgErr.Code {
 	case pgCodeUniqueViolation:
 		return p.handleConstraint(
-			apperr.CodeAlreadyExists,
+			errs.CodeAlreadyExists,
 			"This %s is already taken.",
 			fmt.Sprintf("A record for %s with those details already exists.", entity.String()),
 		)
 
 	case pgCodeNotNullViolation:
 		return p.handleConstraint(
-			apperr.CodeInvalidArgument,
+			errs.CodeInvalidArgument,
 			"This field is required.",
 			fmt.Sprintf("A required field is missing for %s.", entity.String()),
 		)
 
 	case pgCodeForeignKeyViolation:
-		// Foreign keys mean a referenced record is missing, return Bad Request / Not Found
-		return apperr.NewInvalidArgument(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.InvalidArgument(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
+			entity,
+		).Wrap(origErr)
 
 	case pgCodeCheckViolation:
 		return p.handleConstraint(
-			apperr.CodeInvalidArgument,
+			errs.CodeInvalidArgument,
 			"Invalid value.",
 			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity.String()),
 		)
 
 	case pgCodeStringDataTruncated:
 		return p.handleConstraint(
-			apperr.CodeInvalidArgument,
+			errs.CodeInvalidArgument,
 			"Exceeds maximum allowed length.",
 			fmt.Sprintf("A provided field for %s exceeds maximum length.", entity.String()),
 		)
 
 	case pgCodeNumericOutOfRange:
-		return apperr.NewOutOfRange(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.OutOfRange(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
+			entity,
+		).Wrap(origErr)
 
 	case pgCodeInvalidTextRepr:
-		return apperr.NewInvalidArgument(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.InvalidArgument(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
+			entity,
+		).Wrap(origErr)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
-		return apperr.NewAborted(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.Aborted(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
+			entity,
+		).Wrap(origErr)
 
 	case pgCodeQueryCanceled:
-		return apperr.NewDeadlineExceeded(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.DeadlineExceeded(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
+			entity,
+		).Wrap(origErr)
 
 	default:
-		return apperr.NewInternal(
-			origErr,
-			apperr.WithMsg(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
-			options,
-		)
+		return attachContext(
+			errs.Internal(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
+			entity,
+		).Wrap(origErr)
 	}
 }
 
@@ -156,31 +149,22 @@ type dbErrorParams struct {
 	origErr error
 	pgErr   *pgconn.PgError
 	entity  Entity
-	options apperr.Option
 }
 
 func (p dbErrorParams) handleConstraint(
-	code apperr.Code,
+	code errs.Code,
 	fieldMsgTemplate string,
 	fallbackMsg string,
 ) error {
 	field, ok := getFieldName(p.pgErr, p.entity)
 	if ok {
 		formattedMsg := formatMessage(fieldMsgTemplate, field)
-		return apperr.New(
-			code,
-			apperr.WithError(p.pgErr),
-			apperr.WithFieldViolation(field, formattedMsg, ""),
-			p.options,
-		)
+		return attachContext(errs.New(code, formattedMsg), p.entity).
+			FieldViolation(field, formattedMsg, p.pgErr.Code).
+			Wrap(p.origErr)
 	}
 
-	return apperr.New(
-		code,
-		apperr.WithError(p.pgErr),
-		apperr.WithMsg(fallbackMsg),
-		p.options,
-	)
+	return attachContext(errs.New(code, fallbackMsg), p.entity).Wrap(p.origErr)
 }
 
 func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
@@ -200,7 +184,6 @@ func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
 }
 
 func sanitizeFieldName(raw string, entity Entity) string {
-	// 1. Strip known suffixes first
 	suffixes := []string{"_key", "_fkey", "_check", "_pkey", "_idx", "_seq", "_unique"}
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(raw, suffix) {
@@ -209,7 +192,6 @@ func sanitizeFieldName(raw string, entity Entity) string {
 		}
 	}
 
-	// 2. Strip table/entity prefixes safely
 	e := entity.String()
 	if e != "" {
 		prefixes := []string{

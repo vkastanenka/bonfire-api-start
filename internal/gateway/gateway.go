@@ -1,10 +1,11 @@
 package gateway
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/httpio"
 	"context"
 	"net/http"
+
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/httpio"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -40,19 +41,17 @@ type ServeWSQuery struct {
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	var query ServeWSQuery
-	err := h.bind.Query(r, query)
+	err := h.bind.Query(r, &query)
 	if err != nil {
 		return err
 	}
 
 	_, err = uuid.Parse(query.TicketID)
 	if err != nil {
-		return apperr.NewInvalidArgument(
-			err,
-			apperr.WithMsg("Invalid ticket format."),
-			apperr.WithMeta("ticket-id", "Must be a valid UUID v4 format."),
-			// TODO: Bad request
-		)
+		return errs.InvalidArgument("Invalid ticket format.").
+			Meta("ticket-id", "Must be a valid UUID v4 format.").
+			FieldViolation("ticket-id", "Must be a valid UUID v4 format.", "INVALID_UUID").
+			Wrap(err)
 	}
 
 	ctx := r.Context()
@@ -62,7 +61,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	err = h.cache.Get(ctx, ticketKey, &ticket)
 	if err != nil {
-		return apperr.NewUnauthenticated(err, apperr.WithMsg("Websocket connection ticket is invalid or expired."))
+		return errs.Unauthenticated("Websocket connection ticket is invalid or expired.").Wrap(err)
 	}
 
 	_ = h.cache.Delete(ctx, ticketKey)

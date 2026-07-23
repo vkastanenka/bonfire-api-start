@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"context"
 	"net/http"
@@ -28,11 +28,11 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	defer cancel()
 
 	if err := h.db.Ping(ctx); err != nil {
-		return apperr.NewInternal(err)
+		return errs.Internal("").Wrap(err)
 	}
 
 	if err := h.redis.Ping(ctx).Err(); err != nil {
-		return apperr.NewInternal(err)
+		return errs.Internal("").Wrap(err)
 	}
 
 	httpio.RespondNoContent(w)

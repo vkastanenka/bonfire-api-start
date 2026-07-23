@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"time"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
@@ -112,7 +112,7 @@ func (r *Session) DeleteAllExpired(ctx context.Context) error {
 func sessionFromRow(row db.Session) (*session.Session, error) {
 	clientIP, err := netip.ParseAddr(row.ClientIP.String())
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, errs.Internal("").Wrap(err)
 	}
 
 	var revokedAt *time.Time
@@ -122,7 +122,7 @@ func sessionFromRow(row db.Session) (*session.Session, error) {
 
 	tokenHash, err := session.NewRefreshTokenHash(row.RefreshTokenHash)
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, errs.Internal("").Wrap(err)
 	}
 
 	return session.Reconstitute(

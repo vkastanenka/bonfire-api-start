@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"net/http"
 )
@@ -83,7 +83,7 @@ type RefreshResponse struct {
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
-		return apperr.NewUnauthenticated(err, apperr.WithMsg("Missing refresh token, please log in."))
+		return errs.Unauthenticated("Missing refresh token, please log in.").Wrap(err)
 	}
 
 	data, err := h.service.Refresh(r.Context(), auth.RefreshParams{

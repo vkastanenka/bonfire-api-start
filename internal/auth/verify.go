@@ -6,23 +6,24 @@ import (
 	"log/slog"
 	"time"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 )
 
 // VerifyEmail verifies a user's email address using a signed verification token.
 func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	// 1. Guard Input
 	if tokenStr == "" {
-		return apperr.NewInvalidArgument(
-			errors.New("verification token is required"),
-			apperr.WithMsg("Invalid or expired verification token."),
-		)
+		return errs.InvalidArgument("Verification token is required.").
+			FieldViolation("token", "Verification token is required.", "REQUIRED").
+			Wrap(errors.New("verification token is required"))
 	}
 
 	// 2. Verify Email Token Signature & Claims
 	claims, err := s.tokens.VerifyEmailVerify(tokenStr)
 	if err != nil {
-		return apperr.NewPermissionDenied(err)
+		return errs.Unauthenticated("Invalid or expired verification token.").
+			FieldViolation("token", "Invalid or expired verification token.", "INVALID_TOKEN").
+			Wrap(err)
 	}
 
 	// 3. Single-Use Token Check (Shield Store)
@@ -35,16 +36,18 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 			"user_id", claims.UserID,
 		)
 	} else if consumed {
-		return apperr.NewPermissionDenied(
-			errors.New("verification token already used"),
-		)
+		return errs.Unauthenticated("Verification token has already been used.").
+			FieldViolation("token", "Verification token has already been used.", "TOKEN_ALREADY_USED").
+			Wrap(errors.New("verification token already used"))
 	}
 
 	// 4. Fetch User Aggregate directly from UserRepository
 	u, err := s.users.Get(ctx, claims.UserID)
 	if err != nil {
-		if apperr.IsNotFound(err) {
-			return apperr.NewPermissionDenied(err)
+		if errs.IsNotFound(err) {
+			return errs.Unauthenticated("Invalid or expired verification token.").
+				FieldViolation("token", "User associated with this token no longer exists.", "USER_NOT_FOUND").
+				Wrap(err)
 		}
 		return err
 	}

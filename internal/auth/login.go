@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"time"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
@@ -45,10 +45,9 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	email, err := user.NewEmail(sanitize.Email(p.Email))
 	if err != nil || !email.IsValid() {
-		return LoginResult{}, apperr.NewInvalidArgument(
-			errors.New("invalid email address"),
-			apperr.WithMsg("Invalid email address"),
-		)
+		return LoginResult{}, errs.InvalidArgument("Invalid email address.").
+			FieldViolation("email", "Must be a valid email address.", "INVALID_EMAIL").
+			Wrap(errors.New("invalid email address"))
 	}
 
 	isLocked, err := s.shield.IsLocked(ctx, email.String())
@@ -60,7 +59,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	userRow, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		if apperr.IsNotFound(err) {
+		if errs.IsNotFound(err) {
 			crypto.CompareDummyPassword(p.Password)
 			return LoginResult{}, s.handleInvalidPassword(ctx, email.String())
 		}
@@ -73,17 +72,17 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, errs.Internal("failed to generate session ID").Wrap(err)
 	}
 
 	tokenPair, err := s.tokens.GeneratePair(userRow.ID(), sessionID)
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}
 
 	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, errs.Internal("failed to hash refresh token").Wrap(err)
 	}
 
 	newSession, err := session.New(
@@ -97,7 +96,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		p.Browser,
 	)
 	if err != nil {
-		return LoginResult{}, apperr.NewInternal(err)
+		return LoginResult{}, errs.Internal("failed to create session entity").Wrap(err)
 	}
 
 	persistCtx := context.WithoutCancel(ctx)
@@ -141,16 +140,13 @@ func (s *Service) handleInvalidPassword(ctx context.Context, email string) error
 }
 
 func newLockedError() error {
-	return apperr.NewPermissionDenied(
-		errors.New("account locked"),
-	)
+	return errs.ResourceExhausted("Account is temporarily locked due to too many failed login attempts. Please try again later.").
+		Wrap(errors.New("account locked"))
 }
 
 func newCredentialsError() error {
-	return apperr.NewPermissionDenied(
-		errors.New("invalid credentials"),
-		// "Invalid email or password.",
-		// apperr.Param("email", "invalid credentials"),
-		// apperr.Param("password", "invalid credentials"),
-	)
+	return errs.Unauthenticated("Invalid email or password.").
+		FieldViolation("email", "Invalid email or password.", "INVALID_CREDENTIALS").
+		FieldViolation("password", "Invalid email or password.", "INVALID_CREDENTIALS").
+		Wrap(errors.New("invalid credentials"))
 }

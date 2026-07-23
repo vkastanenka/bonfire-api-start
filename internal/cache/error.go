@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -39,55 +39,49 @@ func NewError(err error, scope Scope) error {
 		return nil
 	}
 
-	var appErr *apperr.Error
-	if errors.As(err, &appErr) {
+	if appErr := errs.As(err); appErr != nil {
 		return err
 	}
 
-	meta := apperr.WithMeta("scope", scope.String())
-	resourceInfo := apperr.WithResourceInfo("cache", scope.String(), "", "")
-	options := apperr.WithOptions(meta, resourceInfo)
-
 	if IsNotFoundError(err) {
-		return apperr.NewNotFound(
-			err,
-			apperr.WithMsg(fmt.Sprintf("The requested %s was not found in cache.", scope.String())),
-			options,
-		)
+		return attachContext(
+			errs.NotFound(fmt.Sprintf("The requested %s was not found in cache.", scope.String())),
+			scope,
+		).Wrap(err)
 	}
 
-	return handleCacheError(err, scope, options)
+	return handleCacheError(err, scope)
 }
 
-func handleCacheError(err error, scope Scope, options apperr.Option) error {
+func attachContext(e *errs.Error, scope Scope) *errs.Error {
+	return e.Meta("scope", scope.String()).Resource("cache", scope.String(), "", "")
+}
+
+func handleCacheError(err error, scope Scope) error {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return apperr.NewDeadlineExceeded(
-			err,
-			apperr.WithMsg(fmt.Sprintf("Cache operation for %s timed out.", scope.String())),
-			options,
-		)
+		return attachContext(
+			errs.DeadlineExceeded(fmt.Sprintf("Cache operation for %s timed out.", scope.String())),
+			scope,
+		).Wrap(err)
 	}
 
 	if errors.Is(err, context.Canceled) {
-		return apperr.NewAborted(
-			err,
-			apperr.WithMsg(fmt.Sprintf("Cache operation for %s was canceled by the client.", scope.String())),
-			options,
-		)
+		return attachContext(
+			errs.Cancelled(fmt.Sprintf("Cache operation for %s was canceled by the client.", scope.String())),
+			scope,
+		).Wrap(err)
 	}
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return apperr.NewUnavailable(
-			err,
-			apperr.WithMsg(fmt.Sprintf("Cache service for %s is temporarily unavailable.", scope.String())),
-			options,
-		)
+		return attachContext(
+			errs.Unavailable(fmt.Sprintf("Cache service for %s is temporarily unavailable.", scope.String())),
+			scope,
+		).Wrap(err)
 	}
 
-	return apperr.NewInternal(
-		err,
-		apperr.WithMsg(fmt.Sprintf("An internal caching error occurred while processing %s.", scope.String())),
-		options,
-	)
+	return attachContext(
+		errs.Internal(fmt.Sprintf("An internal caching error occurred while processing %s.", scope.String())),
+		scope,
+	).Wrap(err)
 }

@@ -1,15 +1,16 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
-	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/sanitize"
-	"bonfire-api/internal/user"
 	"context"
 	"errors"
 	"log/slog"
 	"time"
+
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/user"
 )
 
 // TODO: Move to config
@@ -23,10 +24,9 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 
 	email, err := user.NewEmail(sanitize.Email(rawEmail))
 	if err != nil || !email.IsValid() {
-		return apperr.NewInvalidArgument(
-			errors.New("invalid email address"),
-			apperr.WithMsg("Invalid email address"),
-		)
+		return errs.InvalidArgument("Invalid email address.").
+			FieldViolation("email", "Must be a valid email address.", "INVALID_EMAIL").
+			Wrap(errors.New("invalid email address"))
 	}
 
 	onCooldown, err := s.shield.GetCooldown(ctx, "auth", "forgot-password", email.String())
@@ -46,7 +46,7 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 
 	userRow, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		if apperr.IsNotFound(err) {
+		if errs.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -54,7 +54,7 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 
 	t, _, err := s.tokens.GeneratePasswordReset(userRow.ID())
 	if err != nil {
-		return apperr.NewInternal(err)
+		return errs.Internal("failed to generate password reset token").Wrap(err)
 	}
 
 	_, err = s.outbox.Publish(persistCtx, outbox.PublishParams{

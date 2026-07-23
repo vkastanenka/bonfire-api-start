@@ -6,8 +6,8 @@ import (
 	"errors"
 	"strconv"
 
-	"bonfire-api/internal/apperr"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
@@ -28,7 +28,7 @@ func NewOutbox(q db.Querier) *Outbox {
 func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
 	jsonBytes, err := json.Marshal(p.Payload)
 	if err != nil {
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to marshal outbox event payload"))
+		return outbox.Event{}, errs.Internal("failed to marshal outbox event payload").Wrap(err)
 	}
 
 	row, err := o.q.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
@@ -36,7 +36,7 @@ func (o *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Ev
 		Payload:   jsonBytes,
 	})
 	if err != nil {
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to create outbox event"))
+		return outbox.Event{}, errs.Internal("failed to create outbox event").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -46,9 +46,9 @@ func (o *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
 	row, err := o.q.OutboxEventGet(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to fetch outbox event"))
+		return outbox.Event{}, errs.Internal("failed to fetch outbox event").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -68,7 +68,7 @@ func (o *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event,
 		if errors.Is(err, pgx.ErrNoRows) {
 			return []outbox.Event{}, nil
 		}
-		return nil, apperr.NewInternal(err, apperr.WithMsg("failed to list outbox events"))
+		return nil, errs.Internal("failed to list outbox events").Wrap(err)
 	}
 
 	events := make([]outbox.Event, len(rows))
@@ -91,7 +91,7 @@ func (o *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return []outbox.Event{}, nil
 		}
-		return nil, apperr.NewInternal(err, apperr.WithMsg("failed to acquire outbox event batch"))
+		return nil, errs.Internal("failed to acquire outbox event batch").Wrap(err)
 	}
 
 	events := make([]outbox.Event, len(rows))
@@ -106,9 +106,9 @@ func (o *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event,
 	row, err := o.q.OutboxEventMarkProcessed(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to mark outbox event processed"))
+		return outbox.Event{}, errs.Internal("failed to mark outbox event processed").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -121,9 +121,9 @@ func (o *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to record outbox event failure"))
+		return outbox.Event{}, errs.Internal("failed to record outbox event failure").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -136,9 +136,9 @@ func (o *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterPara
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to mark outbox event dead letter"))
+		return outbox.Event{}, errs.Internal("failed to mark outbox event dead letter").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -148,9 +148,9 @@ func (o *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event,
 	row, err := o.q.OutboxEventResetAttempts(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return outbox.Event{}, apperr.NewInternal(err, apperr.WithMsg("failed to reset outbox event attempts"))
+		return outbox.Event{}, errs.Internal("failed to reset outbox event attempts").Wrap(err)
 	}
 
 	return outboxFromDB(row), nil
@@ -160,9 +160,9 @@ func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
 	err := o.q.OutboxEventDelete(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperr.NewNotFound(err, apperr.WithMsg("outbox event not found"))
+			return errs.NotFound("outbox event not found").Wrap(err)
 		}
-		return apperr.NewInternal(err, apperr.WithMsg("failed to delete outbox event"))
+		return errs.Internal("failed to delete outbox event").Wrap(err)
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func (o *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
 func (o *Outbox) PurgeProcessed(ctx context.Context) error {
 	err := o.q.OutboxEventPurgeProcessed(ctx)
 	if err != nil {
-		return apperr.NewInternal(err, apperr.WithMsg("failed to purge processed outbox events"))
+		return errs.Internal("failed to purge processed outbox events").Wrap(err)
 	}
 	return nil
 }

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
@@ -31,10 +31,9 @@ type ResendVerificationEventPayload struct {
 func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
 	// 1. Guard Against Empty Input
 	if userID == uuid.Nil {
-		return apperr.NewInvalidArgument(
-			errors.New("user ID cannot be empty"),
-			apperr.WithMsg("Invalid user ID"),
-		)
+		return errs.InvalidArgument("Invalid user ID.").
+			FieldViolation("user_id", "User ID cannot be empty.", "REQUIRED").
+			Wrap(errors.New("user ID cannot be empty"))
 	}
 
 	// 2. Cooldown Guard (Rate Limiting) via ShieldStore
@@ -53,7 +52,7 @@ func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
 	// Silent return if user does not exist to prevent account enumeration
 	u, err := s.users.Get(ctx, userID)
 	if err != nil {
-		if apperr.IsNotFound(err) {
+		if errs.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -67,7 +66,7 @@ func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
 	// 5. Generate Verification Token
 	verifyToken, _, err := s.tokens.GenerateEmailVerify(u.ID())
 	if err != nil {
-		return apperr.NewInternal(err)
+		return errs.Internal("failed to generate email verification token").Wrap(err)
 	}
 
 	// 6. Publish Event via Outbox Repository

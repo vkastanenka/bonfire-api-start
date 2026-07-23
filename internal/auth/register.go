@@ -1,17 +1,18 @@
 package auth
 
 import (
-	"bonfire-api/internal/apperr"
+	"context"
+	"errors"
+	"log/slog"
+	"time"
+
 	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
-	"context"
-	"errors"
-	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -34,18 +35,16 @@ type RegisterResult struct {
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
 	email, err := user.NewEmail(sanitize.Email(p.Email))
 	if err != nil || !email.IsValid() {
-		return RegisterResult{}, apperr.NewInvalidArgument(
-			errors.New("invalid email address"),
-			apperr.WithMsg("Invalid email address"),
-		)
+		return RegisterResult{}, errs.InvalidArgument("Invalid email address.").
+			FieldViolation("email", "Must be a valid email address.", "INVALID_EMAIL").
+			Wrap(errors.New("invalid email address"))
 	}
 
 	username, err := user.NewUsername(sanitize.Text(p.Username))
 	if err != nil || !username.IsValid() {
-		return RegisterResult{}, apperr.NewInvalidArgument(
-			errors.New("invalid username address"),
-			apperr.WithMsg("Invalid username address"),
-		)
+		return RegisterResult{}, errs.InvalidArgument("Invalid username.").
+			FieldViolation("username", "Must be a valid username.", "INVALID_USERNAME").
+			Wrap(errors.New("invalid username"))
 	}
 
 	rawDisplayName := p.Username
@@ -55,7 +54,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	displayName, err := user.NewProfileDisplayName(rawDisplayName)
 	if err != nil {
-		return RegisterResult{}, apperr.NewInvalidArgument(err, apperr.WithMsg("Invalid display name format"))
+		return RegisterResult{}, errs.InvalidArgument("Invalid display name format.").
+			FieldViolation("display_name", "Invalid display name format.", "INVALID_DISPLAY_NAME").
+			Wrap(err)
 	}
 
 	var (
@@ -70,7 +71,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		var hErr error
 		passwordHash, hErr = crypto.HashPassword(p.Password)
 		if hErr != nil {
-			return apperr.NewInternal(hErr)
+			return errs.Internal("failed to hash password").Wrap(hErr)
 		}
 		return nil
 	})
@@ -91,27 +92,27 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	newUser, err := user.New(email, username, passwordHash, displayName)
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to instantiate user").Wrap(err)
 	}
 
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to generate session ID").Wrap(err)
 	}
 
 	tokenPair, err := s.tokens.GeneratePair(newUser.ID(), sessionID)
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}
 
 	evToken, _, err := s.tokens.GenerateEmailVerify(newUser.ID())
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
 	}
 
 	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to hash refresh token").Wrap(err)
 	}
 
 	newSession, err := session.New(
@@ -125,7 +126,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		p.ClientMeta.Browser,
 	)
 	if err != nil {
-		return RegisterResult{}, apperr.NewInternal(err)
+		return RegisterResult{}, errs.Internal("failed to instantiate session").Wrap(err)
 	}
 
 	persistCtx := context.WithoutCancel(ctx)
@@ -176,26 +177,17 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-// newConflictError formats a detailed 409 Conflict error with field parameters.
+// newConflictError formats a detailed 409 Conflict error with field violations.
 func newConflictError(emailAvailable, usernameAvailable bool) error {
-	// var params []apperr.InvalidParam
+	e := errs.AlreadyExists("The provided email or username is already taken.").
+		Wrap(errors.New("registration conflict"))
 
-	// if !emailAvailable {
-	// 	params = append(params, apperr.InvalidParam{
-	// 		Name:   "email",
-	// 		Reason: "This email address is already registered.",
-	// 	})
-	// }
-	// if !usernameAvailable {
-	// 	params = append(params, apperr.InvalidParam{
-	// 		Name:   "username",
-	// 		Reason: "This username is already taken.",
-	// 	})
-	// }
+	if !emailAvailable {
+		e = e.FieldViolation("email", "This email address is already registered.", "ALREADY_EXISTS")
+	}
+	if !usernameAvailable {
+		e = e.FieldViolation("username", "This username is already taken.", "ALREADY_EXISTS")
+	}
 
-	return apperr.NewAlreadyExists(
-		errors.New("registration conflict"),
-		apperr.WithMsg("The provided email or username is already taken."),
-		// apperr.WithParams(params),
-	)
+	return e
 }

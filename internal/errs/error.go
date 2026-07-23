@@ -57,6 +57,16 @@ func Unavailable(msg string) *Error        { return New(CodeUnavailable, msg) }
 func DataLoss(msg string) *Error           { return New(CodeDataLoss, msg) }
 func Unauthenticated(msg string) *Error    { return New(CodeUnauthenticated, msg) }
 
+func IsCode(err error, code Code) bool {
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr.Code == code
+	}
+	return false
+}
+
+func IsNotFound(err error) bool { return IsCode(err, CodeNotFound) }
+
 func (e *Error) Is(target error) bool {
 	var t *Error
 	if errors.As(target, &t) {

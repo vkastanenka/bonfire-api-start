@@ -1,11 +1,12 @@
 package validator
 
 import (
-	"bonfire-api/internal/apperr"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"bonfire-api/internal/errs"
 
 	goValidator "github.com/go-playground/validator/v10"
 )
@@ -67,12 +68,12 @@ func (v *Validator) Validate(s interface{}) error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return apperr.NewInternal(err, apperr.WithMsg("Failed to execute struct validation"))
+		return errs.Internal("failed to execute struct validation").Wrap(err)
 	}
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		fieldViolations := make([]apperr.FieldViolation, 0, len(validationErrors))
+		err := errs.InvalidArgument(errValidationFailed)
 
 		for _, fieldErr := range validationErrors {
 			ns := fieldErr.Namespace()
@@ -84,30 +85,17 @@ func (v *Validator) Validate(s interface{}) error {
 				jsonPath = fieldErr.Field()
 			}
 
-			fv, fvErr := apperr.NewFieldViolation(
+			err.FieldViolation(
 				jsonPath,
 				v.msgForFieldError(fieldErr),
 				fieldErr.ActualTag(),
-				nil,
 			)
-			if fvErr == nil && fv != nil {
-				fieldViolations = append(fieldViolations, *fv)
-			}
 		}
 
-		badReq, brErr := apperr.NewBadRequest(fieldViolations...)
-		if brErr != nil {
-			return apperr.NewInvalidArgument(err, apperr.WithMsg(errValidationFailed))
-		}
-
-		return apperr.NewInvalidArgument(
-			err,
-			apperr.WithMsg(errValidationFailed),
-			apperr.WithDetail(badReq),
-		)
+		return err.Wrap(err)
 	}
 
-	return apperr.NewInternal(err)
+	return errs.Internal("unexpected validation error").Wrap(err)
 }
 
 func (v *Validator) msgForFieldError(err goValidator.FieldError) string {
