@@ -226,7 +226,7 @@ func (e *Error) mergeDetail(existing, incoming Detail) bool {
 
 	case *RetryInfo:
 		if cur, ok := existing.(*RetryInfo); ok && cur != nil {
-			cur.RetryDelay = inc.RetryDelay // Overwrite delay with latest
+			cur.RetryDelay = inc.RetryDelay
 			return true
 		}
 
@@ -257,7 +257,6 @@ func (e *Error) mergeDetail(existing, incoming Detail) bool {
 }
 
 func (e *Error) UnmarshalJSON(data []byte) error {
-	// Envelope struct to grab primary error fields and raw detail payloads in one pass
 	var env struct {
 		Code    Code              `json:"code"`
 		Message string            `json:"message"`
@@ -279,7 +278,6 @@ func (e *Error) UnmarshalJSON(data []byte) error {
 	e.Details = make([]Detail, 0, len(env.Details))
 
 	for _, raw := range env.Details {
-		// Quick pass to extract @type without full payload decode
 		var typeExtract struct {
 			Type string `json:"@type"`
 		}
@@ -309,7 +307,6 @@ func (e *Error) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(raw, d); err == nil {
 			e.Details = append(e.Details, d)
 		} else {
-			// Fallback to RawDetail if schema mismatch occurs
 			e.Details = append(e.Details, &RawDetail{Type: typeExtract.Type, RawData: raw})
 		}
 	}

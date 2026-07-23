@@ -13,8 +13,8 @@ import (
 const (
 	DetailErrorInfo    = "ErrorInfo"
 	DetailRetryInfo    = "RetryInfo"
-	DetailBadRequest   = "BadRequest"
 	DetailDebugInfo    = "DebugInfo"
+	DetailBadRequest   = "BadRequest"
 	DetailRequestInfo  = "RequestInfo"
 	DetailResourceInfo = "ResourceInfo"
 )

@@ -1,6 +1,7 @@
 package httpio
 
 import (
+	"bonfire-api/internal/errs"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,23 +27,19 @@ var (
 	}()
 )
 
-// decodeJSON reads and parses the JSON request body into dst.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	val := reflect.ValueOf(dst)
 	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Struct {
-		return apperr.NewInternal(
-			nil,
-			apperr.WithMsg("DecodeJSON destination must be a pointer to a struct."),
-		)
+		return errs.Internal("DecodeJSON destination must be a pointer to a struct.").
+			Reason("INVALID_CODE_CALL")
 	}
 
 	ct := r.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil || mediaType != "application/json" {
-		return apperr.NewInvalidArgument(
-			err,
-			apperr.WithMsg("Missing or invalid Content-Type header; must be application/json."),
-		)
+		return errs.InvalidArgument("Missing or invalid Content-Type header; must be application/json.").
+			Reason("INVALID_CONTENT_TYPE").
+			Wrap(err)
 	}
 
 	limitedBody := http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
@@ -54,9 +51,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		if ctxErr := r.Context().Err(); ctxErr != nil {
 			if errors.Is(ctxErr, context.DeadlineExceeded) {
-				return apperr.NewDeadlineExceeded(ctxErr, apperr.WithMsg("Request timed out."))
+				return errs.DeadlineExceeded("Request timed out.").
+					Reason("REQUEST_TIMEOUT").
+					Wrap(ctxErr)
 			}
-			return apperr.NewAborted(ctxErr, apperr.WithMsg("Client closed connection mid-request."))
+			return errs.Aborted("Client closed connection mid-request.").
+				Reason("CLIENT_CLOSED").
+				Wrap(ctxErr)
 		}
 
 		var maxBytesErr *http.MaxBytesError
@@ -65,58 +66,66 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 
 		switch {
 		case errors.As(err, &maxBytesErr):
-			return apperr.NewResourceExhausted(err, apperr.WithMsg("Request body exceeds 1MB limit."))
+			return errs.ResourceExhausted("Request body exceeds 1MB limit.").
+				Reason("BODY_TOO_LARGE").
+				Wrap(err)
 
 		case errors.Is(err, io.EOF):
-			return apperr.NewInvalidArgument(err, apperr.WithMsg("Request body cannot be empty."))
+			return errs.InvalidArgument("Request body cannot be empty.").
+				Reason("EMPTY_REQUEST_BODY").
+				FieldViolation("body", "Request body cannot be empty.", "REQUIRED").
+				Wrap(err)
 
 		case errors.As(err, &syntaxErr):
-			return apperr.NewInvalidArgument(err, apperr.WithMsg("Malformed request body JSON syntax."))
+			return errs.InvalidArgument("Malformed request body JSON syntax.").
+				Reason("MALFORMED_JSON").
+				Wrap(err)
 
 		case errors.Is(err, io.ErrUnexpectedEOF):
-			return apperr.NewInvalidArgument(err, apperr.WithMsg("Truncated or malformed JSON structure received."))
+			return errs.InvalidArgument("Truncated or malformed JSON structure received.").
+				Reason("TRUNCATED_JSON").
+				Wrap(err)
 
 		case errors.As(err, &unmarshalTypeErr):
 			fieldName := unmarshalTypeErr.Field
 			if fieldName == "" {
-				fieldName = "field"
+				fieldName = "body"
 			}
-			return apperr.NewInvalidArgument(
-				err,
-				apperr.WithMsg(fmt.Sprintf("Invalid data type provided for field '%s'. Expected %s.", fieldName, unmarshalTypeErr.Type)),
-			)
+			msg := fmt.Sprintf("Invalid data type provided for field '%s'. Expected %s.", fieldName, unmarshalTypeErr.Type)
+			return errs.InvalidArgument(msg).
+				Reason("INVALID_FIELD_TYPE").
+				FieldViolation(fieldName, msg, "TYPE_MISMATCH").
+				Wrap(err)
 
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			fieldName := strings.TrimPrefix(err.Error(), "json: unknown field ")
 			fieldName = strings.Trim(fieldName, `"`)
-			return apperr.NewInvalidArgument(
-				err,
-				apperr.WithMsg(fmt.Sprintf("Unknown field '%s' present in request body.", fieldName)),
-			)
+			msg := fmt.Sprintf("Unknown field '%s' present in request body.", fieldName)
+			return errs.InvalidArgument(msg).
+				Reason("UNKNOWN_FIELD").
+				FieldViolation(fieldName, msg, "UNEXPECTED_FIELD").
+				Wrap(err)
 
 		default:
-			return apperr.NewInternal(err, apperr.WithMsg("Failed to decode JSON request body."))
+			return errs.Internal("Failed to decode JSON request body.").
+				Reason("JSON_DECODE_FAILED").
+				Wrap(err)
 		}
 	}
 
 	if dec.More() {
-		return apperr.NewInvalidArgument(
-			nil,
-			apperr.WithMsg("Request body must contain only a single JSON value."),
-		)
+		return errs.InvalidArgument("Request body must contain only a single JSON value.").
+			Reason("MULTIPLE_JSON_VALUES")
 	}
 
 	return nil
 }
 
-// decodeQuery extracts URL query parameters into dst using the form decoder.
 func decodeQuery(r *http.Request, dst any) error {
 	val := reflect.ValueOf(dst)
 	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Struct {
-		return apperr.NewInternal(
-			nil,
-			apperr.WithMsg("DecodeQuery destination must be a pointer to a struct."),
-		)
+		return errs.Internal("DecodeQuery destination must be a pointer to a struct.").
+			Reason("INVALID_CODE_CALL")
 	}
 
 	queryParams := r.URL.Query()
@@ -127,25 +136,28 @@ func decodeQuery(r *http.Request, dst any) error {
 	if err := formDecoder.Decode(dst, queryParams); err != nil {
 		var decodeErrors form.DecodeErrors
 		if errors.As(err, &decodeErrors) {
-			return apperr.NewInvalidArgument(
-				err,
-				apperr.WithMsg("Invalid data type provided for query parameter(s)."),
-			)
+			e := errs.InvalidArgument("Invalid data type provided for query parameter(s).").
+				Reason("INVALID_QUERY_PARAMS").
+				Wrap(err)
+
+			for field, fe := range decodeErrors {
+				e.FieldViolation(field, fe.Error(), "INVALID_FORMAT")
+			}
+			return e
 		}
-		return apperr.NewInvalidArgument(err, apperr.WithMsg("Malformed query parameters."))
+		return errs.InvalidArgument("Malformed query parameters.").
+			Reason("MALFORMED_QUERY_PARAMS").
+			Wrap(err)
 	}
 
 	return nil
 }
 
-// decodePath extracts URL path parameters into dst using Chi or standard Go 1.22+ mux path parameters.
 func decodePath(r *http.Request, dst any) error {
 	val := reflect.ValueOf(dst)
 	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Struct {
-		return apperr.NewInternal(
-			nil,
-			apperr.WithMsg("DecodePath destination must be a pointer to a struct."),
-		)
+		return errs.Internal("DecodePath destination must be a pointer to a struct.").
+			Reason("INVALID_CODE_CALL")
 	}
 
 	pathValues := make(url.Values)
@@ -158,18 +170,23 @@ func decodePath(r *http.Request, dst any) error {
 	if err := pathDecoder.Decode(dst, pathValues); err != nil {
 		var decodeErrors form.DecodeErrors
 		if errors.As(err, &decodeErrors) {
-			return apperr.NewInvalidArgument(
-				err,
-				apperr.WithMsg("Invalid data type provided in URL path parameters."),
-			)
+			e := errs.InvalidArgument("Invalid data type provided in URL path parameters.").
+				Reason("INVALID_PATH_PARAMS").
+				Wrap(err)
+
+			for field, fe := range decodeErrors {
+				e.FieldViolation(field, fe.Error(), "INVALID_FORMAT")
+			}
+			return e
 		}
-		return apperr.NewInvalidArgument(err, apperr.WithMsg("Malformed path parameters."))
+		return errs.InvalidArgument("Malformed path parameters.").
+			Reason("MALFORMED_PATH_PARAMS").
+			Wrap(err)
 	}
 
 	return nil
 }
 
-// compilePathValues recursively inspects struct fields for `path:"..."` tags and fetches values from Go 1.22+ `r.PathValue(...)`.
 func compilePathValues(structVal reflect.Value, r *http.Request, output url.Values) {
 	t := structVal.Type()
 
