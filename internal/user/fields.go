@@ -152,21 +152,16 @@ func (p *Password) UnmarshalText(text []byte) error {
 }
 
 func NewPreferredPresence(raw string) (*presence.Presence, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return nil, nil
-	}
-
-	p, err := presence.New(s)
+	p, err := presence.New(raw)
 	if err != nil {
-		return nil, presence.ErrInvalidPresence
+		return nil, err
 	}
 
 	switch p {
 	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
 		return &p, nil
 	default:
-		return nil, presence.ErrInvalidPresence
+		return nil, errors.New("invalid preferred presence")
 	}
 }
 

@@ -3,10 +3,20 @@ package presence
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"unsafe"
 )
 
 var ErrInvalidPresence = errors.New("invalid presence status")
+
+const (
+	EventUpdated = "presence.updated"
+)
+
+type PresenceUpdatedPayload struct {
+	UserID   string `json:"user_id"`
+	Presence string `json:"presence"`
+}
 
 type Presence uint8
 
@@ -42,7 +52,7 @@ var presenceBytes = [...][]byte{
 }
 
 func New(raw string) (Presence, error) {
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return PresenceUnknown, ErrInvalidPresence
 	}
 	b := unsafe.Slice(unsafe.StringData(raw), len(raw))

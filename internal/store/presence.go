@@ -11,17 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
-type Presence struct {
-	q   cache.Store
-	ttl time.Duration
+type PresenceStore interface {
+	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	Get(ctx context.Context, key string, dest interface{}) error
+	MGet(ctx context.Context, keys ...string) ([]interface{}, error)
 }
 
-var _ presence.Repository = (*Presence)(nil)
+type Presence struct {
+	store PresenceStore
+	ttl   time.Duration
+}
 
-func NewPresence(q cache.Store, ttl time.Duration) *Presence {
+func NewPresence(store PresenceStore, ttl time.Duration) *Presence {
 	return &Presence{
-		q:   q,
-		ttl: ttl,
+		store: store,
+		ttl:   ttl,
 	}
 }
 
@@ -29,19 +33,19 @@ func presenceKey(userID uuid.UUID) string {
 	return fmt.Sprintf("presence:%s", userID.String())
 }
 
-func (r *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
+func (s *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
 	key := presenceKey(userID)
-	if err := r.q.Set(ctx, key, p.String(), r.ttl); err != nil {
+	if err := s.store.Set(ctx, key, p.String(), s.ttl); err != nil {
 		return cache.NewError(err, cache.ScopePresence)
 	}
 	return nil
 }
 
-func (r *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
+func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
 	key := presenceKey(userID)
 
 	var raw string
-	err := r.q.Get(ctx, key, &raw)
+	err := s.store.Get(ctx, key, &raw)
 	if cache.IsNotFoundError(err) {
 		return presence.PresenceOffline, nil
 	}
@@ -57,7 +61,7 @@ func (r *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.
 	return p, nil
 }
 
-func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
+func (s *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
 	if len(userIDs) == 0 {
 		return make(map[uuid.UUID]presence.Presence), nil
 	}
@@ -67,7 +71,7 @@ func (r *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (ma
 		keys[i] = presenceKey(id)
 	}
 
-	vals, err := r.q.MGet(ctx, keys...)
+	vals, err := s.store.MGet(ctx, keys...)
 	if err != nil {
 		return nil, cache.NewError(err, cache.ScopePresence)
 	}

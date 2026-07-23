@@ -8,30 +8,35 @@ import (
 	"github.com/google/uuid"
 )
 
-type Service struct {
-	repo Repository
+type Store interface {
+	SetPresence(ctx context.Context, userID uuid.UUID, p Presence) error
+	GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error)
+	GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
 }
 
-func NewService(repo Repository) *Service {
+type Service struct {
+	store Store
+}
+
+func NewService(store Store) *Service {
 	return &Service{
-		repo: repo,
+		store: store,
 	}
 }
 
-func (s *Service) Set(ctx context.Context, userID uuid.UUID, p Presence) error {
-	// Guard: Nil/Zero UUID check
+func (s *Service) Set(ctx context.Context, userID uuid.UUID, rawPresence string) error {
 	if userID == uuid.Nil {
 		return errs.InvalidArgument("User ID cannot be empty.").
 			FieldViolation("user_id", "User ID is required.", "INVALID_USER_ID")
 	}
 
-	// Guard: Domain invariant validation
-	if !p.IsValid() {
+	p, err := New(rawPresence)
+	if err != nil {
 		return errs.InvalidArgument("Invalid presence status provided.").
-			FieldViolation("presence", "Value must be one of: online, offline, away, or busy.", "INVALID_PRESENCE_STATUS")
+			FieldViolation("presence", "Value must be one of: online, offline, idle, away, busy, or invisible.", "INVALID_PRESENCE_STATUS").Wrap(err)
 	}
 
-	return s.repo.SetPresence(ctx, userID, p)
+	return s.store.SetPresence(ctx, userID, p)
 }
 
 func (s *Service) Get(ctx context.Context, userID uuid.UUID) (Presence, error) {
@@ -40,7 +45,7 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (Presence, error) {
 			FieldViolation("user_id", "User ID is required.", "INVALID_USER_ID")
 	}
 
-	return s.repo.GetPresence(ctx, userID)
+	return s.store.GetPresence(ctx, userID)
 }
 
 func (s *Service) GetBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error) {
@@ -55,5 +60,5 @@ func (s *Service) GetBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UU
 		}
 	}
 
-	return s.repo.GetPresenceBulk(ctx, userIDs)
+	return s.store.GetPresenceBulk(ctx, userIDs)
 }

@@ -44,7 +44,7 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 func (s *Service) GetByEmail(ctx context.Context, rawEmail string) (*User, error) {
 	email, err := NewEmail(rawEmail)
 	if err != nil || !email.IsValid() {
-		return nil, errs.InvalidArgument("invalid email address")
+		return nil, errs.InvalidArgument("invalid email address").Wrap(err)
 	}
 
 	u, err := s.repo.GetByEmail(ctx, email)
@@ -58,7 +58,7 @@ func (s *Service) GetByEmail(ctx context.Context, rawEmail string) (*User, error
 func (s *Service) GetByUsername(ctx context.Context, rawUsername string) (*User, error) {
 	username, err := NewUsername(rawUsername)
 	if err != nil || !username.IsValid() {
-		return nil, errs.InvalidArgument("invalid username")
+		return nil, errs.InvalidArgument("invalid username").Wrap(err)
 	}
 
 	u, err := s.repo.GetByUsername(ctx, username)
@@ -82,7 +82,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 
 	displayName, err := NewProfileDisplayName(p.DisplayName)
 	if err != nil || !displayName.IsValid() {
-		return nil, errs.InvalidArgument("invalid display name")
+		return nil, errs.InvalidArgument("invalid display name").Wrap(err)
 	}
 
 	u, err := s.repo.Get(ctx, p.UserID)
@@ -107,7 +107,7 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, rawPre
 
 	p, err := NewPreferredPresence(rawPresence)
 	if err != nil {
-		return nil, errs.InvalidArgument("invalid preferred presence")
+		return nil, errs.InvalidArgument("invalid preferred presence").Wrap(err)
 	}
 
 	u, err := s.repo.Get(ctx, id)
@@ -129,12 +129,12 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, rawPre
 func (s *Service) CheckAvailability(ctx context.Context, rawEmail, rawUsername string) (emailAvail, usernameAvail bool, err error) {
 	email, err := NewEmail(rawEmail)
 	if err != nil || !email.IsValid() {
-		return false, false, errs.InvalidArgument("invalid email address")
+		return false, false, errs.InvalidArgument("invalid email address").Wrap(err)
 	}
 
 	username, err := NewUsername(rawUsername)
 	if err != nil || !username.IsValid() {
-		return false, false, errs.InvalidArgument("invalid username")
+		return false, false, errs.InvalidArgument("invalid username").Wrap(err)
 	}
 
 	return s.repo.CheckAvailability(ctx, email, username)
