@@ -94,12 +94,13 @@ func NewService(
 	tx TX,
 ) Service {
 	return Service{
-		tx:           tx,
 		outbox:       outbox,
 		sessions:     sessions,
+		users:        users,
 		sessionStore: sessionStore,
+		shield:       shield,
 		tickets:      tickets,
 		tokens:       tokens,
-		users:        users,
+		tx:           tx,
 	}
 }

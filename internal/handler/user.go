@@ -7,13 +7,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type UserHandler struct {
+type User struct {
 	service UserService
 	bind    *httpio.Bind
 }
 
-func NewUserHandler(repo UserService, bind *httpio.Bind) *UserHandler {
-	return &UserHandler{
+func NewUser(repo UserService, bind *httpio.Bind) *User {
+	return &User{
 		service: repo,
 		bind:    bind,
 	}
@@ -23,7 +23,7 @@ type UserGetPath struct {
 	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
-func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
+func (h *User) UserGet(w http.ResponseWriter, r *http.Request) error {
 	var path UserGetPath
 	err := h.bind.JSON(w, r, &path)
 	if err != nil {
@@ -39,7 +39,7 @@ func (h *UserHandler) UserGet(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *UserHandler) UserGetMe(w http.ResponseWriter, r *http.Request) error {
+func (h *User) UserGetMe(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err

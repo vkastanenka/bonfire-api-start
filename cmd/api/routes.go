@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"bonfire-api/internal/apperr"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 
 	"github.com/go-chi/chi/v5"
@@ -67,11 +67,9 @@ func (app *Application) routes() http.Handler {
 }
 
 func (app *Application) notFoundHandler(w http.ResponseWriter, r *http.Request) error {
-	// return apperr.NewNotFound(nil, apperr.WithMsg("The requested API endpoint does not exist."))
-	return nil
+	return errs.NotFound("The requested API endpoint does not exist.")
 }
 
 func (app *Application) methodNotAllowedHandler(w http.ResponseWriter, r *http.Request) error {
-	// return apperr.NewMethodNotAllowed(nil, "HTTP method not allowed for this endpoint.")
-	return apperr.NewInternal(nil)
+	return errs.Unimplemented("HTTP method not allowed for this endpoint")
 }

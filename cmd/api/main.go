@@ -6,19 +6,21 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/email"
+	"bonfire-api/internal/handler"
+	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/logger"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/store"
 	"bonfire-api/internal/token"
-	"bonfire-api/internal/user"
+	"bonfire-api/internal/validator"
 
 	"github.com/go-redis/redis_rate/v10"
 )
@@ -100,6 +102,8 @@ func run(cfg *config.Config) error {
 	dbStore := db.NewStore(dbConn)
 	cacheStore := cache.NewStore(cacheConn)
 	rateLimiter := redis_rate.NewLimiter(cacheConn)
+	val := validator.New()
+	bind := httpio.NewBind(val)
 	mailer := email.NewMailer(email.Config{
 		ResendAPIKey: cfg.ResendApiKey,
 		FromAddress:  cfg.EmailFromAddress,
@@ -108,19 +112,19 @@ func run(cfg *config.Config) error {
 	})
 
 	outboxRepo := repository.NewOutbox(dbStore)
-	relationshipRepo := repository.NewRelationship(dbStore)
+	// relationshipRepo := repository.NewRelationship(dbStore)
 	sessionRepo := repository.NewSession(dbStore)
 	userRepo := repository.NewUser(dbStore)
 
-	presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
+	// presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
 	sessionStore := store.NewSession(cacheStore)
 	shieldStore := store.NewShield(cacheStore)
 	ticketStore := store.NewTicket(cacheStore)
 
-	relationshipSvc := relationship.NewService(relationshipRepo)
-	presenceSvc := presence.NewService(presenceStore)
-	userSvc := user.NewService(userRepo)
-	authService := auth.NewService(
+	// relationshipSvc := relationship.NewService(relationshipRepo)
+	// presenceSvc := presence.NewService(presenceStore)
+	// userSvc := user.NewService(userRepo)
+	authSvc := auth.NewService(
 		outboxRepo,
 		sessionRepo,
 		userRepo,
@@ -131,34 +135,32 @@ func run(cfg *config.Config) error {
 		dbStore,
 	)
 
-	// outboxWorker := outbox.NewWorker(
-	// 	cacheMgr,
-	// 	outboxSvc,
-	// 	mailer,
-	// 	2*time.Second,
-	// 	int32(10),
-	// 	int32(10),
-	// )
-	// outboxWorker.Start(ctx)
-	// defer outboxWorker.Stop()
+	outboxWorker := outbox.NewWorker(
+		outboxRepo,
+		2*time.Second,
+		int32(10),
+		int32(10),
+	)
+	auth.RegisterOutboxHandlers(outboxWorker, mailer)
+	outboxWorker.Start(ctx)
+	defer outboxWorker.Stop()
 
 	// hub := gateway.NewHub(store, cacheMgr, presenceSvc)
 	// go hub.Run(ctx)
 
-	// authHandler := auth.NewHandler(authService)
+	authHandler := handler.NewAuth(&authSvc, bind)
 	// gatewayHandler := gateway.NewHandler(hub, cacheMgr)
-	// meHandler := me.NewHandler(meSvc, relationshipSvc)
-	// userHandler := user.NewHandler(userSvc)
+	// userHandler := handler.NewUser(&userSvc, bind)
 
 	app := &Application{
 		Config:      cfg,
 		RateLimiter: rateLimiter,
-		// Handlers: Handlers{
-		// 	Auth:    authHandler,
-		// 	Gateway: gatewayHandler,
-		// 	Me:      meHandler,
-		// 	User:    userHandler,
-		// },
+		Handlers: Handlers{
+			Auth: authHandler,
+			// Gateway: gatewayHandler,
+			// Me:      meHandler,
+			// User:    userHandler,
+		},
 		// Managers: Managers{
 		// 	Token: tokenMgr,
 		// },

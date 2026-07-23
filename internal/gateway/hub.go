@@ -24,11 +24,11 @@ type Hub struct {
 	mu         sync.RWMutex
 
 	store db.Store
-	cache cache.Manager
+	cache cache.Store
 	// presenceSvc *presence.Service
 }
 
-func NewHub(store db.Store, cache cache.Manager,
+func NewHub(store db.Store, cache cache.Store,
 
 // presenceSvc *presence.Service
 ) *Hub {

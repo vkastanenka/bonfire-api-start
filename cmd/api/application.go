@@ -7,30 +7,25 @@ import (
 	"net/http"
 	"time"
 
-	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
-	"bonfire-api/internal/gateway"
+	"bonfire-api/internal/handler"
 	"bonfire-api/internal/token"
 
 	"github.com/go-redis/redis_rate/v10"
 )
 
 type Handlers struct {
-	Auth    *auth.Handler
-	Gateway *gateway.Handler
+	Auth *handler.Auth
+	// Gateway *gateway.Handler
 	// Me      *me.Handler
 	// User    *user.Handler
-}
-
-type Managers struct {
-	Token *token.Manager
 }
 
 type Application struct {
 	Config      *config.Config
 	RateLimiter *redis_rate.Limiter
+	Tokens      *token.Provider
 	Handlers    Handlers
-	Managers    Managers
 }
 
 func (app *Application) Serve(ctx context.Context) error {

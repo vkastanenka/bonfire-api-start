@@ -3,9 +3,12 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
 )
+
+var ErrFatal = errors.New("fatal outbox error")
 
 type PublishParams struct {
 	Variant string

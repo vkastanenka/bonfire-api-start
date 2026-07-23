@@ -7,13 +7,13 @@ import (
 	"net/http"
 )
 
-type AuthHandler struct {
+type Auth struct {
 	service AuthService
 	bind    *httpio.Bind
 }
 
-func NewAuthHandler(service AuthService, bind *httpio.Bind) *AuthHandler {
-	return &AuthHandler{
+func NewAuth(service AuthService, bind *httpio.Bind) *Auth {
+	return &Auth{
 		service: service,
 		bind:    bind,
 	}
@@ -23,7 +23,7 @@ type ForgotPasswordRequest struct {
 	Email string `json:"email" mod:"email" validate:"required,email,max=255"`
 }
 
-func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var req ForgotPasswordRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {
@@ -47,7 +47,7 @@ type LoginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) Login(w http.ResponseWriter, r *http.Request) error {
 	var req LoginRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {
@@ -80,7 +80,7 @@ type RefreshResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) Refresh(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
 		return errs.Unauthenticated("Missing refresh token, please log in.").Wrap(err)
@@ -110,7 +110,7 @@ type RegisterResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) Register(w http.ResponseWriter, r *http.Request) error {
 	var req RegisterRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {
@@ -138,7 +138,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) ResendVerify(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
@@ -161,7 +161,7 @@ type ResetPasswordResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	var req ResetPasswordRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {
@@ -191,7 +191,7 @@ type VerifyEmailRequest struct {
 	Token string `json:"token" validate:"required,token"`
 }
 
-func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	var req VerifyEmailRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {
@@ -210,7 +210,7 @@ type WSTicketResponse struct {
 	Ticket string `json:"ticket"`
 }
 
-func (h *AuthHandler) WSTicket(w http.ResponseWriter, r *http.Request) error {
+func (h *Auth) WSTicket(w http.ResponseWriter, r *http.Request) error {
 	claims, err := httpio.CtxGetClaims(r.Context())
 	if err != nil {
 		return err
