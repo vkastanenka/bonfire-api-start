@@ -21,6 +21,17 @@ type User struct {
 	profile Profile
 }
 
+func (u *User) ID() uuid.UUID                         { return u.id }
+func (u *User) Email() Email                          { return u.email }
+func (u *User) Username() Username                    { return u.username }
+func (u *User) PasswordHash() string                  { return u.passwordHash }
+func (u *User) PreferredPresence() *presence.Presence { return u.preferredPresence }
+func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
+func (u *User) IsVerified() bool                      { return u.verifiedAt != nil }
+func (u *User) CreatedAt() time.Time                  { return u.createdAt }
+func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
+func (u *User) Profile() Profile                      { return u.profile }
+
 func (u *User) UpdateProfile(displayName ProfileDisplayName, avatarURL *string) {
 	now := time.Now().UTC()
 	u.profile.displayName = displayName
@@ -31,7 +42,15 @@ func (u *User) UpdateProfile(displayName ProfileDisplayName, avatarURL *string) 
 
 func (u *User) Verify(at time.Time) {
 	if u.verifiedAt == nil {
-		u.verifiedAt = &at
+		t := at.UTC()
+		u.verifiedAt = &t
+		u.updatedAt = t
+	}
+}
+
+func (u *User) UpdateEmail(newEmail Email) {
+	if u.email != newEmail {
+		u.email = newEmail
 		u.updatedAt = time.Now().UTC()
 	}
 }
@@ -46,6 +65,13 @@ func (u *User) UpdatePassword(newHash string) error {
 	return nil
 }
 
+func (u *User) UpdateUsername(newUsername Username) {
+	if u.username != newUsername {
+		u.username = newUsername
+		u.updatedAt = time.Now().UTC()
+	}
+}
+
 func (u *User) SetPreferredPresence(p *presence.Presence) error {
 	if p != nil && !p.IsValid() {
 		return presence.ErrInvalidPresence
@@ -56,18 +82,11 @@ func (u *User) SetPreferredPresence(p *presence.Presence) error {
 	return nil
 }
 
-func (u *User) ID() uuid.UUID                         { return u.id }
-func (u *User) Email() Email                          { return u.email }
-func (u *User) Username() Username                    { return u.username }
-func (u *User) PasswordHash() string                  { return u.passwordHash }
-func (u *User) PreferredPresence() *presence.Presence { return u.preferredPresence }
-func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
-func (u *User) IsVerified() bool                      { return u.verifiedAt != nil }
-func (u *User) CreatedAt() time.Time                  { return u.createdAt }
-func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
-func (u *User) Profile() Profile                      { return u.profile }
-
 func New(email Email, username Username, passwordHash string, displayName ProfileDisplayName) (*User, error) {
+	if passwordHash == "" {
+		return nil, errors.New("password hash cannot be empty")
+	}
+
 	now := time.Now().UTC()
 	userID := uuid.Must(uuid.NewV7())
 
@@ -117,6 +136,17 @@ type Profile struct {
 	updatedAt   time.Time
 }
 
+func (p Profile) DisplayName() ProfileDisplayName { return p.displayName }
+func (p Profile) AvatarURL() *string {
+	if p.avatarURL == nil {
+		return nil
+	}
+	val := *p.avatarURL
+	return &val
+}
+func (p Profile) CreatedAt() time.Time { return p.createdAt }
+func (p Profile) UpdatedAt() time.Time { return p.updatedAt }
+
 func ReconstituteProfile(
 	displayName ProfileDisplayName,
 	avatarURL *string,
@@ -129,8 +159,3 @@ func ReconstituteProfile(
 		updatedAt:   updatedAt,
 	}
 }
-
-func (p Profile) DisplayName() ProfileDisplayName { return p.displayName }
-func (p Profile) AvatarURL() *string              { return p.avatarURL }
-func (p Profile) CreatedAt() time.Time            { return p.createdAt }
-func (p Profile) UpdatedAt() time.Time            { return p.updatedAt }

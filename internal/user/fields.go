@@ -1,6 +1,7 @@
 package user
 
 import (
+	"bonfire-api/internal/presence"
 	"errors"
 	"regexp"
 	"strings"
@@ -191,4 +192,23 @@ func (d *ProfileDisplayName) UnmarshalText(text []byte) error {
 	}
 	*d = parsed
 	return nil
+}
+
+func NewPreferredPresence(raw string) (*presence.Presence, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, presence.ErrInvalidPresence
+	}
+
+	p, err := presence.New(s)
+	if err != nil {
+		return nil, presence.ErrInvalidPresence
+	}
+
+	switch p {
+	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
+		return &p, nil
+	default:
+		return nil, presence.ErrInvalidPresence
+	}
 }
