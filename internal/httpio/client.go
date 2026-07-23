@@ -29,7 +29,7 @@ func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 				Browser:   browser,
 			}
 
-			ctx := context.WithValue(r.Context(), ctxMetaKey, meta)
+			ctx := context.WithValue(r.Context(), CtxMetaKey, meta)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -1,11 +1,10 @@
 package logger
 
 import (
+	"bonfire-api/internal/httpio"
 	"context"
 	"log/slog"
 )
-
-type CtxKey string
 
 type Handler struct {
 	slog.Handler
@@ -16,13 +15,13 @@ func NewHandler(handler slog.Handler) *Handler {
 }
 
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	// if reqID, ok := ctx.Value(ReqIDKey).(string); ok && reqID != "" {
-	// 	r.AddAttrs(slog.String("request_id", reqID))
-	// }
+	if reqID, ok := ctx.Value(httpio.CtxReqIDKey).(string); ok && reqID != "" {
+		r.AddAttrs(slog.String(string(httpio.CtxReqIDKey), reqID))
+	}
 
-	// if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
-	// 	r.AddAttrs(slog.String("trace_id", traceID))
-	// }
+	if traceID, ok := ctx.Value(httpio.CtxTraceIDKey).(string); ok && traceID != "" {
+		r.AddAttrs(slog.String(string(httpio.CtxTraceIDKey), traceID))
+	}
 
 	return h.Handler.Handle(ctx, r)
 }

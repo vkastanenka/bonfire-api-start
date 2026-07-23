@@ -14,7 +14,7 @@ func Trace(next http.Handler) http.Handler {
 		ctx := r.Context()
 
 		if reqID := middleware.GetReqID(ctx); reqID != "" {
-			ctx = context.WithValue(ctx, ctxReqIDKey, reqID)
+			ctx = context.WithValue(ctx, CtxReqIDKey, reqID)
 		}
 
 		traceID := r.Header.Get("X-Trace-ID")
@@ -23,7 +23,7 @@ func Trace(next http.Handler) http.Handler {
 		}
 		r.Header.Set("X-Trace-ID", traceID)
 
-		ctx = context.WithValue(ctx, ctxTraceIDKey, traceID)
+		ctx = context.WithValue(ctx, CtxTraceIDKey, traceID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
