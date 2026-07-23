@@ -46,8 +46,8 @@ type Querier interface {
 	UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, error)
 	UserGetByEmail(ctx context.Context, email string) (UserAggregate, error)
 	UserGetByUsername(ctx context.Context, username string) (UserAggregate, error)
-	UserProfileSave(ctx context.Context, arg UserProfileSaveParams) (UserProfile, error)
-	UserSave(ctx context.Context, arg UserSaveParams) (User, error)
+	UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error)
+	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)
 }
 
 var _ Querier = (*Queries)(nil)

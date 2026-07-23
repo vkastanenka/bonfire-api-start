@@ -10,13 +10,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Relationship struct {
-	store Store
+type RelationshipStore interface {
+	RelationshipGet(ctx context.Context, arg db.RelationshipGetParams) (db.RelationshipGetRow, error)
+	RelationshipGetForUpdate(ctx context.Context, arg db.RelationshipGetForUpdateParams) (db.RelationshipGetForUpdateRow, error)
+	RelationshipUpsert(ctx context.Context, arg db.RelationshipUpsertParams) (db.RelationshipUpsertRow, error)
+	RelationshipDelete(ctx context.Context, arg db.RelationshipDeleteParams) error
+	RelationshipDeleteVerified(ctx context.Context, arg db.RelationshipDeleteVerifiedParams) error
+	RelationshipPerspectiveGet(ctx context.Context, arg db.RelationshipPerspectiveGetParams) (db.RelationshipPerspective, error)
+	RelationshipPerspectivesList(ctx context.Context, arg db.RelationshipPerspectivesListParams) ([]db.RelationshipPerspective, error)
 }
 
-var _ relationship.Repository = (*Relationship)(nil)
+type Relationship struct {
+	store RelationshipStore
+}
 
-func NewRelationship(store Store) *Relationship {
+func NewRelationship(store RelationshipStore) *Relationship {
 	return &Relationship{store: store}
 }
 

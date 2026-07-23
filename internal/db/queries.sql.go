@@ -864,48 +864,48 @@ func (q *Queries) UserCheckAvailability(ctx context.Context, arg UserCheckAvaila
 
 const userCreateAggregate = `-- name: UserCreateAggregate :exec
 WITH new_user AS (
-INSERT INTO users(id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at)
+INSERT INTO users(id, created_at, updated_at, verified_at, preferred_presence, email, username, password_hash)
         VALUES ($1, $6, $7, $8, $9, $10, $11, $12))
-    INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+    INSERT INTO user_profiles(user_id, created_at, updated_at, display_name, avatar_url)
         VALUES ($1, $2, $3, $4, $5)
 `
 
 type UserCreateAggregateParams struct {
 	UserID            pgtype.UUID        `json:"user_id"`
-	DisplayName       string             `json:"display_name"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
 	ProfileCreatedAt  pgtype.Timestamptz `json:"profile_created_at"`
 	ProfileUpdatedAt  pgtype.Timestamptz `json:"profile_updated_at"`
+	DisplayName       string             `json:"display_name"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
+	UserCreatedAt     pgtype.Timestamptz `json:"user_created_at"`
+	UserUpdatedAt     pgtype.Timestamptz `json:"user_updated_at"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
 	Email             string             `json:"email"`
 	Username          string             `json:"username"`
 	PasswordHash      string             `json:"password_hash"`
-	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
-	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
-	UserCreatedAt     pgtype.Timestamptz `json:"user_created_at"`
-	UserUpdatedAt     pgtype.Timestamptz `json:"user_updated_at"`
 }
 
 func (q *Queries) UserCreateAggregate(ctx context.Context, arg UserCreateAggregateParams) error {
 	_, err := q.db.Exec(ctx, userCreateAggregate,
 		arg.UserID,
-		arg.DisplayName,
-		arg.AvatarUrl,
 		arg.ProfileCreatedAt,
 		arg.ProfileUpdatedAt,
+		arg.DisplayName,
+		arg.AvatarUrl,
+		arg.UserCreatedAt,
+		arg.UserUpdatedAt,
+		arg.VerifiedAt,
+		arg.PreferredPresence,
 		arg.Email,
 		arg.Username,
 		arg.PasswordHash,
-		arg.PreferredPresence,
-		arg.VerifiedAt,
-		arg.UserCreatedAt,
-		arg.UserUpdatedAt,
 	)
 	return err
 }
 
 const userGet = `-- name: UserGet :one
 SELECT
-    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
+    id, email, username, password_hash, preferred_presence, verified_at, display_name, avatar_url, created_at, updated_at, profile_created_at, profile_updated_at
 FROM
     user_aggregates
 WHERE
@@ -923,10 +923,10 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, e
 		&i.PasswordHash,
 		&i.PreferredPresence,
 		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.DisplayName,
 		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ProfileCreatedAt,
 		&i.ProfileUpdatedAt,
 	)
@@ -935,7 +935,7 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, e
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
+    id, email, username, password_hash, preferred_presence, verified_at, display_name, avatar_url, created_at, updated_at, profile_created_at, profile_updated_at
 FROM
     user_aggregates
 WHERE
@@ -953,10 +953,10 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (UserAggrega
 		&i.PasswordHash,
 		&i.PreferredPresence,
 		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.DisplayName,
 		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ProfileCreatedAt,
 		&i.ProfileUpdatedAt,
 	)
@@ -965,7 +965,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (UserAggrega
 
 const userGetByUsername = `-- name: UserGetByUsername :one
 SELECT
-    id, email, username, password_hash, preferred_presence, verified_at, created_at, updated_at, display_name, avatar_url, profile_created_at, profile_updated_at
+    id, email, username, password_hash, preferred_presence, verified_at, display_name, avatar_url, created_at, updated_at, profile_created_at, profile_updated_at
 FROM
     user_aggregates
 WHERE
@@ -983,18 +983,18 @@ func (q *Queries) UserGetByUsername(ctx context.Context, username string) (UserA
 		&i.PasswordHash,
 		&i.PreferredPresence,
 		&i.VerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.DisplayName,
 		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ProfileCreatedAt,
 		&i.ProfileUpdatedAt,
 	)
 	return i, err
 }
 
-const userProfileSave = `-- name: UserProfileSave :one
-INSERT INTO user_profiles(user_id, display_name, avatar_url, created_at, updated_at)
+const userProfileUpsert = `-- name: UserProfileUpsert :one
+INSERT INTO user_profiles(user_id, created_at, updated_at, display_name, avatar_url)
     VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (user_id)
     DO UPDATE SET
@@ -1005,21 +1005,21 @@ ON CONFLICT (user_id)
         user_id, created_at, updated_at, display_name, avatar_url
 `
 
-type UserProfileSaveParams struct {
+type UserProfileUpsertParams struct {
 	UserID      pgtype.UUID        `json:"user_id"`
-	DisplayName string             `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DisplayName string             `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
 }
 
-func (q *Queries) UserProfileSave(ctx context.Context, arg UserProfileSaveParams) (UserProfile, error) {
-	row := q.db.QueryRow(ctx, userProfileSave,
+func (q *Queries) UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error) {
+	row := q.db.QueryRow(ctx, userProfileUpsert,
 		arg.UserID,
-		arg.DisplayName,
-		arg.AvatarUrl,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.DisplayName,
+		arg.AvatarUrl,
 	)
 	var i UserProfile
 	err := row.Scan(
@@ -1032,42 +1032,48 @@ func (q *Queries) UserProfileSave(ctx context.Context, arg UserProfileSaveParams
 	return i, err
 }
 
-const userSave = `-- name: UserSave :one
+const userUpdate = `-- name: UserUpdate :one
 UPDATE
     users
 SET
-    password_hash = $2,
-    preferred_presence = $3,
-    verified_at = $4,
-    updated_at = $5
+    email = $1,
+    username = $2,
+    password_hash = $3,
+    preferred_presence = $4,
+    verified_at = $5,
+    updated_at = $6
 WHERE
-    id = $1
+    id = $7
 RETURNING
-    id, verified_at, created_at, updated_at, preferred_presence, email, username, password_hash
+    id, created_at, updated_at, verified_at, preferred_presence, email, username, password_hash
 `
 
-type UserSaveParams struct {
-	ID                pgtype.UUID        `json:"id"`
+type UserUpdateParams struct {
+	Email             string             `json:"email"`
+	Username          string             `json:"username"`
 	PasswordHash      string             `json:"password_hash"`
 	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
 	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID                pgtype.UUID        `json:"id"`
 }
 
-func (q *Queries) UserSave(ctx context.Context, arg UserSaveParams) (User, error) {
-	row := q.db.QueryRow(ctx, userSave,
-		arg.ID,
+func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdate,
+		arg.Email,
+		arg.Username,
 		arg.PasswordHash,
 		arg.PreferredPresence,
 		arg.VerifiedAt,
 		arg.UpdatedAt,
+		arg.ID,
 	)
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.VerifiedAt,
 		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,

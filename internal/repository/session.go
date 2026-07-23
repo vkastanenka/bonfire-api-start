@@ -13,13 +13,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Session struct {
-	store Store
+type SessionStore interface {
+	SessionCreate(ctx context.Context, arg db.SessionCreateParams) (db.Session, error)
+	SessionSave(ctx context.Context, arg db.SessionSaveParams) (db.Session, error)
+	SessionGet(ctx context.Context, id pgtype.UUID) (db.Session, error)
+	SessionDelete(ctx context.Context, id pgtype.UUID) error
+	SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error
+	SessionDeleteAllExcept(ctx context.Context, arg db.SessionDeleteAllExceptParams) error
+	SessionDeleteAllExpired(ctx context.Context) error
 }
 
-var _ session.Repository = (*Session)(nil)
+type Session struct {
+	store SessionStore
+}
 
-func NewSession(store Store) *Session {
+func NewSession(store SessionStore) *Session {
 	return &Session{store: store}
 }
 

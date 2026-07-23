@@ -13,13 +13,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type User struct {
-	store Store
+type UserStore interface {
+	UserCreateAggregate(ctx context.Context, arg db.UserCreateAggregateParams) error
+	UserGet(ctx context.Context, id pgtype.UUID) (db.UserAggregate, error)
+	UserGetByEmail(ctx context.Context, email string) (db.UserAggregate, error)
+	UserGetByUsername(ctx context.Context, username string) (db.UserAggregate, error)
+	UserCheckAvailability(ctx context.Context, arg db.UserCheckAvailabilityParams) (db.UserCheckAvailabilityRow, error)
+	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.User, error)
+	UserProfileUpsert(ctx context.Context, arg db.UserProfileUpsertParams) (db.UserProfile, error)
 }
 
-var _ user.Repository = (*User)(nil)
+type User struct {
+	store UserStore
+}
 
-func NewUser(store Store) *User {
+func NewUser(store UserStore) *User {
 	return &User{store: store}
 }
 
@@ -42,37 +50,6 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
-	}
-
-	return nil
-}
-
-func (r *User) Save(ctx context.Context, u *user.User) error {
-	_, err := r.store.UserSave(ctx, db.UserSaveParams{
-		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
-		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: presenceToInt2(u.PreferredPresence()),
-		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
-		UpdatedAt:         pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityUser)
-	}
-
-	return nil
-}
-
-func (r *User) SaveProfile(ctx context.Context, u *user.User) error {
-	prof := u.Profile()
-	_, err := r.store.UserProfileSave(ctx, db.UserProfileSaveParams{
-		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
-		DisplayName: prof.DisplayName().String(),
-		AvatarUrl:   stringPtrToText(prof.AvatarURL()),
-		CreatedAt:   pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
-		UpdatedAt:   pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityUserProfile)
 	}
 
 	return nil
@@ -112,6 +89,40 @@ func (r *User) CheckAvailability(ctx context.Context, email user.Email, username
 	}
 
 	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
+}
+
+func (r *User) Update(ctx context.Context, u *user.User) error {
+	_, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
+		ID:                pgtype.UUID{Bytes: u.ID(), Valid: true},
+		Email:             u.Email().String(),
+		Username:          u.Username().String(),
+		PasswordHash:      u.PasswordHash(),
+		PreferredPresence: presenceToInt2(u.PreferredPresence()),
+		VerifiedAt:        timeToTimestamptz(u.VerifiedAt()),
+		UpdatedAt:         pgtype.Timestamptz{Time: u.UpdatedAt(), Valid: true},
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityUser)
+	}
+
+	return nil
+}
+
+func (r *User) UpsertProfile(ctx context.Context, u *user.User) error {
+	prof := u.Profile()
+
+	_, err := r.store.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
+		UserID:      pgtype.UUID{Bytes: u.ID(), Valid: true},
+		CreatedAt:   pgtype.Timestamptz{Time: prof.CreatedAt(), Valid: true},
+		UpdatedAt:   pgtype.Timestamptz{Time: prof.UpdatedAt(), Valid: true},
+		DisplayName: prof.DisplayName().String(),
+		AvatarUrl:   stringPtrToText(prof.AvatarURL()),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityUserProfile)
+	}
+
+	return nil
 }
 
 func userFromRow(row db.UserAggregate) (*user.User, error) {

@@ -15,13 +15,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Outbox struct {
-	store Store
+type OutboxStore interface {
+	OutboxEventCreate(ctx context.Context, arg db.OutboxEventCreateParams) (db.OutboxEvent, error)
+	OutboxEventGet(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
+	OutboxEventList(ctx context.Context, arg db.OutboxEventListParams) ([]db.OutboxEvent, error)
+	OutboxEventAcquireBatch(ctx context.Context, arg db.OutboxEventAcquireBatchParams) ([]db.OutboxEvent, error)
+	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
+	OutboxEventRecordFailure(ctx context.Context, arg db.OutboxEventRecordFailureParams) (db.OutboxEvent, error)
+	OutboxEventMarkDeadLetter(ctx context.Context, arg db.OutboxEventMarkDeadLetterParams) (db.OutboxEvent, error)
+	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
+	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
+	OutboxEventPurgeProcessed(ctx context.Context) error
 }
 
-var _ outbox.Repository = (*Outbox)(nil)
+type Outbox struct {
+	store OutboxStore
+}
 
-func NewOutbox(store Store) *Outbox {
+func NewOutbox(store OutboxStore) *Outbox {
 	return &Outbox{store: store}
 }
 

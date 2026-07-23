@@ -34,16 +34,11 @@ CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at ASC,
 WHERE
     processed_at IS NULL;
 
-CREATE TRIGGER update_outbox_events_modtime
-    BEFORE UPDATE ON outbox_events
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
-
 CREATE TABLE users(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    verified_at timestamp with time zone DEFAULT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    verified_at timestamp with time zone DEFAULT NULL,
     preferred_presence smallint DEFAULT NULL,
     email CITEXT NOT NULL UNIQUE,
     username CITEXT NOT NULL UNIQUE,
@@ -55,27 +50,15 @@ CREATE TABLE users(
     CONSTRAINT preferred_presence_values CHECK (preferred_presence IN (4, 5, 6))
 );
 
-CREATE TRIGGER update_users_modtime
-    BEFORE UPDATE ON users
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
-
 CREATE TABLE user_profiles(
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    display_name text NOT NULL,
+    display_name CITEXT NOT NULL,
     avatar_url text,
     CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 3 AND 32),
     CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 2048)
 );
-
-CREATE INDEX idx_user_profiles_display_name ON user_profiles(display_name);
-
-CREATE TRIGGER update_user_profiles_modtime
-    BEFORE UPDATE ON user_profiles
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
 
 CREATE OR REPLACE VIEW user_aggregates AS
 SELECT
@@ -85,10 +68,10 @@ SELECT
     u.password_hash,
     u.preferred_presence,
     u.verified_at,
-    u.created_at AS created_at,
-    u.updated_at AS updated_at,
     p.display_name,
     p.avatar_url,
+    u.created_at,
+    u.updated_at,
     p.created_at AS profile_created_at,
     p.updated_at AS profile_updated_at
 FROM
@@ -119,11 +102,6 @@ WHERE (revoked_at IS NULL);
 
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
-CREATE TRIGGER update_sessions_modtime
-    BEFORE UPDATE ON sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
-
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -134,11 +112,6 @@ CREATE TABLE channels(
     CONSTRAINT check_channel_name_rules CHECK ((type = 1 AND name IS NULL) OR (type != 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100)))
 );
 
-CREATE TRIGGER update_channels_modtime
-    BEFORE UPDATE ON channels
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
-
 CREATE TABLE channel_members(
     channel_id uuid REFERENCES channels(id) ON DELETE CASCADE,
     user_id uuid REFERENCES users(id) ON DELETE CASCADE,
@@ -148,11 +121,6 @@ CREATE TABLE channel_members(
 );
 
 CREATE INDEX idx_channel_members_user_id ON channel_members(user_id);
-
-CREATE TRIGGER update_channel_members_modtime
-    BEFORE UPDATE ON channel_members
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
 
 CREATE TABLE relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -170,11 +138,6 @@ CREATE TABLE relationships(
 -- Covered by Primary Key: (user1_id, user2_id)
 -- Needed for Perspective B lookup:
 CREATE INDEX idx_relationships_user2_variant ON relationships(user2_id, variant);
-
-CREATE TRIGGER update_relationships_modtime
-    BEFORE UPDATE ON relationships
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_column();
 
 -- ============================================================================
 -- READ MODEL VIEW (Optimized Projection View)
