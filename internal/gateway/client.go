@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/presence"
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -95,6 +96,16 @@ func (c *Client) readPump(hub *Hub) {
 			continue
 		}
 
-		hub.handleMessage(c, wsMsg)
+		hub.mu.RLock()
+		handler, exists := hub.handlers[wsMsg.Type]
+		hub.mu.RUnlock()
+
+		if exists {
+			go func(h MessageHandler, m WSMessage) {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = h(bgCtx, c, m.Data)
+			}(handler, wsMsg)
+		}
 	}
 }

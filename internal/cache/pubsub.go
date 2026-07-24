@@ -16,11 +16,6 @@ type Event struct {
 	Payload string
 }
 
-type Subscription interface {
-	Channel() <-chan Event
-	Unsubscribe(ctx context.Context) error
-}
-
 type CacheSub struct {
 	pubsub *redis.PubSub
 	ch     chan Event
@@ -45,6 +40,10 @@ func (s *CacheSub) Unsubscribe(ctx context.Context) error {
 	return nil
 }
 
+func (s *CacheSub) Close() error {
+	return s.Unsubscribe(context.Background())
+}
+
 func (s *Store) Publish(ctx context.Context, channel string, message interface{}) error {
 	var payload []byte
 	var err error
@@ -67,7 +66,7 @@ func (s *Store) Publish(ctx context.Context, channel string, message interface{}
 	return nil
 }
 
-func (s *Store) Subscribe(ctx context.Context, channel string) (Subscription, error) {
+func (s *Store) Subscribe(ctx context.Context, channel string) (*CacheSub, error) {
 	pb := s.client.Subscribe(ctx, channel)
 
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -88,7 +87,7 @@ func (s *Store) Subscribe(ctx context.Context, channel string) (Subscription, er
 	return sub, nil
 }
 
-func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (Subscription, error) {
+func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (*CacheSub, error) {
 	pb := s.client.PSubscribe(ctx, patterns...)
 
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
