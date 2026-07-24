@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -106,7 +109,7 @@ func (r *Relationship) GetPerspective(ctx context.Context, userID, peerID uuid.U
 		return nil, db.NewError(err, db.EntityRelationship)
 	}
 
-	return perspectiveFromRow(row), nil
+	return perspectiveFromRow(row)
 }
 
 // ListPerspectives retrieves all relationship projections for a user, optionally filtered by relationship type.
@@ -121,7 +124,11 @@ func (r *Relationship) ListPerspectives(ctx context.Context, userID uuid.UUID, f
 
 	perspectives := make([]relationship.Perspective, len(rows))
 	for i, row := range rows {
-		perspectives[i] = *perspectiveFromRow(row)
+		p, err := perspectiveFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		perspectives[i] = *p
 	}
 
 	return perspectives, nil
@@ -164,7 +171,39 @@ func relationshipFromUpsertRow(row db.RelationshipUpsertRow) *relationship.Relat
 	)
 }
 
-func perspectiveFromRow(row db.RelationshipPerspective) *relationship.Perspective {
+func perspectiveFromRow(row db.RelationshipPerspective) (*relationship.Perspective, error) {
+	userID := uuid.UUID(row.UserID.Bytes).String()
+	peerID := uuid.UUID(row.PeerID.Bytes).String()
+
+	username, err := user.NewUsername(row.Username)
+	if err != nil {
+		return nil, errs.Internal("failed to parse peer username from database perspective").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta("username", row.Username).
+			Resource("RelationshipPerspective", userID, peerID, "database perspective mapping")
+	}
+
+	var displayName *user.ProfileDisplayName
+	if row.DisplayName.Valid && row.DisplayName.String != "" {
+		dn, err := user.NewProfileDisplayName(row.DisplayName.String)
+		if err != nil {
+			return nil, errs.Internal("failed to parse peer display name from database perspective").
+				Wrap(err).
+				Reason("CORRUPT_DATABASE_RECORD").
+				Meta("display_name", row.DisplayName.String).
+				Resource("RelationshipPerspective", userID, peerID, "database perspective mapping")
+		}
+		displayName = &dn
+	}
+
+	var avatarURL *string
+	if row.AvatarUrl.Valid && row.AvatarUrl.String != "" {
+		avatarURL = &row.AvatarUrl.String
+	}
+
+	prefPresence := presence.Presence(row.UserPreferredPresence.Int16)
+
 	return relationship.ReconstitutePerspective(
 		uuid.UUID(row.UserID.Bytes),
 		uuid.UUID(row.PeerID.Bytes),
@@ -173,10 +212,10 @@ func perspectiveFromRow(row db.RelationshipPerspective) *relationship.Perspectiv
 		row.IsInitiator,
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
-		row.Username,
-		db.StringPtr(row.DisplayName),
-		db.StringPtr(row.AvatarUrl),
-		row.UserPreferredPresence.Int16,
+		username,
+		displayName,
+		avatarURL,
+		prefPresence,
 		db.UUIDPtrFromDB(row.ChannelID),
-	)
+	), nil
 }

@@ -1,8 +1,12 @@
 package relationship
 
 import (
+	"bytes"
 	"errors"
 	"time"
+
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +18,6 @@ var (
 	ErrCannotAccept        = errors.New("only the target user can accept a pending request")
 )
 
-// Relationship represents the Aggregate Root for user relationships.
 type Relationship struct {
 	user1ID   uuid.UUID
 	user2ID   uuid.UUID
@@ -24,7 +27,6 @@ type Relationship struct {
 	updatedAt time.Time
 }
 
-// Request constructs a new pending relationship request between two users.
 func Request(actorID, targetID uuid.UUID) (*Relationship, error) {
 	if actorID == uuid.Nil || targetID == uuid.Nil {
 		return nil, errors.New("user IDs cannot be nil")
@@ -46,7 +48,6 @@ func Request(actorID, targetID uuid.UUID) (*Relationship, error) {
 	}, nil
 }
 
-// Reconstitute restores an existing relationship aggregate from storage.
 func Reconstitute(
 	user1ID, user2ID, actorID uuid.UUID,
 	variant Variant,
@@ -62,9 +63,6 @@ func Reconstitute(
 	}
 }
 
-// --- Domain Invariants & Mutations ---
-
-// Accept transitions a pending request into a friendship.
 func (r *Relationship) Accept(actorID uuid.UUID) error {
 	if !r.IsParticipant(actorID) {
 		return ErrInvalidActor
@@ -72,7 +70,6 @@ func (r *Relationship) Accept(actorID uuid.UUID) error {
 	if r.variant != VariantPending {
 		return errors.New("only pending requests can be accepted")
 	}
-	// Invariant: The user accepting MUST NOT be the initiator
 	if r.actorID == actorID {
 		return ErrCannotAccept
 	}
@@ -83,7 +80,6 @@ func (r *Relationship) Accept(actorID uuid.UUID) error {
 	return nil
 }
 
-// Block transitions the relationship state into blocked by the acting user.
 func (r *Relationship) Block(actorID uuid.UUID) error {
 	if !r.IsParticipant(actorID) {
 		return ErrInvalidActor
@@ -94,8 +90,6 @@ func (r *Relationship) Block(actorID uuid.UUID) error {
 	r.updatedAt = time.Now().UTC()
 	return nil
 }
-
-// --- Query Helpers & Getters ---
 
 func (r *Relationship) IsParticipant(userID uuid.UUID) bool {
 	return userID == r.user1ID || userID == r.user2ID
@@ -119,19 +113,13 @@ func (r *Relationship) Variant() Variant     { return r.variant }
 func (r *Relationship) CreatedAt() time.Time { return r.createdAt }
 func (r *Relationship) UpdatedAt() time.Time { return r.updatedAt }
 
-// Sorts UUIDs lexicographically to maintain database invariant (user1_id < user2_id).
 func sortUserIDs(u1, u2 uuid.UUID) (uuid.UUID, uuid.UUID) {
-	if u1.String() < u2.String() {
+	if bytes.Compare(u1[:], u2[:]) < 0 {
 		return u1, u2
 	}
 	return u2, u1
 }
 
-// ============================================================================
-// READ MODEL / PROJECTION
-// ============================================================================
-
-// Perspective represents a read-optimized projection of a relationship for a specific user.
 type Perspective struct {
 	userID                uuid.UUID
 	peerID                uuid.UUID
@@ -140,10 +128,10 @@ type Perspective struct {
 	isInitiator           bool
 	createdAt             time.Time
 	updatedAt             time.Time
-	username              string
-	displayName           *string
+	username              user.Username
+	displayName           *user.ProfileDisplayName
 	avatarURL             *string
-	userPreferredPresence int16
+	userPreferredPresence presence.Presence
 	channelID             *uuid.UUID
 }
 
@@ -153,9 +141,10 @@ func ReconstitutePerspective(
 	actorID uuid.UUID,
 	isInitiator bool,
 	createdAt, updatedAt time.Time,
-	username string,
-	displayName, avatarURL *string,
-	userPreferredPresence int16,
+	username user.Username,
+	displayName *user.ProfileDisplayName,
+	avatarURL *string,
+	userPreferredPresence presence.Presence,
 	channelID *uuid.UUID,
 ) *Perspective {
 	return &Perspective{
@@ -174,16 +163,17 @@ func ReconstitutePerspective(
 	}
 }
 
-// Getters for Perspective Projection
-func (p *Perspective) UserID() uuid.UUID            { return p.userID }
-func (p *Perspective) PeerID() uuid.UUID            { return p.peerID }
-func (p *Perspective) Variant() Variant             { return p.variant }
-func (p *Perspective) ActorID() uuid.UUID           { return p.actorID }
-func (p *Perspective) IsInitiator() bool            { return p.isInitiator }
-func (p *Perspective) CreatedAt() time.Time         { return p.createdAt }
-func (p *Perspective) UpdatedAt() time.Time         { return p.updatedAt }
-func (p *Perspective) Username() string             { return p.username }
-func (p *Perspective) DisplayName() *string         { return p.displayName }
-func (p *Perspective) AvatarURL() *string           { return p.avatarURL }
-func (p *Perspective) UserPreferredPresence() int16 { return p.userPreferredPresence }
-func (p *Perspective) ChannelID() *uuid.UUID        { return p.channelID }
+func (p *Perspective) UserID() uuid.UUID                     { return p.userID }
+func (p *Perspective) PeerID() uuid.UUID                     { return p.peerID }
+func (p *Perspective) Variant() Variant                      { return p.variant }
+func (p *Perspective) ActorID() uuid.UUID                    { return p.actorID }
+func (p *Perspective) IsInitiator() bool                     { return p.isInitiator }
+func (p *Perspective) CreatedAt() time.Time                  { return p.createdAt }
+func (p *Perspective) UpdatedAt() time.Time                  { return p.updatedAt }
+func (p *Perspective) Username() user.Username               { return p.username }
+func (p *Perspective) DisplayName() *user.ProfileDisplayName { return p.displayName }
+func (p *Perspective) AvatarURL() *string                    { return p.avatarURL }
+func (p *Perspective) UserPreferredPresence() presence.Presence {
+	return p.userPreferredPresence
+}
+func (p *Perspective) ChannelID() *uuid.UUID { return p.channelID }
