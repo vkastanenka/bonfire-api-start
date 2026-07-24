@@ -56,20 +56,14 @@ type TokenProvider interface {
 	VerifyRefresh(tokenStr string) (*token.Claims, error)
 }
 
-type RegisterUserTxParams struct {
-	User         *user.User
-	Session      *session.Session
-	// OutboxParams outbox.PublishParams
-}
-
 type UserRepository interface {
 	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error)
 	Create(ctx context.Context, u *user.User) error
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
 	GetByUsername(ctx context.Context, username user.Username) (*user.User, error)
-	Save(ctx context.Context, u *user.User) error
-	SaveProfile(ctx context.Context, u *user.User) error
+	Update(ctx context.Context, u *user.User) error
+	UpsertProfile(ctx context.Context, uid uuid.UUID, p *user.Profile) error
 }
 
 type Service struct {

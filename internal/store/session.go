@@ -12,12 +12,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type Session struct {
-	q cache.Store
+type SessionStore interface {
+	Get(ctx context.Context, key string, dest interface{}) error
+	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	Delete(ctx context.Context, key ...string) error
 }
 
-func NewSession(q cache.Store) *Session {
-	return &Session{q: q}
+type Session struct {
+	store SessionStore
+}
+
+func NewSession(store SessionStore) *Session {
+	return &Session{store: store}
 }
 
 func sessionKey(id uuid.UUID) string {
@@ -43,7 +49,7 @@ func (s *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, erro
 	key := sessionKey(id)
 
 	var dto sessionDTO
-	err := s.q.Get(ctx, key, &dto)
+	err := s.store.Get(ctx, key, &dto)
 	if cache.IsNotFoundError(err) {
 		return nil, nil // Return nil on cache miss to let caller fall back to DB
 	}
@@ -99,7 +105,7 @@ func (s *Session) Set(ctx context.Context, sess *session.Session) error {
 	}
 
 	key := sessionKey(sess.ID())
-	if err := s.q.Set(ctx, key, dto, ttl); err != nil {
+	if err := s.store.Set(ctx, key, dto, ttl); err != nil {
 		return cache.NewError(err, cache.ScopeSession)
 	}
 
@@ -109,7 +115,7 @@ func (s *Session) Set(ctx context.Context, sess *session.Session) error {
 func (s *Session) Delete(ctx context.Context, id uuid.UUID) error {
 	key := sessionKey(id)
 
-	if err := s.q.Delete(ctx, key); err != nil && !cache.IsNotFoundError(err) {
+	if err := s.store.Delete(ctx, key); err != nil && !cache.IsNotFoundError(err) {
 		return cache.NewError(err, cache.ScopeSession)
 	}
 

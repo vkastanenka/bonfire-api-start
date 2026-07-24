@@ -108,7 +108,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		// }
 
 		// Save updated user aggregate (contains new password hash & updated timestamp)
-		if err := s.users.Save(txCtx, u); err != nil {
+		if err := s.users.Update(txCtx, u); err != nil {
 			return err
 		}
 

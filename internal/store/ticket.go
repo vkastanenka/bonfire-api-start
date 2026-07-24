@@ -10,12 +10,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type Ticket struct {
-	q cache.Store
+type TicketStore interface {
+	Get(ctx context.Context, key string, dest interface{}) error
+	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	Delete(ctx context.Context, key ...string) error
 }
 
-func NewTicket(q cache.Store) *Ticket {
-	return &Ticket{q: q}
+type Ticket struct {
+	store TicketStore
+}
+
+func NewTicket(store TicketStore) *Ticket {
+	return &Ticket{store: store}
 }
 
 func ticketKey(id uuid.UUID) string {
@@ -24,7 +30,7 @@ func ticketKey(id uuid.UUID) string {
 
 func (s *Ticket) SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error {
 	k := ticketKey(ticketID)
-	if err := s.q.Set(ctx, k, userID, ttl); err != nil {
+	if err := s.store.Set(ctx, k, userID, ttl); err != nil {
 		return cache.NewError(err, cache.ScopeTicket)
 	}
 	return nil
@@ -34,7 +40,7 @@ func (s *Ticket) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UU
 	k := ticketKey(ticketID)
 
 	var userID uuid.UUID
-	err := s.q.Get(ctx, k, &userID)
+	err := s.store.Get(ctx, k, &userID)
 	if cache.IsNotFoundError(err) {
 		return uuid.Nil, cache.ErrNotFound
 	}
@@ -42,7 +48,7 @@ func (s *Ticket) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UU
 		return uuid.Nil, cache.NewError(err, cache.ScopeTicket)
 	}
 
-	_ = s.q.Delete(ctx, k)
+	_ = s.store.Delete(ctx, k)
 
 	return userID, nil
 }

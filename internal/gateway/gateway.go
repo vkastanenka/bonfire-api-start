@@ -2,10 +2,12 @@ package gateway
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"time"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -15,61 +17,58 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-type TicketCacher interface {
-	Get(ctx context.Context, key string, dest interface{}) error
-	Delete(ctx context.Context, key string) error
+type PresenceStore interface {
+	SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error
+}
+
+type TicketStore interface {
+	SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error
+	ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, error)
 }
 
 type Handler struct {
-	hub   *Hub
-	cache TicketCacher
-	bind  *httpio.Bind
+	hub           *Hub
+	presenceCache PresenceStore
+	tickets       TicketStore
+	bind          *httpio.Bind
 }
 
-func NewHandler(hub *Hub, cache TicketCacher, bind *httpio.Bind) *Handler {
+func NewHandler(hub *Hub, presenceCache PresenceStore, tickets TicketStore, bind *httpio.Bind) *Handler {
 	return &Handler{
-		hub:   hub,
-		cache: cache,
-		bind:  bind,
+		hub:           hub,
+		presenceCache: presenceCache,
+		tickets:       tickets,
+		bind:          bind,
 	}
 }
 
 type ServeWSQuery struct {
-	TicketID string  `form:"ticket-id" validate:"required,uuid"`
-	Presence *string `form:"presence"  validate:"omitempty,presence"`
+	TicketID uuid.UUID `form:"ticketId" validate:"required,uuid"`
+	Presence string    `form:"presence" mod:"text" validate:"required,max=12"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	var query ServeWSQuery
-	err := h.bind.Query(r, &query)
+	if err := h.bind.Query(r, &query); err != nil {
+		return err
+	}
+
+	ctx := r.Context()
+	userID, err := h.tickets.ConsumeTicket(ctx, query.TicketID)
 	if err != nil {
 		return err
 	}
 
-	_, err = uuid.Parse(query.TicketID)
-	if err != nil {
-		return errs.InvalidArgument("Invalid ticket format.").
-			Meta("ticket-id", "Must be a valid UUID v4 format.").
-			FieldViolation("ticket-id", "Must be a valid UUID v4 format.", "INVALID_UUID").
-			Wrap(err)
+	// Safely evaluate and resolve user presence
+	userPresence, err := presence.New(query.Presence)
+	if err != nil || !userPresence.IsValid() {
+		userPresence = presence.PresenceOnline
 	}
 
-	ctx := r.Context()
-	// ticketKey := cache.WSTicketKey(ticketId)
-	ticketKey := ""
-	var ticket uuid.UUID
-
-	err = h.cache.Get(ctx, ticketKey, &ticket)
-	if err != nil {
-		return errs.Unauthenticated("Websocket connection ticket is invalid or expired.").Wrap(err)
+	// Set presence using a decoupled/safe context so it doesn't get aborted mid-flight
+	if err := h.presenceCache.SetPresence(context.WithoutCancel(ctx), userID, userPresence); err != nil {
+		slog.ErrorContext(ctx, "Failed to set initial user presence on websocket connect", "user_id", userID, "error", err)
 	}
-
-	_ = h.cache.Delete(ctx, ticketKey)
-
-	// userPresence := user.PresenceOnline
-	// if query.Presence != nil {
-	// 	userPresence = user.ParsePresence(*query.Presence)
-	// }
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -77,10 +76,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := &Client{
-		UserID:   ticket,
-		Presence: nil,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
+		UserID: userID,
+		Conn:   conn,
+		Send:   make(chan []byte, 256),
 	}
 	h.hub.register <- client
 

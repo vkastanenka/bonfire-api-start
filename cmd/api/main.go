@@ -13,10 +13,13 @@ import (
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/email"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/logger"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/store"
 	"bonfire-api/internal/token"
@@ -112,18 +115,17 @@ func run(cfg *config.Config) error {
 	})
 
 	outboxRepo := repository.NewOutbox(dbStore)
-	// relationshipRepo := repository.NewRelationship(dbStore)
+	relationshipRepo := repository.NewRelationship(dbStore)
 	sessionRepo := repository.NewSession(dbStore)
 	userRepo := repository.NewUser(dbStore)
 
-	// presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
+	presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
 	sessionStore := store.NewSession(cacheStore)
 	shieldStore := store.NewShield(cacheStore)
 	ticketStore := store.NewTicket(cacheStore)
 
-	// relationshipSvc := relationship.NewService(relationshipRepo)
-	// presenceSvc := presence.NewService(presenceStore)
-	// userSvc := user.NewService(userRepo)
+	relationshipSvc := relationship.NewService(relationshipRepo, outboxRepo, dbStore)
+	presenceSvc := presence.NewService(presenceStore)
 	authSvc := auth.NewService(
 		outboxRepo,
 		sessionRepo,
@@ -139,14 +141,15 @@ func run(cfg *config.Config) error {
 		outboxRepo,
 		2*time.Second,
 		int32(10),
-		int32(10),
+		int32(50),
+		int(4),
 	)
 	auth.RegisterOutboxHandlers(outboxWorker, mailer)
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop()
 
-	// hub := gateway.NewHub(store, cacheMgr, presenceSvc)
-	// go hub.Run(ctx)
+	hub := gateway.NewHub(*dbStore, *cacheStore)
+	go hub.Run(ctx)
 
 	authHandler := handler.NewAuth(&authSvc, bind)
 	// gatewayHandler := gateway.NewHandler(hub, cacheMgr)

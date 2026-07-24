@@ -66,7 +66,7 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 	persistCtx := context.WithoutCancel(ctx)
 
 	txErr := s.tx.ExecTx(persistCtx, func(txCtx context.Context) error {
-		return s.users.Save(txCtx, u)
+		return s.users.Update(txCtx, u)
 	})
 
 	if txErr != nil {
