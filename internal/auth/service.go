@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type TX interface {
+type Tx interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
@@ -80,7 +80,7 @@ type Service struct {
 	shield       ShieldStore
 	tickets      TicketStore
 	tokens       TokenProvider
-	tx           TX
+	tx           Tx
 }
 
 func NewService(
@@ -91,7 +91,7 @@ func NewService(
 	shield ShieldStore,
 	tickets TicketStore,
 	tokens TokenProvider,
-	tx TX,
+	tx Tx,
 ) Service {
 	return Service{
 		outbox:       outbox,
