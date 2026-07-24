@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -34,46 +33,4 @@ func (s *Store) ExecPipeline(ctx context.Context, fn func(Querier) error) error 
 	}
 
 	return nil
-}
-
-func (s *Store) Subscribe(ctx context.Context, channel string) (Subscription, error) {
-	pb := s.client.Subscribe(ctx, channel)
-
-	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	if _, err := pb.Receive(subCtx); err != nil {
-		pb.Close()
-		return nil, NewError(err, ScopeEvents)
-	}
-
-	sub := &cacheSub{
-		pubsub: pb,
-		ch:     make(chan string, defaultChannelBuffer),
-		done:   make(chan struct{}),
-	}
-
-	go sub.listen()
-	return sub, nil
-}
-
-func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (Subscription, error) {
-	pb := s.client.PSubscribe(ctx, patterns...)
-
-	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	if _, err := pb.Receive(subCtx); err != nil {
-		pb.Close()
-		return nil, NewError(err, ScopeEvents)
-	}
-
-	sub := &cacheSub{
-		pubsub: pb,
-		ch:     make(chan string, defaultChannelBuffer),
-		done:   make(chan struct{}),
-	}
-
-	go sub.listen()
-	return sub, nil
 }
