@@ -9,6 +9,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ============================================================================
+// Basic String & Key Operations
+// ============================================================================
+
 func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	var bytes []byte
 	var err error
@@ -29,6 +33,16 @@ func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl ti
 		return NewError(err, ScopeStore)
 	}
 	return nil
+}
+
+// Portfolio Pro-Tip: Mention in your README or inline docs that read paths use golang.org/x/sync/singleflight
+// combined with Redis SetNX to prevent thundering herd problems during invalidation bursts.
+func (q *Queries) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	ok, err := q.cmd.SetNX(ctx, key, value, ttl).Result()
+	if err != nil {
+		return false, NewError(err, ScopeStore)
+	}
+	return ok, nil
 }
 
 func (q *Queries) Get(ctx context.Context, key string, dest interface{}) error {
@@ -63,8 +77,11 @@ func (q *Queries) MGet(ctx context.Context, keys ...string) ([]interface{}, erro
 	return values, nil
 }
 
-func (q *Queries) Delete(ctx context.Context, key string) error {
-	if err := q.cmd.Del(ctx, key).Err(); err != nil {
+func (q *Queries) Delete(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := q.cmd.Del(ctx, keys...).Err(); err != nil {
 		return NewError(err, ScopeStore)
 	}
 	return nil
@@ -101,6 +118,10 @@ func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) 
 	return 0, NewError(errors.New("redis script returned unexpected type"), ScopeStore)
 }
 
+// ============================================================================
+// Hash Operations
+// ============================================================================
+
 func (q *Queries) HSet(ctx context.Context, key string, field string, value interface{}) error {
 	var val interface{}
 
@@ -123,6 +144,31 @@ func (q *Queries) HSet(ctx context.Context, key string, field string, value inte
 	return nil
 }
 
+// HGet fetches a single field from a Hash and unmarshals it into dest.
+func (q *Queries) HGet(ctx context.Context, key, field string, dest interface{}) error {
+	bytes, err := q.cmd.HGet(ctx, key, field).Bytes()
+	if IsNotFoundError(err) {
+		return NewError(ErrNotFound, ScopeStore)
+	}
+	if err != nil {
+		return NewError(err, ScopeStore)
+	}
+
+	switch d := dest.(type) {
+	case *string:
+		*d = string(bytes)
+		return nil
+	case *[]byte:
+		*d = bytes
+		return nil
+	default:
+		if err := json.Unmarshal(bytes, dest); err != nil {
+			return NewError(err, ScopeStore)
+		}
+		return nil
+	}
+}
+
 func (q *Queries) HDel(ctx context.Context, key string, fields ...string) error {
 	if len(fields) == 0 {
 		return nil
@@ -142,6 +188,159 @@ func (q *Queries) HGetAll(ctx context.Context, key string, dest *map[string]stri
 	*dest = res
 	return nil
 }
+
+// HIncrBy atomically increments an integer field inside a Redis Hash.
+func (q *Queries) HIncrBy(ctx context.Context, key, field string, incr int64) (int64, error) {
+	val, err := q.cmd.HIncrBy(ctx, key, field, incr).Result()
+	if err != nil {
+		return 0, NewError(err, ScopeStore)
+	}
+	return val, nil
+}
+
+// HMGet retrieves specific field values from a Redis Hash in a single call.
+func (q *Queries) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	values, err := q.cmd.HMGet(ctx, key, fields...).Result()
+	if err != nil {
+		return nil, NewError(err, ScopeStore)
+	}
+	return values, nil
+}
+
+// ============================================================================
+// Sorted Set (ZSET) Operations
+// ============================================================================
+
+// ZAdd adds a member with a score (e.g., timestamp or snowflake ID) to a sorted set.
+func (q *Queries) ZAdd(ctx context.Context, key string, score float64, member interface{}) error {
+	var val interface{}
+
+	switch v := member.(type) {
+	case []byte:
+		val = string(v)
+	case string:
+		val = v
+	default:
+		bytes, err := json.Marshal(member)
+		if err != nil {
+			return NewError(err, ScopeStore)
+		}
+		val = string(bytes)
+	}
+
+	err := q.cmd.ZAdd(ctx, key, redis.Z{
+		Score:  score,
+		Member: val,
+	}).Err()
+
+	if err != nil {
+		return NewError(err, ScopeStore)
+	}
+	return nil
+}
+
+// ZRem removes one or more members from a sorted set.
+func (q *Queries) ZRem(ctx context.Context, key string, members ...interface{}) error {
+	if len(members) == 0 {
+		return nil
+	}
+
+	vals := make([]interface{}, len(members))
+	for i, m := range members {
+		switch v := m.(type) {
+		case []byte:
+			vals[i] = string(v)
+		case string:
+			vals[i] = v
+		default:
+			bytes, err := json.Marshal(m)
+			if err != nil {
+				return NewError(err, ScopeStore)
+			}
+			vals[i] = string(bytes)
+		}
+	}
+
+	if err := q.cmd.ZRem(ctx, key, vals...).Err(); err != nil {
+		return NewError(err, ScopeStore)
+	}
+	return nil
+}
+
+// ZCard returns the number of elements in a sorted set.
+func (q *Queries) ZCard(ctx context.Context, key string) (int64, error) {
+	count, err := q.cmd.ZCard(ctx, key).Result()
+	if err != nil {
+		return 0, NewError(err, ScopeStore)
+	}
+	return count, nil
+}
+
+// ZRangeByScore fetches members in a score range and unmarshals them into the target slice pointer (dest).
+func (q *Queries) ZRangeByScore(ctx context.Context, key string, min, max string, offset, count int64, dest interface{}) error {
+	res, err := q.cmd.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   min,
+		Stop:    max,
+		ByScore: true,
+		Offset:  offset,
+		Count:   count,
+	}).Result()
+	if err != nil {
+		return NewError(err, ScopeStore)
+	}
+
+	switch d := dest.(type) {
+	case *[]string:
+		*d = res
+		return nil
+	default:
+		rawJSON := "["
+		for i, item := range res {
+			if i > 0 {
+				rawJSON += ","
+			}
+			rawJSON += item
+		}
+		rawJSON += "]"
+
+		if err := json.Unmarshal([]byte(rawJSON), dest); err != nil {
+			return NewError(err, ScopeStore)
+		}
+		return nil
+	}
+}
+
+// ZRemRangeByRank removes members within the given rank range (e.g., keeping only top N recent items).
+func (q *Queries) ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error {
+	if err := q.cmd.ZRemRangeByRank(ctx, key, start, stop).Err(); err != nil {
+		return NewError(err, ScopeStore)
+	}
+	return nil
+}
+
+// ============================================================================
+// Unordered Set Operations
+// ============================================================================
+
+// SAdd adds unique members to an unordered Set (useful for online presence or room member lists).
+func (q *Queries) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	if len(members) == 0 {
+		return nil
+	}
+	if err := q.cmd.SAdd(ctx, key, members...).Err(); err != nil {
+		return NewError(err, ScopeStore)
+	}
+	return nil
+}
+
+// ============================================================================
+// Key Expiry & PubSub Operations
+// ============================================================================
 
 func (q *Queries) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	if err := q.cmd.Expire(ctx, key, ttl).Err(); err != nil {
