@@ -12,31 +12,29 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrFatal = errors.New("fatal outbox error")
+// ErrFatal can be wrapped or returned by Handlers to signal a non-retryable failure
+// (e.g., corrupted JSON, business rule violation). The worker will immediately DLQ the event.
+var ErrFatal = errors.New("fatal non-retryable outbox error")
 
+// Handler defines the function signature for processing raw outbox payloads.
 type Handler func(ctx context.Context, payload json.RawMessage) error
 
+// Repository abstracts the Outbox persistence operations required by the Worker.
 type Repository interface {
-	AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec int32, batchSize int32) ([]*Event, error)
-	Create(ctx context.Context, event *Event) error
-	Delete(ctx context.Context, id EventID) error
-	Get(ctx context.Context, id EventID) (*Event, error)
-	List(ctx context.Context, cursorID *EventID, limit int32) ([]*Event, error)
-	MarkDeadLetter(ctx context.Context, id EventID, reason string) (*Event, error)
+	AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec, batchSize int32) ([]*Event, error)
 	MarkProcessed(ctx context.Context, id EventID) (*Event, error)
-	Publish(ctx context.Context, variant string, payload any) (*Event, error)
-	PurgeProcessed(ctx context.Context, retentionDays int32) error
 	RecordFailure(ctx context.Context, id EventID, lastError string) (*Event, error)
-	RenewLease(ctx context.Context, id EventID, workerID uuid.UUID, leaseDurationSec int32) error
-	Save(ctx context.Context, event *Event) error
+	MarkDeadLetter(ctx context.Context, id EventID, reason string) (*Event, error)
 }
 
+// Worker handles polling, concurrent execution, and state management of outbox events.
 type Worker struct {
 	id            uuid.UUID
-	repository    Repository
+	repo          Repository
 	pollInterval  time.Duration
 	leaseDuration int32
 	batchSize     int32
+	maxWorkers    int
 	handlers      map[string]Handler
 	handlersMu    sync.RWMutex
 	wg            sync.WaitGroup
@@ -44,28 +42,35 @@ type Worker struct {
 }
 
 func NewWorker(
-	repository Repository,
+	repo Repository,
 	pollInterval time.Duration,
 	leaseDuration int32,
 	batchSize int32,
+	maxWorkers int,
 ) *Worker {
+	if maxWorkers <= 0 {
+		maxWorkers = 10
+	}
+
 	return &Worker{
 		id:            uuid.New(),
-		repository:    repository,
+		repo:          repo,
 		pollInterval:  pollInterval,
 		leaseDuration: leaseDuration,
 		batchSize:     batchSize,
+		maxWorkers:    maxWorkers,
 		handlers:      make(map[string]Handler),
 	}
 }
 
-// RegisterHandler registers a callback function for a specific event type string.
+// RegisterHandler registers a callback function for a specific event type.
 func (w *Worker) RegisterHandler(eventType string, handler Handler) {
 	w.handlersMu.Lock()
 	defer w.handlersMu.Unlock()
 	w.handlers[eventType] = handler
 }
 
+// Start launches the background worker polling loop.
 func (w *Worker) Start(ctx context.Context) {
 	workerCtx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
@@ -75,11 +80,19 @@ func (w *Worker) Start(ctx context.Context) {
 		defer w.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				slog.ErrorContext(workerCtx, "recovered from panic in outbox worker goroutine", "panic", r)
+				slog.ErrorContext(workerCtx, "recovered from panic in outbox worker loop", "panic", r)
 			}
 		}()
 
-		slog.InfoContext(workerCtx, "initializing background outbox processor", "worker_id", w.id)
+		slog.InfoContext(workerCtx, "initializing outbox background processor",
+			"worker_id", w.id,
+			"batch_size", w.batchSize,
+			"poll_interval", w.pollInterval,
+			"max_workers", w.maxWorkers,
+		)
+
+		// Run immediately on startup
+		w.processBatch(workerCtx)
 
 		ticker := time.NewTicker(w.pollInterval)
 		defer ticker.Stop()
@@ -89,13 +102,14 @@ func (w *Worker) Start(ctx context.Context) {
 			case <-ticker.C:
 				w.processBatch(workerCtx)
 			case <-workerCtx.Done():
-				slog.InfoContext(workerCtx, "system cancellation detected; stopping outbox worker loop")
+				slog.InfoContext(workerCtx, "stopping outbox worker loop")
 				return
 			}
 		}
 	}()
 }
 
+// Stop gracefully waits for in-flight tasks to complete before shutting down.
 func (w *Worker) Stop() {
 	if w.cancel != nil {
 		w.cancel()
@@ -105,11 +119,7 @@ func (w *Worker) Stop() {
 }
 
 func (w *Worker) processBatch(ctx context.Context) {
-	events, err := w.repository.AcquireBatch(ctx, AcquireBatchParams{
-		Limit:                  w.batchSize,
-		WorkerID:               w.id,
-		LeaseDurationInSeconds: w.leaseDuration,
-	})
+	events, err := w.repo.AcquireBatch(ctx, w.id, w.leaseDuration, w.batchSize)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.ErrorContext(ctx, "failed to acquire outbox events", "error", err)
@@ -117,50 +127,102 @@ func (w *Worker) processBatch(ctx context.Context) {
 		return
 	}
 
-	for _, event := range events {
-		if ctx.Err() != nil {
-			return
-		}
-		w.executeEvent(ctx, event)
-	}
-}
-
-func (w *Worker) executeEvent(ctx context.Context, event Event) {
-	w.handlersMu.RLock()
-	handler, exists := w.handlers[event.EventType]
-	w.handlersMu.RUnlock()
-
-	if !exists {
-		slog.WarnContext(ctx, "unhandled event type dropped", "event_type", event.EventType, "event_id", event.ID)
-		w.handleFailure(ctx, event, fmt.Errorf("no handler registered for event type: %s", event.EventType), true)
+	if len(events) == 0 {
 		return
 	}
 
-	executionErr := handler(ctx, event.Payload)
-	isFatal := false
+	// Worker pool mechanism: bound concurrent execution so we don't saturate resources
+	sem := make(chan struct{}, w.maxWorkers)
+	var batchWg sync.WaitGroup
+
+	for _, evt := range events {
+		if ctx.Err() != nil {
+			break
+		}
+
+		batchWg.Add(1)
+		sem <- struct{}{} // Acquire semaphore slot
+
+		go func(e *Event) {
+			defer batchWg.Done()
+			defer func() { <-sem }() // Release semaphore slot
+
+			w.executeEvent(ctx, e)
+		}(evt)
+	}
+
+	batchWg.Wait()
+}
+
+func (w *Worker) executeEvent(ctx context.Context, event *Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(ctx, "recovered from panic during outbox event execution",
+				"event_id", event.ID().UUID(),
+				"event_type", event.EventType(),
+				"panic", r,
+			)
+			w.handleFailure(ctx, event, fmt.Errorf("panic during execution: %v", r), true)
+		}
+	}()
+
+	w.handlersMu.RLock()
+	handler, exists := w.handlers[event.EventType()]
+	w.handlersMu.RUnlock()
+
+	if !exists {
+		slog.WarnContext(ctx, "unhandled event type encountered",
+			"event_type", event.EventType(),
+			"event_id", event.ID().UUID(),
+		)
+		w.handleFailure(ctx, event, fmt.Errorf("no handler registered for event type: %s", event.EventType()), true)
+		return
+	}
+
+	// Calculate execution timeout (80% of lease duration) so handlers cannot hang indefinitely
+	handlerTimeout := time.Duration(float64(w.leaseDuration)*0.8) * time.Second
+	if handlerTimeout <= 0 {
+		handlerTimeout = 5 * time.Second
+	}
+
+	handlerCtx, cancelHandler := context.WithTimeout(ctx, handlerTimeout)
+	defer cancelHandler()
+
+	executionErr := handler(handlerCtx, event.Payload())
 
 	if executionErr != nil {
-		if errors.Is(executionErr, context.Canceled) {
-			slog.InfoContext(ctx, "execution aborted due to shutdown; relying on lease expiration", "event_id", event.ID)
+		if errors.Is(executionErr, context.Canceled) && ctx.Err() != nil {
+			slog.InfoContext(ctx, "execution context canceled during shutdown; leaving lease to expire for recovery",
+				"event_id", event.ID().UUID(),
+			)
 			return
 		}
+
+		isFatal := errors.Is(executionErr, ErrFatal)
 		w.handleFailure(ctx, event, executionErr, isFatal)
 		return
 	}
 
-	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	// Detached context ensures finalize DB calls succeed during application shutdown while preserving trace values
+	finalizeCtx, cancelFinalize := detachContext(ctx, 3*time.Second)
+	defer cancelFinalize()
 
-	if _, err := w.repository.MarkProcessed(finalizeCtx, event.ID); err != nil {
-		slog.ErrorContext(finalizeCtx, "failed to finalize successful outbox event", "event_id", event.ID, "error", err)
+	if _, err := w.repo.MarkProcessed(finalizeCtx, event.ID()); err != nil {
+		slog.ErrorContext(finalizeCtx, "failed to mark outbox event as processed",
+			"event_id", event.ID().UUID(),
+			"error", err,
+		)
 		return
 	}
 
-	slog.InfoContext(finalizeCtx, "successfully processed outbox event", "event_id", event.ID, "event_type", event.EventType)
+	slog.DebugContext(finalizeCtx, "successfully processed outbox event",
+		"event_id", event.ID().UUID(),
+		"event_type", event.EventType(),
+	)
 }
 
-func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFatal bool) {
-	finalizeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (w *Worker) handleFailure(ctx context.Context, event *Event, err error, isFatal bool) {
+	finalizeCtx, cancel := detachContext(ctx, 3*time.Second)
 	defer cancel()
 
 	logCtx := ctx
@@ -168,57 +230,48 @@ func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFa
 		logCtx = finalizeCtx
 	}
 
-	if isFatal || (event.Attempts+1) >= event.MaxAttempts {
-		slog.ErrorContext(logCtx, "outbox event processing exhausted; routing to dead letter",
-			"event_id", event.ID,
-			"event_type", event.EventType,
+	// Check domain rules: if explicitly fatal OR next increment reaches max attempts
+	if isFatal || (event.Attempts()+1) >= event.MaxAttempts() {
+		slog.ErrorContext(logCtx, "outbox event execution exhausted or fatal error; moving to dead letter",
+			"event_id", event.ID().UUID(),
+			"event_type", event.EventType(),
+			"attempts", event.Attempts()+1,
+			"max_attempts", event.MaxAttempts(),
 			"error", err,
 		)
 
-		_, dbErr := w.repository.MarkDeadLetter(finalizeCtx, MarkDeadLetterParams{
-			ID:     event.ID,
-			Reason: err.Error(),
-		})
-		if dbErr != nil {
-			slog.ErrorContext(finalizeCtx, "failed to mark outbox event as dead letter", "event_id", event.ID, "error", dbErr)
+		if _, dbErr := w.repo.MarkDeadLetter(finalizeCtx, event.ID(), err.Error()); dbErr != nil {
+			slog.ErrorContext(finalizeCtx, "failed to dead letter outbox event",
+				"event_id", event.ID().UUID(),
+				"error", dbErr,
+			)
 		}
 	} else {
-		slog.WarnContext(logCtx, "outbox event retry registered",
-			"event_id", event.ID,
-			"attempt", event.Attempts+1,
+		slog.WarnContext(logCtx, "outbox event execution failed; scheduling retry",
+			"event_id", event.ID().UUID(),
+			"attempt", event.Attempts()+1,
 			"error", err,
 		)
 
-		_, dbErr := w.repository.RecordFailure(finalizeCtx, RecordFailureParams{
-			ID:        event.ID,
-			LastError: err.Error(),
-		})
-		if dbErr != nil {
-			slog.ErrorContext(finalizeCtx, "failed to record outbox failure state to database", "event_id", event.ID, "error", dbErr)
+		if _, dbErr := w.repo.RecordFailure(finalizeCtx, event.ID(), err.Error()); dbErr != nil {
+			slog.ErrorContext(finalizeCtx, "failed to record outbox failure state",
+				"event_id", event.ID().UUID(),
+				"error", dbErr,
+			)
 		}
 	}
 }
 
-// func main() {
-//     // ...
-//     worker := NewWorker(outboxRepo, 5*time.Second, 60, 10)
+// detachedCtx wraps a parent context to ignore cancellation while preserving key/value context metadata.
+type detachedCtx struct {
+	parent context.Context
+}
 
-//     // Register Auth Handlers
-//     worker.RegisterHandler(auth.EventForgotPassword, func(ctx context.Context, raw json.RawMessage) error {
-//         var p auth.ForgotPasswordPayload
-//         if err := json.Unmarshal(raw, &p); err != nil {
-//             return fmt.Errorf("malformed forgot password payload: %w", err)
-//         }
-//         return mailer.SendPasswordResetEmail(ctx, p.Email, p.Token)
-//     })
+func (d detachedCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (d detachedCtx) Done() <-chan struct{}       { return nil }
+func (d detachedCtx) Err() error                  { return nil }
+func (d detachedCtx) Value(key any) any           { return d.parent.Value(key) }
 
-//     worker.RegisterHandler(auth.EventRegister, func(ctx context.Context, raw json.RawMessage) error {
-//         var p auth.RegisterPayload
-//         if err := json.Unmarshal(raw, &p); err != nil {
-//             return fmt.Errorf("malformed register payload: %w", err)
-//         }
-//         return mailer.SendRegisterEmail(ctx, p.Email, p.Username, p.Token)
-//     })
-
-//     worker.Start(ctx)
-// }
+func detachContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(detachedCtx{parent: ctx}, timeout)
+}

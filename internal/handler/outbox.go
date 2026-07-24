@@ -4,17 +4,32 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
+	"context"
 	"net/http"
 
 	"github.com/google/uuid"
 )
 
+type OutboxRepository interface {
+	AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec int32, batchSize int32) ([]*outbox.Event, error)
+	Create(ctx context.Context, event *outbox.Event) error
+	Delete(ctx context.Context, id outbox.EventID) error
+	Get(ctx context.Context, id outbox.EventID) (*outbox.Event, error)
+	List(ctx context.Context, cursorID *outbox.EventID, limit int32) ([]*outbox.Event, error)
+	MarkDeadLetter(ctx context.Context, id outbox.EventID, reason string) (*outbox.Event, error)
+	MarkProcessed(ctx context.Context, id outbox.EventID) (*outbox.Event, error)
+	PurgeProcessed(ctx context.Context, retentionDays int32) error
+	RecordFailure(ctx context.Context, id outbox.EventID, lastError string) (*outbox.Event, error)
+	RenewLease(ctx context.Context, id outbox.EventID, workerID uuid.UUID, leaseDurationSec int32) error
+	Save(ctx context.Context, event *outbox.Event) error
+}
+
 type OutboxEventHandler struct {
-	repo outbox.Repository
+	repo OutboxRepository
 	bind *httpio.Bind
 }
 
-func NewOutboxEventHandler(repo outbox.Repository, bind *httpio.Bind) *OutboxEventHandler {
+func NewOutboxEventHandler(repo OutboxRepository, bind *httpio.Bind) *OutboxEventHandler {
 	return &OutboxEventHandler{repo: repo, bind: bind}
 }
 
