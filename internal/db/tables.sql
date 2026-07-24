@@ -104,23 +104,31 @@ CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    created_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
     type SMALLINT NOT NULL,
     name text,
-    CONSTRAINT valid_channel_type CHECK (type IN (0, 1, 2, 3, 4)),
-    CONSTRAINT check_channel_name_rules CHECK ((type = 1 AND name IS NULL) OR (type != 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100)))
+    CONSTRAINT type_values CHECK (type IN (0, 1, 2, 3, 4)),
+    CONSTRAINT name_rules CHECK ((type = 1 AND name IS NULL) OR (type != 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100)))
 );
 
 CREATE TABLE channel_members(
-    channel_id uuid REFERENCES channels(id) ON DELETE CASCADE,
-    user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
     PRIMARY KEY (channel_id, user_id)
 );
 
 CREATE INDEX idx_channel_members_user_id ON channel_members(user_id);
+
+CREATE TABLE direct_message_channels(
+    user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE UNIQUE,
+    PRIMARY KEY (user1_id, user2_id),
+    CONSTRAINT dm_user_order CHECK (user1_id < user2_id)
+);
 
 CREATE TABLE relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -128,84 +136,66 @@ CREATE TABLE relationships(
     actor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    variant smallint NOT NULL, -- (1 = pending, 2 = friends, 3 = blocked)
+    variant smallint NOT NULL,
     PRIMARY KEY (user1_id, user2_id),
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
-    CONSTRAINT valid_relationship_variant CHECK (variant IN (1, 2, 3))
+    CONSTRAINT relationship_values CHECK (variant IN (1, 2, 3))
 );
 
--- Covered by Primary Key: (user1_id, user2_id)
--- Needed for Perspective B lookup:
-CREATE INDEX idx_relationships_user2_variant ON relationships(user2_id, variant);
+CREATE INDEX idx_relationships_u1_perf ON relationships(user1_id, variant, actor_id) INCLUDE (created_at, updated_at);
 
--- ============================================================================
--- READ MODEL VIEW (Optimized Projection View)
--- ============================================================================
-CREATE OR REPLACE VIEW relationship_perspectives AS
--- Perspective A: Querying user is user1_id (peer is user2_id)
+CREATE INDEX idx_relationships_u2_perf ON relationships(user2_id, variant, actor_id) INCLUDE (created_at, updated_at);
+
+CREATE OR REPLACE VIEW relationship_perspectives WITH ( security_invoker = TRUE
+) AS
 SELECT
     r.user1_id AS user_id,
     r.user2_id AS peer_id,
     r.variant,
     r.actor_id,
-(r.actor_id = r.user1_id) AS is_initiator,
+(
+        r.actor_id = r.user1_id
+) AS is_initiator,
     r.created_at,
     r.updated_at,
-    u2.username,
-    p2.display_name,
-    p2.avatar_url,
-    u2.preferred_presence AS user_preferred_presence,
+    u.username,
+    up.display_name,
+    up.avatar_url,
+    u.preferred_presence AS user_preferred_presence,
     dm.channel_id
 FROM
     relationships r
-    JOIN users u2 ON r.user2_id = u2.id
-    LEFT JOIN user_profiles p2 ON r.user2_id = p2.user_id
-    LEFT JOIN LATERAL (
-        SELECT
-            cm1.channel_id
-        FROM
-            channel_members cm1
-            JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
-            JOIN channels c ON cm1.channel_id = c.id
-        WHERE
-            c.variant = 1 -- DM Channel
-            AND cm1.user_id = r.user1_id
-            AND cm2.user_id = r.user2_id
-        LIMIT 1) dm ON TRUE
-WHERE (r.variant != 3
-    OR r.actor_id = r.user1_id)
+    JOIN users u ON u.id = r.user2_id
+    LEFT JOIN user_profiles up ON up.user_id = r.user2_id
+    LEFT JOIN direct_message_channels dm ON dm.user1_id = r.user1_id
+        AND dm.user2_id = r.user2_id
+WHERE
+    r.variant != 3
+    OR r.actor_id = r.user1_id
 UNION ALL
--- Perspective B: Querying user is user2_id (peer is user1_id)
 SELECT
     r.user2_id AS user_id,
     r.user1_id AS peer_id,
     r.variant,
     r.actor_id,
-(r.actor_id = r.user2_id) AS is_initiator,
+(
+        r.actor_id = r.user2_id
+) AS is_initiator,
     r.created_at,
     r.updated_at,
-    u1.username,
-    p1.display_name,
-    p1.avatar_url,
-    u1.preferred_presence AS user_preferred_presence,
+    u.username,
+    up.display_name,
+    up.avatar_url,
+    u.preferred_presence AS user_preferred_presence,
     dm.channel_id
 FROM
     relationships r
-    JOIN users u1 ON r.user1_id = u1.id
-    LEFT JOIN user_profiles p1 ON r.user1_id = p1.user_id
-    LEFT JOIN LATERAL (
-        SELECT
-            cm1.channel_id
-        FROM
-            channel_members cm1
-            JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
-            JOIN channels c ON cm1.channel_id = c.id
-        WHERE
-            c.variant = 1 -- DM Channel
-            AND cm1.user_id = r.user2_id
-            AND cm2.user_id = r.user1_id
-        LIMIT 1) dm ON TRUE
-WHERE (r.variant != 3
-    OR r.actor_id = r.user2_id);
+    JOIN users u ON u.id = r.user1_id
+    LEFT JOIN user_profiles up ON up.user_id = r.user1_id
+    LEFT JOIN direct_message_channels dm ON dm.user1_id = r.user1_id
+        AND dm.user2_id = r.user2_id
+WHERE
+    r.variant != 3
+    OR r.actor_id = r.user2_id;
 

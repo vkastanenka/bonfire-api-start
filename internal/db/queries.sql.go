@@ -496,8 +496,8 @@ SELECT
 FROM
     relationship_perspectives
 WHERE
-    user_id = $1
-    AND peer_id = $2
+    user_id = $1::uuid
+    AND peer_id = $2::uuid
 `
 
 type RelationshipPerspectiveGetParams struct {
@@ -505,10 +505,6 @@ type RelationshipPerspectiveGetParams struct {
 	PeerID pgtype.UUID `json:"peer_id"`
 }
 
-// ============================================================================
-// READ MODEL / PROJECTIONS (CQRS)
-// Explicit projection queries serving UI display requirements
-// ============================================================================
 func (q *Queries) RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error) {
 	row := q.db.QueryRow(ctx, relationshipPerspectiveGet, arg.UserID, arg.PeerID)
 	var i RelationshipPerspective
@@ -547,7 +543,7 @@ FROM
     relationship_perspectives
 WHERE
     user_id = $1::uuid
-    AND ($2 IS NULL
+    AND ($2::smallint IS NULL
         OR variant = $2)
 ORDER BY
     updated_at DESC
@@ -555,11 +551,9 @@ ORDER BY
 
 type RelationshipPerspectivesListParams struct {
 	UserID        pgtype.UUID `json:"user_id"`
-	FilterVariant interface{} `json:"filter_variant"`
+	FilterVariant pgtype.Int2 `json:"filter_variant"`
 }
 
-// Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
-// Pass NULL to @filter_variant to retrieve all relationship perspectives.
 func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error) {
 	rows, err := q.db.Query(ctx, relationshipPerspectivesList, arg.UserID, arg.FilterVariant)
 	if err != nil {
@@ -594,13 +588,13 @@ func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg Relation
 }
 
 const relationshipUpsert = `-- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, actor_id, variant)
-    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4)
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at)
+    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4, $5, $6)
 ON CONFLICT (user1_id, user2_id)
     DO UPDATE SET
         variant = EXCLUDED.variant,
         actor_id = EXCLUDED.actor_id,
-        updated_at = CURRENT_TIMESTAMP
+        updated_at = EXCLUDED.updated_at
     RETURNING
         user1_id,
         user2_id,
@@ -611,10 +605,12 @@ ON CONFLICT (user1_id, user2_id)
 `
 
 type RelationshipUpsertParams struct {
-	User1ID pgtype.UUID `json:"user1_id"`
-	User2ID pgtype.UUID `json:"user2_id"`
-	ActorID pgtype.UUID `json:"actor_id"`
-	Variant int16       `json:"variant"`
+	User1ID   pgtype.UUID        `json:"user1_id"`
+	User2ID   pgtype.UUID        `json:"user2_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Variant   int16              `json:"variant"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type RelationshipUpsertRow struct {
@@ -632,6 +628,8 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 		arg.User2ID,
 		arg.ActorID,
 		arg.Variant,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	var i RelationshipUpsertRow
 	err := row.Scan(

@@ -264,13 +264,13 @@ WHERE
 FOR UPDATE;
 
 -- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, actor_id, variant)
-    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @actor_id, @variant)
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at)
+    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @actor_id, @variant, @created_at, @updated_at)
 ON CONFLICT (user1_id, user2_id)
     DO UPDATE SET
         variant = EXCLUDED.variant,
         actor_id = EXCLUDED.actor_id,
-        updated_at = CURRENT_TIMESTAMP
+        updated_at = EXCLUDED.updated_at
     RETURNING
         user1_id,
         user2_id,
@@ -291,10 +291,6 @@ WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
     AND (variant != 3 -- 3 = Blocked
         OR actor_id = @actor_id::uuid);
 
--- ============================================================================
--- READ MODEL / PROJECTIONS (CQRS)
--- Explicit projection queries serving UI display requirements
--- ============================================================================
 -- name: RelationshipPerspectiveGet :one
 SELECT
     user_id,
@@ -312,12 +308,10 @@ SELECT
 FROM
     relationship_perspectives
 WHERE
-    user_id = $1
-    AND peer_id = $2;
+    user_id = @user_id::uuid
+    AND peer_id = @peer_id::uuid;
 
 -- name: RelationshipPerspectivesList :many
--- Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
--- Pass NULL to @filter_variant to retrieve all relationship perspectives.
 SELECT
     user_id,
     peer_id,
@@ -335,7 +329,7 @@ FROM
     relationship_perspectives
 WHERE
     user_id = @user_id::uuid
-    AND (sqlc.narg('filter_variant') IS NULL
+    AND (sqlc.narg('filter_variant')::smallint IS NULL
         OR variant = sqlc.narg('filter_variant'))
 ORDER BY
     updated_at DESC;

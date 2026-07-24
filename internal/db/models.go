@@ -25,6 +25,12 @@ type ChannelMember struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type DirectMessageChannel struct {
+	User1ID   pgtype.UUID `json:"user1_id"`
+	User2ID   pgtype.UUID `json:"user2_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	LockedBy       pgtype.UUID        `json:"locked_by"`

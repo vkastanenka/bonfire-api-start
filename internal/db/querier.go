@@ -25,13 +25,7 @@ type Querier interface {
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)
 	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error)
-	// ============================================================================
-	// READ MODEL / PROJECTIONS (CQRS)
-	// Explicit projection queries serving UI display requirements
-	// ============================================================================
 	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
-	// Consolidates List, Pending, Friends, and Blocked lists with optimal indexing.
-	// Pass NULL to @filter_variant to retrieve all relationship perspectives.
 	RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error)
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
