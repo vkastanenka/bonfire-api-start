@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
 )
@@ -72,13 +71,10 @@ func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
 	// 6. Publish Event via Outbox Repository
 	persistCtx := context.WithoutCancel(ctx)
 
-	_, err = s.outbox.Publish(persistCtx, outbox.PublishParams{
-		Variant: EventResendVerification,
-		Payload: ResendVerificationEventPayload{
-			Email:    u.Email().String(),
-			Username: u.Username().String(),
-			Token:    verifyToken,
-		},
+	_, err = s.outbox.Publish(persistCtx, EventResendVerification, ResendVerificationEventPayload{
+		Email:    u.Email().String(),
+		Username: u.Username().String(),
+		Token:    verifyToken,
 	})
 	if err != nil {
 		return err

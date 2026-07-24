@@ -16,11 +16,9 @@ type Querier interface {
 	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
 	OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error)
-	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (OutboxEvent, error)
-	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
-	OutboxEventPurgeProcessed(ctx context.Context) error
-	OutboxEventRecordFailure(ctx context.Context, arg OutboxEventRecordFailureParams) (OutboxEvent, error)
-	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	OutboxEventPurgeProcessed(ctx context.Context, retentionDays int32) error
+	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
+	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)

@@ -16,7 +16,7 @@ type TX interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error)
+	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
 }
 
 type SessionRepository interface {
@@ -59,7 +59,7 @@ type TokenProvider interface {
 type RegisterUserTxParams struct {
 	User         *user.User
 	Session      *session.Session
-	OutboxParams outbox.PublishParams
+	// OutboxParams outbox.PublishParams
 }
 
 type UserRepository interface {

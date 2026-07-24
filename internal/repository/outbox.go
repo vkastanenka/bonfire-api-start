@@ -3,15 +3,13 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strconv"
+	"time"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -20,12 +18,10 @@ type OutboxStore interface {
 	OutboxEventGet(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
 	OutboxEventList(ctx context.Context, arg db.OutboxEventListParams) ([]db.OutboxEvent, error)
 	OutboxEventAcquireBatch(ctx context.Context, arg db.OutboxEventAcquireBatchParams) ([]db.OutboxEvent, error)
-	OutboxEventMarkProcessed(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
-	OutboxEventRecordFailure(ctx context.Context, arg db.OutboxEventRecordFailureParams) (db.OutboxEvent, error)
-	OutboxEventMarkDeadLetter(ctx context.Context, arg db.OutboxEventMarkDeadLetterParams) (db.OutboxEvent, error)
-	OutboxEventResetAttempts(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
+	OutboxEventUpdate(ctx context.Context, arg db.OutboxEventUpdateParams) (db.OutboxEvent, error)
+	OutboxEventRenewLease(ctx context.Context, arg db.OutboxEventRenewLeaseParams) error
 	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
-	OutboxEventPurgeProcessed(ctx context.Context) error
+	OutboxEventPurgeProcessed(ctx context.Context, retentionDays int32) error
 }
 
 type Outbox struct {
@@ -36,174 +32,229 @@ func NewOutbox(store OutboxStore) *Outbox {
 	return &Outbox{store: store}
 }
 
-func (r *Outbox) Publish(ctx context.Context, p outbox.PublishParams) (outbox.Event, error) {
-	jsonBytes, err := json.Marshal(p.Payload)
-	if err != nil {
-		return outbox.Event{}, errs.Internal("failed to marshal outbox event payload").Wrap(err)
+// Publish creates and persists a new domain outbox event
+func (r *Outbox) Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error) {
+	var payloadBytes []byte
+	switch v := payload.(type) {
+	case []byte:
+		payloadBytes = v
+	default:
+		var err error
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return nil, errs.InvalidArgument("failed to marshal outbox event payload").Wrap(err)
+		}
 	}
 
-	row, err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
-		EventType: p.Variant,
-		Payload:   jsonBytes,
+	event, err := outbox.New(variant, payloadBytes)
+	if err != nil {
+		return nil, errs.InvalidArgument("failed to instantiate outbox event").Wrap(err)
+	}
+
+	if err := r.Create(ctx, event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}
+
+// Create persists a newly instantiated domain event with all initial state flags
+func (r *Outbox) Create(ctx context.Context, event *outbox.Event) error {
+	_, err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
+		ID:             db.UUID(event.ID().UUID()),
+		LockedBy:       db.UUIDPtr(event.LockedBy()),
+		CreatedAt:      db.Timestamptz(event.CreatedAt()),
+		UpdatedAt:      db.Timestamptz(event.UpdatedAt()),
+		NextAttemptAt:  db.Timestamptz(event.NextAttemptAt()),
+		LeaseExpiresAt: db.TimestamptzPtr(event.LeaseExpiresAt()),
+		ProcessedAt:    db.TimestamptzPtr(event.ProcessedAt()),
+		Attempts:       event.Attempts(),
+		MaxAttempts:    event.MaxAttempts(),
+		EventType:      event.EventType(),
+		LastError:      db.Text(event.LastError()),
+		Payload:        event.Payload(),
 	})
 	if err != nil {
-		return outbox.Event{}, errs.Internal("failed to create outbox event").Wrap(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
-
-	return outboxFromDB(row), nil
+	return nil
 }
 
-func (r *Outbox) Get(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventGet(ctx, db.UUID(id))
+func (r *Outbox) Get(ctx context.Context, id outbox.EventID) (*outbox.Event, error) {
+	row, err := r.store.OutboxEventGet(ctx, db.UUID(id.UUID()))
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return outbox.Event{}, errs.Internal("failed to fetch outbox event").Wrap(err)
+		return nil, db.NewError(err, db.EntityOutboxEvent)
 	}
 
-	return outboxFromDB(row), nil
+	return outboxFromRow(row)
 }
 
-func (r *Outbox) List(ctx context.Context, p outbox.ListParams) ([]outbox.Event, error) {
+func (r *Outbox) Save(ctx context.Context, event *outbox.Event) error {
+	_, err := r.store.OutboxEventUpdate(ctx, db.OutboxEventUpdateParams{
+		ID:             db.UUID(event.ID().UUID()),
+		LockedBy:       db.UUIDPtr(event.LockedBy()),
+		LeaseExpiresAt: db.TimestamptzPtr(event.LeaseExpiresAt()),
+		ProcessedAt:    db.TimestamptzPtr(event.ProcessedAt()),
+		Attempts:       event.Attempts(),
+		MaxAttempts:    event.MaxAttempts(),
+		NextAttemptAt:  db.Timestamptz(event.NextAttemptAt()),
+		LastError:      db.Text(event.LastError()),
+		UpdatedAt:      db.Timestamptz(event.UpdatedAt()),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityOutboxEvent)
+	}
+	return nil
+}
+
+// List executes pagination over outbox events
+func (r *Outbox) List(ctx context.Context, cursorID *outbox.EventID, limit int32) ([]*outbox.Event, error) {
+	var cursorUUID *uuid.UUID
+	if cursorID != nil {
+		u := cursorID.UUID()
+		cursorUUID = &u
+	}
+
 	rows, err := r.store.OutboxEventList(ctx, db.OutboxEventListParams{
-		Column1: db.UUIDPtr(p.Cursor),
-		Limit:   p.Limit,
+		CursorID:    db.UUIDPtr(cursorUUID),
+		ResultLimit: limit,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return []outbox.Event{}, nil
-		}
-		return nil, errs.Internal("failed to list outbox events").Wrap(err)
+		return nil, db.NewError(err, db.EntityOutboxEvent)
 	}
 
-	events := make([]outbox.Event, len(rows))
+	events := make([]*outbox.Event, len(rows))
 	for i, row := range rows {
-		events[i] = outboxFromDB(row)
+		evt, err := outboxFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		events[i] = evt
 	}
 
 	return events, nil
 }
 
-func (r *Outbox) AcquireBatch(ctx context.Context, p outbox.AcquireBatchParams) ([]outbox.Event, error) {
-	leaseIntervalStr := strconv.Itoa(int(p.LeaseDurationInSeconds))
-
+// AcquireBatch locks available pending events for processing by workerID
+func (r *Outbox) AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec, batchSize int32) ([]*outbox.Event, error) {
 	rows, err := r.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
-		Limit:    p.Limit,
-		LockedBy: db.UUID(p.WorkerID),
-		Column3:  leaseIntervalStr,
+		WorkerID:             db.UUID(workerID),
+		LeaseDurationSeconds: leaseDurationSec,
+		BatchSize:            batchSize,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return []outbox.Event{}, nil
-		}
-		return nil, errs.Internal("failed to acquire outbox event batch").Wrap(err)
+		return nil, db.NewError(err, db.EntityOutboxEvent)
 	}
 
-	events := make([]outbox.Event, len(rows))
+	events := make([]*outbox.Event, len(rows))
 	for i, row := range rows {
-		events[i] = outboxFromDB(row)
+		evt, err := outboxFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		events[i] = evt
 	}
 
 	return events, nil
 }
 
-func (r *Outbox) MarkProcessed(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventMarkProcessed(ctx, db.UUID(id))
+func (r *Outbox) MarkProcessed(ctx context.Context, id outbox.EventID) (*outbox.Event, error) {
+	event, err := r.Get(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return outbox.Event{}, errs.Internal("failed to mark outbox event processed").Wrap(err)
+		return nil, err
 	}
 
-	return outboxFromDB(row), nil
+	event.MarkProcessed(time.Now())
+
+	if err := r.Save(ctx, event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
 }
 
-func (r *Outbox) RecordFailure(ctx context.Context, p outbox.RecordFailureParams) (outbox.Event, error) {
-	var lastErrPtr *string
-	if p.LastError != "" {
-		lastErrPtr = &p.LastError
+func (r *Outbox) RecordFailure(ctx context.Context, id outbox.EventID, lastError string) (*outbox.Event, error) {
+	event, err := r.Get(ctx, id)
+	if err != nil {
+		return nil, err
 	}
 
-	row, err := r.store.OutboxEventRecordFailure(ctx, db.OutboxEventRecordFailureParams{
-		ID:        db.UUID(p.ID),
-		LastError: db.Text(lastErrPtr),
+	event.RecordFailure(lastError, time.Now())
+
+	if err := r.Save(ctx, event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}
+
+func (r *Outbox) MarkDeadLetter(ctx context.Context, id outbox.EventID, reason string) (*outbox.Event, error) {
+	event, err := r.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	event.MarkDeadLetter(reason, time.Now())
+
+	if err := r.Save(ctx, event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}
+
+// RenewLease extends lock duration for an in-flight worker job
+func (r *Outbox) RenewLease(ctx context.Context, id outbox.EventID, workerID uuid.UUID, leaseDurationSec int32) error {
+	err := r.store.OutboxEventRenewLease(ctx, db.OutboxEventRenewLeaseParams{
+		ID:                   db.UUID(id.UUID()),
+		WorkerID:             db.UUID(workerID),
+		LeaseDurationSeconds: leaseDurationSec,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return outbox.Event{}, errs.Internal("failed to record outbox event failure").Wrap(err)
-	}
-
-	return outboxFromDB(row), nil
-}
-
-func (r *Outbox) MarkDeadLetter(ctx context.Context, p outbox.MarkDeadLetterParams) (outbox.Event, error) {
-	var reasonPtr *string
-	if p.Reason != "" {
-		reasonPtr = &p.Reason
-	}
-
-	row, err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
-		ID:        db.UUID(p.ID),
-		LastError: db.Text(reasonPtr),
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return outbox.Event{}, errs.Internal("failed to mark outbox event dead letter").Wrap(err)
-	}
-
-	return outboxFromDB(row), nil
-}
-
-func (r *Outbox) ResetAttempts(ctx context.Context, id uuid.UUID) (outbox.Event, error) {
-	row, err := r.store.OutboxEventResetAttempts(ctx, db.UUID(id))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return outbox.Event{}, errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return outbox.Event{}, errs.Internal("failed to reset outbox event attempts").Wrap(err)
-	}
-
-	return outboxFromDB(row), nil
-}
-
-func (r *Outbox) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.OutboxEventDelete(ctx, db.UUID(id))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.NotFound("outbox event not found").Wrap(err)
-		}
-		return errs.Internal("failed to delete outbox event").Wrap(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 	return nil
 }
 
-func (r *Outbox) PurgeProcessed(ctx context.Context) error {
-	err := r.store.OutboxEventPurgeProcessed(ctx)
+// Delete permanently removes an event by ID
+func (r *Outbox) Delete(ctx context.Context, id outbox.EventID) error {
+	err := r.store.OutboxEventDelete(ctx, db.UUID(id.UUID()))
 	if err != nil {
-		return errs.Internal("failed to purge processed outbox events").Wrap(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 	return nil
 }
 
-func outboxFromDB(row db.OutboxEvent) outbox.Event {
-	return outbox.Event{
-		ID:             uuid.UUID(row.ID.Bytes),
-		EventType:      row.EventType,
-		Payload:        row.Payload,
-		Attempts:       row.Attempts,
-		MaxAttempts:    row.MaxAttempts,
-		NextAttemptAt:  row.NextAttemptAt.Time.UTC(),
-		CreatedAt:      row.CreatedAt.Time.UTC(),
-		UpdatedAt:      row.UpdatedAt.Time.UTC(),
-		ProcessedAt:    db.TimePtr(row.ProcessedAt),
-		LockedBy:       db.UUIDPtrFromDB(row.LockedBy),
-		LeaseExpiresAt: db.TimePtr(row.LeaseExpiresAt),
-		LastError:      db.StringPtr(row.LastError),
+// PurgeProcessed cleans up processed events older than retention window
+func (r *Outbox) PurgeProcessed(ctx context.Context, retentionDays int32) error {
+	err := r.store.OutboxEventPurgeProcessed(ctx, retentionDays)
+	if err != nil {
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
+	return nil
+}
+
+func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
+	id, err := outbox.NewEventID(uuid.UUID(row.ID.Bytes))
+	if err != nil {
+		return nil, errs.Internal("failed to parse outbox event ID from database").
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Resource("OutboxEvent", uuid.UUID(row.ID.Bytes).String(), "", "database row mapping")
+	}
+
+	return outbox.Reconstitute(
+		id,
+		row.EventType,
+		row.Payload,
+		db.TimePtr(row.ProcessedAt),
+		row.Attempts,
+		row.MaxAttempts,
+		row.NextAttemptAt.Time.UTC(),
+		db.UUIDPtrFromDB(row.LockedBy),
+		db.TimePtr(row.LeaseExpiresAt),
+		db.StringPtr(row.LastError),
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
+	), nil
 }

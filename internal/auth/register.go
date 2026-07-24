@@ -9,7 +9,6 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
@@ -143,13 +142,10 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		}
 
 		// Emits outbox event for verification email sending
-		_, err := s.outbox.Publish(txCtx, outbox.PublishParams{
-			Variant: EventRegister,
-			Payload: RegisterPayload{
-				Email:    newUser.Email().String(),
-				Username: newUser.Username().String(),
-				Token:    evToken,
-			},
+		_, err := s.outbox.Publish(txCtx, EventRegister, RegisterPayload{
+			Email:    newUser.Email().String(),
+			Username: newUser.Username().String(),
+			Token:    evToken,
 		})
 		if err != nil {
 			return err

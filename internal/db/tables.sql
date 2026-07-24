@@ -12,27 +12,31 @@ LANGUAGE plpgsql;
 
 CREATE TABLE outbox_events(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    locked_by uuid,
-    processed_at timestamptz,
-    next_attempt_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    lease_expires_at timestamptz,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    attempts int NOT NULL DEFAULT 0,
-    max_attempts int NOT NULL DEFAULT 5,
+    locked_by uuid DEFAULT NULL,
+    created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    next_attempt_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_expires_at timestamp with time zone DEFAULT NULL,
+    processed_at timestamp with time zone DEFAULT NULL,
+    attempts integer NOT NULL DEFAULT 0,
+    max_attempts integer NOT NULL DEFAULT 5,
     event_type text NOT NULL,
     payload jsonb NOT NULL,
-    last_error text,
-    CONSTRAINT event_type_length CHECK (length(event_type) BETWEEN 1 AND 100),
+    last_error text DEFAULT NULL,
+    CONSTRAINT event_type_length CHECK (char_length(event_type) BETWEEN 1 AND 100),
     CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
     CONSTRAINT payload_size_limit CHECK (pg_column_size(payload) < 102400),
     CONSTRAINT attempts_limit CHECK (attempts <= max_attempts),
-    CONSTRAINT last_error_length CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 2000)
+    CONSTRAINT last_error_length CHECK (last_error IS NULL OR char_length(last_error) BETWEEN 1 AND 2000)
 );
 
-CREATE INDEX idx_outbox_events_unprocessed ON outbox_events(next_attempt_at ASC, id ASC)
+CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at ASC, id ASC)
 WHERE
-    processed_at IS NULL;
+    processed_at IS NULL AND attempts < max_attempts;
+
+CREATE INDEX idx_outbox_events_cleanup ON outbox_events(processed_at ASC)
+WHERE
+    processed_at IS NOT NULL;
 
 CREATE TABLE users(
     id uuid PRIMARY KEY DEFAULT uuidv7(),

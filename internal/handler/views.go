@@ -15,7 +15,7 @@ import (
 )
 
 type OutboxEventResponse struct {
-	ID             uuid.UUID       `json:"id"`
+	ID             outbox.EventID  `json:"id"`
 	EventType      string          `json:"eventType"`
 	Payload        json.RawMessage `json:"payload"`
 	Status         string          `json:"status"`
@@ -32,19 +32,19 @@ type OutboxEventResponse struct {
 
 func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
 	return OutboxEventResponse{
-		ID:             e.ID,
-		EventType:      e.EventType,
-		Payload:        e.Payload,
-		Status:         e.GetStatus().String(),
-		Attempts:       e.Attempts,
-		MaxAttempts:    e.MaxAttempts,
-		NextAttemptAt:  e.NextAttemptAt,
-		ProcessedAt:    ptr.Map(e.ProcessedAt),
-		LockedBy:       ptr.Map(e.LockedBy),
-		LeaseExpiresAt: ptr.Map(e.LeaseExpiresAt),
-		LastError:      ptr.Map(e.LastError),
-		CreatedAt:      e.CreatedAt,
-		UpdatedAt:      e.UpdatedAt,
+		ID:             e.ID(),
+		EventType:      e.EventType(),
+		Payload:        e.Payload(),
+		Status:         e.Status().String(),
+		Attempts:       e.Attempts(),
+		MaxAttempts:    e.MaxAttempts(),
+		NextAttemptAt:  e.NextAttemptAt(),
+		ProcessedAt:    ptr.Map(e.ProcessedAt()),
+		LockedBy:       ptr.Map(e.LockedBy()),
+		LeaseExpiresAt: ptr.Map(e.LeaseExpiresAt()),
+		LastError:      ptr.Map(e.LastError()),
+		CreatedAt:      e.CreatedAt(),
+		UpdatedAt:      e.UpdatedAt(),
 	}
 }
 

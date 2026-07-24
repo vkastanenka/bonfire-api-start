@@ -8,7 +8,6 @@ import (
 
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/sanitize"
 	"bonfire-api/internal/user"
 )
@@ -57,12 +56,9 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 		return errs.Internal("failed to generate password reset token").Wrap(err)
 	}
 
-	_, err = s.outbox.Publish(persistCtx, outbox.PublishParams{
-		Variant: EventForgotPassword,
-		Payload: ForgotPasswordPayload{
-			Email: userRow.Email().String(),
-			Token: t,
-		},
+	_, err = s.outbox.Publish(persistCtx, EventForgotPassword, ForgotPasswordPayload{
+		Email: userRow.Email().String(),
+		Token: t,
 	})
 	if err != nil {
 		return err

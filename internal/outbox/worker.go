@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,25 @@ import (
 
 	"github.com/google/uuid"
 )
+
+var ErrFatal = errors.New("fatal outbox error")
+
+type Handler func(ctx context.Context, payload json.RawMessage) error
+
+type Repository interface {
+	AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec int32, batchSize int32) ([]*Event, error)
+	Create(ctx context.Context, event *Event) error
+	Delete(ctx context.Context, id EventID) error
+	Get(ctx context.Context, id EventID) (*Event, error)
+	List(ctx context.Context, cursorID *EventID, limit int32) ([]*Event, error)
+	MarkDeadLetter(ctx context.Context, id EventID, reason string) (*Event, error)
+	MarkProcessed(ctx context.Context, id EventID) (*Event, error)
+	Publish(ctx context.Context, variant string, payload any) (*Event, error)
+	PurgeProcessed(ctx context.Context, retentionDays int32) error
+	RecordFailure(ctx context.Context, id EventID, lastError string) (*Event, error)
+	RenewLease(ctx context.Context, id EventID, workerID uuid.UUID, leaseDurationSec int32) error
+	Save(ctx context.Context, event *Event) error
+}
 
 type Worker struct {
 	id            uuid.UUID
@@ -181,7 +201,7 @@ func (w *Worker) handleFailure(ctx context.Context, event Event, err error, isFa
 
 // func main() {
 //     // ...
-//     worker := outbox.NewWorker(outboxRepo, 5*time.Second, 60, 10)
+//     worker := NewWorker(outboxRepo, 5*time.Second, 60, 10)
 
 //     // Register Auth Handlers
 //     worker.RegisterHandler(auth.EventForgotPassword, func(ctx context.Context, raw json.RawMessage) error {

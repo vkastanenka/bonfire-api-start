@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
 	"net/http"
@@ -28,32 +29,18 @@ func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.R
 		return err
 	}
 
-	event, err := h.repo.Get(r.Context(), path.ID)
+	outboxID, err := outbox.NewEventID(path.ID)
+	if err != nil {
+		return errs.InvalidArgument("Invalid ID.").
+			Wrap(err)
+	}
+
+	event, err := h.repo.Get(r.Context(), outboxID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, ToOutboxEventResponse(event))
-	return nil
-}
-
-type ResetAttemptsPath struct {
-	ID uuid.UUID `path:"id" validate:"required,uuid"`
-}
-
-func (h *OutboxEventHandler) OutboxEventResetAttempts(w http.ResponseWriter, r *http.Request) error {
-	var path ResetAttemptsPath
-	err := h.bind.Path(r, &path)
-	if err != nil {
-		return err
-	}
-
-	event, err := h.repo.ResetAttempts(r.Context(), path.ID)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, ToOutboxEventResponse(event))
+	httpio.RespondOK(w, r, ToOutboxEventResponse(*event))
 	return nil
 }
 
@@ -68,16 +55,13 @@ func (h *OutboxEventHandler) Delete(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	if err = h.repo.Delete(r.Context(), path.ID); err != nil {
-		return err
+	outboxID, err := outbox.NewEventID(path.ID)
+	if err != nil {
+		return errs.InvalidArgument("Invalid ID.").
+			Wrap(err)
 	}
 
-	httpio.RespondNoContent(w)
-	return nil
-}
-
-func (h *OutboxEventHandler) OutboxEventPurgeProcessed(w http.ResponseWriter, r *http.Request) error {
-	if err := h.repo.PurgeProcessed(r.Context()); err != nil {
+	if err = h.repo.Delete(r.Context(), outboxID); err != nil {
 		return err
 	}
 
