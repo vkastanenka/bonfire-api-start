@@ -24,7 +24,7 @@ func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer) {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return fmt.Errorf("%w: malformed resend verification payload: %v", outbox.ErrFatal, err)
 		}
-		return mailer.SendRegisterEmail(ctx, p.Email, p.Username, p.Token)
+		return mailer.SendResendVerificationEmail(ctx, p.Email, p.Username, p.Token)
 	})
 
 	w.RegisterHandler(EventForgotPassword, func(ctx context.Context, raw json.RawMessage) error {
