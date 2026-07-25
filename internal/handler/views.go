@@ -49,39 +49,40 @@ func ToOutboxEventResponse(e outbox.Event) OutboxEventResponse {
 }
 
 type RelationshipResponse struct {
-	UserID            uuid.UUID            `json:"userId"`
-	PeerID            uuid.UUID            `json:"peerId"`
-	Variant           relationship.Variant `json:"type"`
-	ActorID           uuid.UUID            `json:"actorId"`
-	IsInitiator       bool                 `json:"isInitiator"`
-	CreatedAt         time.Time            `json:"createdAt"`
-	UpdatedAt         time.Time            `json:"updatedAt"`
-	Username          string               `json:"username"`
-	DisplayName       string               `json:"displayName"`
-	AvatarURL         *string              `json:"avatarUrl,omitempty"`
-	PreferredPresence *presence.Presence   `json:"preferredPresence,omitempty"`
-	ChannelID         *uuid.UUID           `json:"channelId,omitempty"`
+	PeerID      uuid.UUID            `json:"peerId"`
+	Variant     relationship.Variant `json:"type"`
+	IsInitiator bool                 `json:"isInitiator"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	UpdatedAt   time.Time            `json:"updatedAt"`
+	Username    string               `json:"username"`
+	DisplayName string               `json:"displayName"`
+	AvatarURL   *string              `json:"avatarUrl,omitempty"`
+	Presence    *presence.Presence   `json:"presence,omitempty"`
+	ChannelID   *uuid.UUID           `json:"channelId,omitempty"`
 }
 
 func ToRelationshipResponse(p relationship.Perspective, realTimePresence *presence.Presence) RelationshipResponse {
-	var displayName string
-	if dn := p.DisplayName(); dn != nil {
+	displayName := p.Username().String()
+	if dn := p.DisplayName(); dn != nil && dn.String() != "" {
 		displayName = dn.String()
 	}
 
+	var safePresence *presence.Presence
+	if p.Variant() != relationship.VariantBlocked {
+		safePresence = realTimePresence
+	}
+
 	return RelationshipResponse{
-		UserID:            p.UserID(),
-		PeerID:            p.PeerID(),
-		Variant:           p.Variant(),
-		ActorID:           p.ActorID(),
-		IsInitiator:       p.IsInitiator(),
-		CreatedAt:         p.CreatedAt(),
-		UpdatedAt:         p.UpdatedAt(),
-		Username:          p.Username().String(),
-		DisplayName:       displayName,
-		AvatarURL:         p.AvatarURL(),
-		PreferredPresence: realTimePresence,
-		ChannelID:         p.ChannelID(),
+		PeerID:      p.PeerID(),
+		Variant:     p.Variant(),
+		IsInitiator: p.IsInitiator(),
+		CreatedAt:   p.CreatedAt(),
+		UpdatedAt:   p.UpdatedAt(),
+		Username:    p.Username().String(),
+		DisplayName: displayName,
+		AvatarURL:   p.AvatarURL(),
+		Presence:    safePresence,
+		ChannelID:   p.ChannelID(),
 	}
 }
 
