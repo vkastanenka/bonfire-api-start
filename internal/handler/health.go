@@ -1,38 +1,46 @@
 package handler
 
 import (
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/httpio"
 	"context"
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/httpio"
+
 	"github.com/redis/go-redis/v9"
 )
 
-type Handler struct {
-	db    *pgxpool.Pool
-	redis *redis.Client
+type HealthStore interface {
+	Ping(ctx context.Context) error
 }
 
-func NewHandler(db *pgxpool.Pool, redis *redis.Client) *Handler {
-	return &Handler{
-		db:    db,
-		redis: redis,
+type HealthCache interface {
+	Ping(context.Context) *redis.StatusCmd
+}
+
+type Health struct {
+	store HealthStore
+	cache HealthCache
+}
+
+func NewHealth(store HealthStore, cache HealthCache) *Health {
+	return &Health{
+		store: store,
+		cache: cache,
 	}
 }
 
-func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) error {
+func (h *Health) HealthCheck(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	if err := h.db.Ping(ctx); err != nil {
-		return errs.Internal("").Wrap(err)
+	if err := h.store.Ping(ctx); err != nil {
+		return errs.Internal("Database health check failed.").Wrap(err)
 	}
 
-	if err := h.redis.Ping(ctx).Err(); err != nil {
-		return errs.Internal("").Wrap(err)
+	if err := h.cache.Ping(ctx).Err(); err != nil {
+		return errs.Internal("Cache health check failed.").Wrap(err)
 	}
 
 	httpio.RespondNoContent(w)

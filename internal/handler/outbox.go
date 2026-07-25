@@ -24,20 +24,20 @@ type OutboxRepository interface {
 	Save(ctx context.Context, event *outbox.Event) error
 }
 
-type OutboxEventHandler struct {
+type Outbox struct {
 	repo OutboxRepository
 	bind *httpio.Bind
 }
 
-func NewOutboxEventHandler(repo OutboxRepository, bind *httpio.Bind) *OutboxEventHandler {
-	return &OutboxEventHandler{repo: repo, bind: bind}
+func NewOutbox(repo OutboxRepository, bind *httpio.Bind) *Outbox {
+	return &Outbox{repo: repo, bind: bind}
 }
 
 type OutboxEventGetByIDPath struct {
 	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
-func (h *OutboxEventHandler) OutboxEventGetByID(w http.ResponseWriter, r *http.Request) error {
+func (h *Outbox) OutboxEventGetByID(w http.ResponseWriter, r *http.Request) error {
 	var path OutboxEventGetByIDPath
 	err := h.bind.Path(r, &path)
 	if err != nil {
@@ -63,7 +63,7 @@ type OutboxEventDeleteByIDPath struct {
 	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
-func (h *OutboxEventHandler) Delete(w http.ResponseWriter, r *http.Request) error {
+func (h *Outbox) Delete(w http.ResponseWriter, r *http.Request) error {
 	var path OutboxEventDeleteByIDPath
 	err := h.bind.Path(r, &path)
 	if err != nil {

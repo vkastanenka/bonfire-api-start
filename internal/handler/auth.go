@@ -4,8 +4,22 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
+	"context"
 	"net/http"
+
+	"github.com/google/uuid"
 )
+
+type AuthService interface {
+	ForgotPassword(ctx context.Context, email string) error
+	Login(ctx context.Context, p auth.LoginParams) (auth.LoginResult, error)
+	Refresh(ctx context.Context, r auth.RefreshParams) (auth.RefreshResult, error)
+	Register(ctx context.Context, p auth.RegisterParams) (auth.RegisterResult, error)
+	ResendVerify(ctx context.Context, userID uuid.UUID) error
+	ResetPassword(ctx context.Context, p auth.ResetPasswordParams) (auth.ResetPasswordResult, error)
+	VerifyEmail(ctx context.Context, tokenStr string) error
+	WSTicket(ctx context.Context, uid uuid.UUID) (uuid.UUID, error)
+}
 
 type Auth struct {
 	service AuthService

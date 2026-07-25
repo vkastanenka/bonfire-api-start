@@ -86,8 +86,8 @@ func NewService(
 	tickets TicketStore,
 	tokens TokenProvider,
 	tx Tx,
-) Service {
-	return Service{
+) *Service {
+	return &Service{
 		outbox:       outbox,
 		sessions:     sessions,
 		users:        users,

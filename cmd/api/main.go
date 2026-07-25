@@ -23,6 +23,7 @@ import (
 	"bonfire-api/internal/repository"
 	"bonfire-api/internal/store"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 	"bonfire-api/internal/validator"
 
 	"github.com/go-redis/redis_rate/v10"
@@ -126,6 +127,7 @@ func run(cfg *config.Config) error {
 
 	relationshipSvc := relationship.NewService(relationshipRepo, outboxRepo, dbStore)
 	presenceSvc := presence.NewService(presenceStore)
+	userSvc := user.NewService(userRepo)
 	authSvc := auth.NewService(
 		outboxRepo,
 		sessionRepo,
@@ -151,22 +153,25 @@ func run(cfg *config.Config) error {
 	hub := gateway.NewHub(*dbStore, *cacheStore)
 	go hub.Run(ctx)
 
-	authHandler := handler.NewAuth(&authSvc, bind)
-	// gatewayHandler := gateway.NewHandler(hub, cacheMgr)
-	// userHandler := handler.NewUser(&userSvc, bind)
+	authHandler := handler.NewAuth(authSvc, bind)
+	gatewayHandler := gateway.NewHandler(hub, presenceStore, ticketStore, bind)
+	healthHandler := handler.NewHealth(dbConn, cacheConn)
+	meHandler := handler.NewMe(relationshipSvc, userSvc, presenceSvc, bind)
+	outboxHandler := handler.NewOutbox(outboxRepo, bind)
+	userHandler := handler.NewUser(userSvc, bind)
 
 	app := &Application{
 		Config:      cfg,
 		RateLimiter: rateLimiter,
+		Tokens:      tokens,
 		Handlers: Handlers{
-			Auth: authHandler,
-			// Gateway: gatewayHandler,
-			// Me:      meHandler,
-			// User:    userHandler,
+			Auth:    authHandler,
+			Gateway: gatewayHandler,
+			Health:  healthHandler,
+			Me:      meHandler,
+			Outbox:  outboxHandler,
+			User:    userHandler,
 		},
-		// Managers: Managers{
-		// 	Token: tokenMgr,
-		// },
 	}
 
 	return app.Serve(ctx)
