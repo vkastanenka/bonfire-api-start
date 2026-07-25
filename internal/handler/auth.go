@@ -197,7 +197,7 @@ func (h *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, RegisterResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, ResetPasswordResponse{AccessToken: data.AccessToken})
 	return nil
 }
 

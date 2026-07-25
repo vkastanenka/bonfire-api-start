@@ -36,9 +36,9 @@ type UserGetPath struct {
 	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
-func (h *User) UserGet(w http.ResponseWriter, r *http.Request) error {
+func (h *User) Get(w http.ResponseWriter, r *http.Request) error {
 	var path UserGetPath
-	err := h.bind.JSON(w, r, &path)
+	err := h.bind.Path(r, &path)
 	if err != nil {
 		return err
 	}

@@ -24,39 +24,42 @@ func (app *Application) routes() http.Handler {
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Group(func(public chi.Router) {
-			// public.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
-			// 	Limit:  app.Config.AuthRateLimit,
-			// 	Window: app.Config.AuthRateWindow,
-			// 	Scope:  httpio.RateLimitScopePublic,
-			// }))
+			public.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+				Limit:  app.Config.AuthRateLimit,
+				Window: app.Config.AuthRateWindow,
+				Scope:  httpio.RateLimitScopePublic,
+			}))
 
-			// public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
-			// public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
-			// public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
-			// public.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
-			// public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
-			// public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
-			// public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+			public.Get("/healthz", httpio.ToHTTPErr(app.Handlers.Health.Check))
 
-			// public.Get("/users", httpio.ToHTTPErr(app.Handlers.User.Get))
-			// public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.GetByID))
+			public.Post("/auth/register", httpio.ToHTTPErr(app.Handlers.Auth.Register))
+			public.Post("/auth/login", httpio.ToHTTPErr(app.Handlers.Auth.Login))
+			public.Post("/auth/refresh", httpio.ToHTTPErr(app.Handlers.Auth.Refresh))
+			public.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
+			public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
+			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
+			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+
+			public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.Get))
 		})
 
 		api.Group(func(auth chi.Router) {
-			// auth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
-			// 	Limit:  app.Config.AuthRateLimit,
-			// 	Window: app.Config.AuthRateWindow,
-			// 	Scope:  httpio.RateLimitScopeAuth,
-			// }))
-			// auth.Use(httpio.RequireAuth(app.Managers.Token))
+			auth.Use(httpio.RateLimit(app.RateLimiter, httpio.RateLimitConfig{
+				Limit:  app.Config.AuthRateLimit,
+				Window: app.Config.AuthRateWindow,
+				Scope:  httpio.RateLimitScopeAuth,
+			}))
+			auth.Use(httpio.RequireAuth(app.Tokens))
 
-			// auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
-			// auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
-			// auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.GetByID))
-			// auth.Get("/users/@me/relationships", httpio.ToHTTPErr(app.Handlers.Me.ListRelationships))
-			// auth.Put("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.UpsertRelationship))
-			// auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.BlockUser))
-			// auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.DeleteRelationship))
+			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
+			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
+
+			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.Get))
+
+			auth.Post("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.SendFriendRequest))
+			auth.Post("/users/@me/relationships/{id}/accept", httpio.ToHTTPErr(app.Handlers.Me.AcceptFriendRequest))
+			auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.Block))
+			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.RemoveRelationship))
 		})
 	})
 

@@ -54,8 +54,8 @@ func NewMe(
 	}
 }
 
-type MeResponse struct {
-	User          UserMeResponse                  `json:"user"`
+type MeGetResponse struct {
+	Me            MeResponse                      `json:"me"`
 	Relationships []RelationshipResponse          `json:"relationships"`
 	Presences     map[uuid.UUID]presence.Presence `json:"presences"`
 	// Channels      []channel.PrivateChannelResponse `json:"channels"`
@@ -112,8 +112,8 @@ func (h *Me) Get(w http.ResponseWriter, r *http.Request) error {
 		relResponses[i] = ToRelationshipResponse(p, peerPresence)
 	}
 
-	httpio.RespondOK(w, r, MeResponse{
-		User:          ToUserMeResponse(*meUser),
+	httpio.RespondOK(w, r, MeGetResponse{
+		Me:            ToMeResponse(*meUser),
 		Relationships: relResponses,
 		Presences:     presences,
 	})

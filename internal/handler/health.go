@@ -31,7 +31,7 @@ func NewHealth(store HealthStore, cache HealthCache) *Health {
 	}
 }
 
-func (h *Health) HealthCheck(w http.ResponseWriter, r *http.Request) error {
+func (h *Health) Check(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 

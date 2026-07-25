@@ -135,7 +135,7 @@ func ToUserResponse(u user.User) UserResponse {
 	}
 }
 
-type UserMeResponse struct {
+type MeResponse struct {
 	ID                uuid.UUID          `json:"id"`
 	Email             string             `json:"email"`
 	Username          string             `json:"username"`
@@ -148,10 +148,10 @@ type UserMeResponse struct {
 	UpdatedAt         time.Time          `json:"updatedAt"`
 }
 
-func ToUserMeResponse(u user.User) UserMeResponse {
+func ToMeResponse(u user.User) MeResponse {
 	prof := u.Profile()
 
-	return UserMeResponse{
+	return MeResponse{
 		ID:                u.ID(),
 		Email:             u.Email().String(),
 		Username:          u.Username().String(),
