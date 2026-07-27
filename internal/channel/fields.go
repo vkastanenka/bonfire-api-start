@@ -27,13 +27,8 @@ func NewName(raw string) (Name, error) {
 	return Name{value: s}, nil
 }
 
-func (n Name) String() string {
-	return n.value
-}
-
-func (n Name) IsValid() bool {
-	return n.value != ""
-}
+func (n Name) String() string { return n.value }
+func (n Name) IsValid() bool  { return n.value != "" }
 
 var (
 	ErrContentEmpty   = errors.New("message content cannot be empty")
@@ -55,13 +50,8 @@ func NewContent(raw string) (Content, error) {
 	return Content{value: s}, nil
 }
 
-func (c Content) String() string {
-	return c.value
-}
-
-func (c Content) IsValid() bool {
-	return c.value != ""
-}
+func (c Content) String() string { return c.value }
+func (c Content) IsValid() bool  { return c.value != "" }
 
 var (
 	ErrEmojiEmpty   = errors.New("emoji cannot be empty")
@@ -83,6 +73,5 @@ func NewEmoji(raw string) (Emoji, error) {
 	return Emoji{value: s}, nil
 }
 
-func (e Emoji) String() string {
-	return e.value
-}
+func (e Emoji) String() string { return e.value }
+func (e Emoji) IsValid() bool  { return e.value != "" }

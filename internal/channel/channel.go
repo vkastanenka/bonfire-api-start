@@ -9,7 +9,7 @@ import (
 
 var (
 	ErrInvalidOwnerForType = errors.New("direct channels cannot have an owner")
-	ErrOwnerRequired       = errors.New("group and public channels require an owner")
+	ErrOwnerRequired       = errors.New("group channels require an owner")
 )
 
 type Channel struct {
@@ -35,13 +35,13 @@ func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
 // Domain Factory Method
 func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *string) (*Channel, error) {
 	if !chType.IsValid() {
-		return nil, errors.New("invalid channel type")
+		return nil, ErrInvalidType
 	}
 
 	if chType == TypeDirect && ownerID != nil {
 		return nil, ErrInvalidOwnerForType
 	}
-	if (chType == TypeGroup) && ownerID == nil {
+	if chType == TypeGroup && ownerID == nil {
 		return nil, ErrOwnerRequired
 	}
 

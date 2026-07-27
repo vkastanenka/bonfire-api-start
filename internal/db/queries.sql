@@ -356,7 +356,7 @@ UPDATE
     channels
 SET
     last_message_id = @last_message_id,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = @updated_at
 WHERE
     id = @channel_id;
 
@@ -370,20 +370,17 @@ SELECT
     c.*
 FROM
     channels c
-    JOIN channel_members m1 ON c.id = m1.channel_id
-    JOIN channel_members m2 ON c.id = m2.channel_id
+    JOIN channel_members cm ON c.id = cm.channel_id
 WHERE
     c.type = 0
-    AND m1.user_id = @user1_id::uuid
-    AND m2.user_id = @user2_id::uuid
-    AND m1.user_id != m2.user_id
-    AND (
-        SELECT
-            COUNT(*)
-        FROM
-            channel_members cm
-        WHERE
-            cm.channel_id = c.id) = 2
+GROUP BY
+    c.id
+HAVING
+    COUNT(cm.user_id) = 2
+    AND COUNT(
+        CASE WHEN cm.user_id IN (@user1_id::uuid, @user2_id::uuid) THEN
+            1
+        END) = 2
 LIMIT 1;
 
 -- ============================================================================
@@ -476,17 +473,25 @@ WHERE
 LIMIT 1;
 
 -- name: MessageListByChannelKeyset :many
--- Keyset/Cursor pagination for infinite scroll
 SELECT
-    *
+    m.*
 FROM
-    messages
+    messages m
 WHERE
-    channel_id = @channel_id
+    m.channel_id = @channel_id
     AND (sqlc.narg('cursor_id')::uuid IS NULL
-        OR id < sqlc.narg('cursor_id'))
+        OR (m.created_at, m.id) < (
+            SELECT
+                c.created_at,
+                c.id
+            FROM
+                messages c
+            WHERE
+                c.id = sqlc.narg('cursor_id')::uuid
+        ))
 ORDER BY
-    id DESC
+    m.created_at DESC,
+    m.id DESC
 LIMIT @result_limit;
 
 -- name: MessageListPinnedByChannel :many

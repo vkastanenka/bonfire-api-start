@@ -71,20 +71,17 @@ SELECT
     c.id, c.owner_id, c.last_message_id, c.created_at, c.updated_at, c.type, c.name, c.icon_url
 FROM
     channels c
-    JOIN channel_members m1 ON c.id = m1.channel_id
-    JOIN channel_members m2 ON c.id = m2.channel_id
+    JOIN channel_members cm ON c.id = cm.channel_id
 WHERE
     c.type = 0
-    AND m1.user_id = $1::uuid
-    AND m2.user_id = $2::uuid
-    AND m1.user_id != m2.user_id
-    AND (
-        SELECT
-            COUNT(*)
-        FROM
-            channel_members cm
-        WHERE
-            cm.channel_id = c.id) = 2
+GROUP BY
+    c.id
+HAVING
+    COUNT(cm.user_id) = 2
+    AND COUNT(
+        CASE WHEN cm.user_id IN ($1::uuid, $2::uuid) THEN
+            1
+        END) = 2
 LIMIT 1
 `
 
@@ -440,18 +437,19 @@ UPDATE
     channels
 SET
     last_message_id = $1,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $2
 WHERE
-    id = $2
+    id = $3
 `
 
 type ChannelUpdateLastMessageParams struct {
-	LastMessageID pgtype.UUID `json:"last_message_id"`
-	ChannelID     pgtype.UUID `json:"channel_id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ChannelID     pgtype.UUID        `json:"channel_id"`
 }
 
 func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) error {
-	_, err := q.db.Exec(ctx, channelUpdateLastMessage, arg.LastMessageID, arg.ChannelID)
+	_, err := q.db.Exec(ctx, channelUpdateLastMessage, arg.LastMessageID, arg.UpdatedAt, arg.ChannelID)
 	return err
 }
 
@@ -539,15 +537,24 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 
 const messageListByChannelKeyset = `-- name: MessageListByChannelKeyset :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
 FROM
-    messages
+    messages m
 WHERE
-    channel_id = $1
+    m.channel_id = $1
     AND ($2::uuid IS NULL
-        OR id < $2)
+        OR (m.created_at, m.id) < (
+            SELECT
+                c.created_at,
+                c.id
+            FROM
+                messages c
+            WHERE
+                c.id = $2::uuid
+        ))
 ORDER BY
-    id DESC
+    m.created_at DESC,
+    m.id DESC
 LIMIT $3
 `
 
@@ -557,7 +564,6 @@ type MessageListByChannelKeysetParams struct {
 	ResultLimit int32       `json:"result_limit"`
 }
 
-// Keyset/Cursor pagination for infinite scroll
 func (q *Queries) MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error) {
 	rows, err := q.db.Query(ctx, messageListByChannelKeyset, arg.ChannelID, arg.CursorID, arg.ResultLimit)
 	if err != nil {

@@ -58,7 +58,7 @@ func (m *Member) IncrementMention() {
 	m.mentionCount++
 }
 
-// UserSidebarItem combines membership details with channel metadata for UI display
+// UserSidebarItem combines membership details with channel metadata for UI display.
 type UserSidebarItem struct {
 	Member  Member
 	Channel Channel

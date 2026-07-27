@@ -39,7 +39,6 @@ type Querier interface {
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
-	// Keyset/Cursor pagination for infinite scroll
 	MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error)
 	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
 	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) error
