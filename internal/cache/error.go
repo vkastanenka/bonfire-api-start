@@ -22,6 +22,8 @@ const (
 	ScopeSession   Scope = "session"
 	ScopeStore     Scope = "store"
 	ScopeTicket    Scope = "ticket"
+	ScopeChannel   Scope = "channel"
+	ScopeMessage   Scope = "message"
 )
 
 func (s Scope) String() string {
