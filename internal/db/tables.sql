@@ -106,27 +106,72 @@ WHERE (revoked_at IS NULL);
 
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
+-- Enums for Channel Types: 0: DM, 1: GROUP_DM
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    created_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    type SMALLINT NOT NULL,
-    name text,
-    CONSTRAINT type_values CHECK (type IN (0, 1, 2, 3, 4)),
-    CONSTRAINT name_rules CHECK ((type = 1 AND name IS NULL) OR (type != 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100)))
+    owner_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    last_message_id uuid DEFAULT NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    type smallint NOT NULL,
+    name text DEFAULT NULL,
+    icon_url text DEFAULT NULL,
+    CONSTRAINT channel_rules CHECK ((type = 0 AND owner_id IS NULL AND name IS NULL AND icon_url IS NULL) OR (type = 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR length(icon_url) BETWEEN 3 AND 2048)))
 );
+
+CREATE INDEX idx_channels_owner_id ON channels(owner_id)
+WHERE
+    owner_id IS NOT NULL;
+
+CREATE INDEX idx_channels_last_message_id ON channels(last_message_id DESC)
+WHERE
+    last_message_id IS NOT NULL;
+
+CREATE TABLE messages(
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    reply_to_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at timestamptz DEFAULT NULL,
+    is_pinned boolean NOT NULL DEFAULT FALSE,
+    content text,
+    CONSTRAINT content_validity CHECK (length(trim(content)) BETWEEN 1 AND 2000)
+);
+
+CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, id DESC);
+
+CREATE INDEX idx_messages_pinned ON messages(channel_id, created_at DESC)
+WHERE
+    is_pinned = TRUE;
+
+ALTER TABLE channels
+    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    PRIMARY KEY (channel_id, user_id)
+    last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+    joined_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    mention_count integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, user_id),
+    CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
 );
 
-CREATE INDEX idx_channel_members_user_id ON channel_members(user_id);
+CREATE INDEX idx_channel_members_user ON channel_members(user_id);
 
-CREATE TABLE direct_message_channels(
+CREATE TABLE message_reactions(
+    message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    emoji text NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji),
+    CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64)
+);
+
+CREATE INDEX idx_reactions_message ON message_reactions(message_id);
+
+CREATE TABLE dm_channels(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE UNIQUE,
@@ -172,7 +217,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user2_id
     LEFT JOIN user_profiles up ON up.user_id = r.user2_id
-    LEFT JOIN direct_message_channels dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3
@@ -197,7 +242,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user1_id
     LEFT JOIN user_profiles up ON up.user_id = r.user1_id
-    LEFT JOIN direct_message_channels dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3

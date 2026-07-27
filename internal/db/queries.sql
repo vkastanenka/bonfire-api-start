@@ -310,3 +310,257 @@ WHERE
 ORDER BY
     updated_at DESC;
 
+-- ============================================================================
+-- CHANNELS
+-- ============================================================================
+-- name: ChannelCreate :one
+INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
+    VALUES (@id, @type, sqlc.narg('owner_id'), sqlc.narg('name'), sqlc.narg('icon_url'), @created_at, @updated_at)
+RETURNING
+    *;
+
+-- name: ChannelGet :one
+SELECT
+    *
+FROM
+    channels
+WHERE
+    id = $1
+LIMIT 1;
+
+-- name: ChannelGetForUpdate :one
+SELECT
+    *
+FROM
+    channels
+WHERE
+    id = $1
+FOR UPDATE;
+
+-- name: ChannelUpdate :one
+UPDATE
+    channels
+SET
+    name = sqlc.narg('name'),
+    icon_url = sqlc.narg('icon_url'),
+    owner_id = sqlc.narg('owner_id'),
+    last_message_id = sqlc.narg('last_message_id'),
+    updated_at = @updated_at
+WHERE
+    id = @id
+RETURNING
+    *;
+
+-- name: ChannelUpdateLastMessage :exec
+UPDATE
+    channels
+SET
+    last_message_id = @last_message_id,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    id = @channel_id;
+
+-- name: ChannelDelete :exec
+DELETE FROM channels
+WHERE id = $1;
+
+-- name: ChannelFindDirectMessage :one
+-- Finds an existing 1:1 DM strictly between two unique users
+SELECT
+    c.*
+FROM
+    channels c
+    JOIN channel_members m1 ON c.id = m1.channel_id
+    JOIN channel_members m2 ON c.id = m2.channel_id
+WHERE
+    c.type = 0
+    AND m1.user_id = @user1_id::uuid
+    AND m2.user_id = @user2_id::uuid
+    AND m1.user_id != m2.user_id
+    AND (
+        SELECT
+            COUNT(*)
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = c.id) = 2
+LIMIT 1;
+
+-- ============================================================================
+-- CHANNEL MEMBERS
+-- ============================================================================
+-- name: ChannelMemberAdd :one
+INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+    VALUES (@channel_id, @user_id, @joined_at, sqlc.narg('last_read_message_id'), @mention_count)
+RETURNING
+    *;
+
+-- name: ChannelMemberGet :one
+SELECT
+    *
+FROM
+    channel_members
+WHERE
+    channel_id = @channel_id
+    AND user_id = @user_id
+LIMIT 1;
+
+-- name: ChannelMemberListByChannel :many
+SELECT
+    *
+FROM
+    channel_members
+WHERE
+    channel_id = $1
+ORDER BY
+    joined_at ASC;
+
+-- name: ChannelMemberListByUser :many
+-- Used for populating the user's sidebar
+SELECT
+    cm.*,
+    c.type AS channel_type,
+    c.owner_id AS channel_owner_id,
+    c.name AS channel_name,
+    c.icon_url AS channel_icon_url,
+    c.last_message_id AS channel_last_message_id,
+    c.updated_at AS channel_updated_at
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+WHERE
+    cm.user_id = $1
+ORDER BY
+    c.updated_at DESC;
+
+-- name: ChannelMemberUpdateReadState :exec
+UPDATE
+    channel_members
+SET
+    last_read_message_id = @last_read_message_id,
+    mention_count = 0
+WHERE
+    channel_id = @channel_id
+    AND user_id = @user_id;
+
+-- name: ChannelMemberIncrementMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1
+WHERE
+    channel_id = @channel_id
+    AND user_id = @user_id;
+
+-- name: ChannelMemberRemove :exec
+DELETE FROM channel_members
+WHERE channel_id = @channel_id
+    AND user_id = @user_id;
+
+-- ============================================================================
+-- MESSAGES
+-- ============================================================================
+-- name: MessageCreate :one
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at, edited_at)
+    VALUES (@id, @channel_id, sqlc.narg('author_id'), sqlc.narg('reply_to_message_id'), @content, @is_pinned, @created_at, sqlc.narg('edited_at'))
+RETURNING
+    *;
+
+-- name: MessageGet :one
+SELECT
+    *
+FROM
+    messages
+WHERE
+    id = $1
+LIMIT 1;
+
+-- name: MessageListByChannelKeyset :many
+-- Keyset/Cursor pagination for infinite scroll
+SELECT
+    *
+FROM
+    messages
+WHERE
+    channel_id = @channel_id
+    AND (sqlc.narg('cursor_id')::uuid IS NULL
+        OR id < sqlc.narg('cursor_id'))
+ORDER BY
+    id DESC
+LIMIT @result_limit;
+
+-- name: MessageListPinnedByChannel :many
+SELECT
+    *
+FROM
+    messages
+WHERE
+    channel_id = $1
+    AND is_pinned = TRUE
+ORDER BY
+    created_at DESC;
+
+-- name: MessageUpdateContent :one
+UPDATE
+    messages
+SET
+    content = @content,
+    edited_at = @edited_at
+WHERE
+    id = @id
+RETURNING
+    *;
+
+-- name: MessageSetPinned :exec
+UPDATE
+    messages
+SET
+    is_pinned = @is_pinned
+WHERE
+    id = @id;
+
+-- name: MessageDelete :exec
+DELETE FROM messages
+WHERE id = $1;
+
+-- ============================================================================
+-- MESSAGE REACTIONS
+-- ============================================================================
+-- name: ReactionAdd :one
+INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
+    VALUES (@message_id, @user_id, @emoji, @created_at)
+ON CONFLICT (message_id, user_id, emoji)
+    DO UPDATE SET
+        created_at = EXCLUDED.created_at
+    RETURNING
+        *;
+
+-- name: ReactionRemove :exec
+DELETE FROM message_reactions
+WHERE message_id = @message_id
+    AND user_id = @user_id
+    AND emoji = @emoji;
+
+-- name: ReactionListByMessage :many
+SELECT
+    *
+FROM
+    message_reactions
+WHERE
+    message_id = $1
+ORDER BY
+    created_at ASC;
+
+-- name: ReactionSummarizeByMessage :many
+SELECT
+    emoji,
+    COUNT(*)::int AS count
+FROM
+    message_reactions
+WHERE
+    message_id = $1
+GROUP BY
+    emoji
+ORDER BY
+    count DESC;
+

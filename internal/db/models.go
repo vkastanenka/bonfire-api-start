@@ -11,24 +11,46 @@ import (
 )
 
 type Channel struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
+	ID            pgtype.UUID        `json:"id"`
+	OwnerID       pgtype.UUID        `json:"owner_id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Type          int16              `json:"type"`
+	Name          pgtype.Text        `json:"name"`
+	IconUrl       pgtype.Text        `json:"icon_url"`
 }
 
 type ChannelMember struct {
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
+	MentionCount      int32              `json:"mention_count"`
 }
 
-type DirectMessageChannel struct {
+type DmChannel struct {
 	User1ID   pgtype.UUID `json:"user1_id"`
 	User2ID   pgtype.UUID `json:"user2_id"`
 	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+type Message struct {
+	ID               pgtype.UUID        `json:"id"`
+	ChannelID        pgtype.UUID        `json:"channel_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+	IsPinned         bool               `json:"is_pinned"`
+	Content          pgtype.Text        `json:"content"`
+}
+
+type MessageReaction struct {
+	MessageID pgtype.UUID        `json:"message_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Emoji     string             `json:"emoji"`
 }
 
 type OutboxEvent struct {

@@ -43,7 +43,7 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 		UserCreatedAt:     db.Timestamptz(u.CreatedAt()),
 		UserUpdatedAt:     db.Timestamptz(u.UpdatedAt()),
 		DisplayName:       prof.DisplayName().String(),
-		AvatarUrl:         db.Text(prof.AvatarURL()),
+		AvatarUrl:         db.TextPtr(prof.AvatarURL()),
 		ProfileCreatedAt:  db.Timestamptz(prof.CreatedAt()),
 		ProfileUpdatedAt:  db.Timestamptz(prof.UpdatedAt()),
 	})
@@ -113,7 +113,7 @@ func (r *User) UpsertProfile(ctx context.Context, userID uuid.UUID, prof *user.P
 		CreatedAt:   db.Timestamptz(prof.CreatedAt()),
 		UpdatedAt:   db.Timestamptz(prof.UpdatedAt()),
 		DisplayName: prof.DisplayName().String(),
-		AvatarUrl:   db.Text(prof.AvatarURL()),
+		AvatarUrl:   db.TextPtr(prof.AvatarURL()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUserProfile)

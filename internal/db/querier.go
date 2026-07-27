@@ -11,6 +11,39 @@ import (
 )
 
 type Querier interface {
+	// ============================================================================
+	// CHANNELS
+	// ============================================================================
+	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
+	ChannelDelete(ctx context.Context, id pgtype.UUID) error
+	// Finds an existing 1:1 DM strictly between two unique users
+	ChannelFindDirectMessage(ctx context.Context, arg ChannelFindDirectMessageParams) (Channel, error)
+	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
+	ChannelGetForUpdate(ctx context.Context, id pgtype.UUID) (Channel, error)
+	// ============================================================================
+	// CHANNEL MEMBERS
+	// ============================================================================
+	ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error)
+	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
+	ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error
+	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMember, error)
+	// Used for populating the user's sidebar
+	ChannelMemberListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelMemberListByUserRow, error)
+	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
+	ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error
+	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
+	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) error
+	// ============================================================================
+	// MESSAGES
+	// ============================================================================
+	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
+	MessageDelete(ctx context.Context, id pgtype.UUID) error
+	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
+	// Keyset/Cursor pagination for infinite scroll
+	MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error)
+	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
+	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) error
+	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
 	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)
 	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
@@ -19,6 +52,13 @@ type Querier interface {
 	OutboxEventPurgeProcessed(ctx context.Context, retentionDays int32) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
+	// ============================================================================
+	// MESSAGE REACTIONS
+	// ============================================================================
+	ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error)
+	ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageReaction, error)
+	ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error
+	ReactionSummarizeByMessage(ctx context.Context, messageID pgtype.UUID) ([]ReactionSummarizeByMessageRow, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)

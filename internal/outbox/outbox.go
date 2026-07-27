@@ -29,7 +29,7 @@ var statusNames = [...]string{
 	StatusDeadLetter: "DEAD_LETTER",
 }
 
-func (s Status) Valid() bool {
+func (s Status) IsValid() bool {
 	return int(s) > int(StatusUnknown) && int(s) < len(statusNames)
 }
 

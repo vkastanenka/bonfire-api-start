@@ -12,6 +12,675 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const channelCreate = `-- name: ChannelCreate :one
+INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING
+    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+`
+
+type ChannelCreateParams struct {
+	ID        pgtype.UUID        `json:"id"`
+	Type      int16              `json:"type"`
+	OwnerID   pgtype.UUID        `json:"owner_id"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// ============================================================================
+// CHANNELS
+// ============================================================================
+func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelCreate,
+		arg.ID,
+		arg.Type,
+		arg.OwnerID,
+		arg.Name,
+		arg.IconUrl,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelDelete = `-- name: ChannelDelete :exec
+DELETE FROM channels
+WHERE id = $1
+`
+
+func (q *Queries) ChannelDelete(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, channelDelete, id)
+	return err
+}
+
+const channelFindDirectMessage = `-- name: ChannelFindDirectMessage :one
+SELECT
+    c.id, c.owner_id, c.last_message_id, c.created_at, c.updated_at, c.type, c.name, c.icon_url
+FROM
+    channels c
+    JOIN channel_members m1 ON c.id = m1.channel_id
+    JOIN channel_members m2 ON c.id = m2.channel_id
+WHERE
+    c.type = 0
+    AND m1.user_id = $1::uuid
+    AND m2.user_id = $2::uuid
+    AND m1.user_id != m2.user_id
+    AND (
+        SELECT
+            COUNT(*)
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = c.id) = 2
+LIMIT 1
+`
+
+type ChannelFindDirectMessageParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+// Finds an existing 1:1 DM strictly between two unique users
+func (q *Queries) ChannelFindDirectMessage(ctx context.Context, arg ChannelFindDirectMessageParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelFindDirectMessage, arg.User1ID, arg.User2ID)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelGet = `-- name: ChannelGet :one
+SELECT
+    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+FROM
+    channels
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelGet, id)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelGetForUpdate = `-- name: ChannelGetForUpdate :one
+SELECT
+    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+FROM
+    channels
+WHERE
+    id = $1
+FOR UPDATE
+`
+
+func (q *Queries) ChannelGetForUpdate(ctx context.Context, id pgtype.UUID) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelGetForUpdate, id)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelMemberAdd = `-- name: ChannelMemberAdd :one
+INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+    VALUES ($1, $2, $3, $4, $5)
+RETURNING
+    channel_id, user_id, last_read_message_id, joined_at, mention_count
+`
+
+type ChannelMemberAddParams struct {
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	MentionCount      int32              `json:"mention_count"`
+}
+
+// ============================================================================
+// CHANNEL MEMBERS
+// ============================================================================
+func (q *Queries) ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberAdd,
+		arg.ChannelID,
+		arg.UserID,
+		arg.JoinedAt,
+		arg.LastReadMessageID,
+		arg.MentionCount,
+	)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.JoinedAt,
+		&i.MentionCount,
+	)
+	return i, err
+}
+
+const channelMemberGet = `-- name: ChannelMemberGet :one
+SELECT
+    channel_id, user_id, last_read_message_id, joined_at, mention_count
+FROM
+    channel_members
+WHERE
+    channel_id = $1
+    AND user_id = $2
+LIMIT 1
+`
+
+type ChannelMemberGetParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberGet, arg.ChannelID, arg.UserID)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.JoinedAt,
+		&i.MentionCount,
+	)
+	return i, err
+}
+
+const channelMemberIncrementMentionCount = `-- name: ChannelMemberIncrementMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1
+WHERE
+    channel_id = $1
+    AND user_id = $2
+`
+
+type ChannelMemberIncrementMentionCountParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error {
+	_, err := q.db.Exec(ctx, channelMemberIncrementMentionCount, arg.ChannelID, arg.UserID)
+	return err
+}
+
+const channelMemberListByChannel = `-- name: ChannelMemberListByChannel :many
+SELECT
+    channel_id, user_id, last_read_message_id, joined_at, mention_count
+FROM
+    channel_members
+WHERE
+    channel_id = $1
+ORDER BY
+    joined_at ASC
+`
+
+func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMember, error) {
+	rows, err := q.db.Query(ctx, channelMemberListByChannel, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMember
+	for rows.Next() {
+		var i ChannelMember
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.JoinedAt,
+			&i.MentionCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelMemberListByUser = `-- name: ChannelMemberListByUser :many
+SELECT
+    cm.channel_id, cm.user_id, cm.last_read_message_id, cm.joined_at, cm.mention_count,
+    c.type AS channel_type,
+    c.owner_id AS channel_owner_id,
+    c.name AS channel_name,
+    c.icon_url AS channel_icon_url,
+    c.last_message_id AS channel_last_message_id,
+    c.updated_at AS channel_updated_at
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+WHERE
+    cm.user_id = $1
+ORDER BY
+    c.updated_at DESC
+`
+
+type ChannelMemberListByUserRow struct {
+	ChannelID            pgtype.UUID        `json:"channel_id"`
+	UserID               pgtype.UUID        `json:"user_id"`
+	LastReadMessageID    pgtype.UUID        `json:"last_read_message_id"`
+	JoinedAt             pgtype.Timestamptz `json:"joined_at"`
+	MentionCount         int32              `json:"mention_count"`
+	ChannelType          int16              `json:"channel_type"`
+	ChannelOwnerID       pgtype.UUID        `json:"channel_owner_id"`
+	ChannelName          pgtype.Text        `json:"channel_name"`
+	ChannelIconUrl       pgtype.Text        `json:"channel_icon_url"`
+	ChannelLastMessageID pgtype.UUID        `json:"channel_last_message_id"`
+	ChannelUpdatedAt     pgtype.Timestamptz `json:"channel_updated_at"`
+}
+
+// Used for populating the user's sidebar
+func (q *Queries) ChannelMemberListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelMemberListByUserRow, error) {
+	rows, err := q.db.Query(ctx, channelMemberListByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMemberListByUserRow
+	for rows.Next() {
+		var i ChannelMemberListByUserRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.JoinedAt,
+			&i.MentionCount,
+			&i.ChannelType,
+			&i.ChannelOwnerID,
+			&i.ChannelName,
+			&i.ChannelIconUrl,
+			&i.ChannelLastMessageID,
+			&i.ChannelUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelMemberRemove = `-- name: ChannelMemberRemove :exec
+DELETE FROM channel_members
+WHERE channel_id = $1
+    AND user_id = $2
+`
+
+type ChannelMemberRemoveParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error {
+	_, err := q.db.Exec(ctx, channelMemberRemove, arg.ChannelID, arg.UserID)
+	return err
+}
+
+const channelMemberUpdateReadState = `-- name: ChannelMemberUpdateReadState :exec
+UPDATE
+    channel_members
+SET
+    last_read_message_id = $1,
+    mention_count = 0
+WHERE
+    channel_id = $2
+    AND user_id = $3
+`
+
+type ChannelMemberUpdateReadStateParams struct {
+	LastReadMessageID pgtype.UUID `json:"last_read_message_id"`
+	ChannelID         pgtype.UUID `json:"channel_id"`
+	UserID            pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error {
+	_, err := q.db.Exec(ctx, channelMemberUpdateReadState, arg.LastReadMessageID, arg.ChannelID, arg.UserID)
+	return err
+}
+
+const channelUpdate = `-- name: ChannelUpdate :one
+UPDATE
+    channels
+SET
+    name = $1,
+    icon_url = $2,
+    owner_id = $3,
+    last_message_id = $4,
+    updated_at = $5
+WHERE
+    id = $6
+RETURNING
+    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+`
+
+type ChannelUpdateParams struct {
+	Name          pgtype.Text        `json:"name"`
+	IconUrl       pgtype.Text        `json:"icon_url"`
+	OwnerID       pgtype.UUID        `json:"owner_id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID            pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelUpdate,
+		arg.Name,
+		arg.IconUrl,
+		arg.OwnerID,
+		arg.LastMessageID,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelUpdateLastMessage = `-- name: ChannelUpdateLastMessage :exec
+UPDATE
+    channels
+SET
+    last_message_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    id = $2
+`
+
+type ChannelUpdateLastMessageParams struct {
+	LastMessageID pgtype.UUID `json:"last_message_id"`
+	ChannelID     pgtype.UUID `json:"channel_id"`
+}
+
+func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) error {
+	_, err := q.db.Exec(ctx, channelUpdateLastMessage, arg.LastMessageID, arg.ChannelID)
+	return err
+}
+
+const messageCreate = `-- name: MessageCreate :one
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at, edited_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+`
+
+type MessageCreateParams struct {
+	ID               pgtype.UUID        `json:"id"`
+	ChannelID        pgtype.UUID        `json:"channel_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	Content          pgtype.Text        `json:"content"`
+	IsPinned         bool               `json:"is_pinned"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+}
+
+// ============================================================================
+// MESSAGES
+// ============================================================================
+func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageCreate,
+		arg.ID,
+		arg.ChannelID,
+		arg.AuthorID,
+		arg.ReplyToMessageID,
+		arg.Content,
+		arg.IsPinned,
+		arg.CreatedAt,
+		arg.EditedAt,
+	)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
+const messageDelete = `-- name: MessageDelete :exec
+DELETE FROM messages
+WHERE id = $1
+`
+
+func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, messageDelete, id)
+	return err
+}
+
+const messageGet = `-- name: MessageGet :one
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    messages
+WHERE
+    id = $1
+LIMIT 1
+`
+
+func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, error) {
+	row := q.db.QueryRow(ctx, messageGet, id)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
+const messageListByChannelKeyset = `-- name: MessageListByChannelKeyset :many
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    messages
+WHERE
+    channel_id = $1
+    AND ($2::uuid IS NULL
+        OR id < $2)
+ORDER BY
+    id DESC
+LIMIT $3
+`
+
+type MessageListByChannelKeysetParams struct {
+	ChannelID   pgtype.UUID `json:"channel_id"`
+	CursorID    pgtype.UUID `json:"cursor_id"`
+	ResultLimit int32       `json:"result_limit"`
+}
+
+// Keyset/Cursor pagination for infinite scroll
+func (q *Queries) MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListByChannelKeyset, arg.ChannelID, arg.CursorID, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListPinnedByChannel = `-- name: MessageListPinnedByChannel :many
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    messages
+WHERE
+    channel_id = $1
+    AND is_pinned = TRUE
+ORDER BY
+    created_at DESC
+`
+
+func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListPinnedByChannel, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageSetPinned = `-- name: MessageSetPinned :exec
+UPDATE
+    messages
+SET
+    is_pinned = $1
+WHERE
+    id = $2
+`
+
+type MessageSetPinnedParams struct {
+	IsPinned bool        `json:"is_pinned"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) error {
+	_, err := q.db.Exec(ctx, messageSetPinned, arg.IsPinned, arg.ID)
+	return err
+}
+
+const messageUpdateContent = `-- name: MessageUpdateContent :one
+UPDATE
+    messages
+SET
+    content = $1,
+    edited_at = $2
+WHERE
+    id = $3
+RETURNING
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+`
+
+type MessageUpdateContentParams struct {
+	Content  pgtype.Text        `json:"content"`
+	EditedAt pgtype.Timestamptz `json:"edited_at"`
+	ID       pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageUpdateContent, arg.Content, arg.EditedAt, arg.ID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
 const outboxEventAcquireBatch = `-- name: OutboxEventAcquireBatch :many
 UPDATE
     outbox_events
@@ -315,6 +984,136 @@ func (q *Queries) OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdatePa
 		&i.LastError,
 	)
 	return i, err
+}
+
+const reactionAdd = `-- name: ReactionAdd :one
+INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
+    VALUES ($1, $2, $3, $4)
+ON CONFLICT (message_id, user_id, emoji)
+    DO UPDATE SET
+        created_at = EXCLUDED.created_at
+    RETURNING
+        message_id, user_id, created_at, emoji
+`
+
+type ReactionAddParams struct {
+	MessageID pgtype.UUID        `json:"message_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Emoji     string             `json:"emoji"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// ============================================================================
+// MESSAGE REACTIONS
+// ============================================================================
+func (q *Queries) ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error) {
+	row := q.db.QueryRow(ctx, reactionAdd,
+		arg.MessageID,
+		arg.UserID,
+		arg.Emoji,
+		arg.CreatedAt,
+	)
+	var i MessageReaction
+	err := row.Scan(
+		&i.MessageID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Emoji,
+	)
+	return i, err
+}
+
+const reactionListByMessage = `-- name: ReactionListByMessage :many
+SELECT
+    message_id, user_id, created_at, emoji
+FROM
+    message_reactions
+WHERE
+    message_id = $1
+ORDER BY
+    created_at ASC
+`
+
+func (q *Queries) ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageReaction, error) {
+	rows, err := q.db.Query(ctx, reactionListByMessage, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageReaction
+	for rows.Next() {
+		var i MessageReaction
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.Emoji,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reactionRemove = `-- name: ReactionRemove :exec
+DELETE FROM message_reactions
+WHERE message_id = $1
+    AND user_id = $2
+    AND emoji = $3
+`
+
+type ReactionRemoveParams struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error {
+	_, err := q.db.Exec(ctx, reactionRemove, arg.MessageID, arg.UserID, arg.Emoji)
+	return err
+}
+
+const reactionSummarizeByMessage = `-- name: ReactionSummarizeByMessage :many
+SELECT
+    emoji,
+    COUNT(*)::int AS count
+FROM
+    message_reactions
+WHERE
+    message_id = $1
+GROUP BY
+    emoji
+ORDER BY
+    count DESC
+`
+
+type ReactionSummarizeByMessageRow struct {
+	Emoji string `json:"emoji"`
+	Count int32  `json:"count"`
+}
+
+func (q *Queries) ReactionSummarizeByMessage(ctx context.Context, messageID pgtype.UUID) ([]ReactionSummarizeByMessageRow, error) {
+	rows, err := q.db.Query(ctx, reactionSummarizeByMessage, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReactionSummarizeByMessageRow
+	for rows.Next() {
+		var i ReactionSummarizeByMessageRow
+		if err := rows.Scan(&i.Emoji, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const relationshipDelete = `-- name: RelationshipDelete :exec

@@ -45,8 +45,13 @@ func UUIDPtr(id *uuid.UUID) pgtype.UUID {
 	}
 }
 
-// Text converts a *string into pgtype.Text.
-func Text(s *string) pgtype.Text {
+// Text converts a string into pgtype.Text.
+func Text(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: true}
+}
+
+// TextPtr converts a *string into pgtype.Text.
+func TextPtr(s *string) pgtype.Text {
 	if s == nil {
 		return pgtype.Text{Valid: false}
 	}

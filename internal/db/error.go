@@ -14,13 +14,15 @@ import (
 type Entity string
 
 const (
-	EntityChannel       Entity = "channel"
-	EntityChannelMember Entity = "channel_member"
-	EntityOutboxEvent   Entity = "outbox_event"
-	EntityRelationship  Entity = "relationship"
-	EntitySession       Entity = "session"
-	EntityUser          Entity = "user"
-	EntityUserProfile   Entity = "user_profile"
+	EntityChannel         Entity = "channel"
+	EntityChannelMember   Entity = "channel_member"
+	EntityMessage         Entity = "message"
+	EntityMessageReaction Entity = "message_reaction"
+	EntityOutboxEvent     Entity = "outbox_event"
+	EntityRelationship    Entity = "relationship"
+	EntitySession         Entity = "session"
+	EntityUser            Entity = "user"
+	EntityUserProfile     Entity = "user_profile"
 )
 
 func (e Entity) String() string { return string(e) }

@@ -71,7 +71,7 @@ func (r *Outbox) Create(ctx context.Context, event *outbox.Event) error {
 		Attempts:       event.Attempts(),
 		MaxAttempts:    event.MaxAttempts(),
 		EventType:      event.EventType(),
-		LastError:      db.Text(event.LastError()),
+		LastError:      db.TextPtr(event.LastError()),
 		Payload:        event.Payload(),
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func (r *Outbox) Save(ctx context.Context, event *outbox.Event) error {
 		Attempts:       event.Attempts(),
 		MaxAttempts:    event.MaxAttempts(),
 		NextAttemptAt:  db.Timestamptz(event.NextAttemptAt()),
-		LastError:      db.Text(event.LastError()),
+		LastError:      db.TextPtr(event.LastError()),
 		UpdatedAt:      db.Timestamptz(event.UpdatedAt()),
 	})
 	if err != nil {
