@@ -38,7 +38,7 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/verify", httpio.ToHTTPErr(app.Handlers.Auth.VerifyEmail))
 			public.Post("/auth/forgot-password", httpio.ToHTTPErr(app.Handlers.Auth.ForgotPassword))
 			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
-			
+
 			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 
 			public.Get("/users/{id}", httpio.ToHTTPErr(app.Handlers.User.Get))
@@ -61,6 +61,12 @@ func (app *Application) routes() http.Handler {
 			auth.Post("/users/@me/relationships/{id}/accept", httpio.ToHTTPErr(app.Handlers.Me.AcceptFriendRequest))
 			auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.Block))
 			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.RemoveRelationship))
+
+			auth.Post("/channels", httpio.ToHTTPErr(app.Handlers.Channel.Create))
+			auth.Get("/channels/{channelId}/messages", httpio.ToHTTPErr(app.Handlers.Channel.ListMessages))
+			auth.Post("/channels/{channelId}/messages", httpio.ToHTTPErr(app.Handlers.Channel.PostMessage))
+			auth.Patch("/channels/{channelId}/messages/{messageId}", httpio.ToHTTPErr(app.Handlers.Channel.EditMessage))
+			auth.Delete("/channels/{channelId}/messages/{messageId}", httpio.ToHTTPErr(app.Handlers.Channel.DeleteMessage))
 		})
 	})
 

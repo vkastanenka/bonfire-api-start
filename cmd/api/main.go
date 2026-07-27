@@ -10,6 +10,7 @@ import (
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/email"
@@ -115,6 +116,7 @@ func run(cfg *config.Config) error {
 		OverrideTo:   cfg.EmailOverrideTo,
 	})
 
+	channelRepo := repository.NewChannel(dbStore)
 	outboxRepo := repository.NewOutbox(dbStore)
 	relationshipRepo := repository.NewRelationship(dbStore)
 	sessionRepo := repository.NewSession(dbStore)
@@ -124,10 +126,12 @@ func run(cfg *config.Config) error {
 	sessionStore := store.NewSession(cacheStore)
 	shieldStore := store.NewShield(cacheStore)
 	ticketStore := store.NewTicket(cacheStore)
+	typingStore := store.NewTyping(cacheStore, 5*time.Second)
 
 	relationshipSvc := relationship.NewService(relationshipRepo, outboxRepo, dbStore)
 	presenceSvc := presence.NewService(presenceStore)
 	userSvc := user.NewService(userRepo)
+	channelSvc := channel.NewService(channelRepo, outboxRepo, typingStore, dbStore)
 	authSvc := auth.NewService(
 		outboxRepo,
 		sessionRepo,
@@ -154,6 +158,7 @@ func run(cfg *config.Config) error {
 	go hub.Run(ctx)
 
 	authHandler := handler.NewAuth(authSvc, bind)
+	channelHandler := handler.NewChannel(channelSvc, bind)
 	gatewayHandler := gateway.NewHandler(hub, presenceStore, ticketStore, bind)
 	healthHandler := handler.NewHealth(dbConn, cacheConn)
 	meHandler := handler.NewMe(relationshipSvc, userSvc, presenceSvc, bind)
@@ -166,6 +171,7 @@ func run(cfg *config.Config) error {
 		Tokens:      tokens,
 		Handlers: Handlers{
 			Auth:    authHandler,
+			Channel: channelHandler,
 			Gateway: gatewayHandler,
 			Health:  healthHandler,
 			Me:      meHandler,

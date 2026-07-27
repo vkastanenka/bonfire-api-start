@@ -17,6 +17,7 @@ import (
 
 type Handlers struct {
 	Auth    *handler.Auth
+	Channel *handler.Channel
 	Gateway *gateway.Handler
 	Health  *handler.Health
 	Me      *handler.Me

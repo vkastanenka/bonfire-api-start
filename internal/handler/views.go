@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
@@ -163,5 +164,51 @@ func ToMeResponse(u user.User) MeResponse {
 		VerifiedAt:        u.VerifiedAt(),
 		CreatedAt:         u.CreatedAt(),
 		UpdatedAt:         u.UpdatedAt(),
+	}
+}
+
+type ChannelResponse struct {
+	ID        uuid.UUID    `json:"id"`
+	Type      channel.Type `json:"type"`
+	OwnerID   *uuid.UUID   `json:"ownerId,omitempty"`
+	Name      *string      `json:"name,omitempty"`
+	IconURL   *string      `json:"iconUrl,omitempty"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
+}
+
+func ToChannelResponse(c channel.Channel) ChannelResponse {
+	return ChannelResponse{
+		ID:        c.ID(),
+		Type:      c.Type(),
+		OwnerID:   c.OwnerID(),
+		Name:      c.Name(), // c.Name() already returns *string
+		IconURL:   c.IconURL(),
+		CreatedAt: c.CreatedAt(),
+		UpdatedAt: c.UpdatedAt(),
+	}
+}
+
+type MessageResponse struct {
+	ID        uuid.UUID  `json:"id"`
+	ChannelID uuid.UUID  `json:"channelId"`
+	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
+	ReplyToID *uuid.UUID `json:"replyToId,omitempty"`
+	Content   string     `json:"content"`
+	Pinned    bool       `json:"pinned"`
+	CreatedAt time.Time  `json:"createdAt"`
+	EditedAt  *time.Time `json:"editedAt,omitempty"`
+}
+
+func ToMessageResponse(m channel.Message) MessageResponse {
+	return MessageResponse{
+		ID:        m.ID(),
+		ChannelID: m.ChannelID(),
+		AuthorID:  m.AuthorID(),
+		ReplyToID: m.ReplyToMessageID(),
+		Content:   m.Content(),  // m.Content() returns string directly
+		Pinned:    m.IsPinned(), // getter method is IsPinned()
+		CreatedAt: m.CreatedAt(),
+		EditedAt:  m.EditedAt(), // getter method is EditedAt()
 	}
 }
