@@ -24,6 +24,7 @@ type Querier interface {
 	// CHANNEL MEMBERS
 	// ============================================================================
 	ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error)
+	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error

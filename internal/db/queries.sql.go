@@ -251,6 +251,44 @@ func (q *Queries) ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddPara
 	return i, err
 }
 
+const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
+INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+SELECT
+    $1,
+    u_id,
+    j_at,
+    lr_id,
+    m_count
+FROM
+    unnest($2::uuid[]) AS u(u_id),
+    unnest($3::timestamptz[]) AS j(j_at),
+    unnest($4::uuid[]) AS lr(lr_id),
+    unnest($5::int[]) AS m(m_count)
+ON CONFLICT (channel_id,
+    user_id)
+    DO UPDATE SET
+        joined_at = EXCLUDED.joined_at
+`
+
+type ChannelMemberAddBatchParams struct {
+	ChannelID          pgtype.UUID          `json:"channel_id"`
+	UserIds            []pgtype.UUID        `json:"user_ids"`
+	JoinedAts          []pgtype.Timestamptz `json:"joined_ats"`
+	LastReadMessageIds []pgtype.UUID        `json:"last_read_message_ids"`
+	MentionCounts      []int32              `json:"mention_counts"`
+}
+
+func (q *Queries) ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error {
+	_, err := q.db.Exec(ctx, channelMemberAddBatch,
+		arg.ChannelID,
+		arg.UserIds,
+		arg.JoinedAts,
+		arg.LastReadMessageIds,
+		arg.MentionCounts,
+	)
+	return err
+}
+
 const channelMemberGet = `-- name: ChannelMemberGet :one
 SELECT
     channel_id, user_id, last_read_message_id, joined_at, mention_count

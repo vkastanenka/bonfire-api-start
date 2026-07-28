@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"bonfire-api/internal/cache"
 	"bonfire-api/internal/outbox"
@@ -27,6 +28,7 @@ type MessageCreatedPayload struct {
 	AuthorID  *uuid.UUID `json:"author_id,omitempty"`
 	Content   string     `json:"content"`
 	ReplyToID *uuid.UUID `json:"reply_to_id,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 type MessageUpdatedPayload struct {

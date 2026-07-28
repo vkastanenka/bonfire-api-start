@@ -28,6 +28,7 @@ type ChannelStore interface {
 	// CHANNEL MEMBERS
 	// ============================================================================
 	ChannelMemberAdd(ctx context.Context, arg db.ChannelMemberAddParams) (db.ChannelMember, error)
+	ChannelMemberAddBatch(ctx context.Context, arg db.ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg db.ChannelMemberGetParams) (db.ChannelMember, error)
 	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.ChannelMemberListByChannelRow, error)
 	ChannelMemberUpdateReadState(ctx context.Context, arg db.ChannelMemberUpdateReadStateParams) error
@@ -177,6 +178,40 @@ func (r *Channel) AddMember(ctx context.Context, m *channel.Member) error {
 	return nil
 }
 
+func (r *Channel) AddMembers(ctx context.Context, members []*channel.Member) error {
+	if len(members) == 0 {
+		return nil
+	}
+
+	// Assuming all members share the same ChannelID
+	channelID := members[0].ChannelID()
+
+	userIDs := make([]pgtype.UUID, len(members))
+	joinedAts := make([]pgtype.Timestamptz, len(members))
+	lastReadMessageIDs := make([]pgtype.UUID, len(members))
+	mentionCounts := make([]int32, len(members))
+
+	for i, m := range members {
+		userIDs[i] = db.UUID(m.UserID())
+		joinedAts[i] = db.Timestamptz(m.JoinedAt())
+		lastReadMessageIDs[i] = db.UUIDPtr(m.LastReadMessageID())
+		mentionCounts[i] = m.MentionCount()
+	}
+
+	err := r.store.ChannelMemberAddBatch(ctx, db.ChannelMemberAddBatchParams{
+		ChannelID:          db.UUID(channelID),
+		UserIds:            userIDs,
+		JoinedAts:          joinedAts,
+		LastReadMessageIds: lastReadMessageIDs,
+		MentionCounts:      mentionCounts,
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannelMember)
+	}
+
+	return nil
+}
+
 func (r *Channel) GetMember(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
 		ChannelID: db.UUID(channelID),
@@ -254,6 +289,20 @@ func (r *Channel) RemoveMember(ctx context.Context, channelID, userID uuid.UUID)
 	}
 
 	return nil
+}
+
+func (r *Channel) IsMember(ctx context.Context, channelID, userID uuid.UUID) (bool, error) {
+	_, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		if db.IsNotFoundError(err) {
+			return false, nil
+		}
+		return false, db.NewError(err, db.EntityChannelMember)
+	}
+	return true, nil
 }
 
 // ============================================================================
@@ -515,17 +564,3 @@ func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {
 		row.CreatedAt.Time.UTC(),
 	)
 }
-
-// func (r *Channel) IsParticipant(ctx context.Context, channelID, userID uuid.UUID) (bool, error) {
-// 	_, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
-// 		ChannelID: db.UUID(channelID),
-// 		UserID:    db.UUID(userID),
-// 	})
-// 	if err != nil {
-// 		if db.IsNotFoundError(err) {
-// 			return false, nil
-// 		}
-// 		return false, db.NewError(err, db.EntityChannelMember)
-// 	}
-// 	return true, nil
-// }

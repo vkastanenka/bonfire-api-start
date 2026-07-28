@@ -413,6 +413,24 @@ ON CONFLICT (channel_id, user_id)
     RETURNING
         *;
 
+-- name: ChannelMemberAddBatch :exec
+INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+SELECT
+    @channel_id,
+    u_id,
+    j_at,
+    lr_id,
+    m_count
+FROM
+    unnest(@user_ids::uuid[]) AS u(u_id),
+    unnest(@joined_ats::timestamptz[]) AS j(j_at),
+    unnest(@last_read_message_ids::uuid[]) AS lr(lr_id),
+    unnest(@mention_counts::int[]) AS m(m_count)
+ON CONFLICT (channel_id,
+    user_id)
+    DO UPDATE SET
+        joined_at = EXCLUDED.joined_at;
+
 -- name: ChannelMemberGet :one
 SELECT
     *
