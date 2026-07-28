@@ -7,6 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	ErrMemberChannelIDRequired = errors.New("channel id is required")
+	ErrMemberUserIDRequired    = errors.New("user id is required")
+)
+
 type Member struct {
 	channelID         uuid.UUID
 	userID            uuid.UUID
@@ -22,8 +27,11 @@ func (m *Member) LastReadMessageID() *uuid.UUID { return m.lastReadMessageID }
 func (m *Member) MentionCount() int32           { return m.mentionCount }
 
 func NewMember(channelID, userID uuid.UUID) (*Member, error) {
-	if channelID == uuid.Nil || userID == uuid.Nil {
-		return nil, errors.New("channelID and userID are required")
+	if channelID == uuid.Nil {
+		return nil, ErrMemberChannelIDRequired
+	}
+	if userID == uuid.Nil {
+		return nil, ErrMemberUserIDRequired
 	}
 
 	return &Member{
@@ -39,14 +47,24 @@ func ReconstituteMember(
 	joinedAt time.Time,
 	lastReadMessageID *uuid.UUID,
 	mentionCount int32,
-) *Member {
+) (*Member, error) {
+	if channelID == uuid.Nil {
+		return nil, ErrMemberChannelIDRequired
+	}
+	if userID == uuid.Nil {
+		return nil, ErrMemberUserIDRequired
+	}
+	if mentionCount < 0 {
+		mentionCount = 0
+	}
+
 	return &Member{
 		channelID:         channelID,
 		userID:            userID,
 		joinedAt:          joinedAt,
 		lastReadMessageID: lastReadMessageID,
 		mentionCount:      mentionCount,
-	}
+	}, nil
 }
 
 func (m *Member) MarkRead(messageID uuid.UUID) {
@@ -58,7 +76,10 @@ func (m *Member) IncrementMention() {
 	m.mentionCount++
 }
 
-// UserSidebarItem combines membership details with channel metadata for UI display.
+func (m *Member) ResetMentions() {
+	m.mentionCount = 0
+}
+
 type UserSidebarItem struct {
 	Member  Member
 	Channel Channel
@@ -73,24 +94,35 @@ func ReconstituteSidebarItem(
 	ownerID *uuid.UUID,
 	name, iconURL *string,
 	lastMessageID *uuid.UUID,
-	updatedAt time.Time,
-) *UserSidebarItem {
-	return &UserSidebarItem{
-		Member: Member{
-			channelID:         channelID,
-			userID:            userID,
-			joinedAt:          joinedAt,
-			lastReadMessageID: lastReadMessageID,
-			mentionCount:      mentionCount,
-		},
-		Channel: Channel{
-			id:            channelID,
-			channelType:   chType,
-			ownerID:       ownerID,
-			name:          name,
-			iconURL:       iconURL,
-			lastMessageID: lastMessageID,
-			updatedAt:     updatedAt,
-		},
+	createdAt, updatedAt time.Time,
+) (*UserSidebarItem, error) {
+	ch, err := Reconstitute(
+		channelID,
+		chType,
+		ownerID,
+		name,
+		iconURL,
+		lastMessageID,
+		createdAt,
+		updatedAt,
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	mem, err := ReconstituteMember(
+		channelID,
+		userID,
+		joinedAt,
+		lastReadMessageID,
+		mentionCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UserSidebarItem{
+		Member:  *mem,
+		Channel: *ch,
+	}, nil
 }

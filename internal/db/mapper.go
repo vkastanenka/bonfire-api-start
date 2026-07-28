@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,11 @@ import (
 type Integer interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}
+
+// StringLike permits any string underlying type or types implementing fmt.Stringer.
+type Stringer interface {
+	fmt.Stringer
 }
 
 // -----------------------------------------------------------------------------
@@ -45,7 +51,7 @@ func UUIDPtr(id *uuid.UUID) pgtype.UUID {
 	}
 }
 
-// Text converts a string into pgtype.Text.
+// Text converts a string or fmt.Stringer into pgtype.Text.
 func Text(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
@@ -56,6 +62,15 @@ func TextPtr(s *string) pgtype.Text {
 		return pgtype.Text{Valid: false}
 	}
 	return pgtype.Text{String: *s, Valid: true}
+}
+
+// StringerPtr converts a pointer to any type implementing fmt.Stringer into pgtype.Text.
+// Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
+func StringerPtr[T Stringer](v *T) pgtype.Text {
+	if v == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: (*v).String(), Valid: true}
 }
 
 // Timestamptz converts a time.Time into pgtype.Timestamptz in UTC.

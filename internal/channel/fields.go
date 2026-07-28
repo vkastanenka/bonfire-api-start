@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 
 	"bonfire-api/internal/sanitize"
@@ -29,6 +30,40 @@ func NewName(raw string) (Name, error) {
 
 func (n Name) String() string { return n.value }
 func (n Name) IsValid() bool  { return n.value != "" }
+
+var (
+	ErrIconURLEmpty    = errors.New("icon url cannot be empty")
+	ErrIconURLTooShort = errors.New("icon url must be at least 3 characters")
+	ErrIconURLTooLong  = errors.New("icon url cannot exceed 2048 characters")
+	ErrIconURLInvalid  = errors.New("icon url must be a valid http or https URL")
+)
+
+type IconURL struct {
+	value string
+}
+
+func NewIconURL(raw string) (IconURL, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return IconURL{}, ErrIconURLEmpty
+	}
+	if len(s) < 3 {
+		return IconURL{}, ErrIconURLTooShort
+	}
+	if len(s) > 2048 {
+		return IconURL{}, ErrIconURLTooLong
+	}
+
+	parsed, err := url.ParseRequestURI(s)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return IconURL{}, ErrIconURLInvalid
+	}
+
+	return IconURL{value: s}, nil
+}
+
+func (i IconURL) String() string { return i.value }
+func (i IconURL) IsValid() bool  { return i.value != "" }
 
 var (
 	ErrContentEmpty   = errors.New("message content cannot be empty")

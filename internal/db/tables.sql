@@ -136,7 +136,7 @@ CREATE TABLE messages(
     edited_at timestamptz DEFAULT NULL,
     is_pinned boolean NOT NULL DEFAULT FALSE,
     content text,
-    CONSTRAINT content_validity CHECK (length(trim(content)) BETWEEN 1 AND 2000)
+    CONSTRAINT content_validity CHECK (length(trim(content)) BETWEEN 1 AND 4000)
 );
 
 CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, id DESC);
@@ -171,7 +171,7 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 
-CREATE TABLE dm_channels(
+CREATE TABLE dm_relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE UNIQUE,
@@ -217,7 +217,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user2_id
     LEFT JOIN user_profiles up ON up.user_id = r.user2_id
-    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_relationships dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3
@@ -242,7 +242,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user1_id
     LEFT JOIN user_profiles up ON up.user_id = r.user1_id
-    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_relationships dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3

@@ -328,15 +328,6 @@ WHERE
     id = $1
 LIMIT 1;
 
--- name: ChannelGetForUpdate :one
-SELECT
-    *
-FROM
-    channels
-WHERE
-    id = $1
-FOR UPDATE;
-
 -- name: ChannelUpdate :one
 UPDATE
     channels
@@ -364,24 +355,51 @@ WHERE
 DELETE FROM channels
 WHERE id = $1;
 
--- name: ChannelFindDirectMessage :one
--- Finds an existing 1:1 DM strictly between two unique users
+-- name: ChannelFindDM :one
 SELECT
     c.*
 FROM
     channels c
-    JOIN channel_members cm ON c.id = cm.channel_id
+    JOIN dm_relationships dm ON c.id = dm.channel_id
 WHERE
-    c.type = 0
-GROUP BY
-    c.id
-HAVING
-    COUNT(cm.user_id) = 2
-    AND COUNT(
-        CASE WHEN cm.user_id IN (@user1_id::uuid, @user2_id::uuid) THEN
-            1
-        END) = 2
-LIMIT 1;
+    dm.user1_id = @user1_id
+    AND dm.user2_id = @user2_id;
+
+-- name: ChannelListByUser :many
+-- Used for populating the user's sidebar with channel info & peer profiles for DMs
+SELECT
+    cm.channel_id,
+    cm.user_id,
+    cm.last_read_message_id,
+    cm.mention_count,
+    cm.joined_at,
+    c.type AS channel_type,
+    c.owner_id AS channel_owner_id,
+    -- Fall back to peer's display name/username for 1-on-1 DMs
+    COALESCE(c.name, peer_up.display_name, peer_u.username) AS channel_name,
+    COALESCE(c.icon_url, peer_up.avatar_url) AS channel_icon_url,
+    c.last_message_id AS channel_last_message_id,
+    c.updated_at AS channel_updated_at,
+    peer_u.id AS peer_user_id,
+    peer_u.preferred_presence AS peer_preferred_presence
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+    -- Join directly on channel_id for instant O(1) index lookup
+    LEFT JOIN dm_relationships dm ON c.type = 0
+        AND dm.channel_id = c.id
+        -- Select whichever side of the pair IS NOT the current user
+    LEFT JOIN users peer_u ON c.type = 0
+        AND peer_u.id = CASE WHEN dm.user1_id = cm.user_id THEN
+            dm.user2_id
+        ELSE
+            dm.user1_id
+        END
+    LEFT JOIN user_profiles peer_up ON peer_u.id = peer_up.user_id
+WHERE
+    cm.user_id = @user_id
+ORDER BY
+    c.updated_at DESC;
 
 -- ============================================================================
 -- CHANNEL MEMBERS
@@ -389,8 +407,11 @@ LIMIT 1;
 -- name: ChannelMemberAdd :one
 INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
     VALUES (@channel_id, @user_id, @joined_at, sqlc.narg('last_read_message_id'), @mention_count)
-RETURNING
-    *;
+ON CONFLICT (channel_id, user_id)
+    DO UPDATE SET
+        joined_at = EXCLUDED.joined_at
+    RETURNING
+        *;
 
 -- name: ChannelMemberGet :one
 SELECT
@@ -404,31 +425,23 @@ LIMIT 1;
 
 -- name: ChannelMemberListByChannel :many
 SELECT
-    *
-FROM
-    channel_members
-WHERE
-    channel_id = $1
-ORDER BY
-    joined_at ASC;
-
--- name: ChannelMemberListByUser :many
--- Used for populating the user's sidebar
-SELECT
-    cm.*,
-    c.type AS channel_type,
-    c.owner_id AS channel_owner_id,
-    c.name AS channel_name,
-    c.icon_url AS channel_icon_url,
-    c.last_message_id AS channel_last_message_id,
-    c.updated_at AS channel_updated_at
+    cm.channel_id,
+    cm.user_id,
+    cm.joined_at,
+    cm.last_read_message_id,
+    cm.mention_count,
+    u.username,
+    up.display_name,
+    up.avatar_url,
+    u.preferred_presence
 FROM
     channel_members cm
-    JOIN channels c ON cm.channel_id = c.id
+    JOIN users u ON u.id = cm.user_id
+    LEFT JOIN user_profiles up ON up.user_id = cm.user_id
 WHERE
-    cm.user_id = $1
+    cm.channel_id = @channel_id
 ORDER BY
-    c.updated_at DESC;
+    cm.joined_at ASC;
 
 -- name: ChannelMemberUpdateReadState :exec
 UPDATE
@@ -449,6 +462,15 @@ WHERE
     channel_id = @channel_id
     AND user_id = @user_id;
 
+-- name: ChannelMemberIncrementMentionCountBatch :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1
+WHERE
+    channel_id = @channel_id
+    AND user_id = ANY (@user_ids::uuid[]);
+
 -- name: ChannelMemberRemove :exec
 DELETE FROM channel_members
 WHERE channel_id = @channel_id
@@ -458,8 +480,8 @@ WHERE channel_id = @channel_id
 -- MESSAGES
 -- ============================================================================
 -- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at, edited_at)
-    VALUES (@id, @channel_id, sqlc.narg('author_id'), sqlc.narg('reply_to_message_id'), @content, @is_pinned, @created_at, sqlc.narg('edited_at'))
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at)
+    VALUES (@id, @channel_id, sqlc.narg('author_id'), sqlc.narg('reply_to_message_id'), @content, @is_pinned, @created_at)
 RETURNING
     *;
 
@@ -474,24 +496,18 @@ LIMIT 1;
 
 -- name: MessageListByChannelKeyset :many
 SELECT
-    m.*
+    *
 FROM
-    messages m
+    messages
 WHERE
-    m.channel_id = @channel_id
-    AND (sqlc.narg('cursor_id')::uuid IS NULL
-        OR (m.created_at, m.id) < (
-            SELECT
-                c.created_at,
-                c.id
-            FROM
-                messages c
-            WHERE
-                c.id = sqlc.narg('cursor_id')::uuid
-        ))
+    channel_id = @channel_id
+    AND (@cursor_created_at::timestamptz IS NULL
+        OR (created_at,
+            id) <(@cursor_created_at::timestamptz,
+            @cursor_id::uuid))
 ORDER BY
-    m.created_at DESC,
-    m.id DESC
+    created_at DESC,
+    id DESC
 LIMIT @result_limit;
 
 -- name: MessageListPinnedByChannel :many
@@ -504,6 +520,17 @@ WHERE
     AND is_pinned = TRUE
 ORDER BY
     created_at DESC;
+
+-- name: MessageListReplies :many
+-- Fetches direct replies to a specific parent message
+SELECT
+    m.*
+FROM
+    messages m
+WHERE
+    m.reply_to_message_id = @reply_to_message_id
+ORDER BY
+    m.id ASC;
 
 -- name: MessageUpdateContent :one
 UPDATE
@@ -532,11 +559,11 @@ WHERE id = $1;
 -- MESSAGE REACTIONS
 -- ============================================================================
 -- name: ReactionAdd :one
-INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
-    VALUES (@message_id, @user_id, @emoji, @created_at)
+INSERT INTO message_reactions(message_id, user_id, emoji)
+    VALUES (@message_id, @user_id, @emoji)
 ON CONFLICT (message_id, user_id, emoji)
     DO UPDATE SET
-        created_at = EXCLUDED.created_at
+        emoji = EXCLUDED.emoji
     RETURNING
         *;
 
@@ -559,11 +586,12 @@ ORDER BY
 -- name: ReactionSummarizeByMessage :many
 SELECT
     emoji,
-    COUNT(*)::int AS count
+    COUNT(*)::int AS count,
+    BOOL_OR(user_id = @current_user_id) AS me_reacted
 FROM
     message_reactions
 WHERE
-    message_id = $1
+    message_id = @message_id
 GROUP BY
     emoji
 ORDER BY
