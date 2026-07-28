@@ -133,3 +133,14 @@ func Int16Ptr[T Integer](i pgtype.Int2) *T {
 	val := T(i.Int16)
 	return &val
 }
+
+func ToStringPtr[T any, PT interface {
+	*T
+	fmt.Stringer
+}](v *T) *string {
+	if v == nil {
+		return nil
+	}
+	s := PT(v).String()
+	return &s
+}

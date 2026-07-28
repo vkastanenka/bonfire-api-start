@@ -35,18 +35,24 @@ type ChannelStore interface {
 	ChannelMemberIncrementMentionCount(ctx context.Context, arg db.ChannelMemberIncrementMentionCountParams) error
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg db.ChannelMemberIncrementMentionCountBatchParams) error
 	ChannelMemberRemove(ctx context.Context, arg db.ChannelMemberRemoveParams) error
+	ChannelMemberGetUnreadCount(ctx context.Context, arg db.ChannelMemberGetUnreadCountParams) (int32, error)
 
 	// ============================================================================
 	// MESSAGES
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg db.MessageCreateParams) (db.Message, error)
 	MessageGet(ctx context.Context, id pgtype.UUID) (db.Message, error)
-	MessageListByChannelKeyset(ctx context.Context, arg db.MessageListByChannelKeysetParams) ([]db.Message, error)
+	MessageListByChannelBefore(ctx context.Context, arg db.MessageListByChannelBeforeParams) ([]db.Message, error)
+	MessageListByChannelAfter(ctx context.Context, arg db.MessageListByChannelAfterParams) ([]db.Message, error)
+	MessageListByChannelAround(ctx context.Context, arg db.MessageListByChannelAroundParams) ([]db.Message, error)
 	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.Message, error)
 	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]db.Message, error)
 	MessageUpdateContent(ctx context.Context, arg db.MessageUpdateContentParams) (db.Message, error)
-	MessageSetPinned(ctx context.Context, arg db.MessageSetPinnedParams) error
+	MessageSetPinned(ctx context.Context, arg db.MessageSetPinnedParams) (db.Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
+	MessageGetFirstUnread(ctx context.Context, arg db.MessageGetFirstUnreadParams) (db.Message, error)
+	ChannelHasMessagesAfter(ctx context.Context, arg db.ChannelHasMessagesAfterParams) (bool, error)
+	ChannelHasMessagesBefore(ctx context.Context, arg db.ChannelHasMessagesBeforeParams) (bool, error)
 
 	// ============================================================================
 	// MESSAGE REACTIONS
@@ -183,7 +189,6 @@ func (r *Channel) AddMembers(ctx context.Context, members []*channel.Member) err
 		return nil
 	}
 
-	// Assuming all members share the same ChannelID
 	channelID := members[0].ChannelID()
 
 	userIDs := make([]pgtype.UUID, len(members))
@@ -233,11 +238,12 @@ func (r *Channel) ListMembers(ctx context.Context, channelID uuid.UUID) ([]db.Ch
 	return rows, nil
 }
 
-func (r *Channel) UpdateMemberReadState(ctx context.Context, channelID, userID, messageID uuid.UUID) error {
+func (r *Channel) UpdateMemberReadState(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error {
 	err := r.store.ChannelMemberUpdateReadState(ctx, db.ChannelMemberUpdateReadStateParams{
 		ChannelID:         db.UUID(channelID),
 		UserID:            db.UUID(userID),
-		LastReadMessageID: db.UUID(messageID),
+		LastReadMessageID: db.UUIDPtr(messageID),
+		LastReadAt:        db.Timestamptz(lastReadAt),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityChannelMember)
@@ -305,6 +311,18 @@ func (r *Channel) IsMember(ctx context.Context, channelID, userID uuid.UUID) (bo
 	return true, nil
 }
 
+func (r *Channel) GetUnreadCount(ctx context.Context, channelID, userID uuid.UUID) (int32, error) {
+	count, err := r.store.ChannelMemberGetUnreadCount(ctx, db.ChannelMemberGetUnreadCountParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		return 0, db.NewError(err, db.EntityChannelMember)
+	}
+
+	return count, nil
+}
+
 // ============================================================================
 // MESSAGES
 // ============================================================================
@@ -335,33 +353,65 @@ func (r *Channel) GetMessage(ctx context.Context, id uuid.UUID) (*channel.Messag
 	return messageFromRow(row)
 }
 
-func (r *Channel) ListMessages(
+func (r *Channel) ListMessagesBefore(
 	ctx context.Context,
 	channelID uuid.UUID,
 	cursorCreatedAt *time.Time,
 	cursorID *uuid.UUID,
-	limit int,
+	limit int32,
 ) ([]channel.Message, error) {
-	rows, err := r.store.MessageListByChannelKeyset(ctx, db.MessageListByChannelKeysetParams{
+	rows, err := r.store.MessageListByChannelBefore(ctx, db.MessageListByChannelBeforeParams{
 		ChannelID:       db.UUID(channelID),
 		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
 		CursorID:        db.UUIDPtr(cursorID),
-		ResultLimit:     int32(limit),
+		ResultLimit:     limit,
 	})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	messages := make([]channel.Message, 0, len(rows))
-	for _, row := range rows {
-		msg, err := messageFromRow(row)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityMessage)
-		}
-		messages = append(messages, *msg)
+	return messagesFromRows(rows)
+}
+
+func (r *Channel) ListMessagesAfter(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorID *uuid.UUID,
+	limit int32,
+) ([]channel.Message, error) {
+	rows, err := r.store.MessageListByChannelAfter(ctx, db.MessageListByChannelAfterParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:        db.UUIDPtr(cursorID),
+		ResultLimit:     limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	return messages, nil
+	return messagesFromRows(rows)
+}
+
+func (r *Channel) ListMessagesAround(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt time.Time,
+	cursorID uuid.UUID,
+	halfLimit int32,
+) ([]channel.Message, error) {
+	rows, err := r.store.MessageListByChannelAround(ctx, db.MessageListByChannelAroundParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.Timestamptz(cursorCreatedAt),
+		CursorID:        db.UUID(cursorID),
+		OlderLimit:      halfLimit + 1,
+		NewerLimit:      halfLimit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messagesFromRows(rows)
 }
 
 func (r *Channel) ListPinnedMessages(ctx context.Context, channelID uuid.UUID) ([]channel.Message, error) {
@@ -370,16 +420,7 @@ func (r *Channel) ListPinnedMessages(ctx context.Context, channelID uuid.UUID) (
 		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	messages := make([]channel.Message, 0, len(rows))
-	for _, row := range rows {
-		msg, err := messageFromRow(row)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityMessage)
-		}
-		messages = append(messages, *msg)
-	}
-
-	return messages, nil
+	return messagesFromRows(rows)
 }
 
 func (r *Channel) ListMessageReplies(ctx context.Context, replyToMessageID uuid.UUID) ([]channel.Message, error) {
@@ -388,16 +429,7 @@ func (r *Channel) ListMessageReplies(ctx context.Context, replyToMessageID uuid.
 		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	messages := make([]channel.Message, 0, len(rows))
-	for _, row := range rows {
-		msg, err := messageFromRow(row)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityMessage)
-		}
-		messages = append(messages, *msg)
-	}
-
-	return messages, nil
+	return messagesFromRows(rows)
 }
 
 func (r *Channel) UpdateMessage(ctx context.Context, msg *channel.Message) error {
@@ -418,7 +450,7 @@ func (r *Channel) UpdateMessage(ctx context.Context, msg *channel.Message) error
 }
 
 func (r *Channel) SetPinnedMessage(ctx context.Context, id uuid.UUID, isPinned bool) error {
-	err := r.store.MessageSetPinned(ctx, db.MessageSetPinnedParams{
+	_, err := r.store.MessageSetPinned(ctx, db.MessageSetPinnedParams{
 		ID:       db.UUID(id),
 		IsPinned: isPinned,
 	})
@@ -436,6 +468,44 @@ func (r *Channel) DeleteMessage(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+func (r *Channel) GetFirstUnreadMessage(ctx context.Context, channelID, userID uuid.UUID) (*channel.Message, error) {
+	row, err := r.store.MessageGetFirstUnread(ctx, db.MessageGetFirstUnreadParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messageFromRow(row)
+}
+
+func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
+	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
+		ChannelID: db.UUID(channelID),
+		CreatedAt: db.Timestamptz(createdAt),
+		ID:        db.UUID(id),
+	})
+	if err != nil {
+		return false, db.NewError(err, db.EntityMessage)
+	}
+
+	return exists, nil
+}
+
+func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
+	exists, err := r.store.ChannelHasMessagesBefore(ctx, db.ChannelHasMessagesBeforeParams{
+		ChannelID: db.UUID(channelID),
+		CreatedAt: db.Timestamptz(createdAt),
+		ID:        db.UUID(id),
+	})
+	if err != nil {
+		return false, db.NewError(err, db.EntityMessage)
+	}
+
+	return exists, nil
 }
 
 // ============================================================================
@@ -554,6 +624,18 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		row.CreatedAt.Time.UTC(),
 		db.TimePtr(row.EditedAt),
 	)
+}
+
+func messagesFromRows(rows []db.Message) ([]channel.Message, error) {
+	messages := make([]channel.Message, 0, len(rows))
+	for _, row := range rows {
+		msg, err := messageFromRow(row)
+		if err != nil {
+			return nil, db.NewError(err, db.EntityMessage)
+		}
+		messages = append(messages, *msg)
+	}
+	return messages, nil
 }
 
 func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {

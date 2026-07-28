@@ -26,6 +26,7 @@ type ChannelMember struct {
 	UserID            pgtype.UUID        `json:"user_id"`
 	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 	MentionCount      int32              `json:"mention_count"`
 }
 
@@ -44,6 +45,18 @@ type Message struct {
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
 	IsPinned         bool               `json:"is_pinned"`
 	Content          pgtype.Text        `json:"content"`
+}
+
+type MessageAttachment struct {
+	ID          pgtype.UUID        `json:"id"`
+	MessageID   pgtype.UUID        `json:"message_id"`
+	FileName    string             `json:"file_name"`
+	FileSize    int32              `json:"file_size"`
+	ContentType string             `json:"content_type"`
+	Url         string             `json:"url"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type MessageReaction struct {

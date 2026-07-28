@@ -12,6 +12,145 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const attachmentCreateBatch = `-- name: AttachmentCreateBatch :exec
+INSERT INTO message_attachments(id, message_id, file_name, file_size, content_type, url, width, height, created_at)
+SELECT
+    unnest($1::uuid[]),
+    $2,
+    unnest($3::text[]),
+    unnest($4::int[]),
+    unnest($5::text[]),
+    unnest($6::text[]),
+    unnest($7::int[]),
+    unnest($8::int[]),
+    unnest($9::timestamptz[])
+WHERE
+    $2 IS NOT NULL
+`
+
+type AttachmentCreateBatchParams struct {
+	Ids          []pgtype.UUID        `json:"ids"`
+	MessageID    pgtype.UUID          `json:"message_id"`
+	FileNames    []string             `json:"file_names"`
+	FileSizes    []int32              `json:"file_sizes"`
+	ContentTypes []string             `json:"content_types"`
+	Urls         []string             `json:"urls"`
+	Widths       []int32              `json:"widths"`
+	Heights      []int32              `json:"heights"`
+	CreatedAts   []pgtype.Timestamptz `json:"created_ats"`
+}
+
+// ============================================================================
+// MESSAGE ATTACHMENTS
+// ============================================================================
+func (q *Queries) AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error {
+	_, err := q.db.Exec(ctx, attachmentCreateBatch,
+		arg.Ids,
+		arg.MessageID,
+		arg.FileNames,
+		arg.FileSizes,
+		arg.ContentTypes,
+		arg.Urls,
+		arg.Widths,
+		arg.Heights,
+		arg.CreatedAts,
+	)
+	return err
+}
+
+const attachmentDeleteByMessage = `-- name: AttachmentDeleteByMessage :exec
+DELETE FROM message_attachments
+WHERE message_id = $1
+`
+
+func (q *Queries) AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, attachmentDeleteByMessage, messageID)
+	return err
+}
+
+const attachmentListByMessage = `-- name: AttachmentListByMessage :many
+SELECT
+    id, message_id, file_name, file_size, content_type, url, width, height, created_at
+FROM
+    message_attachments
+WHERE
+    message_id = $1
+ORDER BY
+    created_at ASC
+`
+
+func (q *Queries) AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error) {
+	rows, err := q.db.Query(ctx, attachmentListByMessage, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageAttachment
+	for rows.Next() {
+		var i MessageAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.FileName,
+			&i.FileSize,
+			&i.ContentType,
+			&i.Url,
+			&i.Width,
+			&i.Height,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const attachmentListByMessagesBatch = `-- name: AttachmentListByMessagesBatch :many
+SELECT
+    id, message_id, file_name, file_size, content_type, url, width, height, created_at
+FROM
+    message_attachments
+WHERE
+    message_id = ANY ($1::uuid[])
+ORDER BY
+    created_at ASC
+`
+
+// Highly efficient for bulk-loading attachments when fetching a page of messages
+func (q *Queries) AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error) {
+	rows, err := q.db.Query(ctx, attachmentListByMessagesBatch, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageAttachment
+	for rows.Next() {
+		var i MessageAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.FileName,
+			&i.FileSize,
+			&i.ContentType,
+			&i.Url,
+			&i.Width,
+			&i.Height,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelCreate = `-- name: ChannelCreate :one
 INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -124,6 +263,60 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, erro
 	return i, err
 }
 
+const channelHasMessagesAfter = `-- name: ChannelHasMessagesAfter :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            messages
+        WHERE
+            channel_id = $1
+            AND (created_at > $2
+                OR (created_at = $2
+                    AND id > $3)))
+`
+
+type ChannelHasMessagesAfterParams struct {
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error) {
+	row := q.db.QueryRow(ctx, channelHasMessagesAfter, arg.ChannelID, arg.CreatedAt, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const channelHasMessagesBefore = `-- name: ChannelHasMessagesBefore :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            messages
+        WHERE
+            channel_id = $1
+            AND (created_at < $2
+                OR (created_at = $2
+                    AND id < $3)))
+`
+
+type ChannelHasMessagesBeforeParams struct {
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, channelHasMessagesBefore, arg.ChannelID, arg.CreatedAt, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const channelListByUser = `-- name: ChannelListByUser :many
 SELECT
     cm.channel_id,
@@ -218,7 +411,7 @@ ON CONFLICT (channel_id, user_id)
     DO UPDATE SET
         joined_at = EXCLUDED.joined_at
     RETURNING
-        channel_id, user_id, last_read_message_id, joined_at, mention_count
+        channel_id, user_id, last_read_message_id, joined_at, last_read_at, mention_count
 `
 
 type ChannelMemberAddParams struct {
@@ -246,6 +439,7 @@ func (q *Queries) ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddPara
 		&i.UserID,
 		&i.LastReadMessageID,
 		&i.JoinedAt,
+		&i.LastReadAt,
 		&i.MentionCount,
 	)
 	return i, err
@@ -255,15 +449,19 @@ const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
 INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
 SELECT
     $1,
-    u_id,
-    j_at,
-    lr_id,
-    m_count
+    u.user_id,
+    u.joined_at,
+    u.last_read_message_id,
+    u.mention_count
 FROM
-    unnest($2::uuid[]) AS u(u_id),
-    unnest($3::timestamptz[]) AS j(j_at),
-    unnest($4::uuid[]) AS lr(lr_id),
-    unnest($5::int[]) AS m(m_count)
+    ROWS
+FROM (unnest($2::uuid[]),
+    unnest($3::timestamptz[]),
+    unnest($4::uuid[]),
+    unnest($5::int[])) AS u(user_id,
+        joined_at,
+        last_read_message_id,
+        mention_count)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
@@ -291,7 +489,7 @@ func (q *Queries) ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAd
 
 const channelMemberGet = `-- name: ChannelMemberGet :one
 SELECT
-    channel_id, user_id, last_read_message_id, joined_at, mention_count
+    channel_id, user_id, last_read_message_id, joined_at, last_read_at, mention_count
 FROM
     channel_members
 WHERE
@@ -313,9 +511,34 @@ func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetPara
 		&i.UserID,
 		&i.LastReadMessageID,
 		&i.JoinedAt,
+		&i.LastReadAt,
 		&i.MentionCount,
 	)
 	return i, err
+}
+
+const channelMemberGetUnreadCount = `-- name: ChannelMemberGetUnreadCount :one
+SELECT
+    COUNT(*)::int AS unread_count
+FROM
+    messages m
+    JOIN channel_members cm ON cm.channel_id = m.channel_id
+        AND cm.user_id = $1
+WHERE
+    m.channel_id = $2
+    AND m.created_at > cm.last_read_at
+`
+
+type ChannelMemberGetUnreadCountParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+func (q *Queries) ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error) {
+	row := q.db.QueryRow(ctx, channelMemberGetUnreadCount, arg.UserID, arg.ChannelID)
+	var unread_count int32
+	err := row.Scan(&unread_count)
+	return unread_count, err
 }
 
 const channelMemberIncrementMentionCount = `-- name: ChannelMemberIncrementMentionCount :exec
@@ -442,20 +665,27 @@ UPDATE
     channel_members
 SET
     last_read_message_id = $1,
+    last_read_at = $2,
     mention_count = 0
 WHERE
-    channel_id = $2
-    AND user_id = $3
+    channel_id = $3
+    AND user_id = $4
 `
 
 type ChannelMemberUpdateReadStateParams struct {
-	LastReadMessageID pgtype.UUID `json:"last_read_message_id"`
-	ChannelID         pgtype.UUID `json:"channel_id"`
-	UserID            pgtype.UUID `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	UserID            pgtype.UUID        `json:"user_id"`
 }
 
 func (q *Queries) ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error {
-	_, err := q.db.Exec(ctx, channelMemberUpdateReadState, arg.LastReadMessageID, arg.ChannelID, arg.UserID)
+	_, err := q.db.Exec(ctx, channelMemberUpdateReadState,
+		arg.LastReadMessageID,
+		arg.LastReadAt,
+		arg.ChannelID,
+		arg.UserID,
+	)
 	return err
 }
 
@@ -607,7 +837,196 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 	return i, err
 }
 
-const messageListByChannelKeyset = `-- name: MessageListByChannelKeyset :many
+const messageGetFirstUnread = `-- name: MessageGetFirstUnread :one
+SELECT
+    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
+FROM
+    messages m
+    JOIN channel_members cm ON cm.channel_id = m.channel_id
+        AND cm.user_id = $1
+WHERE
+    m.channel_id = $2
+    AND m.created_at > cm.last_read_at
+ORDER BY
+    m.created_at ASC,
+    m.id ASC
+LIMIT 1
+`
+
+type MessageGetFirstUnreadParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+// Fetches the first message created after the user's last_read_at timestamp
+func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageGetFirstUnread, arg.UserID, arg.ChannelID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
+const messageListByChannelAfter = `-- name: MessageListByChannelAfter :many
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    messages
+WHERE
+    channel_id = $1
+    AND ($2::timestamptz IS NULL
+        OR (created_at,
+            id) >($2::timestamptz,
+            $3::uuid))
+ORDER BY
+    created_at ASC,
+    id ASC
+LIMIT $4
+`
+
+type MessageListByChannelAfterParams struct {
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.UUID        `json:"cursor_id"`
+	ResultLimit     int32              `json:"result_limit"`
+}
+
+// Fetches newer messages using keyset pagination.
+func (q *Queries) MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListByChannelAfter,
+		arg.ChannelID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListByChannelAround = `-- name: MessageListByChannelAround :many
+WITH around_window AS ((
+        SELECT
+            m1.id, m1.channel_id, m1.author_id, m1.reply_to_message_id, m1.created_at, m1.edited_at, m1.is_pinned, m1.content
+        FROM
+            messages m1
+        WHERE
+            m1.channel_id = $1
+            AND (m1.created_at,
+                m1.id) <=($2::timestamptz,
+                $3::uuid)
+        ORDER BY
+            m1.created_at DESC,
+            m1.id DESC
+        LIMIT $4)
+UNION ALL (
+    SELECT
+        m2.id, m2.channel_id, m2.author_id, m2.reply_to_message_id, m2.created_at, m2.edited_at, m2.is_pinned, m2.content
+    FROM
+        messages m2
+    WHERE
+        m2.channel_id = $1
+        AND (m2.created_at,
+            m2.id) >($2::timestamptz,
+            $3::uuid)
+    ORDER BY
+        m2.created_at ASC,
+        m2.id ASC
+    LIMIT $5))
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    around_window
+ORDER BY
+    created_at ASC,
+    id ASC
+`
+
+type MessageListByChannelAroundParams struct {
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.UUID        `json:"cursor_id"`
+	OlderLimit      int32              `json:"older_limit"`
+	NewerLimit      int32              `json:"newer_limit"`
+}
+
+type MessageListByChannelAroundRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	ChannelID        pgtype.UUID        `json:"channel_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+	IsPinned         bool               `json:"is_pinned"`
+	Content          pgtype.Text        `json:"content"`
+}
+
+func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]MessageListByChannelAroundRow, error) {
+	rows, err := q.db.Query(ctx, messageListByChannelAround,
+		arg.ChannelID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.OlderLimit,
+		arg.NewerLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageListByChannelAroundRow
+	for rows.Next() {
+		var i MessageListByChannelAroundRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListByChannelBefore = `-- name: MessageListByChannelBefore :many
 SELECT
     id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
 FROM
@@ -624,15 +1043,17 @@ ORDER BY
 LIMIT $4
 `
 
-type MessageListByChannelKeysetParams struct {
+type MessageListByChannelBeforeParams struct {
 	ChannelID       pgtype.UUID        `json:"channel_id"`
 	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
 	CursorID        pgtype.UUID        `json:"cursor_id"`
 	ResultLimit     int32              `json:"result_limit"`
 }
 
-func (q *Queries) MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListByChannelKeyset,
+// Fetches older messages using keyset pagination.
+// Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
+func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListByChannelBefore,
 		arg.ChannelID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -714,10 +1135,10 @@ FROM
 WHERE
     m.reply_to_message_id = $1
 ORDER BY
+    m.created_at ASC,
     m.id ASC
 `
 
-// Fetches direct replies to a specific parent message
 func (q *Queries) MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]Message, error) {
 	rows, err := q.db.Query(ctx, messageListReplies, replyToMessageID)
 	if err != nil {
@@ -747,13 +1168,15 @@ func (q *Queries) MessageListReplies(ctx context.Context, replyToMessageID pgtyp
 	return items, nil
 }
 
-const messageSetPinned = `-- name: MessageSetPinned :exec
+const messageSetPinned = `-- name: MessageSetPinned :one
 UPDATE
     messages
 SET
     is_pinned = $1
 WHERE
     id = $2
+RETURNING
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
 `
 
 type MessageSetPinnedParams struct {
@@ -761,9 +1184,20 @@ type MessageSetPinnedParams struct {
 	ID       pgtype.UUID `json:"id"`
 }
 
-func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) error {
-	_, err := q.db.Exec(ctx, messageSetPinned, arg.IsPinned, arg.ID)
-	return err
+func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageSetPinned, arg.IsPinned, arg.ID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
 }
 
 const messageUpdateContent = `-- name: MessageUpdateContent :one

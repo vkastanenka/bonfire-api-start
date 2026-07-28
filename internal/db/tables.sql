@@ -136,14 +136,18 @@ CREATE TABLE messages(
     edited_at timestamptz DEFAULT NULL,
     is_pinned boolean NOT NULL DEFAULT FALSE,
     content text,
-    CONSTRAINT content_validity CHECK (length(trim(content)) BETWEEN 1 AND 4000)
+    CONSTRAINT content_validity CHECK (content IS NULL OR length(trim(content)) BETWEEN 1 AND 4000)
 );
 
-CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, id DESC);
+CREATE INDEX idx_messages_channel_created_id ON messages(channel_id, created_at DESC, id DESC);
 
 CREATE INDEX idx_messages_pinned ON messages(channel_id, created_at DESC)
 WHERE
     is_pinned = TRUE;
+
+CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id, created_at ASC, id ASC)
+WHERE
+    reply_to_message_id IS NOT NULL;
 
 ALTER TABLE channels
     ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
@@ -153,12 +157,35 @@ CREATE TABLE channel_members(
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     joined_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     mention_count integer NOT NULL DEFAULT 0,
     PRIMARY KEY (channel_id, user_id),
     CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
 );
 
 CREATE INDEX idx_channel_members_user ON channel_members(user_id);
+
+CREATE INDEX idx_channel_members_last_read ON channel_members(last_read_message_id)
+WHERE
+    last_read_message_id IS NOT NULL;
+
+CREATE TABLE message_attachments(
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    file_name text NOT NULL,
+    file_size integer NOT NULL, -- Size in bytes (supports files up to 2GB, or use bigint if larger limits needed)
+    content_type text NOT NULL, -- e.g., 'image/png', 'application/pdf'
+    url text NOT NULL, -- CDN URL or object storage path (e.g., S3 key or public URL)
+    width integer DEFAULT NULL, -- Populated if the file is an image/video
+    height integer DEFAULT NULL, -- Populated if the file is an image/video
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT file_name_validity CHECK (length(trim(file_name)) BETWEEN 1 AND 255),
+    CONSTRAINT file_size_positive CHECK (file_size > 0),
+    CONSTRAINT content_type_validity CHECK (length(trim(content_type)) BETWEEN 1 AND 128),
+    CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048)
+);
+
+CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id);
 
 CREATE TABLE message_reactions(
     message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

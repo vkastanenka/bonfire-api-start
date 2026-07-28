@@ -11,6 +11,7 @@ var (
 	ErrInvalidOwnerForType             = errors.New("direct channels cannot have an owner")
 	ErrOwnerRequired                   = errors.New("group channels require an owner")
 	ErrDirectChannelCannotHaveMetadata = errors.New("direct channels cannot have a name or icon")
+	ErrNotGroupOwner                   = errors.New("only the group owner can perform this action")
 )
 
 type Channel struct {
@@ -32,6 +33,14 @@ func (c *Channel) IconURL() *IconURL         { return c.iconURL }
 func (c *Channel) LastMessageID() *uuid.UUID { return c.lastMessageID }
 func (c *Channel) CreatedAt() time.Time      { return c.createdAt }
 func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
+
+// IsOwner returns true if the actor is the designated owner of the channel.
+func (c *Channel) IsOwner(actorID uuid.UUID) bool {
+	if c.ownerID == nil {
+		return false
+	}
+	return *c.ownerID == actorID
+}
 
 func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *IconURL) (*Channel, error) {
 	if !chType.IsValid() {
@@ -75,20 +84,20 @@ func Reconstitute(
 ) (*Channel, error) {
 	var nameVO *Name
 	if name != nil {
-		vo, err := NewName(*name)
+		vo, err := NewName(name)
 		if err != nil {
 			return nil, err
 		}
-		nameVO = &vo
+		nameVO = vo
 	}
 
 	var iconVO *IconURL
 	if iconURL != nil {
-		vo, err := NewIconURL(*iconURL)
+		vo, err := NewIconURL(iconURL)
 		if err != nil {
 			return nil, err
 		}
-		iconVO = &vo
+		iconVO = vo
 	}
 
 	return &Channel{
@@ -104,22 +113,28 @@ func Reconstitute(
 }
 
 func (c *Channel) UpdateName(newName *Name) error {
-	if c.channelType == TypeDirect && newName != nil {
-		return ErrDirectChannelCannotHaveMetadata
+	if c.channelType == TypeDirect {
+		if newName != nil {
+			return ErrDirectChannelCannotHaveMetadata
+		}
+		return nil
 	}
 
 	c.name = newName
-	c.updatedAt = time.Now().UTC()
+	c.touch()
 	return nil
 }
 
 func (c *Channel) UpdateIcon(newIcon *IconURL) error {
-	if c.channelType == TypeDirect && newIcon != nil {
-		return ErrDirectChannelCannotHaveMetadata
+	if c.channelType == TypeDirect {
+		if newIcon != nil {
+			return ErrDirectChannelCannotHaveMetadata
+		}
+		return nil
 	}
 
 	c.iconURL = newIcon
-	c.updatedAt = time.Now().UTC()
+	c.touch()
 	return nil
 }
 
@@ -128,11 +143,15 @@ func (c *Channel) TransferOwnership(newOwnerID uuid.UUID) error {
 		return ErrInvalidOwnerForType
 	}
 	c.ownerID = &newOwnerID
-	c.updatedAt = time.Now().UTC()
+	c.touch()
 	return nil
 }
 
 func (c *Channel) SetLastMessage(messageID uuid.UUID) {
 	c.lastMessageID = &messageID
+	c.touch()
+}
+
+func (c *Channel) touch() {
 	c.updatedAt = time.Now().UTC()
 }

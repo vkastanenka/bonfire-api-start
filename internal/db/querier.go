@@ -12,12 +12,22 @@ import (
 
 type Querier interface {
 	// ============================================================================
+	// MESSAGE ATTACHMENTS
+	// ============================================================================
+	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
+	AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error
+	AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error)
+	// Highly efficient for bulk-loading attachments when fetching a page of messages
+	AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error)
+	// ============================================================================
 	// CHANNELS
 	// ============================================================================
 	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg ChannelFindDMParams) (Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
+	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
+	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
 	// Used for populating the user's sidebar with channel info & peer profiles for DMs
 	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelListByUserRow, error)
 	// ============================================================================
@@ -26,6 +36,7 @@ type Querier interface {
 	ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error)
 	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
+	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
 	ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
 	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
@@ -39,11 +50,17 @@ type Querier interface {
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
-	MessageListByChannelKeyset(ctx context.Context, arg MessageListByChannelKeysetParams) ([]Message, error)
+	// Fetches the first message created after the user's last_read_at timestamp
+	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
+	// Fetches newer messages using keyset pagination.
+	MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error)
+	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]MessageListByChannelAroundRow, error)
+	// Fetches older messages using keyset pagination.
+	// Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
+	MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error)
 	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
-	// Fetches direct replies to a specific parent message
 	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]Message, error)
-	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) error
+	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) (Message, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
 	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)

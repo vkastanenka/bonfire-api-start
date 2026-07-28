@@ -16,6 +16,7 @@ const (
 	EventMessageCreated  = "channel.message_created"
 	EventMessageUpdated  = "channel.message_updated"
 	EventMessageDeleted  = "channel.message_deleted"
+	EventMessagePinned   = "channel.message_pinned"
 	EventReactionAdded   = "channel.reaction_added"
 	EventReactionRemoved = "channel.reaction_removed"
 	EventChannelUpdated  = "channel.updated"
@@ -23,36 +24,48 @@ const (
 )
 
 type MessageCreatedPayload struct {
-	MessageID uuid.UUID  `json:"message_id"`
-	ChannelID uuid.UUID  `json:"channel_id"`
-	AuthorID  *uuid.UUID `json:"author_id,omitempty"`
+	MessageID uuid.UUID  `json:"messageId"`
+	ChannelID uuid.UUID  `json:"channelId"`
+	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
 	Content   string     `json:"content"`
-	ReplyToID *uuid.UUID `json:"reply_to_id,omitempty"`
+	ReplyToID *uuid.UUID `json:"replyToId,omitempty"`
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
 type MessageUpdatedPayload struct {
-	MessageID uuid.UUID `json:"message_id"`
-	ChannelID uuid.UUID `json:"channel_id"`
-	Content   string    `json:"content"`
+	MessageID uuid.UUID  `json:"messageId"`
+	ChannelID uuid.UUID  `json:"channelId"`
+	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
+	Content   string     `json:"content"`
+	EditedAt  *time.Time `json:"editedAt,omitempty"`
+}
+
+type MessagePinnedPayload struct {
+	MessageID uuid.UUID `json:"messageId"`
+	ChannelID uuid.UUID `json:"channelId"`
+	IsPinned  bool      `json:"isPinned"`
 }
 
 type MessageDeletedPayload struct {
-	MessageID uuid.UUID `json:"message_id"`
-	ChannelID uuid.UUID `json:"channel_id"`
+	MessageID uuid.UUID `json:"messageId"`
+	ChannelID uuid.UUID `json:"channelId"`
+	ActorID   uuid.UUID `json:"actorId,omitempty"`
+	DeletedAt time.Time `json:"deletedAt"`
 }
 
 type ReactionPayload struct {
-	MessageID uuid.UUID `json:"message_id"`
-	ChannelID uuid.UUID `json:"channel_id"`
-	UserID    uuid.UUID `json:"user_id"`
+	MessageID uuid.UUID `json:"messageId"`
+	ChannelID uuid.UUID `json:"channelId"`
+	UserID    uuid.UUID `json:"userId"`
 	Emoji     string    `json:"emoji"`
 }
 
 type ChannelUpdatedPayload struct {
 	ChannelID uuid.UUID `json:"channel_id"`
-	Name      *string   `json:"name,omitempty"`
-	IconURL   *string   `json:"icon_url,omitempty"`
+	ActorID   uuid.UUID `json:"actor_id"`
+	Name      *string   `json:"name"`
+	IconURL   *string   `json:"icon_url"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func RegisterOutboxHandlers(w *outbox.Worker, cacheStore *cache.Store) {
@@ -79,6 +92,14 @@ func RegisterOutboxHandlers(w *outbox.Worker, cacheStore *cache.Store) {
 			return fmt.Errorf("%w: malformed message updated payload: %v", outbox.ErrFatal, err)
 		}
 		return pubToChannel(ctx, p.ChannelID, "MESSAGE_UPDATED", p)
+	})
+
+	w.RegisterHandler(EventMessagePinned, func(ctx context.Context, raw json.RawMessage) error {
+		var p MessagePinnedPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return fmt.Errorf("%w: malformed message pinned payload: %v", outbox.ErrFatal, err)
+		}
+		return pubToChannel(ctx, p.ChannelID, "MESSAGE_PINNED", p)
 	})
 
 	w.RegisterHandler(EventMessageDeleted, func(ctx context.Context, raw json.RawMessage) error {

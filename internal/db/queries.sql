@@ -401,6 +401,32 @@ WHERE
 ORDER BY
     c.updated_at DESC;
 
+-- name: ChannelHasMessagesAfter :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            messages
+        WHERE
+            channel_id = $1
+            AND (created_at > $2
+                OR (created_at = $2
+                    AND id > $3)));
+
+-- name: ChannelHasMessagesBefore :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            messages
+        WHERE
+            channel_id = $1
+            AND (created_at < $2
+                OR (created_at = $2
+                    AND id < $3)));
+
 -- ============================================================================
 -- CHANNEL MEMBERS
 -- ============================================================================
@@ -417,15 +443,19 @@ ON CONFLICT (channel_id, user_id)
 INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
 SELECT
     @channel_id,
-    u_id,
-    j_at,
-    lr_id,
-    m_count
+    u.user_id,
+    u.joined_at,
+    u.last_read_message_id,
+    u.mention_count
 FROM
-    unnest(@user_ids::uuid[]) AS u(u_id),
-    unnest(@joined_ats::timestamptz[]) AS j(j_at),
-    unnest(@last_read_message_ids::uuid[]) AS lr(lr_id),
-    unnest(@mention_counts::int[]) AS m(m_count)
+    ROWS
+FROM (unnest(@user_ids::uuid[]),
+    unnest(@joined_ats::timestamptz[]),
+    unnest(@last_read_message_ids::uuid[]),
+    unnest(@mention_counts::int[])) AS u(user_id,
+        joined_at,
+        last_read_message_id,
+        mention_count)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
@@ -465,7 +495,8 @@ ORDER BY
 UPDATE
     channel_members
 SET
-    last_read_message_id = @last_read_message_id,
+    last_read_message_id = sqlc.narg('last_read_message_id'),
+    last_read_at = @last_read_at,
     mention_count = 0
 WHERE
     channel_id = @channel_id
@@ -494,6 +525,17 @@ DELETE FROM channel_members
 WHERE channel_id = @channel_id
     AND user_id = @user_id;
 
+-- name: ChannelMemberGetUnreadCount :one
+SELECT
+    COUNT(*)::int AS unread_count
+FROM
+    messages m
+    JOIN channel_members cm ON cm.channel_id = m.channel_id
+        AND cm.user_id = @user_id
+WHERE
+    m.channel_id = @channel_id
+    AND m.created_at > cm.last_read_at;
+
 -- ============================================================================
 -- MESSAGES
 -- ============================================================================
@@ -509,24 +551,80 @@ SELECT
 FROM
     messages
 WHERE
-    id = $1
+    id = @id
 LIMIT 1;
 
--- name: MessageListByChannelKeyset :many
+-- name: MessageListByChannelBefore :many
+-- Fetches older messages using keyset pagination.
+-- Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
 SELECT
     *
 FROM
     messages
 WHERE
     channel_id = @channel_id
-    AND (@cursor_created_at::timestamptz IS NULL
+    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
         OR (created_at,
-            id) <(@cursor_created_at::timestamptz,
-            @cursor_id::uuid))
+            id) <(sqlc.narg('cursor_created_at')::timestamptz,
+            sqlc.narg('cursor_id')::uuid))
 ORDER BY
     created_at DESC,
     id DESC
 LIMIT @result_limit;
+
+-- name: MessageListByChannelAfter :many
+-- Fetches newer messages using keyset pagination.
+SELECT
+    *
+FROM
+    messages
+WHERE
+    channel_id = @channel_id
+    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+        OR (created_at,
+            id) >(sqlc.narg('cursor_created_at')::timestamptz,
+            sqlc.narg('cursor_id')::uuid))
+ORDER BY
+    created_at ASC,
+    id ASC
+LIMIT @result_limit;
+
+-- name: MessageListByChannelAround :many
+WITH around_window AS ((
+        SELECT
+            m1.*
+        FROM
+            messages m1
+        WHERE
+            m1.channel_id = @channel_id
+            AND (m1.created_at,
+                m1.id) <=(@cursor_created_at::timestamptz,
+                @cursor_id::uuid)
+        ORDER BY
+            m1.created_at DESC,
+            m1.id DESC
+        LIMIT @older_limit)
+UNION ALL (
+    SELECT
+        m2.*
+    FROM
+        messages m2
+    WHERE
+        m2.channel_id = @channel_id
+        AND (m2.created_at,
+            m2.id) >(@cursor_created_at::timestamptz,
+            @cursor_id::uuid)
+    ORDER BY
+        m2.created_at ASC,
+        m2.id ASC
+    LIMIT @newer_limit))
+SELECT
+    *
+FROM
+    around_window
+ORDER BY
+    created_at ASC,
+    id ASC;
 
 -- name: MessageListPinnedByChannel :many
 SELECT
@@ -534,13 +632,12 @@ SELECT
 FROM
     messages
 WHERE
-    channel_id = $1
+    channel_id = @channel_id
     AND is_pinned = TRUE
 ORDER BY
     created_at DESC;
 
 -- name: MessageListReplies :many
--- Fetches direct replies to a specific parent message
 SELECT
     m.*
 FROM
@@ -548,6 +645,7 @@ FROM
 WHERE
     m.reply_to_message_id = @reply_to_message_id
 ORDER BY
+    m.created_at ASC,
     m.id ASC;
 
 -- name: MessageUpdateContent :one
@@ -561,17 +659,78 @@ WHERE
 RETURNING
     *;
 
--- name: MessageSetPinned :exec
+-- name: MessageSetPinned :one
 UPDATE
     messages
 SET
     is_pinned = @is_pinned
 WHERE
-    id = @id;
+    id = @id
+RETURNING
+    *;
 
 -- name: MessageDelete :exec
 DELETE FROM messages
-WHERE id = $1;
+WHERE id = @id;
+
+-- name: MessageGetFirstUnread :one
+-- Fetches the first message created after the user's last_read_at timestamp
+SELECT
+    m.*
+FROM
+    messages m
+    JOIN channel_members cm ON cm.channel_id = m.channel_id
+        AND cm.user_id = @user_id
+WHERE
+    m.channel_id = @channel_id
+    AND m.created_at > cm.last_read_at
+ORDER BY
+    m.created_at ASC,
+    m.id ASC
+LIMIT 1;
+
+-- ============================================================================
+-- MESSAGE ATTACHMENTS
+-- ============================================================================
+-- name: AttachmentCreateBatch :exec
+INSERT INTO message_attachments(id, message_id, file_name, file_size, content_type, url, width, height, created_at)
+SELECT
+    unnest(@ids::uuid[]),
+    @message_id,
+    unnest(@file_names::text[]),
+    unnest(@file_sizes::int[]),
+    unnest(@content_types::text[]),
+    unnest(@urls::text[]),
+    unnest(@widths::int[]),
+    unnest(@heights::int[]),
+    unnest(@created_ats::timestamptz[])
+WHERE
+    @message_id IS NOT NULL;
+
+-- name: AttachmentListByMessage :many
+SELECT
+    *
+FROM
+    message_attachments
+WHERE
+    message_id = $1
+ORDER BY
+    created_at ASC;
+
+-- name: AttachmentListByMessagesBatch :many
+-- Highly efficient for bulk-loading attachments when fetching a page of messages
+SELECT
+    *
+FROM
+    message_attachments
+WHERE
+    message_id = ANY (@message_ids::uuid[])
+ORDER BY
+    created_at ASC;
+
+-- name: AttachmentDeleteByMessage :exec
+DELETE FROM message_attachments
+WHERE message_id = $1;
 
 -- ============================================================================
 -- MESSAGE REACTIONS
