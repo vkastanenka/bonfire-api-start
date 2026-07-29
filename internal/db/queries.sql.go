@@ -151,26 +151,6 @@ func (q *Queries) AttachmentListByMessagesBatch(ctx context.Context, messageIds 
 	return items, nil
 }
 
-const channelClearLastMessage = `-- name: ChannelClearLastMessage :exec
-UPDATE
-    channels
-SET
-    last_message_id = NULL,
-    updated_at = $2
-WHERE
-    id = $1
-`
-
-type ChannelClearLastMessageParams struct {
-	ID        pgtype.UUID        `json:"id"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) ChannelClearLastMessage(ctx context.Context, arg ChannelClearLastMessageParams) error {
-	_, err := q.db.Exec(ctx, channelClearLastMessage, arg.ID, arg.UpdatedAt)
-	return err
-}
-
 const channelCreate = `-- name: ChannelCreate :one
 INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -212,6 +192,26 @@ func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (C
 		&i.Name,
 		&i.IconUrl,
 	)
+	return i, err
+}
+
+const channelCreateDM = `-- name: ChannelCreateDM :one
+INSERT INTO dm_channels(user1_id, user2_id, channel_id)
+    VALUES ($1, $2, $3)
+RETURNING
+    user1_id, user2_id, channel_id
+`
+
+type ChannelCreateDMParams struct {
+	User1ID   pgtype.UUID `json:"user1_id"`
+	User2ID   pgtype.UUID `json:"user2_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+func (q *Queries) ChannelCreateDM(ctx context.Context, arg ChannelCreateDMParams) (DMChannel, error) {
+	row := q.db.QueryRow(ctx, channelCreateDM, arg.User1ID, arg.User2ID, arg.ChannelID)
+	var i DMChannel
+	err := row.Scan(&i.User1ID, &i.User2ID, &i.ChannelID)
 	return i, err
 }
 
@@ -1773,6 +1773,37 @@ func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg Relationship
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const relationshipHasBlockBetweenUserAndPeers = `-- name: RelationshipHasBlockBetweenUserAndPeers :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            relationships r
+        WHERE
+            r.variant = 3 -- Blocked
+            AND (
+                -- Case A: Primary user is user1_id, peer is user2_id
+(r.user1_id = $1::uuid
+                    AND r.user2_id = ANY ($2::uuid[]))
+                OR
+                -- Case B: Peer is user1_id, Primary user is user2_id
+(r.user2_id = $1::uuid
+                    AND r.user1_id = ANY ($2::uuid[]))))
+`
+
+type RelationshipHasBlockBetweenUserAndPeersParams struct {
+	UserID  pgtype.UUID   `json:"user_id"`
+	PeerIds []pgtype.UUID `json:"peer_ids"`
+}
+
+func (q *Queries) RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error) {
+	row := q.db.QueryRow(ctx, relationshipHasBlockBetweenUserAndPeers, arg.UserID, arg.PeerIds)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const relationshipPerspectiveGet = `-- name: RelationshipPerspectiveGet :one

@@ -86,7 +86,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.
 		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
 		if err != nil {
 			if errs.IsNotFound(err) {
-				newRel, reqErr := Request(actorID, targetID)
+				newRel, reqErr := New(actorID, targetID)
 				if reqErr != nil {
 					return errs.InvalidArgument(reqErr.Error()).Wrap(reqErr)
 				}

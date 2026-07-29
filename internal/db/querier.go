@@ -19,11 +19,11 @@ type Querier interface {
 	AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error)
 	// Highly efficient for bulk-loading attachments when fetching a page of messages
 	AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error)
-	ChannelClearLastMessage(ctx context.Context, arg ChannelClearLastMessageParams) error
 	// ============================================================================
 	// CHANNELS
 	// ============================================================================
 	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
+	ChannelCreateDM(ctx context.Context, arg ChannelCreateDMParams) (DMChannel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg ChannelFindDMParams) (Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
@@ -81,6 +81,7 @@ type Querier interface {
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)
 	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error)
+	RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error)
 	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
 	RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error)
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error)

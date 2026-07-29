@@ -7,7 +7,66 @@ import (
 	"unicode/utf8"
 
 	"bonfire-api/internal/sanitize"
+
+	"github.com/google/uuid"
 )
+
+// -----------------------------------------------------------------------------
+// ID (Required Domain Identifier Value Object)
+// -----------------------------------------------------------------------------
+
+var (
+	ErrIDNil     = errors.New("id cannot be nil")
+	ErrIDInvalid = errors.New("invalid uuid format")
+)
+
+type ID struct {
+	value uuid.UUID
+}
+
+// NewID constructs a validated ID value object from a uuid.UUID.
+// Rejects uuid.Nil to enforce valid entity identification.
+func NewID(raw uuid.UUID) (ID, error) {
+	if raw == uuid.Nil {
+		return ID{}, ErrIDNil
+	}
+	return ID{value: raw}, nil
+}
+
+// NewIDs validates a slice of raw UUIDs, ensuring none are uuid.Nil.
+// Returns an error on the first invalid/nil UUID encountered.
+func NewIDs(raws []uuid.UUID) ([]ID, error) {
+	if len(raws) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]ID, 0, len(raws))
+	for _, raw := range raws {
+		id, err := NewID(raw)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// ParseID parses a string representation of a UUID into a validated ID value object.
+func ParseID(raw string) (ID, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ID{}, ErrIDInvalid
+	}
+	return NewID(parsed)
+}
+
+func (id ID) UUID() uuid.UUID { return id.value }
+func (id ID) String() string  { return id.value.String() }
+func (id ID) IsValid() bool   { return id.value != uuid.Nil }
+
+func (id ID) Equals(other ID) bool {
+	return id.value == other.value
+}
 
 // -----------------------------------------------------------------------------
 // Name (Optional / Pointer Value Object)

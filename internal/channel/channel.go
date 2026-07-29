@@ -52,7 +52,7 @@ func (c *Channel) IsOwner(actorID uuid.UUID) bool {
 // -----------------------------------------------------------------------------
 
 // New creates a fresh Channel domain entity.
-func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *IconURL) (*Channel, error) {
+func New(chType Type, ownerID *ID, name *Name, iconURL *IconURL) (*Channel, error) {
 	if !chType.IsValid() {
 		return nil, ErrInvalidType
 	}
@@ -67,17 +67,23 @@ func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *IconURL) (*Channe
 		}
 
 	case TypeGroup:
-		if ownerID == nil || *ownerID == uuid.Nil {
+		if ownerID == nil || !ownerID.IsValid() {
 			return nil, ErrOwnerRequired
 		}
 	}
 
 	now := time.Now().UTC()
 
+	var ownerUUID *uuid.UUID
+	if ownerID != nil {
+		u := ownerID.UUID()
+		ownerUUID = &u
+	}
+
 	return &Channel{
 		id:          uuid.Must(uuid.NewV7()),
 		channelType: chType,
-		ownerID:     ownerID,
+		ownerID:     ownerUUID,
 		name:        name,
 		iconURL:     iconURL,
 		createdAt:   now,

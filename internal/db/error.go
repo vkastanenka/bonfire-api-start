@@ -69,6 +69,24 @@ func NewError(err error, entity Entity) error {
 
 func IsNotFoundError(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
+// IsAlreadyExistsError checks if the error represents a unique constraint violation.
+func IsAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if appErr := errs.As(err); appErr != nil {
+		return appErr.Code == errs.CodeAlreadyExists
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == pgCodeUniqueViolation
+	}
+
+	return false
+}
+
 func attachContext(e *errs.Error, entity Entity) *errs.Error {
 	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", "")
 }

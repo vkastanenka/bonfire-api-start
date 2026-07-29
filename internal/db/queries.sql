@@ -310,12 +310,36 @@ WHERE
 ORDER BY
     updated_at DESC;
 
+-- name: RelationshipHasBlockBetweenUserAndPeers :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            relationships r
+        WHERE
+            r.variant = 3 -- Blocked
+            AND (
+                -- Case A: Primary user is user1_id, peer is user2_id
+(r.user1_id = @user_id::uuid
+                    AND r.user2_id = ANY (@peer_ids::uuid[]))
+                OR
+                -- Case B: Peer is user1_id, Primary user is user2_id
+(r.user2_id = @user_id::uuid
+                    AND r.user1_id = ANY (@peer_ids::uuid[]))));
+
 -- ============================================================================
 -- CHANNELS
 -- ============================================================================
 -- name: ChannelCreate :one
 INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
     VALUES (@id, @type, sqlc.narg('owner_id'), sqlc.narg('name'), sqlc.narg('icon_url'), @created_at, @updated_at)
+RETURNING
+    *;
+
+-- name: ChannelCreateDM :one
+INSERT INTO dm_channels(user1_id, user2_id, channel_id)
+    VALUES (@user1_id, @user2_id, @channel_id)
 RETURNING
     *;
 

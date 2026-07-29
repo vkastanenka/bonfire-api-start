@@ -10,11 +10,13 @@ import (
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type RelationshipStore interface {
 	RelationshipGet(ctx context.Context, arg db.RelationshipGetParams) (db.RelationshipGetRow, error)
 	RelationshipGetForUpdate(ctx context.Context, arg db.RelationshipGetForUpdateParams) (db.RelationshipGetForUpdateRow, error)
+	RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg db.RelationshipHasBlockBetweenUserAndPeersParams) (bool, error)
 	RelationshipUpsert(ctx context.Context, arg db.RelationshipUpsertParams) (db.RelationshipUpsertRow, error)
 	RelationshipDelete(ctx context.Context, arg db.RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg db.RelationshipDeleteVerifiedParams) error
@@ -132,6 +134,28 @@ func (r *Relationship) ListPerspectives(ctx context.Context, userID uuid.UUID, f
 	}
 
 	return perspectives, nil
+}
+
+// HasBlockBetweenUserAndPeers checks if a block relationship exists between a user and any of the provided peer IDs.
+func (r *Relationship) HasBlockBetweenUserAndPeers(ctx context.Context, userID uuid.UUID, peerIDs []uuid.UUID) (bool, error) {
+	if len(peerIDs) == 0 {
+		return false, nil
+	}
+
+	pgPeerIDs := make([]pgtype.UUID, len(peerIDs))
+	for i, id := range peerIDs {
+		pgPeerIDs[i] = db.UUID(id)
+	}
+
+	blocked, err := r.store.RelationshipHasBlockBetweenUserAndPeers(ctx, db.RelationshipHasBlockBetweenUserAndPeersParams{
+		UserID:  db.UUID(userID),
+		PeerIds: pgPeerIDs,
+	})
+	if err != nil {
+		return false, db.NewError(err, db.EntityRelationship)
+	}
+
+	return blocked, nil
 }
 
 // ============================================================================

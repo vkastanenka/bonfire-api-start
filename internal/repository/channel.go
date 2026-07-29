@@ -18,8 +18,8 @@ type ChannelStore interface {
 	// ============================================================================
 	// CHANNELS
 	// ============================================================================
-	ChannelClearLastMessage(ctx context.Context, arg db.ChannelClearLastMessageParams) error
 	ChannelCreate(ctx context.Context, arg db.ChannelCreateParams) (db.Channel, error)
+	ChannelCreateDM(ctx context.Context, arg db.ChannelCreateDMParams) (db.DMChannel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg db.ChannelFindDMParams) (db.Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
@@ -76,18 +76,6 @@ func NewChannel(store ChannelStore) *Channel {
 // ============================================================================
 // CHANNELS
 // ============================================================================
-
-func (r *Channel) ClearLastMessage(ctx context.Context, channelID uuid.UUID) error {
-	err := r.store.ChannelClearLastMessage(ctx, db.ChannelClearLastMessageParams{
-		ID:        db.UUID(channelID),
-		UpdatedAt: db.Timestamptz(time.Now().UTC()),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityChannel)
-	}
-
-	return nil
-}
 
 func (r *Channel) Create(ctx context.Context, ch *channel.Channel) error {
 	_, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
@@ -487,6 +475,7 @@ func (r *Channel) MessageListPinnedByChannel(ctx context.Context, channelID uuid
 	return messagesFromRows(rows)
 }
 
+// TODO: Remove
 func (r *Channel) MessageListReplies(ctx context.Context, replyToMessageID uuid.UUID) ([]channel.Message, error) {
 	rows, err := r.store.MessageListReplies(ctx, db.UUID(replyToMessageID))
 	if err != nil {
@@ -542,6 +531,7 @@ func (r *Channel) ReactionAdd(ctx context.Context, messageID, userID uuid.UUID, 
 	return reactionFromRow(row)
 }
 
+// TODO: Remove
 func (r *Channel) ReactionListByMessage(ctx context.Context, messageID uuid.UUID) ([]channel.Reaction, error) {
 	rows, err := r.store.ReactionListByMessage(ctx, db.UUID(messageID))
 	if err != nil {
@@ -573,6 +563,7 @@ func (r *Channel) ReactionRemove(ctx context.Context, messageID, userID uuid.UUI
 	return nil
 }
 
+// TODO: Remove
 func (r *Channel) ReactionSummarizeByMessage(ctx context.Context, messageID, currentUserID uuid.UUID) ([]channel.ReactionSummary, error) {
 	rows, err := r.store.ReactionSummarizeByMessage(ctx, db.ReactionSummarizeByMessageParams{
 		MessageID:     db.UUID(messageID),

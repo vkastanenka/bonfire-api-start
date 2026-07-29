@@ -27,7 +27,7 @@ type Relationship struct {
 	updatedAt time.Time
 }
 
-func Request(actorID, targetID uuid.UUID) (*Relationship, error) {
+func New(actorID, targetID uuid.UUID) (*Relationship, error) {
 	if actorID == uuid.Nil || targetID == uuid.Nil {
 		return nil, errors.New("user IDs cannot be nil")
 	}
