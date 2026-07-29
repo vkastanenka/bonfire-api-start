@@ -351,15 +351,6 @@ SET
 WHERE
     id = @channel_id;
 
--- name: ChannelClearLastMessage :exec
-UPDATE
-    channels
-SET
-    last_message_id = NULL,
-    updated_at = $2
-WHERE
-    id = $1;
-
 -- name: ChannelDelete :exec
 DELETE FROM channels
 WHERE id = $1;
@@ -624,12 +615,13 @@ UNION ALL (
         m2.id ASC
     LIMIT @newer_limit))
 SELECT
-    *
+    m.*
 FROM
-    around_window
+    around_window aw
+    JOIN messages m ON m.id = aw.id
 ORDER BY
-    created_at ASC,
-    id ASC;
+    aw.created_at ASC,
+    aw.id ASC;
 
 -- name: MessageListPinnedByChannel :many
 SELECT

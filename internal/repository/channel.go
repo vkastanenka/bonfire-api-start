@@ -8,6 +8,7 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/errs"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,50 +18,50 @@ type ChannelStore interface {
 	// ============================================================================
 	// CHANNELS
 	// ============================================================================
-	ChannelCreate(ctx context.Context, arg db.ChannelCreateParams) (db.Channel, error)
-	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
-	ChannelUpdate(ctx context.Context, arg db.ChannelUpdateParams) (db.Channel, error)
-	ChannelUpdateLastMessage(ctx context.Context, arg db.ChannelUpdateLastMessageParams) error
 	ChannelClearLastMessage(ctx context.Context, arg db.ChannelClearLastMessageParams) error
+	ChannelCreate(ctx context.Context, arg db.ChannelCreateParams) (db.Channel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg db.ChannelFindDMParams) (db.Channel, error)
+	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
+	ChannelHasMessagesAfter(ctx context.Context, arg db.ChannelHasMessagesAfterParams) (bool, error)
+	ChannelHasMessagesBefore(ctx context.Context, arg db.ChannelHasMessagesBeforeParams) (bool, error)
 	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]db.ChannelListByUserRow, error)
+	ChannelUpdate(ctx context.Context, arg db.ChannelUpdateParams) (db.Channel, error)
+	ChannelUpdateLastMessage(ctx context.Context, arg db.ChannelUpdateLastMessageParams) error
 
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
 	ChannelMemberAddBatch(ctx context.Context, arg db.ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg db.ChannelMemberGetParams) (db.ChannelMember, error)
-	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.ChannelMemberListByChannelRow, error)
-	ChannelMemberUpdateReadState(ctx context.Context, arg db.ChannelMemberUpdateReadStateParams) error
-	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg db.ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberRemove(ctx context.Context, arg db.ChannelMemberRemoveParams) error
 	ChannelMemberGetUnreadCount(ctx context.Context, arg db.ChannelMemberGetUnreadCountParams) (int32, error)
+	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg db.ChannelMemberIncrementMentionCountBatchParams) error
+	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.ChannelMember, error)
+	ChannelMemberRemove(ctx context.Context, arg db.ChannelMemberRemoveParams) error
+	ChannelMemberUpdateReadState(ctx context.Context, arg db.ChannelMemberUpdateReadStateParams) error
 
 	// ============================================================================
 	// MESSAGES
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg db.MessageCreateParams) (db.Message, error)
+	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (db.Message, error)
+	MessageGetFirstUnread(ctx context.Context, arg db.MessageGetFirstUnreadParams) (db.Message, error)
 	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (db.Message, error)
-	MessageListByChannelBefore(ctx context.Context, arg db.MessageListByChannelBeforeParams) ([]db.Message, error)
 	MessageListByChannelAfter(ctx context.Context, arg db.MessageListByChannelAfterParams) ([]db.Message, error)
 	MessageListByChannelAround(ctx context.Context, arg db.MessageListByChannelAroundParams) ([]db.Message, error)
+	MessageListByChannelBefore(ctx context.Context, arg db.MessageListByChannelBeforeParams) ([]db.Message, error)
 	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.Message, error)
 	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]db.Message, error)
-	MessageUpdateContent(ctx context.Context, arg db.MessageUpdateContentParams) (db.Message, error)
 	MessageSetPinned(ctx context.Context, arg db.MessageSetPinnedParams) (db.Message, error)
-	MessageDelete(ctx context.Context, id pgtype.UUID) error
-	MessageGetFirstUnread(ctx context.Context, arg db.MessageGetFirstUnreadParams) (db.Message, error)
-	ChannelHasMessagesAfter(ctx context.Context, arg db.ChannelHasMessagesAfterParams) (bool, error)
-	ChannelHasMessagesBefore(ctx context.Context, arg db.ChannelHasMessagesBeforeParams) (bool, error)
+	MessageUpdateContent(ctx context.Context, arg db.MessageUpdateContentParams) (db.Message, error)
 
 	// ============================================================================
 	// MESSAGE REACTIONS
 	// ============================================================================
 	ReactionAdd(ctx context.Context, arg db.ReactionAddParams) (db.MessageReaction, error)
-	ReactionRemove(ctx context.Context, arg db.ReactionRemoveParams) error
 	ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]db.MessageReaction, error)
+	ReactionRemove(ctx context.Context, arg db.ReactionRemoveParams) error
 	ReactionSummarizeByMessage(ctx context.Context, arg db.ReactionSummarizeByMessageParams) ([]db.ReactionSummarizeByMessageRow, error)
 }
 
@@ -75,6 +76,18 @@ func NewChannel(store ChannelStore) *Channel {
 // ============================================================================
 // CHANNELS
 // ============================================================================
+
+func (r *Channel) ClearLastMessage(ctx context.Context, channelID uuid.UUID) error {
+	err := r.store.ChannelClearLastMessage(ctx, db.ChannelClearLastMessageParams{
+		ID:        db.UUID(channelID),
+		UpdatedAt: db.Timestamptz(time.Now().UTC()),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannel)
+	}
+
+	return nil
+}
 
 func (r *Channel) Create(ctx context.Context, ch *channel.Channel) error {
 	_, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
@@ -93,6 +106,32 @@ func (r *Channel) Create(ctx context.Context, ch *channel.Channel) error {
 	return nil
 }
 
+func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
+	err := r.store.ChannelDelete(ctx, db.UUID(id))
+	if err != nil {
+		return db.NewError(err, db.EntityChannel)
+	}
+
+	return nil
+}
+
+func (r *Channel) FindDM(ctx context.Context, user1ID, user2ID uuid.UUID) (*channel.Channel, error) {
+	u1, u2 := user1ID, user2ID
+	if u1.String() > u2.String() {
+		u1, u2 = u2, u1
+	}
+
+	row, err := r.store.ChannelFindDM(ctx, db.ChannelFindDMParams{
+		User1ID: db.UUID(u1),
+		User2ID: db.UUID(u2),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannel)
+	}
+
+	return channelFromRow(row)
+}
+
 func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
 	row, err := r.store.ChannelGet(ctx, db.UUID(id))
 	if err != nil {
@@ -100,6 +139,32 @@ func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, erro
 	}
 
 	return channelFromRow(row)
+}
+
+func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
+	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
+		ChannelID: db.UUID(channelID),
+		CreatedAt: db.Timestamptz(createdAt),
+		ID:        db.UUID(id),
+	})
+	if err != nil {
+		return false, db.NewError(err, db.EntityMessage)
+	}
+
+	return exists, nil
+}
+
+func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
+	exists, err := r.store.ChannelHasMessagesBefore(ctx, db.ChannelHasMessagesBeforeParams{
+		ChannelID: db.UUID(channelID),
+		CreatedAt: db.Timestamptz(createdAt),
+		ID:        db.UUID(id),
+	})
+	if err != nil {
+		return false, db.NewError(err, db.EntityMessage)
+	}
+
+	return exists, nil
 }
 
 func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.ChannelListByUserRow, error) {
@@ -127,62 +192,33 @@ func (r *Channel) Update(ctx context.Context, ch *channel.Channel) error {
 	return nil
 }
 
-func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.ChannelDelete(ctx, db.UUID(id))
-	if err != nil {
-		return db.NewError(err, db.EntityChannel)
+func (r *Channel) UpdateLastMessage(
+	ctx context.Context,
+	channelID uuid.UUID,
+	messageID *uuid.UUID,
+	updatedAt time.Time,
+) error {
+	var dbMsgID pgtype.UUID
+	if messageID != nil {
+		dbMsgID = db.UUID(*messageID)
 	}
 
-	return nil
-}
-
-func (r *Channel) UpdateLastMessage(ctx context.Context, channelID, messageID uuid.UUID, updatedAt time.Time) error {
 	err := r.store.ChannelUpdateLastMessage(ctx, db.ChannelUpdateLastMessageParams{
 		ChannelID:     db.UUID(channelID),
-		LastMessageID: db.UUID(messageID),
+		LastMessageID: dbMsgID,
 		UpdatedAt:     db.Timestamptz(updatedAt),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityChannel)
 	}
-
 	return nil
-}
-
-func (r *Channel) ClearLastMessage(ctx context.Context, channelID uuid.UUID) error {
-	err := r.store.ChannelClearLastMessage(ctx, db.ChannelClearLastMessageParams{
-		ID:        db.UUID(channelID),
-		UpdatedAt: db.Timestamptz(time.Now().UTC()),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityChannel)
-	}
-
-	return nil
-}
-
-func (r *Channel) FindDM(ctx context.Context, user1ID, user2ID uuid.UUID) (*channel.Channel, error) {
-	u1, u2 := user1ID, user2ID
-	if u1.String() > u2.String() {
-		u1, u2 = u2, u1
-	}
-
-	row, err := r.store.ChannelFindDM(ctx, db.ChannelFindDMParams{
-		User1ID: db.UUID(u1),
-		User2ID: db.UUID(u2),
-	})
-	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
-	}
-
-	return channelFromRow(row)
 }
 
 // ============================================================================
 // MEMBERS
 // ============================================================================
 
-func (r *Channel) AddMembers(ctx context.Context, members []*channel.Member) error {
+func (r *Channel) MemberAddBatch(ctx context.Context, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil
 	}
@@ -215,7 +251,7 @@ func (r *Channel) AddMembers(ctx context.Context, members []*channel.Member) err
 	return nil
 }
 
-func (r *Channel) GetMember(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
+func (r *Channel) MemberGet(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
 		ChannelID: db.UUID(channelID),
 		UserID:    db.UUID(userID),
@@ -227,31 +263,19 @@ func (r *Channel) GetMember(ctx context.Context, channelID, userID uuid.UUID) (*
 	return memberFromRow(row)
 }
 
-func (r *Channel) ListMembers(ctx context.Context, channelID uuid.UUID) ([]db.ChannelMemberListByChannelRow, error) {
-	rows, err := r.store.ChannelMemberListByChannel(ctx, db.UUID(channelID))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityChannelMember)
-	}
-
-	return rows, nil
-}
-
-func (r *Channel) UpdateMemberReadState(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error {
-	err := r.store.ChannelMemberUpdateReadState(ctx, db.ChannelMemberUpdateReadStateParams{
-		ChannelID:         db.UUID(channelID),
-		UserID:            db.UUID(userID),
-		LastReadMessageID: db.UUIDPtr(messageID),
-		LastReadAt:        db.Timestamptz(lastReadAt),
+func (r *Channel) MemberGetUnreadCount(ctx context.Context, channelID, userID uuid.UUID) (int32, error) {
+	count, err := r.store.ChannelMemberGetUnreadCount(ctx, db.ChannelMemberGetUnreadCountParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityChannelMember)
+		return 0, db.NewError(err, db.EntityChannelMember)
 	}
 
-	return nil
+	return count, nil
 }
 
-// TODO: CURRENT TASK
-func (r *Channel) IncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error {
+func (r *Channel) MemberIncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
@@ -272,10 +296,42 @@ func (r *Channel) IncrementMentionCountBatch(ctx context.Context, channelID uuid
 	return nil
 }
 
-func (r *Channel) RemoveMember(ctx context.Context, channelID, userID uuid.UUID) error {
+func (r *Channel) MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.Member, error) {
+	rows, err := r.store.ChannelMemberListByChannel(ctx, db.UUID(channelID))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannelMember)
+	}
+
+	members := make([]*channel.Member, 0, len(rows))
+	for _, row := range rows {
+		member, err := memberFromRow(row)
+		if err != nil {
+			return nil, errs.InvalidArgument("invalid member id")
+		}
+		members = append(members, member)
+	}
+
+	return members, nil
+}
+
+func (r *Channel) MemberRemove(ctx context.Context, channelID, userID uuid.UUID) error {
 	err := r.store.ChannelMemberRemove(ctx, db.ChannelMemberRemoveParams{
 		ChannelID: db.UUID(channelID),
 		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannelMember)
+	}
+
+	return nil
+}
+
+func (r *Channel) MemberUpdateReadState(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error {
+	err := r.store.ChannelMemberUpdateReadState(ctx, db.ChannelMemberUpdateReadStateParams{
+		ChannelID:         db.UUID(channelID),
+		UserID:            db.UUID(userID),
+		LastReadMessageID: db.UUIDPtr(messageID),
+		LastReadAt:        db.Timestamptz(lastReadAt),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityChannelMember)
@@ -298,23 +354,11 @@ func (r *Channel) IsMember(ctx context.Context, channelID, userID uuid.UUID) (bo
 	return true, nil
 }
 
-func (r *Channel) GetUnreadCount(ctx context.Context, channelID, userID uuid.UUID) (int32, error) {
-	count, err := r.store.ChannelMemberGetUnreadCount(ctx, db.ChannelMemberGetUnreadCountParams{
-		ChannelID: db.UUID(channelID),
-		UserID:    db.UUID(userID),
-	})
-	if err != nil {
-		return 0, db.NewError(err, db.EntityChannelMember)
-	}
-
-	return count, nil
-}
-
 // ============================================================================
 // MESSAGES
 // ============================================================================
 
-func (r *Channel) CreateMessage(ctx context.Context, msg *channel.Message) error {
+func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) error {
 	_, err := r.store.MessageCreate(ctx, db.MessageCreateParams{
 		ID:               db.UUID(msg.ID()),
 		ChannelID:        db.UUID(msg.ChannelID()),
@@ -331,7 +375,16 @@ func (r *Channel) CreateMessage(ctx context.Context, msg *channel.Message) error
 	return nil
 }
 
-func (r *Channel) GetMessage(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
+func (r *Channel) MessageDelete(ctx context.Context, id uuid.UUID) error {
+	err := r.store.MessageDelete(ctx, db.UUID(id))
+	if err != nil {
+		return db.NewError(err, db.EntityMessage)
+	}
+
+	return nil
+}
+
+func (r *Channel) MessageGet(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
 	row, err := r.store.MessageGet(ctx, db.UUID(id))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
@@ -340,7 +393,19 @@ func (r *Channel) GetMessage(ctx context.Context, id uuid.UUID) (*channel.Messag
 	return messageFromRow(row)
 }
 
-func (r *Channel) GetLatestMessage(ctx context.Context, channelID uuid.UUID) (*channel.Message, error) {
+func (r *Channel) MessageGetFirstUnread(ctx context.Context, channelID, userID uuid.UUID) (*channel.Message, error) {
+	row, err := r.store.MessageGetFirstUnread(ctx, db.MessageGetFirstUnreadParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messageFromRow(row)
+}
+
+func (r *Channel) MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*channel.Message, error) {
 	row, err := r.store.MessageGetLatest(ctx, db.UUID(channelID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -352,27 +417,7 @@ func (r *Channel) GetLatestMessage(ctx context.Context, channelID uuid.UUID) (*c
 	return messageFromRow(row)
 }
 
-func (r *Channel) ListMessagesBefore(
-	ctx context.Context,
-	channelID uuid.UUID,
-	cursorCreatedAt *time.Time,
-	cursorID *uuid.UUID,
-	limit int32,
-) ([]channel.Message, error) {
-	rows, err := r.store.MessageListByChannelBefore(ctx, db.MessageListByChannelBeforeParams{
-		ChannelID:       db.UUID(channelID),
-		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
-		CursorID:        db.UUIDPtr(cursorID),
-		ResultLimit:     limit,
-	})
-	if err != nil {
-		return nil, db.NewError(err, db.EntityMessage)
-	}
-
-	return messagesFromRows(rows)
-}
-
-func (r *Channel) ListMessagesAfter(
+func (r *Channel) MessageListByChannelAfter(
 	ctx context.Context,
 	channelID uuid.UUID,
 	cursorCreatedAt *time.Time,
@@ -392,7 +437,7 @@ func (r *Channel) ListMessagesAfter(
 	return messagesFromRows(rows)
 }
 
-func (r *Channel) ListMessagesAround(
+func (r *Channel) MessageListByChannelAround(
 	ctx context.Context,
 	channelID uuid.UUID,
 	cursorCreatedAt time.Time,
@@ -413,7 +458,27 @@ func (r *Channel) ListMessagesAround(
 	return messagesFromRows(rows)
 }
 
-func (r *Channel) ListPinnedMessages(ctx context.Context, channelID uuid.UUID) ([]channel.Message, error) {
+func (r *Channel) MessageListByChannelBefore(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorID *uuid.UUID,
+	limit int32,
+) ([]channel.Message, error) {
+	rows, err := r.store.MessageListByChannelBefore(ctx, db.MessageListByChannelBeforeParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:        db.UUIDPtr(cursorID),
+		ResultLimit:     limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messagesFromRows(rows)
+}
+
+func (r *Channel) MessageListPinnedByChannel(ctx context.Context, channelID uuid.UUID) ([]channel.Message, error) {
 	rows, err := r.store.MessageListPinnedByChannel(ctx, db.UUID(channelID))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
@@ -422,7 +487,7 @@ func (r *Channel) ListPinnedMessages(ctx context.Context, channelID uuid.UUID) (
 	return messagesFromRows(rows)
 }
 
-func (r *Channel) ListMessageReplies(ctx context.Context, replyToMessageID uuid.UUID) ([]channel.Message, error) {
+func (r *Channel) MessageListReplies(ctx context.Context, replyToMessageID uuid.UUID) ([]channel.Message, error) {
 	rows, err := r.store.MessageListReplies(ctx, db.UUID(replyToMessageID))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
@@ -431,7 +496,19 @@ func (r *Channel) ListMessageReplies(ctx context.Context, replyToMessageID uuid.
 	return messagesFromRows(rows)
 }
 
-func (r *Channel) UpdateMessage(ctx context.Context, msg *channel.Message) error {
+func (r *Channel) MessageSetPinned(ctx context.Context, id uuid.UUID, isPinned bool) error {
+	_, err := r.store.MessageSetPinned(ctx, db.MessageSetPinnedParams{
+		ID:       db.UUID(id),
+		IsPinned: isPinned,
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityMessage)
+	}
+
+	return nil
+}
+
+func (r *Channel) MessageUpdateContent(ctx context.Context, msg *channel.Message) error {
 	if msg.EditedAt() == nil {
 		return errors.New("editedAt timestamp is required to update message")
 	}
@@ -448,70 +525,11 @@ func (r *Channel) UpdateMessage(ctx context.Context, msg *channel.Message) error
 	return nil
 }
 
-func (r *Channel) SetPinnedMessage(ctx context.Context, id uuid.UUID, isPinned bool) error {
-	_, err := r.store.MessageSetPinned(ctx, db.MessageSetPinnedParams{
-		ID:       db.UUID(id),
-		IsPinned: isPinned,
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityMessage)
-	}
-
-	return nil
-}
-
-func (r *Channel) DeleteMessage(ctx context.Context, id uuid.UUID) error {
-	err := r.store.MessageDelete(ctx, db.UUID(id))
-	if err != nil {
-		return db.NewError(err, db.EntityMessage)
-	}
-
-	return nil
-}
-
-func (r *Channel) GetFirstUnreadMessage(ctx context.Context, channelID, userID uuid.UUID) (*channel.Message, error) {
-	row, err := r.store.MessageGetFirstUnread(ctx, db.MessageGetFirstUnreadParams{
-		ChannelID: db.UUID(channelID),
-		UserID:    db.UUID(userID),
-	})
-	if err != nil {
-		return nil, db.NewError(err, db.EntityMessage)
-	}
-
-	return messageFromRow(row)
-}
-
-func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
-	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
-		ChannelID: db.UUID(channelID),
-		CreatedAt: db.Timestamptz(createdAt),
-		ID:        db.UUID(id),
-	})
-	if err != nil {
-		return false, db.NewError(err, db.EntityMessage)
-	}
-
-	return exists, nil
-}
-
-func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
-	exists, err := r.store.ChannelHasMessagesBefore(ctx, db.ChannelHasMessagesBeforeParams{
-		ChannelID: db.UUID(channelID),
-		CreatedAt: db.Timestamptz(createdAt),
-		ID:        db.UUID(id),
-	})
-	if err != nil {
-		return false, db.NewError(err, db.EntityMessage)
-	}
-
-	return exists, nil
-}
-
 // ============================================================================
 // REACTIONS
 // ============================================================================
 
-func (r *Channel) AddReaction(ctx context.Context, messageID, userID uuid.UUID, emoji string) (*channel.Reaction, error) {
+func (r *Channel) ReactionAdd(ctx context.Context, messageID, userID uuid.UUID, emoji string) (*channel.Reaction, error) {
 	row, err := r.store.ReactionAdd(ctx, db.ReactionAddParams{
 		MessageID: db.UUID(messageID),
 		UserID:    db.UUID(userID),
@@ -524,20 +542,7 @@ func (r *Channel) AddReaction(ctx context.Context, messageID, userID uuid.UUID, 
 	return reactionFromRow(row)
 }
 
-func (r *Channel) RemoveReaction(ctx context.Context, messageID, userID uuid.UUID, emoji channel.Emoji) error {
-	err := r.store.ReactionRemove(ctx, db.ReactionRemoveParams{
-		MessageID: db.UUID(messageID),
-		UserID:    db.UUID(userID),
-		Emoji:     emoji.String(),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityMessageReaction)
-	}
-
-	return nil
-}
-
-func (r *Channel) ListReactionsByMessage(ctx context.Context, messageID uuid.UUID) ([]channel.Reaction, error) {
+func (r *Channel) ReactionListByMessage(ctx context.Context, messageID uuid.UUID) ([]channel.Reaction, error) {
 	rows, err := r.store.ReactionListByMessage(ctx, db.UUID(messageID))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessageReaction)
@@ -555,7 +560,20 @@ func (r *Channel) ListReactionsByMessage(ctx context.Context, messageID uuid.UUI
 	return reactions, nil
 }
 
-func (r *Channel) SummarizeReactionsByMessage(ctx context.Context, messageID, currentUserID uuid.UUID) ([]channel.ReactionSummary, error) {
+func (r *Channel) ReactionRemove(ctx context.Context, messageID, userID uuid.UUID, emoji channel.Emoji) error {
+	err := r.store.ReactionRemove(ctx, db.ReactionRemoveParams{
+		MessageID: db.UUID(messageID),
+		UserID:    db.UUID(userID),
+		Emoji:     emoji.String(),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityMessageReaction)
+	}
+
+	return nil
+}
+
+func (r *Channel) ReactionSummarizeByMessage(ctx context.Context, messageID, currentUserID uuid.UUID) ([]channel.ReactionSummary, error) {
 	rows, err := r.store.ReactionSummarizeByMessage(ctx, db.ReactionSummarizeByMessageParams{
 		MessageID:     db.UUID(messageID),
 		CurrentUserID: db.UUID(currentUserID),

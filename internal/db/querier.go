@@ -54,7 +54,7 @@ type Querier interface {
 	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
 	// Fetches newer messages using keyset pagination.
 	MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error)
-	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]MessageListByChannelAroundRow, error)
+	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]Message, error)
 	// Fetches older messages using keyset pagination.
 	// Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
 	MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error)

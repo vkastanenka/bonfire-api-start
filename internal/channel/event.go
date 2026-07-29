@@ -24,6 +24,11 @@ const (
 	EventChannelReadUpdated = "channel.read_updated"
 )
 
+type DeletedPayload struct {
+	ChannelID uuid.UUID `json:"channelId"`
+	ActorID   uuid.UUID `json:"actorId"`
+}
+
 type MessageCreatedPayload struct {
 	MessageID uuid.UUID  `json:"messageId"`
 	ChannelID uuid.UUID  `json:"channelId"`

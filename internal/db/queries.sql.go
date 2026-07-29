@@ -626,7 +626,11 @@ const channelMemberUpdateReadState = `-- name: ChannelMemberUpdateReadState :exe
 UPDATE
     channel_members
 SET
-    last_read_message_id = COALESCE($3, last_read_message_id),
+    last_read_message_id = CASE WHEN $4 > last_read_at THEN
+        COALESCE($3, last_read_message_id)
+    ELSE
+        last_read_message_id
+    END,
     last_read_at = GREATEST(last_read_at, $4)
 WHERE
     channel_id = $1
@@ -953,12 +957,13 @@ UNION ALL (
         m2.id ASC
     LIMIT $5))
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
 FROM
-    around_window
+    around_window aw
+    JOIN messages m ON m.id = aw.id
 ORDER BY
-    created_at ASC,
-    id ASC
+    aw.created_at ASC,
+    aw.id ASC
 `
 
 type MessageListByChannelAroundParams struct {
@@ -969,18 +974,7 @@ type MessageListByChannelAroundParams struct {
 	NewerLimit      int32              `json:"newer_limit"`
 }
 
-type MessageListByChannelAroundRow struct {
-	ID               pgtype.UUID        `json:"id"`
-	ChannelID        pgtype.UUID        `json:"channel_id"`
-	AuthorID         pgtype.UUID        `json:"author_id"`
-	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	EditedAt         pgtype.Timestamptz `json:"edited_at"`
-	IsPinned         bool               `json:"is_pinned"`
-	Content          pgtype.Text        `json:"content"`
-}
-
-func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]MessageListByChannelAroundRow, error) {
+func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]Message, error) {
 	rows, err := q.db.Query(ctx, messageListByChannelAround,
 		arg.ChannelID,
 		arg.CursorCreatedAt,
@@ -992,9 +986,9 @@ func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageLis
 		return nil, err
 	}
 	defer rows.Close()
-	var items []MessageListByChannelAroundRow
+	var items []Message
 	for rows.Next() {
-		var i MessageListByChannelAroundRow
+		var i Message
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
