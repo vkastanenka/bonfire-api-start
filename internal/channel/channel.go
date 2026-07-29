@@ -12,6 +12,7 @@ var (
 	ErrOwnerRequired                   = errors.New("group channels require an owner")
 	ErrDirectChannelCannotHaveMetadata = errors.New("direct channels cannot have a name or icon")
 	ErrNotGroupOwner                   = errors.New("only the group owner can perform this action")
+	ErrInvalidOwnerID                  = errors.New("invalid owner id")
 )
 
 type Channel struct {
@@ -25,6 +26,10 @@ type Channel struct {
 	updatedAt     time.Time
 }
 
+// -----------------------------------------------------------------------------
+// Getters
+// -----------------------------------------------------------------------------
+
 func (c *Channel) ID() uuid.UUID             { return c.id }
 func (c *Channel) Type() Type                { return c.channelType }
 func (c *Channel) OwnerID() *uuid.UUID       { return c.ownerID }
@@ -36,28 +41,35 @@ func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
 
 // IsOwner returns true if the actor is the designated owner of the channel.
 func (c *Channel) IsOwner(actorID uuid.UUID) bool {
-	if c.ownerID == nil {
+	if c.ownerID == nil || actorID == uuid.Nil {
 		return false
 	}
 	return *c.ownerID == actorID
 }
 
+// -----------------------------------------------------------------------------
+// Constructors / Factory Methods
+// -----------------------------------------------------------------------------
+
+// New creates a fresh Channel domain entity.
 func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *IconURL) (*Channel, error) {
 	if !chType.IsValid() {
 		return nil, ErrInvalidType
 	}
 
-	if chType == TypeDirect {
+	switch chType {
+	case TypeDirect:
 		if ownerID != nil {
 			return nil, ErrInvalidOwnerForType
 		}
 		if name != nil || iconURL != nil {
 			return nil, ErrDirectChannelCannotHaveMetadata
 		}
-	}
 
-	if chType == TypeGroup && ownerID == nil {
-		return nil, ErrOwnerRequired
+	case TypeGroup:
+		if ownerID == nil || *ownerID == uuid.Nil {
+			return nil, ErrOwnerRequired
+		}
 	}
 
 	now := time.Now().UTC()
@@ -73,6 +85,7 @@ func New(chType Type, ownerID *uuid.UUID, name *Name, iconURL *IconURL) (*Channe
 	}, nil
 }
 
+// Reconstitute restores an existing Channel aggregate from persistence.
 func Reconstitute(
 	id uuid.UUID,
 	chType Type,
@@ -112,11 +125,18 @@ func Reconstitute(
 	}, nil
 }
 
+// -----------------------------------------------------------------------------
+// Domain Mutations
+// -----------------------------------------------------------------------------
+
+// UpdateName updates the channel's display name.
 func (c *Channel) UpdateName(newName *Name) error {
 	if c.channelType == TypeDirect {
-		if newName != nil {
-			return ErrDirectChannelCannotHaveMetadata
-		}
+		return ErrDirectChannelCannotHaveMetadata
+	}
+
+	// Skip mutation if value object has not changed
+	if c.name.Equals(newName) {
 		return nil
 	}
 
@@ -125,11 +145,14 @@ func (c *Channel) UpdateName(newName *Name) error {
 	return nil
 }
 
+// UpdateIcon updates the channel's icon URL.
 func (c *Channel) UpdateIcon(newIcon *IconURL) error {
 	if c.channelType == TypeDirect {
-		if newIcon != nil {
-			return ErrDirectChannelCannotHaveMetadata
-		}
+		return ErrDirectChannelCannotHaveMetadata
+	}
+
+	// Skip mutation if value object has not changed
+	if c.iconURL.Equals(newIcon) {
 		return nil
 	}
 
@@ -138,16 +161,32 @@ func (c *Channel) UpdateIcon(newIcon *IconURL) error {
 	return nil
 }
 
+// TransferOwnership reassigns the group channel owner.
 func (c *Channel) TransferOwnership(newOwnerID uuid.UUID) error {
 	if c.channelType == TypeDirect {
 		return ErrInvalidOwnerForType
 	}
+	if newOwnerID == uuid.Nil {
+		return ErrInvalidOwnerID
+	}
+	if c.IsOwner(newOwnerID) {
+		return nil
+	}
+
 	c.ownerID = &newOwnerID
 	c.touch()
 	return nil
 }
 
+// SetLastMessage records the latest message posted to the channel.
 func (c *Channel) SetLastMessage(messageID uuid.UUID) {
+	if messageID == uuid.Nil {
+		return
+	}
+	if c.lastMessageID != nil && *c.lastMessageID == messageID {
+		return
+	}
+
 	c.lastMessageID = &messageID
 	c.touch()
 }

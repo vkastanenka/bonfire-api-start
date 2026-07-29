@@ -198,7 +198,7 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 
-CREATE TABLE dm_relationships(
+CREATE TABLE dm_channels(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE UNIQUE,
@@ -244,7 +244,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user2_id
     LEFT JOIN user_profiles up ON up.user_id = r.user2_id
-    LEFT JOIN dm_relationships dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3
@@ -269,7 +269,7 @@ FROM
     relationships r
     JOIN users u ON u.id = r.user1_id
     LEFT JOIN user_profiles up ON up.user_id = r.user1_id
-    LEFT JOIN dm_relationships dm ON dm.user1_id = r.user1_id
+    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
         AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3

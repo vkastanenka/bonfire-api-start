@@ -30,7 +30,7 @@ type ChannelMember struct {
 	MentionCount      int32              `json:"mention_count"`
 }
 
-type DmRelationship struct {
+type DmChannel struct {
 	User1ID   pgtype.UUID `json:"user1_id"`
 	User2ID   pgtype.UUID `json:"user2_id"`
 	ChannelID pgtype.UUID `json:"channel_id"`

@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	EventMessageCreated  = "channel.message_created"
-	EventMessageUpdated  = "channel.message_updated"
-	EventMessageDeleted  = "channel.message_deleted"
-	EventMessagePinned   = "channel.message_pinned"
-	EventReactionAdded   = "channel.reaction_added"
-	EventReactionRemoved = "channel.reaction_removed"
-	EventChannelUpdated  = "channel.updated"
-	EventChannelDeleted  = "channel.deleted"
+	EventMessageCreated     = "channel.message_created"
+	EventMessageUpdated     = "channel.message_updated"
+	EventMessageDeleted     = "channel.message_deleted"
+	EventMessagePinned      = "channel.message_pinned"
+	EventReactionAdded      = "channel.reaction_added"
+	EventReactionRemoved    = "channel.reaction_removed"
+	EventChannelUpdated     = "channel.updated"
+	EventChannelDeleted     = "channel.deleted"
+	EventChannelReadUpdated = "channel.read_updated"
 )
 
 type MessageCreatedPayload struct {
@@ -66,6 +67,13 @@ type ChannelUpdatedPayload struct {
 	Name      *string   `json:"name"`
 	IconURL   *string   `json:"icon_url"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ChannelReadUpdatedPayload struct {
+	ChannelID         uuid.UUID  `json:"channelId"`
+	UserID            uuid.UUID  `json:"userId"`
+	LastReadMessageID *uuid.UUID `json:"lastReadMessageId,omitempty"`
+	LastReadAt        time.Time  `json:"lastReadAt"`
 }
 
 func RegisterOutboxHandlers(w *outbox.Worker, cacheStore *cache.Store) {
@@ -132,5 +140,13 @@ func RegisterOutboxHandlers(w *outbox.Worker, cacheStore *cache.Store) {
 			return fmt.Errorf("%w: malformed channel updated payload: %v", outbox.ErrFatal, err)
 		}
 		return pubToChannel(ctx, p.ChannelID, "CHANNEL_UPDATED", p)
+	})
+
+	w.RegisterHandler(EventChannelReadUpdated, func(ctx context.Context, raw json.RawMessage) error {
+		var p ChannelReadUpdatedPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return fmt.Errorf("%w: malformed channel read updated payload: %v", outbox.ErrFatal, err)
+		}
+		return pubToChannel(ctx, p.ChannelID, "CHANNEL_READ_UPDATED", p)
 	})
 }

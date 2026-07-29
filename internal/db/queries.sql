@@ -351,6 +351,15 @@ SET
 WHERE
     id = @channel_id;
 
+-- name: ChannelClearLastMessage :exec
+UPDATE
+    channels
+SET
+    last_message_id = NULL,
+    updated_at = $2
+WHERE
+    id = $1;
+
 -- name: ChannelDelete :exec
 DELETE FROM channels
 WHERE id = $1;
@@ -360,7 +369,7 @@ SELECT
     c.*
 FROM
     channels c
-    JOIN dm_relationships dm ON c.id = dm.channel_id
+    JOIN dm_channels dm ON c.id = dm.channel_id
 WHERE
     dm.user1_id = @user1_id
     AND dm.user2_id = @user2_id;
@@ -386,7 +395,7 @@ FROM
     channel_members cm
     JOIN channels c ON cm.channel_id = c.id
     -- Join directly on channel_id for instant O(1) index lookup
-    LEFT JOIN dm_relationships dm ON c.type = 0
+    LEFT JOIN dm_channels dm ON c.type = 0
         AND dm.channel_id = c.id
         -- Select whichever side of the pair IS NOT the current user
     LEFT JOIN users peer_u ON c.type = 0
@@ -430,15 +439,6 @@ SELECT
 -- ============================================================================
 -- CHANNEL MEMBERS
 -- ============================================================================
--- name: ChannelMemberAdd :one
-INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
-    VALUES (@channel_id, @user_id, @joined_at, sqlc.narg('last_read_message_id'), @mention_count)
-ON CONFLICT (channel_id, user_id)
-    DO UPDATE SET
-        joined_at = EXCLUDED.joined_at
-    RETURNING
-        *;
-
 -- name: ChannelMemberAddBatch :exec
 INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
 SELECT
@@ -495,21 +495,15 @@ ORDER BY
 UPDATE
     channel_members
 SET
-    last_read_message_id = sqlc.narg('last_read_message_id'),
-    last_read_at = @last_read_at,
-    mention_count = 0
+    last_read_message_id = CASE WHEN $4 > last_read_at THEN
+        COALESCE($3, last_read_message_id)
+    ELSE
+        last_read_message_id
+    END,
+    last_read_at = GREATEST(last_read_at, $4)
 WHERE
-    channel_id = @channel_id
-    AND user_id = @user_id;
-
--- name: ChannelMemberIncrementMentionCount :exec
-UPDATE
-    channel_members
-SET
-    mention_count = mention_count + 1
-WHERE
-    channel_id = @channel_id
-    AND user_id = @user_id;
+    channel_id = $1
+    AND user_id = $2;
 
 -- name: ChannelMemberIncrementMentionCountBatch :exec
 UPDATE
@@ -552,6 +546,17 @@ FROM
     messages
 WHERE
     id = @id
+LIMIT 1;
+
+-- name: MessageGetLatest :one
+SELECT
+    *
+FROM
+    messages
+WHERE
+    channel_id = $1
+ORDER BY
+    created_at DESC
 LIMIT 1;
 
 -- name: MessageListByChannelBefore :many

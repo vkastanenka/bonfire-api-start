@@ -10,6 +10,7 @@ import (
 var (
 	ErrAttachmentIDRequired        = errors.New("attachment id is required")
 	ErrAttachmentMessageIDRequired = errors.New("attachment message id is required")
+	ErrFileSizeInvalid             = errors.New("")
 )
 
 type Attachment struct {

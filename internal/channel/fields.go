@@ -4,9 +4,14 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"bonfire-api/internal/sanitize"
 )
+
+// -----------------------------------------------------------------------------
+// Name (Optional / Pointer Value Object)
+// -----------------------------------------------------------------------------
 
 var (
 	ErrNameEmpty          = errors.New("channel name cannot be empty")
@@ -18,7 +23,8 @@ type Name struct {
 	value string
 }
 
-// NewName sanitizes input and validates length rules.
+// NewName sanitizes input and validates character length.
+// Returns nil, nil if the raw string pointer is nil or reduces to empty whitespace.
 func NewName(raw *string) (*Name, error) {
 	if raw == nil {
 		return nil, nil
@@ -26,11 +32,11 @@ func NewName(raw *string) (*Name, error) {
 
 	cleaned := sanitize.Text(*raw)
 	if cleaned == "" {
-		return nil, nil // "" or "   " becomes nil
+		return nil, nil
 	}
 
-	if len(cleaned) > 100 {
-		return nil, ErrInvalidChannelName
+	if utf8.RuneCountInString(cleaned) > 100 {
+		return nil, ErrNameTooLong
 	}
 
 	return &Name{value: cleaned}, nil
@@ -43,8 +49,12 @@ func (n *Name) String() string {
 	return n.value
 }
 
-func (n *Name) IsNil() bool {
-	return n == nil
+func (n *Name) StringPtr() *string {
+	if n == nil {
+		return nil
+	}
+	s := n.value
+	return &s
 }
 
 func (n *Name) Equals(other *Name) bool {
@@ -57,6 +67,10 @@ func (n *Name) Equals(other *Name) bool {
 	return n.value == other.value
 }
 
+// -----------------------------------------------------------------------------
+// IconURL (Optional / Pointer Value Object)
+// -----------------------------------------------------------------------------
+
 var (
 	ErrIconURLEmpty    = errors.New("icon url cannot be empty")
 	ErrIconURLTooShort = errors.New("icon url must be at least 3 characters")
@@ -68,48 +82,66 @@ type IconURL struct {
 	value string
 }
 
-func NewIconURL(s string) (IconURL, error) {
-	if s == "" {
-		return IconURL{}, nil
+// NewIconURL validates and constructs an IconURL value object.
+// Returns nil, nil if the raw string pointer is nil or empty whitespace.
+func NewIconURL(raw *string) (*IconURL, error) {
+	if raw == nil {
+		return nil, nil
 	}
+
+	s := strings.TrimSpace(*raw)
+	if s == "" {
+		return nil, nil
+	}
+
 	if len(s) < 3 {
-		return IconURL{}, ErrIconURLTooShort
+		return nil, ErrIconURLTooShort
 	}
 	if len(s) > 2048 {
-		return IconURL{}, ErrIconURLTooLong
+		return nil, ErrIconURLTooLong
 	}
 
 	parsed, err := url.ParseRequestURI(s)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return IconURL{}, ErrIconURLInvalid
+	if err != nil || parsed.Host == "" {
+		return nil, ErrIconURLInvalid
 	}
 
-	return IconURL{value: s}, nil
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return nil, ErrIconURLInvalid
+	}
+
+	return &IconURL{value: s}, nil
 }
 
-func (n *IconURL) String() string {
-	if n == nil {
+func (i *IconURL) String() string {
+	if i == nil {
 		return ""
 	}
-	return n.value
+	return i.value
 }
 
-func (n *IconURL) IsNil() bool {
-	return n == nil
+func (i *IconURL) StringPtr() *string {
+	if i == nil {
+		return nil
+	}
+	s := i.value
+	return &s
 }
 
-func (n *IconURL) Equals(other *IconURL) bool {
-	if n == nil && other == nil {
+func (i *IconURL) Equals(other *IconURL) bool {
+	if i == nil && other == nil {
 		return true
 	}
-	if n == nil || other == nil {
+	if i == nil || other == nil {
 		return false
 	}
-	return n.value == other.value
+	return i.value == other.value
 }
 
-func (i IconURL) String() string { return i.value }
-func (i IconURL) IsValid() bool  { return i.value != "" }
+// -----------------------------------------------------------------------------
+// Content (Required Value Object)
+// -----------------------------------------------------------------------------
 
 var (
 	ErrContentEmpty   = errors.New("message content cannot be empty")
@@ -125,7 +157,7 @@ func NewContent(raw string) (Content, error) {
 	if s == "" {
 		return Content{}, ErrContentEmpty
 	}
-	if len(s) > 4000 {
+	if utf8.RuneCountInString(s) > 4000 {
 		return Content{}, ErrContentTooLong
 	}
 	return Content{value: s}, nil
@@ -133,6 +165,14 @@ func NewContent(raw string) (Content, error) {
 
 func (c Content) String() string { return c.value }
 func (c Content) IsValid() bool  { return c.value != "" }
+
+func (c Content) Equals(other Content) bool {
+	return c.value == other.value
+}
+
+// -----------------------------------------------------------------------------
+// Attachment Specs (FileName, ContentType, AttachmentURL)
+// -----------------------------------------------------------------------------
 
 var (
 	ErrFileNameEmpty   = errors.New("file name cannot be empty")
@@ -148,7 +188,7 @@ func NewFileName(raw string) (FileName, error) {
 	if s == "" {
 		return FileName{}, ErrFileNameEmpty
 	}
-	if len(s) > 255 {
+	if utf8.RuneCountInString(s) > 255 {
 		return FileName{}, ErrFileNameTooLong
 	}
 	return FileName{value: s}, nil
@@ -156,10 +196,6 @@ func NewFileName(raw string) (FileName, error) {
 
 func (fn FileName) String() string { return fn.value }
 func (fn FileName) IsValid() bool  { return fn.value != "" }
-
-var (
-	ErrFileSizeInvalid = errors.New("file size must be greater than zero")
-)
 
 var (
 	ErrContentTypeEmpty   = errors.New("content type cannot be empty")
@@ -208,7 +244,12 @@ func NewAttachmentURL(raw string) (AttachmentURL, error) {
 	}
 
 	parsed, err := url.ParseRequestURI(s)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+	if err != nil || parsed.Host == "" {
+		return AttachmentURL{}, ErrAttachmentURLInvalid
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
 		return AttachmentURL{}, ErrAttachmentURLInvalid
 	}
 
@@ -217,6 +258,10 @@ func NewAttachmentURL(raw string) (AttachmentURL, error) {
 
 func (au AttachmentURL) String() string { return au.value }
 func (au AttachmentURL) IsValid() bool  { return au.value != "" }
+
+// -----------------------------------------------------------------------------
+// Emoji (Reaction / Expression Value Object)
+// -----------------------------------------------------------------------------
 
 var (
 	ErrEmojiEmpty   = errors.New("emoji cannot be empty")
@@ -232,7 +277,7 @@ func NewEmoji(raw string) (Emoji, error) {
 	if s == "" {
 		return Emoji{}, ErrEmojiEmpty
 	}
-	if len(s) > 32 {
+	if utf8.RuneCountInString(s) > 32 {
 		return Emoji{}, ErrEmojiTooLong
 	}
 	return Emoji{value: s}, nil

@@ -151,6 +151,26 @@ func (q *Queries) AttachmentListByMessagesBatch(ctx context.Context, messageIds 
 	return items, nil
 }
 
+const channelClearLastMessage = `-- name: ChannelClearLastMessage :exec
+UPDATE
+    channels
+SET
+    last_message_id = NULL,
+    updated_at = $2
+WHERE
+    id = $1
+`
+
+type ChannelClearLastMessageParams struct {
+	ID        pgtype.UUID        `json:"id"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ChannelClearLastMessage(ctx context.Context, arg ChannelClearLastMessageParams) error {
+	_, err := q.db.Exec(ctx, channelClearLastMessage, arg.ID, arg.UpdatedAt)
+	return err
+}
+
 const channelCreate = `-- name: ChannelCreate :one
 INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -210,7 +230,7 @@ SELECT
     c.id, c.owner_id, c.last_message_id, c.created_at, c.updated_at, c.type, c.name, c.icon_url
 FROM
     channels c
-    JOIN dm_relationships dm ON c.id = dm.channel_id
+    JOIN dm_channels dm ON c.id = dm.channel_id
 WHERE
     dm.user1_id = $1
     AND dm.user2_id = $2
@@ -337,7 +357,7 @@ FROM
     channel_members cm
     JOIN channels c ON cm.channel_id = c.id
     -- Join directly on channel_id for instant O(1) index lookup
-    LEFT JOIN dm_relationships dm ON c.type = 0
+    LEFT JOIN dm_channels dm ON c.type = 0
         AND dm.channel_id = c.id
         -- Select whichever side of the pair IS NOT the current user
     LEFT JOIN users peer_u ON c.type = 0
@@ -404,47 +424,6 @@ func (q *Queries) ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]
 	return items, nil
 }
 
-const channelMemberAdd = `-- name: ChannelMemberAdd :one
-INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
-    VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (channel_id, user_id)
-    DO UPDATE SET
-        joined_at = EXCLUDED.joined_at
-    RETURNING
-        channel_id, user_id, last_read_message_id, joined_at, last_read_at, mention_count
-`
-
-type ChannelMemberAddParams struct {
-	ChannelID         pgtype.UUID        `json:"channel_id"`
-	UserID            pgtype.UUID        `json:"user_id"`
-	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
-	MentionCount      int32              `json:"mention_count"`
-}
-
-// ============================================================================
-// CHANNEL MEMBERS
-// ============================================================================
-func (q *Queries) ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error) {
-	row := q.db.QueryRow(ctx, channelMemberAdd,
-		arg.ChannelID,
-		arg.UserID,
-		arg.JoinedAt,
-		arg.LastReadMessageID,
-		arg.MentionCount,
-	)
-	var i ChannelMember
-	err := row.Scan(
-		&i.ChannelID,
-		&i.UserID,
-		&i.LastReadMessageID,
-		&i.JoinedAt,
-		&i.LastReadAt,
-		&i.MentionCount,
-	)
-	return i, err
-}
-
 const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
 INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
 SELECT
@@ -476,6 +455,9 @@ type ChannelMemberAddBatchParams struct {
 	MentionCounts      []int32              `json:"mention_counts"`
 }
 
+// ============================================================================
+// CHANNEL MEMBERS
+// ============================================================================
 func (q *Queries) ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error {
 	_, err := q.db.Exec(ctx, channelMemberAddBatch,
 		arg.ChannelID,
@@ -539,26 +521,6 @@ func (q *Queries) ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMe
 	var unread_count int32
 	err := row.Scan(&unread_count)
 	return unread_count, err
-}
-
-const channelMemberIncrementMentionCount = `-- name: ChannelMemberIncrementMentionCount :exec
-UPDATE
-    channel_members
-SET
-    mention_count = mention_count + 1
-WHERE
-    channel_id = $1
-    AND user_id = $2
-`
-
-type ChannelMemberIncrementMentionCountParams struct {
-	ChannelID pgtype.UUID `json:"channel_id"`
-	UserID    pgtype.UUID `json:"user_id"`
-}
-
-func (q *Queries) ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error {
-	_, err := q.db.Exec(ctx, channelMemberIncrementMentionCount, arg.ChannelID, arg.UserID)
-	return err
 }
 
 const channelMemberIncrementMentionCountBatch = `-- name: ChannelMemberIncrementMentionCountBatch :exec
@@ -664,27 +626,26 @@ const channelMemberUpdateReadState = `-- name: ChannelMemberUpdateReadState :exe
 UPDATE
     channel_members
 SET
-    last_read_message_id = $1,
-    last_read_at = $2,
-    mention_count = 0
+    last_read_message_id = COALESCE($3, last_read_message_id),
+    last_read_at = GREATEST(last_read_at, $4)
 WHERE
-    channel_id = $3
-    AND user_id = $4
+    channel_id = $1
+    AND user_id = $2
 `
 
 type ChannelMemberUpdateReadStateParams struct {
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
-	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 }
 
 func (q *Queries) ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error {
 	_, err := q.db.Exec(ctx, channelMemberUpdateReadState,
-		arg.LastReadMessageID,
-		arg.LastReadAt,
 		arg.ChannelID,
 		arg.UserID,
+		arg.LastReadMessageID,
+		arg.LastReadAt,
 	)
 	return err
 }
@@ -861,6 +822,34 @@ type MessageGetFirstUnreadParams struct {
 // Fetches the first message created after the user's last_read_at timestamp
 func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error) {
 	row := q.db.QueryRow(ctx, messageGetFirstUnread, arg.UserID, arg.ChannelID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
+const messageGetLatest = `-- name: MessageGetLatest :one
+SELECT
+    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+FROM
+    messages
+WHERE
+    channel_id = $1
+ORDER BY
+    created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error) {
+	row := q.db.QueryRow(ctx, messageGetLatest, channelID)
 	var i Message
 	err := row.Scan(
 		&i.ID,

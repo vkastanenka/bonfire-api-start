@@ -64,13 +64,16 @@ func TextPtr(s *string) pgtype.Text {
 	return pgtype.Text{String: *s, Valid: true}
 }
 
-// StringerPtr converts a pointer to any type implementing fmt.Stringer into pgtype.Text.
+// StringerPtr converts a pointer to any type whose pointer receiver implements fmt.Stringer into pgtype.Text.
 // Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
-func StringerPtr[T Stringer](v *T) pgtype.Text {
+func StringerPtr[T any, PT interface {
+	*T
+	fmt.Stringer
+}](v *T) pgtype.Text {
 	if v == nil {
 		return pgtype.Text{Valid: false}
 	}
-	return pgtype.Text{String: (*v).String(), Valid: true}
+	return pgtype.Text{String: PT(v).String(), Valid: true}
 }
 
 // Timestamptz converts a time.Time into pgtype.Timestamptz in UTC.

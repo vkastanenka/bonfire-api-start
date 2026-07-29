@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -20,6 +21,7 @@ type ChannelStore interface {
 	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
 	ChannelUpdate(ctx context.Context, arg db.ChannelUpdateParams) (db.Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg db.ChannelUpdateLastMessageParams) error
+	ChannelClearLastMessage(ctx context.Context, arg db.ChannelClearLastMessageParams) error
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg db.ChannelFindDMParams) (db.Channel, error)
 	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]db.ChannelListByUserRow, error)
@@ -27,12 +29,10 @@ type ChannelStore interface {
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
-	ChannelMemberAdd(ctx context.Context, arg db.ChannelMemberAddParams) (db.ChannelMember, error)
 	ChannelMemberAddBatch(ctx context.Context, arg db.ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg db.ChannelMemberGetParams) (db.ChannelMember, error)
 	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.ChannelMemberListByChannelRow, error)
 	ChannelMemberUpdateReadState(ctx context.Context, arg db.ChannelMemberUpdateReadStateParams) error
-	ChannelMemberIncrementMentionCount(ctx context.Context, arg db.ChannelMemberIncrementMentionCountParams) error
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg db.ChannelMemberIncrementMentionCountBatchParams) error
 	ChannelMemberRemove(ctx context.Context, arg db.ChannelMemberRemoveParams) error
 	ChannelMemberGetUnreadCount(ctx context.Context, arg db.ChannelMemberGetUnreadCountParams) (int32, error)
@@ -42,6 +42,7 @@ type ChannelStore interface {
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg db.MessageCreateParams) (db.Message, error)
 	MessageGet(ctx context.Context, id pgtype.UUID) (db.Message, error)
+	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (db.Message, error)
 	MessageListByChannelBefore(ctx context.Context, arg db.MessageListByChannelBeforeParams) ([]db.Message, error)
 	MessageListByChannelAfter(ctx context.Context, arg db.MessageListByChannelAfterParams) ([]db.Message, error)
 	MessageListByChannelAround(ctx context.Context, arg db.MessageListByChannelAroundParams) ([]db.Message, error)
@@ -101,6 +102,15 @@ func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, erro
 	return channelFromRow(row)
 }
 
+func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.ChannelListByUserRow, error) {
+	rows, err := r.store.ChannelListByUser(ctx, db.UUID(userID))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannel)
+	}
+
+	return rows, nil
+}
+
 func (r *Channel) Update(ctx context.Context, ch *channel.Channel) error {
 	_, err := r.store.ChannelUpdate(ctx, db.ChannelUpdateParams{
 		ID:            db.UUID(ch.ID()),
@@ -110,6 +120,15 @@ func (r *Channel) Update(ctx context.Context, ch *channel.Channel) error {
 		LastMessageID: db.UUIDPtr(ch.LastMessageID()),
 		UpdatedAt:     db.Timestamptz(ch.UpdatedAt()),
 	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannel)
+	}
+
+	return nil
+}
+
+func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
+	err := r.store.ChannelDelete(ctx, db.UUID(id))
 	if err != nil {
 		return db.NewError(err, db.EntityChannel)
 	}
@@ -130,8 +149,11 @@ func (r *Channel) UpdateLastMessage(ctx context.Context, channelID, messageID uu
 	return nil
 }
 
-func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
-	err := r.store.ChannelDelete(ctx, db.UUID(id))
+func (r *Channel) ClearLastMessage(ctx context.Context, channelID uuid.UUID) error {
+	err := r.store.ChannelClearLastMessage(ctx, db.ChannelClearLastMessageParams{
+		ID:        db.UUID(channelID),
+		UpdatedAt: db.Timestamptz(time.Now().UTC()),
+	})
 	if err != nil {
 		return db.NewError(err, db.EntityChannel)
 	}
@@ -156,33 +178,9 @@ func (r *Channel) FindDM(ctx context.Context, user1ID, user2ID uuid.UUID) (*chan
 	return channelFromRow(row)
 }
 
-func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.ChannelListByUserRow, error) {
-	rows, err := r.store.ChannelListByUser(ctx, db.UUID(userID))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
-	}
-
-	return rows, nil
-}
-
 // ============================================================================
 // MEMBERS
 // ============================================================================
-
-func (r *Channel) AddMember(ctx context.Context, m *channel.Member) error {
-	_, err := r.store.ChannelMemberAdd(ctx, db.ChannelMemberAddParams{
-		ChannelID:         db.UUID(m.ChannelID()),
-		UserID:            db.UUID(m.UserID()),
-		JoinedAt:          db.Timestamptz(m.JoinedAt()),
-		LastReadMessageID: db.UUIDPtr(m.LastReadMessageID()),
-		MentionCount:      m.MentionCount(),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityChannelMember)
-	}
-
-	return nil
-}
 
 func (r *Channel) AddMembers(ctx context.Context, members []*channel.Member) error {
 	if len(members) == 0 {
@@ -252,18 +250,7 @@ func (r *Channel) UpdateMemberReadState(ctx context.Context, channelID, userID u
 	return nil
 }
 
-func (r *Channel) IncrementMentionCount(ctx context.Context, channelID, userID uuid.UUID) error {
-	err := r.store.ChannelMemberIncrementMentionCount(ctx, db.ChannelMemberIncrementMentionCountParams{
-		ChannelID: db.UUID(channelID),
-		UserID:    db.UUID(userID),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityChannelMember)
-	}
-
-	return nil
-}
-
+// TODO: CURRENT TASK
 func (r *Channel) IncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
@@ -347,6 +334,18 @@ func (r *Channel) CreateMessage(ctx context.Context, msg *channel.Message) error
 func (r *Channel) GetMessage(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
 	row, err := r.store.MessageGet(ctx, db.UUID(id))
 	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messageFromRow(row)
+}
+
+func (r *Channel) GetLatestMessage(ctx context.Context, channelID uuid.UUID) (*channel.Message, error) {
+	row, err := r.store.MessageGetLatest(ctx, db.UUID(channelID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, db.NewError(err, db.EntityMessage)
 	}
 

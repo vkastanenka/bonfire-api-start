@@ -19,6 +19,7 @@ type Querier interface {
 	AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error)
 	// Highly efficient for bulk-loading attachments when fetching a page of messages
 	AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error)
+	ChannelClearLastMessage(ctx context.Context, arg ChannelClearLastMessageParams) error
 	// ============================================================================
 	// CHANNELS
 	// ============================================================================
@@ -33,11 +34,9 @@ type Querier interface {
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
-	ChannelMemberAdd(ctx context.Context, arg ChannelMemberAddParams) (ChannelMember, error)
 	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
-	ChannelMemberIncrementMentionCount(ctx context.Context, arg ChannelMemberIncrementMentionCountParams) error
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
 	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
@@ -52,6 +51,7 @@ type Querier interface {
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
 	// Fetches the first message created after the user's last_read_at timestamp
 	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
+	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
 	// Fetches newer messages using keyset pagination.
 	MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error)
 	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]MessageListByChannelAroundRow, error)
