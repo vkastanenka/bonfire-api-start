@@ -23,6 +23,7 @@ type ChannelStore interface {
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg db.ChannelFindDMParams) (db.Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
+	ChannelGetForMember(ctx context.Context, arg db.ChannelGetForMemberParams) (db.Channel, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg db.ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg db.ChannelHasMessagesBeforeParams) (bool, error)
 	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]db.ChannelListByUserRow, error)
@@ -129,6 +130,18 @@ func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, erro
 	return channelFromRow(row)
 }
 
+func (r *Channel) GetForMember(ctx context.Context, channelID, memberID uuid.UUID) (*channel.Channel, error) {
+	row, err := r.store.ChannelGetForMember(ctx, db.ChannelGetForMemberParams{
+		ID:     db.UUID(channelID),
+		UserID: db.UUID(memberID),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannel)
+	}
+
+	return channelFromRow(row)
+}
+
 func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
 	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
 		ChannelID: db.UUID(channelID),
@@ -155,7 +168,7 @@ func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, cr
 	return exists, nil
 }
 
-func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.ChannelListByUserRow, error) {
+func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.Channel, error) {
 	rows, err := r.store.ChannelListByUser(ctx, db.UUID(userID))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannel)

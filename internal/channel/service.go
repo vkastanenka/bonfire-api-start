@@ -45,9 +45,10 @@ type Repository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	FindDM(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Channel, error)
 	Get(ctx context.Context, id uuid.UUID) (*Channel, error)
+	GetForMember(ctx context.Context, channelID uuid.UUID, memberID uuid.UUID) (*Channel, error)
 	HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
 	HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
-	ListByUser(ctx context.Context, userID uuid.UUID) ([]db.ChannelListByUserRow, error)
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]Channel, error)
 	Update(ctx context.Context, ch *Channel) error
 	UpdateLastMessage(ctx context.Context, channelID uuid.UUID, messageID *uuid.UUID, updatedAt time.Time) error
 
@@ -86,6 +87,9 @@ type Repository interface {
 	ReactionListByMessage(ctx context.Context, messageID uuid.UUID) ([]Reaction, error)
 	ReactionRemove(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji Emoji) error
 	ReactionSummarizeByMessage(ctx context.Context, messageID uuid.UUID, currentUserID uuid.UUID) ([]ReactionSummary, error)
+}
+
+type PresenceStore interface {
 }
 
 type TypingStore interface {
@@ -290,30 +294,34 @@ func (s *Service) Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberI
 	return newChannel, nil
 }
 
-// Get fetches channel details after verifying the actor is a member.
-func (s *Service) Get(ctx context.Context, channelID, actorID uuid.UUID) (*Channel, error) {
-	if channelID == uuid.Nil || actorID == uuid.Nil {
-		return nil, errs.InvalidArgument("channel ID and actor ID cannot be nil")
+// Get fetches channel details if the actor is a member.
+func (s *Service) Get(ctx context.Context, rawChannelID, rawActorID uuid.UUID) (*Channel, error) {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
 	}
 
-	ok, err := s.repo.IsMember(ctx, channelID, actorID)
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
+
+	ch, err := s.repo.GetForMember(ctx, channelID.UUID(), actorID.UUID())
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-	}
 
-	return s.repo.Get(ctx, channelID)
+	return ch, nil
 }
 
 // ListByUser retrieves all channels that the specified user is a participant of.
-func (s *Service) ListByUser(ctx context.Context, userID uuid.UUID) ([]Channel, error) {
-	if userID == uuid.Nil {
-		return nil, errs.InvalidArgument("user ID cannot be nil")
+func (s *Service) ListByUser(ctx context.Context, rawUserID uuid.UUID) ([]Channel, error) {
+	userID, err := NewID(rawUserID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid user ID").Wrap(err)
 	}
 
-	channels, err := s.repo.ListByUser(ctx, userID)
+	channels, err := s.repo.ListByUser(ctx, userID.UUID())
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +329,90 @@ func (s *Service) ListByUser(ctx context.Context, userID uuid.UUID) ([]Channel, 
 	return channels, nil
 }
 
-type UpdateChannelParams struct {
+// type SidebarChannel struct {
+// 	ChannelID         uuid.UUID
+// 	UserID            uuid.UUID
+// 	Type              int16
+// 	Name              *string
+// 	IconURL           *string
+// 	OwnerID           *uuid.UUID
+// 	LastReadMessageID *uuid.UUID
+// 	LastMessageID     *uuid.UUID
+// 	MentionCount      int32
+// 	PeerUserID        *uuid.UUID
+// 	Presence          presence.Presence // Hydrated dynamically from Redis
+// 	UpdatedAt         time.Time
+// }
+
+// // ListByUser retrieves all sidebar channels for a user with real-time presence merged from cache.
+// func (s *Service) ListByUser(ctx context.Context, rawUserID uuid.UUID) ([]SidebarChannel, error) {
+// 	userID, err := NewID(rawUserID)
+// 	if err != nil {
+// 		return nil, errs.InvalidArgument("invalid user ID").Wrap(err)
+// 	}
+
+// 	rows, err := s.repo.ListByUser(ctx, userID.UUID())
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if len(rows) == 0 {
+// 		return []SidebarChannel{}, nil
+// 	}
+
+// 	// 1. Collect unique peer user IDs from DMs
+// 	peerIDs := make([]uuid.UUID, 0, len(rows))
+// 	peerIDSet := make(map[uuid.UUID]struct{})
+
+// 	for _, row := range rows {
+// 		if row.PeerUserID.Valid {
+// 			id := uuid.UUID(row.PeerUserID.Bytes)
+// 			if _, exists := peerIDSet[id]; !exists {
+// 				peerIDSet[id] = struct{}{}
+// 				peerIDs = append(peerIDs, id)
+// 			}
+// 		}
+// 	}
+
+// 	// 2. Single MGET call to Redis for all DMs in the sidebar
+// 	presenceMap, err := s.presenceStore.GetPresenceBulk(ctx, peerIDs)
+// 	if err != nil {
+// 		// Log error if needed; fallback to offline so sidebar rendering doesn't crash on cache failure
+// 		presenceMap = make(map[uuid.UUID]presence.Presence)
+// 	}
+
+// 	// 3. Assemble response DTOs
+// 	channels := make([]SidebarChannel, len(rows))
+// 	for i, row := range rows {
+// 		item := SidebarChannel{
+// 			ChannelID:         uuid.UUID(row.ChannelID.Bytes),
+// 			UserID:            uuid.UUID(row.UserID.Bytes),
+// 			Type:              row.ChannelType,
+// 			Name:              db.StringPtr(row.ChannelName),
+// 			IconURL:           db.StringPtr(row.ChannelIconUrl),
+// 			OwnerID:           db.UUIDPtrFromPG(row.ChannelOwnerID),
+// 			LastReadMessageID: db.UUIDPtrFromPG(row.LastReadMessageID),
+// 			LastMessageID:     db.UUIDPtrFromPG(row.ChannelLastMessageID),
+// 			MentionCount:      row.MentionCount,
+// 			UpdatedAt:         row.ChannelUpdatedAt.Time,
+// 			Presence:          presence.PresenceOffline, // Default fallback
+// 		}
+
+// 		if row.PeerUserID.Valid {
+// 			peerID := uuid.UUID(row.PeerUserID.Bytes)
+// 			item.PeerUserID = &peerID
+// 			if p, ok := presenceMap[peerID]; ok {
+// 				item.Presence = p
+// 			}
+// 		}
+
+// 		channels[i] = item
+// 	}
+
+// 	return channels, nil
+// }
+
+type UpdateChannelInput struct {
 	ChannelID uuid.UUID
 	ActorID   uuid.UUID
 	Name      *string
@@ -329,7 +420,7 @@ type UpdateChannelParams struct {
 }
 
 // Update encapsulates metadata changes requested by a user
-func (s *Service) Update(ctx context.Context, input UpdateChannelParams) (*Channel, error) {
+func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (*Channel, error) {
 	ch, err := s.repo.Get(ctx, input.ChannelID)
 	if err != nil {
 		return nil, err
@@ -343,14 +434,9 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelParams) (*Chann
 		return ch, nil
 	}
 
-	// 2. Authorization: Only the owner can update group channel metadata
-	if !ch.IsOwner(input.ActorID) {
-		return nil, ErrNotGroupOwner
-	}
-
 	var updated bool
 
-	// 3. Update Name (with true value equality check)
+	// 2. Update Name (with true value equality check)
 	if input.Name != nil {
 		nameVO, err := NewName(input.Name)
 		if err != nil {
@@ -365,7 +451,7 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelParams) (*Chann
 		}
 	}
 
-	// 4. Update Icon URL (with true value equality check)
+	// 3. Update Icon URL (with true value equality check)
 	if input.IconURL != nil {
 		iconVO, err := NewIconURL(input.IconURL)
 		if err != nil {
@@ -380,12 +466,12 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelParams) (*Chann
 		}
 	}
 
-	// 5. Early return if state did not change
+	// 4. Early return if state did not change
 	if !updated {
 		return ch, nil
 	}
 
-	// 6. Persist entity changes and emit Outbox event in a single atomic transaction
+	// 5. Persist entity changes and emit Outbox event in a single atomic transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if err := s.repo.Update(txCtx, ch); err != nil {
 			return err
@@ -411,16 +497,19 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelParams) (*Chann
 
 // Delete permanently or soft deletes a channel aggregate.
 // Note: Direct Messages cannot be deleted; users should hide/close DMs instead.
-func (s *Service) Delete(ctx context.Context, channelID, actorID uuid.UUID) error {
-	if channelID == uuid.Nil {
-		return errs.InvalidArgument("channel ID cannot be nil")
+func (s *Service) Delete(ctx context.Context, rawChannelID, rawActorID uuid.UUID) error {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return errs.InvalidArgument("invalid channel ID").Wrap(err)
 	}
-	if actorID == uuid.Nil {
-		return errs.InvalidArgument("actor ID cannot be nil")
+
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor ID").Wrap(err)
 	}
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		ch, err := s.repo.Get(txCtx, channelID)
+		ch, err := s.repo.Get(txCtx, channelID.UUID())
 		if err != nil {
 			return err
 		}
@@ -429,17 +518,17 @@ func (s *Service) Delete(ctx context.Context, channelID, actorID uuid.UUID) erro
 			return errs.FailedPrecondition("direct messages cannot be deleted")
 		}
 
-		if !ch.IsOwner(actorID) {
+		if !ch.IsOwner(actorID.UUID()) {
 			return errs.PermissionDenied("only the owner can delete this channel").Wrap(ErrNotGroupOwner)
 		}
 
-		if err := s.repo.Delete(txCtx, channelID); err != nil {
+		if err := s.repo.Delete(txCtx, channelID.UUID()); err != nil {
 			return err
 		}
 
 		_, err = s.outbox.Publish(txCtx, EventChannelDeleted, DeletedPayload{
-			ChannelID: channelID,
-			ActorID:   actorID,
+			ChannelID: channelID.UUID(),
+			ActorID:   actorID.UUID(),
 		})
 		if err != nil {
 			return err

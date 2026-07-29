@@ -283,6 +283,47 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, erro
 	return i, err
 }
 
+const channelGetForMember = `-- name: ChannelGetForMember :one
+SELECT
+    c.id,
+    c.type,
+    c.owner_id,
+    c.created_at,
+    c.updated_at
+FROM
+    channels c
+    INNER JOIN channel_members cm ON cm.channel_id = c.id
+WHERE
+    c.id = $1
+    AND cm.user_id = $2
+`
+
+type ChannelGetForMemberParams struct {
+	ID     pgtype.UUID `json:"id"`
+	UserID pgtype.UUID `json:"user_id"`
+}
+
+type ChannelGetForMemberRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Type      int16              `json:"type"`
+	OwnerID   pgtype.UUID        `json:"owner_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (ChannelGetForMemberRow, error) {
+	row := q.db.QueryRow(ctx, channelGetForMember, arg.ID, arg.UserID)
+	var i ChannelGetForMemberRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.OwnerID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const channelHasMessagesAfter = `-- name: ChannelHasMessagesAfter :one
 SELECT
     EXISTS (
@@ -351,21 +392,17 @@ SELECT
     COALESCE(c.icon_url, peer_up.avatar_url) AS channel_icon_url,
     c.last_message_id AS channel_last_message_id,
     c.updated_at AS channel_updated_at,
-    peer_u.id AS peer_user_id,
-    peer_u.preferred_presence AS peer_preferred_presence
+    peer_u.id AS peer_user_id
 FROM
     channel_members cm
     JOIN channels c ON cm.channel_id = c.id
-    -- Join directly on channel_id for instant O(1) index lookup
     LEFT JOIN dm_channels dm ON c.type = 0
         AND dm.channel_id = c.id
-        -- Select whichever side of the pair IS NOT the current user
     LEFT JOIN users peer_u ON c.type = 0
-        AND peer_u.id = CASE WHEN dm.user1_id = cm.user_id THEN
-            dm.user2_id
-        ELSE
-            dm.user1_id
-        END
+        AND ((dm.user1_id = cm.user_id
+                AND peer_u.id = dm.user2_id)
+            OR (dm.user2_id = cm.user_id
+                AND peer_u.id = dm.user1_id))
     LEFT JOIN user_profiles peer_up ON peer_u.id = peer_up.user_id
 WHERE
     cm.user_id = $1
@@ -374,19 +411,18 @@ ORDER BY
 `
 
 type ChannelListByUserRow struct {
-	ChannelID             pgtype.UUID        `json:"channel_id"`
-	UserID                pgtype.UUID        `json:"user_id"`
-	LastReadMessageID     pgtype.UUID        `json:"last_read_message_id"`
-	MentionCount          int32              `json:"mention_count"`
-	JoinedAt              pgtype.Timestamptz `json:"joined_at"`
-	ChannelType           int16              `json:"channel_type"`
-	ChannelOwnerID        pgtype.UUID        `json:"channel_owner_id"`
-	ChannelName           string             `json:"channel_name"`
-	ChannelIconUrl        pgtype.Text        `json:"channel_icon_url"`
-	ChannelLastMessageID  pgtype.UUID        `json:"channel_last_message_id"`
-	ChannelUpdatedAt      pgtype.Timestamptz `json:"channel_updated_at"`
-	PeerUserID            pgtype.UUID        `json:"peer_user_id"`
-	PeerPreferredPresence pgtype.Int2        `json:"peer_preferred_presence"`
+	ChannelID            pgtype.UUID        `json:"channel_id"`
+	UserID               pgtype.UUID        `json:"user_id"`
+	LastReadMessageID    pgtype.UUID        `json:"last_read_message_id"`
+	MentionCount         int32              `json:"mention_count"`
+	JoinedAt             pgtype.Timestamptz `json:"joined_at"`
+	ChannelType          int16              `json:"channel_type"`
+	ChannelOwnerID       pgtype.UUID        `json:"channel_owner_id"`
+	ChannelName          string             `json:"channel_name"`
+	ChannelIconUrl       pgtype.Text        `json:"channel_icon_url"`
+	ChannelLastMessageID pgtype.UUID        `json:"channel_last_message_id"`
+	ChannelUpdatedAt     pgtype.Timestamptz `json:"channel_updated_at"`
+	PeerUserID           pgtype.UUID        `json:"peer_user_id"`
 }
 
 // Used for populating the user's sidebar with channel info & peer profiles for DMs
@@ -412,7 +448,6 @@ func (q *Queries) ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]
 			&i.ChannelLastMessageID,
 			&i.ChannelUpdatedAt,
 			&i.PeerUserID,
-			&i.PeerPreferredPresence,
 		); err != nil {
 			return nil, err
 		}

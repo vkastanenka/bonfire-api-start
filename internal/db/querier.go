@@ -27,6 +27,7 @@ type Querier interface {
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelFindDM(ctx context.Context, arg ChannelFindDMParams) (Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
+	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (ChannelGetForMemberRow, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
 	// Used for populating the user's sidebar with channel info & peer profiles for DMs
