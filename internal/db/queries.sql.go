@@ -41,7 +41,7 @@ type AttachmentCreateBatchParams struct {
 }
 
 // ============================================================================
-// MESSAGE ATTACHMENTS
+// MESSAGE ATTACHMENTS: TODO
 // ============================================================================
 func (q *Queries) AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error {
 	_, err := q.db.Exec(ctx, attachmentCreateBatch,
@@ -152,20 +152,20 @@ func (q *Queries) AttachmentListByMessagesBatch(ctx context.Context, messageIds 
 }
 
 const channelCreate = `-- name: ChannelCreate :one
-INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO channels(id, created_at, updated_at, type, last_message_id, name, icon_url)
+    VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::smallint, $5::uuid, $6::text, $7::text)
 RETURNING
-    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+    id, created_at, updated_at, type, last_message_id, name, icon_url
 `
 
 type ChannelCreateParams struct {
-	ID        pgtype.UUID        `json:"id"`
-	Type      int16              `json:"type"`
-	OwnerID   pgtype.UUID        `json:"owner_id"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID            pgtype.UUID        `json:"id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Type          int16              `json:"type"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	Name          pgtype.Text        `json:"name"`
+	IconUrl       pgtype.Text        `json:"icon_url"`
 }
 
 // ============================================================================
@@ -174,50 +174,29 @@ type ChannelCreateParams struct {
 func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelCreate,
 		arg.ID,
-		arg.Type,
-		arg.OwnerID,
-		arg.Name,
-		arg.IconUrl,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Type,
+		arg.LastMessageID,
+		arg.Name,
+		arg.IconUrl,
 	)
 	var i Channel
 	err := row.Scan(
 		&i.ID,
-		&i.OwnerID,
-		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Type,
+		&i.LastMessageID,
 		&i.Name,
 		&i.IconUrl,
 	)
 	return i, err
 }
 
-const channelCreateDM = `-- name: ChannelCreateDM :one
-INSERT INTO dm_channels(user1_id, user2_id, channel_id)
-    VALUES ($1, $2, $3)
-RETURNING
-    user1_id, user2_id, channel_id
-`
-
-type ChannelCreateDMParams struct {
-	User1ID   pgtype.UUID `json:"user1_id"`
-	User2ID   pgtype.UUID `json:"user2_id"`
-	ChannelID pgtype.UUID `json:"channel_id"`
-}
-
-func (q *Queries) ChannelCreateDM(ctx context.Context, arg ChannelCreateDMParams) (DMChannel, error) {
-	row := q.db.QueryRow(ctx, channelCreateDM, arg.User1ID, arg.User2ID, arg.ChannelID)
-	var i DMChannel
-	err := row.Scan(&i.User1ID, &i.User2ID, &i.ChannelID)
-	return i, err
-}
-
 const channelDelete = `-- name: ChannelDelete :exec
 DELETE FROM channels
-WHERE id = $1
+WHERE id = $1::uuid
 `
 
 func (q *Queries) ChannelDelete(ctx context.Context, id pgtype.UUID) error {
@@ -225,46 +204,13 @@ func (q *Queries) ChannelDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-const channelFindDM = `-- name: ChannelFindDM :one
-SELECT
-    c.id, c.owner_id, c.last_message_id, c.created_at, c.updated_at, c.type, c.name, c.icon_url
-FROM
-    channels c
-    JOIN dm_channels dm ON c.id = dm.channel_id
-WHERE
-    dm.user1_id = $1
-    AND dm.user2_id = $2
-`
-
-type ChannelFindDMParams struct {
-	User1ID pgtype.UUID `json:"user1_id"`
-	User2ID pgtype.UUID `json:"user2_id"`
-}
-
-func (q *Queries) ChannelFindDM(ctx context.Context, arg ChannelFindDMParams) (Channel, error) {
-	row := q.db.QueryRow(ctx, channelFindDM, arg.User1ID, arg.User2ID)
-	var i Channel
-	err := row.Scan(
-		&i.ID,
-		&i.OwnerID,
-		&i.LastMessageID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Type,
-		&i.Name,
-		&i.IconUrl,
-	)
-	return i, err
-}
-
 const channelGet = `-- name: ChannelGet :one
 SELECT
-    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+    id, created_at, updated_at, type, last_message_id, name, icon_url
 FROM
     channels
 WHERE
-    id = $1
-LIMIT 1
+    id = $1::uuid
 `
 
 func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error) {
@@ -272,11 +218,10 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, erro
 	var i Channel
 	err := row.Scan(
 		&i.ID,
-		&i.OwnerID,
-		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Type,
+		&i.LastMessageID,
 		&i.Name,
 		&i.IconUrl,
 	)
@@ -285,41 +230,31 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, erro
 
 const channelGetForMember = `-- name: ChannelGetForMember :one
 SELECT
-    c.id,
-    c.type,
-    c.owner_id,
-    c.created_at,
-    c.updated_at
+    c.id, c.created_at, c.updated_at, c.type, c.last_message_id, c.name, c.icon_url
 FROM
     channels c
     INNER JOIN channel_members cm ON cm.channel_id = c.id
 WHERE
-    c.id = $1
-    AND cm.user_id = $2
+    c.id = $1::uuid
+    AND cm.user_id = $2::uuid
 `
 
 type ChannelGetForMemberParams struct {
-	ID     pgtype.UUID `json:"id"`
-	UserID pgtype.UUID `json:"user_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
 }
 
-type ChannelGetForMemberRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	Type      int16              `json:"type"`
-	OwnerID   pgtype.UUID        `json:"owner_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (ChannelGetForMemberRow, error) {
-	row := q.db.QueryRow(ctx, channelGetForMember, arg.ID, arg.UserID)
-	var i ChannelGetForMemberRow
+func (q *Queries) ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelGetForMember, arg.ChannelID, arg.UserID)
+	var i Channel
 	err := row.Scan(
 		&i.ID,
-		&i.Type,
-		&i.OwnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Type,
+		&i.LastMessageID,
+		&i.Name,
+		&i.IconUrl,
 	)
 	return i, err
 }
@@ -332,20 +267,20 @@ SELECT
         FROM
             messages
         WHERE
-            channel_id = $1
-            AND (created_at > $2
-                OR (created_at = $2
-                    AND id > $3)))
+            channel_id = $1::uuid
+            AND (created_at > $2::timestamptz
+                OR (created_at = $2::timestamptz
+                    AND id > $3::uuid)))
 `
 
 type ChannelHasMessagesAfterParams struct {
 	ChannelID pgtype.UUID        `json:"channel_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	ID        pgtype.UUID        `json:"id"`
+	MessageID pgtype.UUID        `json:"message_id"`
 }
 
 func (q *Queries) ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error) {
-	row := q.db.QueryRow(ctx, channelHasMessagesAfter, arg.ChannelID, arg.CreatedAt, arg.ID)
+	row := q.db.QueryRow(ctx, channelHasMessagesAfter, arg.ChannelID, arg.CreatedAt, arg.MessageID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -359,20 +294,20 @@ SELECT
         FROM
             messages
         WHERE
-            channel_id = $1
-            AND (created_at < $2
-                OR (created_at = $2
-                    AND id < $3)))
+            channel_id = $1::uuid
+            AND (created_at < $2::timestamptz
+                OR (created_at = $2::timestamptz
+                    AND id < $3::uuid)))
 `
 
 type ChannelHasMessagesBeforeParams struct {
 	ChannelID pgtype.UUID        `json:"channel_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	ID        pgtype.UUID        `json:"id"`
+	MessageID pgtype.UUID        `json:"message_id"`
 }
 
 func (q *Queries) ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error) {
-	row := q.db.QueryRow(ctx, channelHasMessagesBefore, arg.ChannelID, arg.CreatedAt, arg.ID)
+	row := q.db.QueryRow(ctx, channelHasMessagesBefore, arg.ChannelID, arg.CreatedAt, arg.MessageID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -380,49 +315,49 @@ func (q *Queries) ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMe
 
 const channelListByUser = `-- name: ChannelListByUser :many
 SELECT
+    -- 1. Primary Identifiers & References
     cm.channel_id,
     cm.user_id,
+    rp.peer_id AS peer_user_id,
+    c.type AS channel_type,
+    -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
+    COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+    COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+    -- 3. Read State, Activity & Metrics
+    c.last_message_id AS channel_last_message_id,
     cm.last_read_message_id,
     cm.mention_count,
-    cm.joined_at,
-    c.type AS channel_type,
-    c.owner_id AS channel_owner_id,
-    -- Fall back to peer's display name/username for 1-on-1 DMs
-    COALESCE(c.name, peer_up.display_name, peer_u.username) AS channel_name,
-    COALESCE(c.icon_url, peer_up.avatar_url) AS channel_icon_url,
-    c.last_message_id AS channel_last_message_id,
-    c.updated_at AS channel_updated_at,
-    peer_u.id AS peer_user_id
+    -- 4. Timestamps
+    cm.created_at,
+    cm.last_read_at,
+    c.updated_at AS channel_updated_at
 FROM
     channel_members cm
     JOIN channels c ON cm.channel_id = c.id
-    LEFT JOIN dm_channels dm ON c.type = 0
-        AND dm.channel_id = c.id
-    LEFT JOIN users peer_u ON c.type = 0
-        AND ((dm.user1_id = cm.user_id
-                AND peer_u.id = dm.user2_id)
-            OR (dm.user2_id = cm.user_id
-                AND peer_u.id = dm.user1_id))
-    LEFT JOIN user_profiles peer_up ON peer_u.id = peer_up.user_id
+    -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
+    LEFT JOIN relationship_perspectives rp ON c.type = 0
+        AND rp.user_id = cm.user_id
+        AND rp.channel_id = c.id
 WHERE
-    cm.user_id = $1
+    cm.user_id = $1::uuid
 ORDER BY
-    c.updated_at DESC
+    c.updated_at DESC,
+    c.id ASC
 `
 
 type ChannelListByUserRow struct {
 	ChannelID            pgtype.UUID        `json:"channel_id"`
 	UserID               pgtype.UUID        `json:"user_id"`
-	LastReadMessageID    pgtype.UUID        `json:"last_read_message_id"`
-	MentionCount         int32              `json:"mention_count"`
-	JoinedAt             pgtype.Timestamptz `json:"joined_at"`
+	PeerUserID           pgtype.UUID        `json:"peer_user_id"`
 	ChannelType          int16              `json:"channel_type"`
-	ChannelOwnerID       pgtype.UUID        `json:"channel_owner_id"`
 	ChannelName          string             `json:"channel_name"`
 	ChannelIconUrl       pgtype.Text        `json:"channel_icon_url"`
 	ChannelLastMessageID pgtype.UUID        `json:"channel_last_message_id"`
+	LastReadMessageID    pgtype.UUID        `json:"last_read_message_id"`
+	MentionCount         int32              `json:"mention_count"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	LastReadAt           pgtype.Timestamptz `json:"last_read_at"`
 	ChannelUpdatedAt     pgtype.Timestamptz `json:"channel_updated_at"`
-	PeerUserID           pgtype.UUID        `json:"peer_user_id"`
 }
 
 // Used for populating the user's sidebar with channel info & peer profiles for DMs
@@ -438,16 +373,16 @@ func (q *Queries) ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]
 		if err := rows.Scan(
 			&i.ChannelID,
 			&i.UserID,
-			&i.LastReadMessageID,
-			&i.MentionCount,
-			&i.JoinedAt,
+			&i.PeerUserID,
 			&i.ChannelType,
-			&i.ChannelOwnerID,
 			&i.ChannelName,
 			&i.ChannelIconUrl,
 			&i.ChannelLastMessageID,
+			&i.LastReadMessageID,
+			&i.MentionCount,
+			&i.CreatedAt,
+			&i.LastReadAt,
 			&i.ChannelUpdatedAt,
-			&i.PeerUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -460,34 +395,45 @@ func (q *Queries) ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]
 }
 
 const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
-INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id)
 SELECT
-    $1,
+    $1::uuid,
     u.user_id,
-    u.joined_at,
-    u.last_read_message_id,
-    u.mention_count
+    u.created_at,
+    u.updated_at,
+    u.last_read_at,
+    u.mention_count,
+    u.last_read_message_id
 FROM
     ROWS
 FROM (unnest($2::uuid[]),
     unnest($3::timestamptz[]),
-    unnest($4::uuid[]),
-    unnest($5::int[])) AS u(user_id,
-        joined_at,
-        last_read_message_id,
-        mention_count)
+    unnest($4::timestamptz[]),
+    unnest($5::timestamptz[]),
+    unnest($6::int[]),
+    unnest($7::uuid[])) AS u(user_id,
+        created_at,
+        updated_at,
+        last_read_at,
+        mention_count,
+        last_read_message_id)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
-        joined_at = EXCLUDED.joined_at
+        updated_at = EXCLUDED.updated_at,
+        last_read_at = EXCLUDED.last_read_at,
+        mention_count = EXCLUDED.mention_count,
+        last_read_message_id = COALESCE(EXCLUDED.last_read_message_id, channel_members.last_read_message_id)
 `
 
 type ChannelMemberAddBatchParams struct {
 	ChannelID          pgtype.UUID          `json:"channel_id"`
 	UserIds            []pgtype.UUID        `json:"user_ids"`
-	JoinedAts          []pgtype.Timestamptz `json:"joined_ats"`
-	LastReadMessageIds []pgtype.UUID        `json:"last_read_message_ids"`
+	CreatedAts         []pgtype.Timestamptz `json:"created_ats"`
+	UpdatedAts         []pgtype.Timestamptz `json:"updated_ats"`
+	LastReadAts        []pgtype.Timestamptz `json:"last_read_ats"`
 	MentionCounts      []int32              `json:"mention_counts"`
+	LastReadMessageIds []pgtype.UUID        `json:"last_read_message_ids"`
 }
 
 // ============================================================================
@@ -497,22 +443,23 @@ func (q *Queries) ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAd
 	_, err := q.db.Exec(ctx, channelMemberAddBatch,
 		arg.ChannelID,
 		arg.UserIds,
-		arg.JoinedAts,
-		arg.LastReadMessageIds,
+		arg.CreatedAts,
+		arg.UpdatedAts,
+		arg.LastReadAts,
 		arg.MentionCounts,
+		arg.LastReadMessageIds,
 	)
 	return err
 }
 
 const channelMemberGet = `-- name: ChannelMemberGet :one
 SELECT
-    channel_id, user_id, last_read_message_id, joined_at, last_read_at, mention_count
+    channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id
 FROM
     channel_members
 WHERE
-    channel_id = $1
-    AND user_id = $2
-LIMIT 1
+    channel_id = $1::uuid
+    AND user_id = $2::uuid
 `
 
 type ChannelMemberGetParams struct {
@@ -526,10 +473,11 @@ func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetPara
 	err := row.Scan(
 		&i.ChannelID,
 		&i.UserID,
-		&i.LastReadMessageID,
-		&i.JoinedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.LastReadAt,
 		&i.MentionCount,
+		&i.LastReadMessageID,
 	)
 	return i, err
 }
@@ -540,9 +488,9 @@ SELECT
 FROM
     messages m
     JOIN channel_members cm ON cm.channel_id = m.channel_id
-        AND cm.user_id = $1
+        AND cm.user_id = $1::uuid
 WHERE
-    m.channel_id = $2
+    m.channel_id = $2::uuid
     AND m.created_at > cm.last_read_at
 `
 
@@ -562,9 +510,10 @@ const channelMemberIncrementMentionCountBatch = `-- name: ChannelMemberIncrement
 UPDATE
     channel_members
 SET
-    mention_count = mention_count + 1
+    mention_count = mention_count + 1,
+    updated_at = CURRENT_TIMESTAMP
 WHERE
-    channel_id = $1
+    channel_id = $1::uuid
     AND user_id = ANY ($2::uuid[])
 `
 
@@ -582,33 +531,35 @@ const channelMemberListByChannel = `-- name: ChannelMemberListByChannel :many
 SELECT
     cm.channel_id,
     cm.user_id,
-    cm.joined_at,
-    cm.last_read_message_id,
+    cm.created_at,
+    cm.updated_at,
+    cm.last_read_at,
     cm.mention_count,
-    u.username,
-    up.display_name,
-    up.avatar_url,
-    u.preferred_presence
+    cm.last_read_message_id,
+    ua.username,
+    ua.display_name,
+    ua.avatar_url
 FROM
     channel_members cm
-    JOIN users u ON u.id = cm.user_id
-    LEFT JOIN user_profiles up ON up.user_id = cm.user_id
+    JOIN user_aggregates ua ON ua.id = cm.user_id
 WHERE
-    cm.channel_id = $1
+    cm.channel_id = $1::uuid
 ORDER BY
-    cm.joined_at ASC
+    cm.created_at ASC,
+    cm.user_id ASC
 `
 
 type ChannelMemberListByChannelRow struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
-	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 	MentionCount      int32              `json:"mention_count"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	Username          string             `json:"username"`
-	DisplayName       pgtype.Text        `json:"display_name"`
+	DisplayName       string             `json:"display_name"`
 	AvatarUrl         pgtype.Text        `json:"avatar_url"`
-	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
 }
 
 func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error) {
@@ -623,13 +574,14 @@ func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgty
 		if err := rows.Scan(
 			&i.ChannelID,
 			&i.UserID,
-			&i.JoinedAt,
-			&i.LastReadMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastReadAt,
 			&i.MentionCount,
+			&i.LastReadMessageID,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarUrl,
-			&i.PreferredPresence,
 		); err != nil {
 			return nil, err
 		}
@@ -643,8 +595,8 @@ func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgty
 
 const channelMemberRemove = `-- name: ChannelMemberRemove :exec
 DELETE FROM channel_members
-WHERE channel_id = $1
-    AND user_id = $2
+WHERE channel_id = $1::uuid
+    AND user_id = $2::uuid
 `
 
 type ChannelMemberRemoveParams struct {
@@ -657,34 +609,56 @@ func (q *Queries) ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemo
 	return err
 }
 
-const channelMemberUpdateReadState = `-- name: ChannelMemberUpdateReadState :exec
+const channelMemberResetMentionCount = `-- name: ChannelMemberResetMentionCount :exec
 UPDATE
     channel_members
 SET
-    last_read_message_id = CASE WHEN $4 > last_read_at THEN
-        COALESCE($3, last_read_message_id)
+    mention_count = 0,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = $1::uuid
+    AND user_id = $2::uuid
+`
+
+type ChannelMemberResetMentionCountParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error {
+	_, err := q.db.Exec(ctx, channelMemberResetMentionCount, arg.ChannelID, arg.UserID)
+	return err
+}
+
+const channelMemberUpdateLastRead = `-- name: ChannelMemberUpdateLastRead :exec
+UPDATE
+    channel_members
+SET
+    last_read_message_id = CASE WHEN $1::timestamptz > last_read_at THEN
+        COALESCE($2::uuid, last_read_message_id)
     ELSE
         last_read_message_id
     END,
-    last_read_at = GREATEST(last_read_at, $4)
+    last_read_at = GREATEST(last_read_at, $1::timestamptz),
+    updated_at = CURRENT_TIMESTAMP
 WHERE
-    channel_id = $1
-    AND user_id = $2
+    channel_id = $3::uuid
+    AND user_id = $4::uuid
 `
 
-type ChannelMemberUpdateReadStateParams struct {
+type ChannelMemberUpdateLastReadParams struct {
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
-	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 }
 
-func (q *Queries) ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error {
-	_, err := q.db.Exec(ctx, channelMemberUpdateReadState,
+func (q *Queries) ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error {
+	_, err := q.db.Exec(ctx, channelMemberUpdateLastRead,
+		arg.LastReadAt,
+		arg.LastReadMessageID,
 		arg.ChannelID,
 		arg.UserID,
-		arg.LastReadMessageID,
-		arg.LastReadAt,
 	)
 	return err
 }
@@ -693,57 +667,53 @@ const channelUpdate = `-- name: ChannelUpdate :one
 UPDATE
     channels
 SET
-    name = $1,
-    icon_url = $2,
-    owner_id = $3,
-    last_message_id = $4,
-    updated_at = $5
+    name = COALESCE($1::text, name),
+    icon_url = COALESCE($2::text, icon_url),
+    updated_at = $3::timestamptz
 WHERE
-    id = $6
+    id = $4::uuid
 RETURNING
-    id, owner_id, last_message_id, created_at, updated_at, type, name, icon_url
+    id, created_at, updated_at, type, last_message_id, name, icon_url
 `
 
 type ChannelUpdateParams struct {
-	Name          pgtype.Text        `json:"name"`
-	IconUrl       pgtype.Text        `json:"icon_url"`
-	OwnerID       pgtype.UUID        `json:"owner_id"`
-	LastMessageID pgtype.UUID        `json:"last_message_id"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	ID            pgtype.UUID        `json:"id"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
 }
 
 func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelUpdate,
 		arg.Name,
 		arg.IconUrl,
-		arg.OwnerID,
-		arg.LastMessageID,
 		arg.UpdatedAt,
 		arg.ID,
 	)
 	var i Channel
 	err := row.Scan(
 		&i.ID,
-		&i.OwnerID,
-		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Type,
+		&i.LastMessageID,
 		&i.Name,
 		&i.IconUrl,
 	)
 	return i, err
 }
 
-const channelUpdateLastMessage = `-- name: ChannelUpdateLastMessage :exec
+const channelUpdateLastMessage = `-- name: ChannelUpdateLastMessage :one
 UPDATE
     channels
 SET
-    last_message_id = $1,
-    updated_at = $2
+    last_message_id = $1::uuid,
+    updated_at = $2::timestamptz
 WHERE
-    id = $3
+    id = $3::uuid
+    AND updated_at <= $2::timestamptz
+RETURNING
+    id, created_at, updated_at, type, last_message_id, name, icon_url
 `
 
 type ChannelUpdateLastMessageParams struct {
@@ -752,47 +722,59 @@ type ChannelUpdateLastMessageParams struct {
 	ChannelID     pgtype.UUID        `json:"channel_id"`
 }
 
-func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) error {
-	_, err := q.db.Exec(ctx, channelUpdateLastMessage, arg.LastMessageID, arg.UpdatedAt, arg.ChannelID)
-	return err
+func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelUpdateLastMessage, arg.LastMessageID, arg.UpdatedAt, arg.ChannelID)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+		&i.LastMessageID,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
 }
 
 const messageCreate = `-- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::boolean, $8::text)
 RETURNING
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 `
 
 type MessageCreateParams struct {
 	ID               pgtype.UUID        `json:"id"`
 	ChannelID        pgtype.UUID        `json:"channel_id"`
-	AuthorID         pgtype.UUID        `json:"author_id"`
 	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
-	Content          pgtype.Text        `json:"content"`
-	IsPinned         bool               `json:"is_pinned"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+	IsPinned         bool               `json:"is_pinned"`
+	Content          pgtype.Text        `json:"content"`
 }
 
 // ============================================================================
-// MESSAGES
+// MESSAGES: TODO
 // ============================================================================
 func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error) {
 	row := q.db.QueryRow(ctx, messageCreate,
 		arg.ID,
 		arg.ChannelID,
-		arg.AuthorID,
 		arg.ReplyToMessageID,
-		arg.Content,
-		arg.IsPinned,
+		arg.AuthorID,
 		arg.CreatedAt,
+		arg.EditedAt,
+		arg.IsPinned,
+		arg.Content,
 	)
 	var i Message
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -803,7 +785,7 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 
 const messageDelete = `-- name: MessageDelete :exec
 DELETE FROM messages
-WHERE id = $1
+WHERE id = $1::uuid
 `
 
 func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
@@ -813,12 +795,11 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 
 const messageGet = `-- name: MessageGet :one
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
-    id = $1
-LIMIT 1
+    id = $1::uuid
 `
 
 func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, error) {
@@ -827,8 +808,8 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -839,13 +820,13 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 
 const messageGetFirstUnread = `-- name: MessageGetFirstUnread :one
 SELECT
-    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
 FROM
     messages m
     JOIN channel_members cm ON cm.channel_id = m.channel_id
-        AND cm.user_id = $1
+        AND cm.user_id = $1::uuid
 WHERE
-    m.channel_id = $2
+    m.channel_id = $2::uuid
     AND m.created_at > cm.last_read_at
 ORDER BY
     m.created_at ASC,
@@ -865,8 +846,8 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -877,13 +858,14 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 
 const messageGetLatest = `-- name: MessageGetLatest :one
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
-    channel_id = $1
+    channel_id = $1::uuid
 ORDER BY
-    created_at DESC
+    created_at DESC,
+    id DESC
 LIMIT 1
 `
 
@@ -893,8 +875,8 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -905,11 +887,11 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 
 const messageListByChannelAfter = `-- name: MessageListByChannelAfter :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
-    channel_id = $1
+    channel_id = $1::uuid
     AND ($2::timestamptz IS NULL
         OR (created_at,
             id) >($2::timestamptz,
@@ -917,7 +899,7 @@ WHERE
 ORDER BY
     created_at ASC,
     id ASC
-LIMIT $4
+LIMIT $4::int
 `
 
 type MessageListByChannelAfterParams struct {
@@ -945,8 +927,8 @@ func (q *Queries) MessageListByChannelAfter(ctx context.Context, arg MessageList
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
-			&i.AuthorID,
 			&i.ReplyToMessageID,
+			&i.AuthorID,
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
@@ -965,34 +947,34 @@ func (q *Queries) MessageListByChannelAfter(ctx context.Context, arg MessageList
 const messageListByChannelAround = `-- name: MessageListByChannelAround :many
 WITH around_window AS ((
         SELECT
-            m1.id, m1.channel_id, m1.author_id, m1.reply_to_message_id, m1.created_at, m1.edited_at, m1.is_pinned, m1.content
+            m1.id, m1.channel_id, m1.reply_to_message_id, m1.author_id, m1.created_at, m1.edited_at, m1.is_pinned, m1.content
         FROM
             messages m1
         WHERE
-            m1.channel_id = $1
+            m1.channel_id = $1::uuid
             AND (m1.created_at,
                 m1.id) <=($2::timestamptz,
                 $3::uuid)
         ORDER BY
             m1.created_at DESC,
             m1.id DESC
-        LIMIT $4)
+        LIMIT $4::int)
 UNION ALL (
     SELECT
-        m2.id, m2.channel_id, m2.author_id, m2.reply_to_message_id, m2.created_at, m2.edited_at, m2.is_pinned, m2.content
+        m2.id, m2.channel_id, m2.reply_to_message_id, m2.author_id, m2.created_at, m2.edited_at, m2.is_pinned, m2.content
     FROM
         messages m2
     WHERE
-        m2.channel_id = $1
+        m2.channel_id = $1::uuid
         AND (m2.created_at,
             m2.id) >($2::timestamptz,
             $3::uuid)
     ORDER BY
         m2.created_at ASC,
         m2.id ASC
-    LIMIT $5))
+    LIMIT $5::int))
 SELECT
-    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
 FROM
     around_window aw
     JOIN messages m ON m.id = aw.id
@@ -1027,8 +1009,8 @@ func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageLis
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
-			&i.AuthorID,
 			&i.ReplyToMessageID,
+			&i.AuthorID,
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
@@ -1046,11 +1028,11 @@ func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageLis
 
 const messageListByChannelBefore = `-- name: MessageListByChannelBefore :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
-    channel_id = $1
+    channel_id = $1::uuid
     AND ($2::timestamptz IS NULL
         OR (created_at,
             id) <($2::timestamptz,
@@ -1058,7 +1040,7 @@ WHERE
 ORDER BY
     created_at DESC,
     id DESC
-LIMIT $4
+LIMIT $4::int
 `
 
 type MessageListByChannelBeforeParams struct {
@@ -1069,7 +1051,6 @@ type MessageListByChannelBeforeParams struct {
 }
 
 // Fetches older messages using keyset pagination.
-// Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
 func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error) {
 	rows, err := q.db.Query(ctx, messageListByChannelBefore,
 		arg.ChannelID,
@@ -1087,8 +1068,8 @@ func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageLis
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
-			&i.AuthorID,
 			&i.ReplyToMessageID,
+			&i.AuthorID,
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
@@ -1106,14 +1087,15 @@ func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageLis
 
 const messageListPinnedByChannel = `-- name: MessageListPinnedByChannel :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
-    channel_id = $1
+    channel_id = $1::uuid
     AND is_pinned = TRUE
 ORDER BY
-    created_at DESC
+    created_at DESC,
+    id DESC
 `
 
 func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error) {
@@ -1128,8 +1110,8 @@ func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgty
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
-			&i.AuthorID,
 			&i.ReplyToMessageID,
+			&i.AuthorID,
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
@@ -1147,11 +1129,11 @@ func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgty
 
 const messageListReplies = `-- name: MessageListReplies :many
 SELECT
-    m.id, m.channel_id, m.author_id, m.reply_to_message_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
 FROM
     messages m
 WHERE
-    m.reply_to_message_id = $1
+    m.reply_to_message_id = $1::uuid
 ORDER BY
     m.created_at ASC,
     m.id ASC
@@ -1169,8 +1151,8 @@ func (q *Queries) MessageListReplies(ctx context.Context, replyToMessageID pgtyp
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
-			&i.AuthorID,
 			&i.ReplyToMessageID,
+			&i.AuthorID,
 			&i.CreatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
@@ -1190,11 +1172,11 @@ const messageSetPinned = `-- name: MessageSetPinned :one
 UPDATE
     messages
 SET
-    is_pinned = $1
+    is_pinned = $1::boolean
 WHERE
-    id = $2
+    id = $2::uuid
 RETURNING
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 `
 
 type MessageSetPinnedParams struct {
@@ -1208,8 +1190,8 @@ func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedPara
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -1222,12 +1204,12 @@ const messageUpdateContent = `-- name: MessageUpdateContent :one
 UPDATE
     messages
 SET
-    content = $1,
-    edited_at = $2
+    content = $1::text,
+    edited_at = $2::timestamptz
 WHERE
-    id = $3
+    id = $3::uuid
 RETURNING
-    id, channel_id, author_id, reply_to_message_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
 `
 
 type MessageUpdateContentParams struct {
@@ -1242,8 +1224,8 @@ func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateCon
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
-		&i.AuthorID,
 		&i.ReplyToMessageID,
+		&i.AuthorID,
 		&i.CreatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
@@ -1574,7 +1556,7 @@ type ReactionAddParams struct {
 }
 
 // ============================================================================
-// MESSAGE REACTIONS
+// MESSAGE REACTIONS: TODO
 // ============================================================================
 func (q *Queries) ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error) {
 	row := q.db.QueryRow(ctx, reactionAdd, arg.MessageID, arg.UserID, arg.Emoji)
@@ -1725,12 +1707,7 @@ func (q *Queries) RelationshipDeleteVerified(ctx context.Context, arg Relationsh
 
 const relationshipGet = `-- name: RelationshipGet :one
 SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    variant,
-    created_at,
-    updated_at
+    user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
 FROM
     relationships
 WHERE
@@ -1743,69 +1720,44 @@ type RelationshipGetParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
-type RelationshipGetRow struct {
-	User1ID   pgtype.UUID        `json:"user1_id"`
-	User2ID   pgtype.UUID        `json:"user2_id"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	Variant   int16              `json:"variant"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error) {
+// ============================================================================
+// RELATIONSHIPS
+// ============================================================================
+func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
-	var i RelationshipGetRow
+	var i Relationship
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
-		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variant,
+		&i.ChannelID,
 	)
 	return i, err
 }
 
-const relationshipGetForUpdate = `-- name: RelationshipGetForUpdate :one
+const relationshipGetByChannelID = `-- name: RelationshipGetByChannelID :one
 SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    variant,
-    created_at,
-    updated_at
+    user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
 FROM
     relationships
 WHERE
-    user1_id = LEAST($1::uuid, $2::uuid)
-    AND user2_id = GREATEST($1::uuid, $2::uuid)
-FOR UPDATE
+    channel_id = $1::uuid
 `
 
-type RelationshipGetForUpdateParams struct {
-	User1ID pgtype.UUID `json:"user1_id"`
-	User2ID pgtype.UUID `json:"user2_id"`
-}
-
-type RelationshipGetForUpdateRow struct {
-	User1ID   pgtype.UUID        `json:"user1_id"`
-	User2ID   pgtype.UUID        `json:"user2_id"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	Variant   int16              `json:"variant"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, relationshipGetForUpdate, arg.User1ID, arg.User2ID)
-	var i RelationshipGetForUpdateRow
+func (q *Queries) RelationshipGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipGetByChannelID, channelID)
+	var i Relationship
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
-		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variant,
+		&i.ChannelID,
 	)
 	return i, err
 }
@@ -1843,18 +1795,7 @@ func (q *Queries) RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, a
 
 const relationshipPerspectiveGet = `-- name: RelationshipPerspectiveGet :one
 SELECT
-    user_id,
-    peer_id,
-    variant,
-    actor_id,
-    is_initiator,
-    created_at,
-    updated_at,
-    username,
-    display_name,
-    avatar_url,
-    user_preferred_presence,
-    channel_id
+    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
 FROM
     relationship_perspectives
 WHERE
@@ -1881,7 +1822,40 @@ func (q *Queries) RelationshipPerspectiveGet(ctx context.Context, arg Relationsh
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.UserPreferredPresence,
+		&i.ChannelID,
+	)
+	return i, err
+}
+
+const relationshipPerspectiveGetByChannelID = `-- name: RelationshipPerspectiveGetByChannelID :one
+SELECT
+    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
+FROM
+    relationship_perspectives
+WHERE
+    user_id = $1::uuid
+    AND channel_id = $2::uuid
+`
+
+type RelationshipPerspectiveGetByChannelIDParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+func (q *Queries) RelationshipPerspectiveGetByChannelID(ctx context.Context, arg RelationshipPerspectiveGetByChannelIDParams) (RelationshipPerspective, error) {
+	row := q.db.QueryRow(ctx, relationshipPerspectiveGetByChannelID, arg.UserID, arg.ChannelID)
+	var i RelationshipPerspective
+	err := row.Scan(
+		&i.UserID,
+		&i.PeerID,
+		&i.Variant,
+		&i.ActorID,
+		&i.IsInitiator,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Username,
+		&i.DisplayName,
+		&i.AvatarUrl,
 		&i.ChannelID,
 	)
 	return i, err
@@ -1889,18 +1863,7 @@ func (q *Queries) RelationshipPerspectiveGet(ctx context.Context, arg Relationsh
 
 const relationshipPerspectivesList = `-- name: RelationshipPerspectivesList :many
 SELECT
-    user_id,
-    peer_id,
-    variant,
-    actor_id,
-    is_initiator,
-    created_at,
-    updated_at,
-    username,
-    display_name,
-    avatar_url,
-    user_preferred_presence,
-    channel_id
+    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
 FROM
     relationship_perspectives
 WHERE
@@ -1936,7 +1899,6 @@ func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg Relation
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarUrl,
-			&i.UserPreferredPresence,
 			&i.ChannelID,
 		); err != nil {
 			return nil, err
@@ -1950,20 +1912,16 @@ func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg Relation
 }
 
 const relationshipUpsert = `-- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at)
-    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4, $5, $6)
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at, channel_id)
+    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4, $5, $6, $7::uuid)
 ON CONFLICT (user1_id, user2_id)
     DO UPDATE SET
         variant = EXCLUDED.variant,
         actor_id = EXCLUDED.actor_id,
-        updated_at = EXCLUDED.updated_at
+        updated_at = EXCLUDED.updated_at,
+        channel_id = COALESCE(EXCLUDED.channel_id, relationships.channel_id)
     RETURNING
-        user1_id,
-        user2_id,
-        actor_id,
-        variant,
-        created_at,
-        updated_at
+        user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
 `
 
 type RelationshipUpsertParams struct {
@@ -1973,18 +1931,10 @@ type RelationshipUpsertParams struct {
 	Variant   int16              `json:"variant"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
 }
 
-type RelationshipUpsertRow struct {
-	User1ID   pgtype.UUID        `json:"user1_id"`
-	User2ID   pgtype.UUID        `json:"user2_id"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	Variant   int16              `json:"variant"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error) {
+func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipUpsert,
 		arg.User1ID,
 		arg.User2ID,
@@ -1992,15 +1942,17 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 		arg.Variant,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.ChannelID,
 	)
-	var i RelationshipUpsertRow
+	var i Relationship
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
-		&i.Variant,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variant,
+		&i.ChannelID,
 	)
 	return i, err
 }

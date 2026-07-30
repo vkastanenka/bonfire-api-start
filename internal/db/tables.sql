@@ -109,19 +109,14 @@ CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 -- Enums for Channel Types: 0: DM, 1: GROUP_DM
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    owner_id uuid REFERENCES users(id) ON DELETE SET NULL,
-    last_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     type smallint NOT NULL,
+    last_message_id uuid DEFAULT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
-    CONSTRAINT channel_rules CHECK ((type = 0 AND owner_id IS NULL AND name IS NULL AND icon_url IS NULL) OR (type = 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR length(icon_url) BETWEEN 3 AND 2048)))
+    CONSTRAINT channel_rules CHECK ((type = 0 AND name IS NULL AND icon_url IS NULL) OR (type = 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR length(icon_url) BETWEEN 3 AND 2048)))
 );
-
-CREATE INDEX idx_channels_owner_id ON channels(owner_id)
-WHERE
-    owner_id IS NOT NULL;
 
 CREATE INDEX idx_channels_last_message_id ON channels(last_message_id DESC)
 WHERE
@@ -130,8 +125,8 @@ WHERE
 CREATE TABLE messages(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    author_id uuid REFERENCES users(id) ON DELETE SET NULL,
     reply_to_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+    author_id uuid REFERENCES users(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at timestamptz DEFAULT NULL,
     is_pinned boolean NOT NULL DEFAULT FALSE,
@@ -155,10 +150,11 @@ ALTER TABLE channels
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
-    joined_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     mention_count integer NOT NULL DEFAULT 0,
+    last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     PRIMARY KEY (channel_id, user_id),
     CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
 );
@@ -198,14 +194,6 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 
-CREATE TABLE dm_channels(
-    user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE UNIQUE,
-    PRIMARY KEY (user1_id, user2_id),
-    CONSTRAINT dm_user_order CHECK (user1_id < user2_id)
-);
-
 CREATE TABLE relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -213,10 +201,12 @@ CREATE TABLE relationships(
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     variant smallint NOT NULL,
+    channel_id uuid UNIQUE REFERENCES channels(id) ON DELETE CASCADE,
     PRIMARY KEY (user1_id, user2_id),
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
-    CONSTRAINT relationship_values CHECK (variant IN (1, 2, 3))
+    CONSTRAINT relationship_values CHECK (variant IN (1, 2, 3)),
+    CONSTRAINT channel_required_for_friends CHECK (variant != 2 OR channel_id IS NOT NULL)
 );
 
 CREATE INDEX idx_relationships_u1_perf ON relationships(user1_id, variant, actor_id) INCLUDE (created_at, updated_at);
@@ -238,14 +228,11 @@ SELECT
     u.username,
     up.display_name,
     up.avatar_url,
-    u.preferred_presence AS user_preferred_presence,
-    dm.channel_id
+    r.channel_id
 FROM
     relationships r
     JOIN users u ON u.id = r.user2_id
     LEFT JOIN user_profiles up ON up.user_id = r.user2_id
-    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
-        AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3
     OR r.actor_id = r.user1_id
@@ -263,14 +250,11 @@ SELECT
     u.username,
     up.display_name,
     up.avatar_url,
-    u.preferred_presence AS user_preferred_presence,
-    dm.channel_id
+    r.channel_id
 FROM
     relationships r
     JOIN users u ON u.id = r.user1_id
     LEFT JOIN user_profiles up ON up.user_id = r.user1_id
-    LEFT JOIN dm_channels dm ON dm.user1_id = r.user1_id
-        AND dm.user2_id = r.user2_id
 WHERE
     r.variant != 3
     OR r.actor_id = r.user2_id;

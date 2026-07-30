@@ -1,11 +1,9 @@
 package channel
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"time"
 
@@ -158,9 +156,8 @@ func NewService(repo Repository, outbox OutboxRepository, relationship Relations
 // CHANNELS
 // ============================================================================
 
-// Create creates a new DM or Group channel and adds participants atomically.
-// If a 2-person channel (DM) already exists between the users, it returns the existing channel.
-func (s *Service) Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberIDs []uuid.UUID) (*Channel, error) {
+// CreateGroup creates a new Group DM with multiple participants.
+func (s *Service) CreateGroup(ctx context.Context, rawCreatorID uuid.UUID, rawMemberIDs []uuid.UUID) (*Channel, error) {
 	creatorID, err := NewID(rawCreatorID)
 	if err != nil {
 		return nil, errs.InvalidArgument("invalid creator ID").Wrap(err)
@@ -171,22 +168,22 @@ func (s *Service) Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberI
 		return nil, errs.InvalidArgument("invalid member ID in list").Wrap(err)
 	}
 
-	// 1. Deduplicate creator + members into a set
+	// 1. Deduplicate creator + members
 	totalMembers := make(map[ID]struct{}, len(memberIDs)+1)
 	totalMembers[creatorID] = struct{}{}
 	for _, id := range memberIDs {
 		totalMembers[id] = struct{}{}
 	}
 
-	// 2. Business Rule Guard: Member Limits
+	// 2. Member Limits Guard
 	if len(totalMembers) < MinMembers {
-		return nil, errs.InvalidArgument(fmt.Sprintf("channels must have at least %d members", MinMembers))
+		return nil, errs.InvalidArgument(fmt.Sprintf("group DMs require at least %d members", MinMembers))
 	}
 	if len(totalMembers) > MaxMembers {
-		return nil, errs.InvalidArgument(fmt.Sprintf("channels cannot exceed %d members", MaxMembers))
+		return nil, errs.InvalidArgument(fmt.Sprintf("group DMs cannot exceed %d members", MaxMembers))
 	}
 
-	// 3. Extract Peers
+	// 3. Extract Peers for Block Checking
 	peerUUIDs := make([]uuid.UUID, 0, len(totalMembers)-1)
 	for id := range totalMembers {
 		if !id.Equals(creatorID) {
@@ -194,81 +191,37 @@ func (s *Service) Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberI
 		}
 	}
 
-	// 4. Privacy Guard: Check Block Relationships (Creator vs. All Peers)
-	if len(peerUUIDs) > 0 {
-		hasBlock, err := s.relationship.HasBlockBetweenUserAndPeers(ctx, creatorID.UUID(), peerUUIDs)
-		if err != nil {
-			return nil, err
-		}
-		if hasBlock {
-			return nil, errs.InvalidArgument("cannot create channel with one or more specified users")
-		}
+	// 4. Privacy Guard: Ensure creator hasn't blocked/been blocked by any invited peer
+	hasBlock, err := s.relationship.HasBlockBetweenUserAndPeers(ctx, creatorID.UUID(), peerUUIDs)
+	if err != nil {
+		return nil, err
+	}
+	if hasBlock {
+		return nil, errs.InvalidArgument("cannot create group DM containing blocked users")
 	}
 
-	// Build & sort all member UUIDs deterministically for deadlocking safety
-	dedupedUUIDs := make([]uuid.UUID, 0, len(totalMembers))
-	dedupedUUIDs = append(dedupedUUIDs, creatorID.UUID())
-	dedupedUUIDs = append(dedupedUUIDs, peerUUIDs...)
-
-	slices.SortFunc(dedupedUUIDs, func(a, b uuid.UUID) int {
-		return bytes.Compare(a[:], b[:])
-	})
-
-	// 5. Fast Path for Direct Messages (2-member channels)
-	isDM := len(totalMembers) == 2
-	if isDM {
-		existing, err := s.repo.FindDM(ctx, dedupedUUIDs[0], dedupedUUIDs[1])
-		if err == nil {
-			return existing, nil
-		}
-		if !errs.IsNotFound(err) {
-			return nil, err
-		}
-	}
-
-	// 6. Instantiate Domain Entities Outside the Transaction
-	channelType := TypeGroup
-	var creatorRef *ID = &creatorID
-	if isDM {
-		channelType = TypeDirect
-		creatorRef = nil // DMs have no owner/creator reference
-	}
-
-	ch, err := New(channelType, creatorRef, nil, nil)
+	// 5. Instantiate Entities
+	creatorRef := &creatorID
+	ch, err := New(TypeGroup, creatorRef, name, nil)
 	if err != nil {
 		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
 	}
 
-	var dm *DM
-	if isDM {
-		dm, err = NewDM(dedupedUUIDs[0], dedupedUUIDs[1], ch.ID())
-		if err != nil {
-			return nil, errs.InvalidArgument("invalid dm properties").Wrap(err)
-		}
-	}
-
-	memberBatch := make([]*Member, 0, len(dedupedUUIDs))
-	for _, u := range dedupedUUIDs {
-		m, err := NewMember(ch.ID(), u)
+	memberBatch := make([]*Member, 0, len(totalMembers))
+	for id := range totalMembers {
+		m, err := NewMember(ch.ID(), id.UUID())
 		if err != nil {
 			return nil, errs.InvalidArgument("invalid member properties").Wrap(err)
 		}
 		memberBatch = append(memberBatch, m)
 	}
 
-	// 7. Atomic Persistence Block
+	// 6. Atomic Persistence
 	var newChannel *Channel
-
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		row, err := s.repo.Create(txCtx, ch)
 		if err != nil {
 			return err
-		}
-
-		if isDM {
-			if _, err := s.repo.CreateDM(txCtx, dm); err != nil {
-				return err
-			}
 		}
 
 		if err := s.repo.MemberAddBatch(txCtx, memberBatch); err != nil {
@@ -280,14 +233,6 @@ func (s *Service) Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberI
 	})
 
 	if err != nil {
-		// Fallback for Concurrent Creation Race Condition on DMs
-		if isDM && db.IsAlreadyExistsError(err) {
-			winningCh, findErr := s.repo.FindDM(ctx, dedupedUUIDs[0], dedupedUUIDs[1])
-			if findErr != nil {
-				return nil, findErr
-			}
-			return winningCh, nil
-		}
 		return nil, err
 	}
 

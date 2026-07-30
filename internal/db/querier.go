@@ -12,7 +12,7 @@ import (
 
 type Querier interface {
 	// ============================================================================
-	// MESSAGE ATTACHMENTS
+	// MESSAGE ATTACHMENTS: TODO
 	// ============================================================================
 	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
 	AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error
@@ -23,11 +23,9 @@ type Querier interface {
 	// CHANNELS
 	// ============================================================================
 	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
-	ChannelCreateDM(ctx context.Context, arg ChannelCreateDMParams) (DMChannel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
-	ChannelFindDM(ctx context.Context, arg ChannelFindDMParams) (Channel, error)
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
-	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (ChannelGetForMemberRow, error)
+	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (Channel, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
 	// Used for populating the user's sidebar with channel info & peer profiles for DMs
@@ -41,11 +39,12 @@ type Querier interface {
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
 	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
-	ChannelMemberUpdateReadState(ctx context.Context, arg ChannelMemberUpdateReadStateParams) error
+	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
+	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
 	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
-	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) error
+	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
 	// ============================================================================
-	// MESSAGES
+	// MESSAGES: TODO
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
@@ -57,7 +56,6 @@ type Querier interface {
 	MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error)
 	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]Message, error)
 	// Fetches older messages using keyset pagination.
-	// Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
 	MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error)
 	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
 	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]Message, error)
@@ -72,7 +70,7 @@ type Querier interface {
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
 	// ============================================================================
-	// MESSAGE REACTIONS
+	// MESSAGE REACTIONS: TODO
 	// ============================================================================
 	ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error)
 	ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageReaction, error)
@@ -80,12 +78,16 @@ type Querier interface {
 	ReactionSummarizeByMessage(ctx context.Context, arg ReactionSummarizeByMessageParams) ([]ReactionSummarizeByMessageRow, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
-	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (RelationshipGetRow, error)
-	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (RelationshipGetForUpdateRow, error)
+	// ============================================================================
+	// RELATIONSHIPS
+	// ============================================================================
+	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
+	RelationshipGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relationship, error)
 	RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error)
 	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
+	RelationshipPerspectiveGetByChannelID(ctx context.Context, arg RelationshipPerspectiveGetByChannelIDParams) (RelationshipPerspective, error)
 	RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error)
-	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (RelationshipUpsertRow, error)
+	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error
 	SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error

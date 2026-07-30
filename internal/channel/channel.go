@@ -8,20 +8,15 @@ import (
 )
 
 var (
-	ErrInvalidOwnerForType             = errors.New("direct channels cannot have an owner")
-	ErrOwnerRequired                   = errors.New("group channels require an owner")
 	ErrDirectChannelCannotHaveMetadata = errors.New("direct channels cannot have a name or icon")
-	ErrNotGroupOwner                   = errors.New("only the group owner can perform this action")
-	ErrInvalidOwnerID                  = errors.New("invalid owner id")
 )
 
 type Channel struct {
-	id            uuid.UUID
-	channelType   Type
-	ownerID       *uuid.UUID
+	id            ID
+	chType        Type
 	name          *Name
 	iconURL       *IconURL
-	lastMessageID *uuid.UUID
+	lastMessageID *MessageID
 	createdAt     time.Time
 	updatedAt     time.Time
 }
@@ -30,102 +25,96 @@ type Channel struct {
 // Getters
 // -----------------------------------------------------------------------------
 
-func (c *Channel) ID() uuid.UUID             { return c.id }
-func (c *Channel) Type() Type                { return c.channelType }
-func (c *Channel) OwnerID() *uuid.UUID       { return c.ownerID }
+func (c *Channel) ID() ID                    { return c.id }
+func (c *Channel) Type() Type                { return c.chType }
 func (c *Channel) Name() *Name               { return c.name }
 func (c *Channel) IconURL() *IconURL         { return c.iconURL }
-func (c *Channel) LastMessageID() *uuid.UUID { return c.lastMessageID }
+func (c *Channel) LastMessageID() *MessageID { return c.lastMessageID }
 func (c *Channel) CreatedAt() time.Time      { return c.createdAt }
 func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
-
-// IsOwner returns true if the actor is the designated owner of the channel.
-func (c *Channel) IsOwner(actorID uuid.UUID) bool {
-	if c.ownerID == nil || actorID == uuid.Nil {
-		return false
-	}
-	return *c.ownerID == actorID
-}
 
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods
 // -----------------------------------------------------------------------------
 
 // New creates a fresh Channel domain entity.
-func New(chType Type, ownerID *ID, name *Name, iconURL *IconURL) (*Channel, error) {
+func New(chType Type, name *Name, iconURL *IconURL) (*Channel, error) {
 	if !chType.IsValid() {
 		return nil, ErrInvalidType
 	}
 
 	switch chType {
 	case TypeDirect:
-		if ownerID != nil {
-			return nil, ErrInvalidOwnerForType
-		}
 		if name != nil || iconURL != nil {
 			return nil, ErrDirectChannelCannotHaveMetadata
-		}
-
-	case TypeGroup:
-		if ownerID == nil || !ownerID.IsValid() {
-			return nil, ErrOwnerRequired
 		}
 	}
 
 	now := time.Now().UTC()
 
-	var ownerUUID *uuid.UUID
-	if ownerID != nil {
-		u := ownerID.UUID()
-		ownerUUID = &u
+	rawID := uuid.Must(uuid.NewV7())
+	id, err := NewID(rawID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Channel{
-		id:          uuid.Must(uuid.NewV7()),
-		channelType: chType,
-		ownerID:     ownerUUID,
-		name:        name,
-		iconURL:     iconURL,
-		createdAt:   now,
-		updatedAt:   now,
+		id:        id,
+		chType:    chType,
+		name:      name,
+		iconURL:   iconURL,
+		createdAt: now,
+		updatedAt: now,
 	}, nil
 }
 
 // Reconstitute restores an existing Channel aggregate from persistence.
 func Reconstitute(
-	id uuid.UUID,
-	chType Type,
-	ownerID *uuid.UUID,
-	name *string,
-	iconURL *string,
-	lastMessageID *uuid.UUID,
+	rawID uuid.UUID,
+	rawType int16,
+	rawName *string,
+	rawIconURL *string,
+	rawLastMessageID *uuid.UUID,
 	createdAt, updatedAt time.Time,
 ) (*Channel, error) {
-	var nameVO *Name
-	if name != nil {
-		vo, err := NewName(name)
-		if err != nil {
-			return nil, err
-		}
-		nameVO = vo
+	id, err := NewID(rawID)
+	if err != nil {
+		return nil, err
 	}
 
-	var iconVO *IconURL
-	if iconURL != nil {
-		vo, err := NewIconURL(iconURL)
-		if err != nil {
-			return nil, err
+	chType, err := ParseType(rawType)
+	if err != nil {
+		return nil, err
+	}
+
+	name, err := NewName(rawName)
+	if err != nil {
+		return nil, err
+	}
+
+	iconURL, err := NewIconURL(rawIconURL)
+	if err != nil {
+		return nil, err
+	}
+
+	switch chType {
+	case TypeDirect:
+		if name != nil || iconURL != nil {
+			return nil, ErrDirectChannelCannotHaveMetadata
 		}
-		iconVO = vo
+	}
+
+	msgID, err := NewMessageIDPtr(rawLastMessageID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Channel{
 		id:            id,
-		channelType:   chType,
-		ownerID:       ownerID,
-		name:          nameVO,
-		iconURL:       iconVO,
-		lastMessageID: lastMessageID,
+		chType:        chType,
+		name:          name,
+		iconURL:       iconURL,
+		lastMessageID: msgID,
 		createdAt:     createdAt,
 		updatedAt:     updatedAt,
 	}, nil
@@ -135,13 +124,12 @@ func Reconstitute(
 // Domain Mutations
 // -----------------------------------------------------------------------------
 
-// UpdateName updates the channel's display name.
-func (c *Channel) UpdateName(newName *Name) error {
-	if c.channelType == TypeDirect {
+// SetName updates the channel's display name.
+func (c *Channel) SetName(newName *Name) error {
+	if c.chType == TypeDirect {
 		return ErrDirectChannelCannotHaveMetadata
 	}
 
-	// Skip mutation if value object has not changed
 	if c.name.Equals(newName) {
 		return nil
 	}
@@ -151,13 +139,12 @@ func (c *Channel) UpdateName(newName *Name) error {
 	return nil
 }
 
-// UpdateIcon updates the channel's icon URL.
-func (c *Channel) UpdateIcon(newIcon *IconURL) error {
-	if c.channelType == TypeDirect {
+// SetIcon updates the channel's icon URL.
+func (c *Channel) SetIcon(newIcon *IconURL) error {
+	if c.chType == TypeDirect {
 		return ErrDirectChannelCannotHaveMetadata
 	}
 
-	// Skip mutation if value object has not changed
 	if c.iconURL.Equals(newIcon) {
 		return nil
 	}
@@ -167,34 +154,20 @@ func (c *Channel) UpdateIcon(newIcon *IconURL) error {
 	return nil
 }
 
-// TransferOwnership reassigns the group channel owner.
-func (c *Channel) TransferOwnership(newOwnerID uuid.UUID) error {
-	if c.channelType == TypeDirect {
-		return ErrInvalidOwnerForType
+// SetLastMessage records the latest message posted to the channel.
+func (c *Channel) SetLastMessage(messageID MessageID) error {
+	if !messageID.IsValid() {
+		return ErrIDNil
 	}
-	if newOwnerID == uuid.Nil {
-		return ErrInvalidOwnerID
-	}
-	if c.IsOwner(newOwnerID) {
+
+	if c.lastMessageID != nil && c.lastMessageID.Equals(messageID) {
 		return nil
 	}
 
-	c.ownerID = &newOwnerID
+	msgID := messageID
+	c.lastMessageID = &msgID
 	c.touch()
 	return nil
-}
-
-// SetLastMessage records the latest message posted to the channel.
-func (c *Channel) SetLastMessage(messageID uuid.UUID) {
-	if messageID == uuid.Nil {
-		return
-	}
-	if c.lastMessageID != nil && *c.lastMessageID == messageID {
-		return
-	}
-
-	c.lastMessageID = &messageID
-	c.touch()
 }
 
 func (c *Channel) touch() {

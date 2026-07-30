@@ -14,71 +14,94 @@ import (
 var (
 	ErrMemberChannelIDRequired = errors.New("channel id is required")
 	ErrMemberUserIDRequired    = errors.New("user id is required")
+	ErrMentionCountNegative    = errors.New("mention count cannot be negative")
 )
 
 // Member represents a user's membership and read state within a channel.
 type Member struct {
-	channelID         uuid.UUID
-	userID            uuid.UUID
-	joinedAt          time.Time
-	lastReadMessageID *uuid.UUID
+	channelID         ID
+	userID            UserID
+	lastReadMessageID *MessageID
 	mentionCount      int32
+	lastReadAt        time.Time
+	createdAt         time.Time
+	updatedAt         time.Time
 }
 
 // -----------------------------------------------------------------------------
 // Getters
 // -----------------------------------------------------------------------------
 
-func (m *Member) ChannelID() uuid.UUID          { return m.channelID }
-func (m *Member) UserID() uuid.UUID             { return m.userID }
-func (m *Member) JoinedAt() time.Time           { return m.joinedAt }
-func (m *Member) LastReadMessageID() *uuid.UUID { return m.lastReadMessageID }
+func (m *Member) ChannelID() ID                 { return m.channelID }
+func (m *Member) UserID() UserID                { return m.userID }
+func (m *Member) LastReadMessageID() *MessageID { return m.lastReadMessageID }
 func (m *Member) MentionCount() int32           { return m.mentionCount }
+func (m *Member) LastReadAt() time.Time         { return m.lastReadAt }
+func (m *Member) CreatedAt() time.Time          { return m.createdAt }
+func (m *Member) UpdatedAt() time.Time          { return m.updatedAt }
 
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods
 // -----------------------------------------------------------------------------
 
 // NewMember creates a fresh Member domain entity.
-func NewMember(channelID, userID uuid.UUID) (*Member, error) {
-	if channelID == uuid.Nil {
+func NewMember(rawChannelID, rawUserID uuid.UUID) (*Member, error) {
+	chID, err := NewID(rawChannelID)
+	if err != nil {
 		return nil, ErrMemberChannelIDRequired
 	}
-	if userID == uuid.Nil {
+
+	uID, err := NewUserID(rawUserID)
+	if err != nil {
 		return nil, ErrMemberUserIDRequired
 	}
 
+	now := time.Now().UTC()
+
 	return &Member{
-		channelID:    channelID,
-		userID:       userID,
-		joinedAt:     time.Now().UTC(),
+		channelID:    chID,
+		userID:       uID,
 		mentionCount: 0,
+		lastReadAt:   now,
+		createdAt:    now,
+		updatedAt:    now,
 	}, nil
 }
 
 // ReconstituteMember restores an existing Member entity from persistence.
 func ReconstituteMember(
-	channelID, userID uuid.UUID,
-	joinedAt time.Time,
-	lastReadMessageID *uuid.UUID,
+	rawChannelID, rawUserID uuid.UUID,
+	rawLastReadMessageID *uuid.UUID,
 	mentionCount int32,
+	lastReadAt, createdAt, updatedAt time.Time,
 ) (*Member, error) {
-	if channelID == uuid.Nil {
+	chID, err := NewID(rawChannelID)
+	if err != nil {
 		return nil, ErrMemberChannelIDRequired
 	}
-	if userID == uuid.Nil {
+
+	uID, err := NewUserID(rawUserID)
+	if err != nil {
 		return nil, ErrMemberUserIDRequired
 	}
+
+	msgID, err := NewMessageIDPtr(rawLastReadMessageID)
+	if err != nil {
+		return nil, err
+	}
+
 	if mentionCount < 0 {
-		mentionCount = 0
+		return nil, ErrMentionCountNegative
 	}
 
 	return &Member{
-		channelID:         channelID,
-		userID:            userID,
-		joinedAt:          joinedAt,
-		lastReadMessageID: lastReadMessageID,
+		channelID:         chID,
+		userID:            uID,
+		lastReadMessageID: msgID,
 		mentionCount:      mentionCount,
+		lastReadAt:        lastReadAt.UTC(),
+		createdAt:         createdAt.UTC(),
+		updatedAt:         updatedAt.UTC(),
 	}, nil
 }
 
@@ -86,25 +109,46 @@ func ReconstituteMember(
 // Domain Mutations
 // -----------------------------------------------------------------------------
 
-// MarkRead updates the last read message pointer and clears unread mentions.
-func (m *Member) MarkRead(messageID uuid.UUID) {
-	if messageID == uuid.Nil {
-		return
-	}
-	if m.lastReadMessageID != nil && *m.lastReadMessageID == messageID && m.mentionCount == 0 {
-		return
+// SetLastRead updates the last read message pointer, updates lastReadAt, and clears mentions.
+func (m *Member) SetLastRead(messageID MessageID) error {
+	if !messageID.IsValid() {
+		return ErrIDNil
 	}
 
-	m.lastReadMessageID = &messageID
-	m.mentionCount = 0
+	// No-op check: already at this message and mentions cleared
+	if m.lastReadMessageID != nil && m.lastReadMessageID.Equals(messageID) {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	msgID := messageID
+
+	m.lastReadMessageID = &msgID
+	m.lastReadAt = now
+	m.touchWith(now)
+
+	return nil
 }
 
 // IncrementMention increments the unread mention counter.
 func (m *Member) IncrementMention() {
 	m.mentionCount++
+	m.touch()
 }
 
-// ResetMentions resets the unread mention counter without advancing read state.
+// ResetMentions resets the unread mention counter without advancing the read message pointer.
 func (m *Member) ResetMentions() {
+	if m.mentionCount == 0 {
+		return
+	}
 	m.mentionCount = 0
+	m.touch()
+}
+
+func (m *Member) touch() {
+	m.updatedAt = time.Now().UTC()
+}
+
+func (m *Member) touchWith(t time.Time) {
+	m.updatedAt = t
 }

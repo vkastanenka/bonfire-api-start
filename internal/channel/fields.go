@@ -12,34 +12,42 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// ID (Required Domain Identifier Value Object)
+// Strongly Typed Domain Identifier Value Objects
 // -----------------------------------------------------------------------------
 
 var (
-	ErrIDNil     = errors.New("id cannot be nil")
+	ErrIDNil     = errors.New("id cannot be nil or zero-value")
 	ErrIDInvalid = errors.New("invalid uuid format")
 )
 
-type ID struct {
-	value uuid.UUID
-}
+// ID represents the primary Channel identifier (channel.ID).
+type ID uuid.UUID
 
-// NewID constructs a validated ID value object from a uuid.UUID.
-// Rejects uuid.Nil to enforce valid entity identification.
 func NewID(raw uuid.UUID) (ID, error) {
 	if raw == uuid.Nil {
 		return ID{}, ErrIDNil
 	}
-	return ID{value: raw}, nil
+	return ID(raw), nil
 }
 
-// NewIDs validates a slice of raw UUIDs, ensuring none are uuid.Nil.
-// Returns an error on the first invalid/nil UUID encountered.
+func ParseID(raw string) (ID, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ID{}, ErrIDInvalid
+	}
+	return NewID(parsed)
+}
+
+func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
+func (id ID) String() string       { return uuid.UUID(id).String() }
+func (id ID) IsValid() bool        { return uuid.UUID(id) != uuid.Nil }
+func (id ID) Equals(other ID) bool { return id == other }
+
+// NewIDs validates a slice of raw UUIDs for batch operations.
 func NewIDs(raws []uuid.UUID) ([]ID, error) {
 	if len(raws) == 0 {
 		return nil, nil
 	}
-
 	ids := make([]ID, 0, len(raws))
 	for _, raw := range raws {
 		id, err := NewID(raw)
@@ -51,22 +59,68 @@ func NewIDs(raws []uuid.UUID) ([]ID, error) {
 	return ids, nil
 }
 
-// ParseID parses a string representation of a UUID into a validated ID value object.
-func ParseID(raw string) (ID, error) {
+// -----------------------------------------------------------------------------
+// UserID (External Domain Reference)
+// -----------------------------------------------------------------------------
+
+type UserID uuid.UUID
+
+func NewUserID(raw uuid.UUID) (UserID, error) {
+	if raw == uuid.Nil {
+		return UserID{}, ErrIDNil
+	}
+	return UserID(raw), nil
+}
+
+func ParseUserID(raw string) (UserID, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return ID{}, ErrIDInvalid
+		return UserID{}, ErrIDInvalid
 	}
-	return NewID(parsed)
+	return NewUserID(parsed)
 }
 
-func (id ID) UUID() uuid.UUID { return id.value }
-func (id ID) String() string  { return id.value.String() }
-func (id ID) IsValid() bool   { return id.value != uuid.Nil }
+func (id UserID) UUID() uuid.UUID          { return uuid.UUID(id) }
+func (id UserID) String() string           { return uuid.UUID(id).String() }
+func (id UserID) IsValid() bool            { return uuid.UUID(id) != uuid.Nil }
+func (id UserID) Equals(other UserID) bool { return id == other }
 
-func (id ID) Equals(other ID) bool {
-	return id.value == other.value
+// -----------------------------------------------------------------------------
+// MessageID (External Domain Reference)
+// -----------------------------------------------------------------------------
+
+type MessageID uuid.UUID
+
+func NewMessageID(raw uuid.UUID) (MessageID, error) {
+	if raw == uuid.Nil {
+		return MessageID{}, ErrIDNil
+	}
+	return MessageID(raw), nil
 }
+
+func NewMessageIDPtr(raw *uuid.UUID) (*MessageID, error) {
+	if raw == nil || *raw == uuid.Nil {
+		return nil, nil
+	}
+	id, err := NewMessageID(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
+func ParseMessageID(raw string) (MessageID, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return MessageID{}, ErrIDInvalid
+	}
+	return NewMessageID(parsed)
+}
+
+func (id MessageID) UUID() uuid.UUID             { return uuid.UUID(id) }
+func (id MessageID) String() string              { return uuid.UUID(id).String() }
+func (id MessageID) IsValid() bool               { return uuid.UUID(id) != uuid.Nil }
+func (id MessageID) Equals(other MessageID) bool { return id == other }
 
 // -----------------------------------------------------------------------------
 // Name (Optional / Pointer Value Object)
@@ -91,7 +145,7 @@ func NewName(raw *string) (*Name, error) {
 
 	cleaned := sanitize.Text(*raw)
 	if cleaned == "" {
-		return nil, nil
+		return nil, ErrNameEmpty
 	}
 
 	if utf8.RuneCountInString(cleaned) > 100 {

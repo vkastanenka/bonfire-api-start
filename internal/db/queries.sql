@@ -210,138 +210,18 @@ WHERE id = $1;
 DELETE FROM outbox_events
 WHERE processed_at <(CURRENT_TIMESTAMP - make_interval(days => sqlc.arg(retention_days)::int));
 
--- name: RelationshipGet :one
-SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    variant,
-    created_at,
-    updated_at
-FROM
-    relationships
-WHERE
-    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
-    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
-
--- name: RelationshipGetForUpdate :one
-SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    variant,
-    created_at,
-    updated_at
-FROM
-    relationships
-WHERE
-    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
-    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
-FOR UPDATE;
-
--- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at)
-    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @actor_id, @variant, @created_at, @updated_at)
-ON CONFLICT (user1_id, user2_id)
-    DO UPDATE SET
-        variant = EXCLUDED.variant,
-        actor_id = EXCLUDED.actor_id,
-        updated_at = EXCLUDED.updated_at
-    RETURNING
-        user1_id,
-        user2_id,
-        actor_id,
-        variant,
-        created_at,
-        updated_at;
-
--- name: RelationshipDelete :exec
-DELETE FROM relationships
-WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
-    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
-
--- name: RelationshipDeleteVerified :exec
-DELETE FROM relationships
-WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
-    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
-    AND (variant != 3 -- 3 = Blocked
-        OR actor_id = @actor_id::uuid);
-
--- name: RelationshipPerspectiveGet :one
-SELECT
-    user_id,
-    peer_id,
-    variant,
-    actor_id,
-    is_initiator,
-    created_at,
-    updated_at,
-    username,
-    display_name,
-    avatar_url,
-    user_preferred_presence,
-    channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = @user_id::uuid
-    AND peer_id = @peer_id::uuid;
-
--- name: RelationshipPerspectivesList :many
-SELECT
-    user_id,
-    peer_id,
-    variant,
-    actor_id,
-    is_initiator,
-    created_at,
-    updated_at,
-    username,
-    display_name,
-    avatar_url,
-    user_preferred_presence,
-    channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = @user_id::uuid
-    AND (sqlc.narg('filter_variant')::smallint IS NULL
-        OR variant = sqlc.narg('filter_variant'))
-ORDER BY
-    updated_at DESC;
-
--- name: RelationshipHasBlockBetweenUserAndPeers :one
-SELECT
-    EXISTS (
-        SELECT
-            1
-        FROM
-            relationships r
-        WHERE
-            r.variant = 3 -- Blocked
-            AND (
-                -- Case A: Primary user is user1_id, peer is user2_id
-(r.user1_id = @user_id::uuid
-                    AND r.user2_id = ANY (@peer_ids::uuid[]))
-                OR
-                -- Case B: Peer is user1_id, Primary user is user2_id
-(r.user2_id = @user_id::uuid
-                    AND r.user1_id = ANY (@peer_ids::uuid[]))));
-
 -- ============================================================================
 -- CHANNELS
 -- ============================================================================
 -- name: ChannelCreate :one
-INSERT INTO channels(id, type, owner_id, name, icon_url, created_at, updated_at)
-    VALUES (@id, @type, sqlc.narg('owner_id'), sqlc.narg('name'), sqlc.narg('icon_url'), @created_at, @updated_at)
+INSERT INTO channels(id, created_at, updated_at, type, last_message_id, name, icon_url)
+    VALUES (@id::uuid, @created_at::timestamptz, @updated_at::timestamptz, @type::smallint, sqlc.narg('last_message_id')::uuid, sqlc.narg('name')::text, sqlc.narg('icon_url')::text)
 RETURNING
     *;
 
--- name: ChannelCreateDM :one
-INSERT INTO dm_channels(user1_id, user2_id, channel_id)
-    VALUES (@user1_id, @user2_id, @channel_id)
-RETURNING
-    *;
+-- name: ChannelDelete :exec
+DELETE FROM channels
+WHERE id = @id::uuid;
 
 -- name: ChannelGet :one
 SELECT
@@ -349,91 +229,17 @@ SELECT
 FROM
     channels
 WHERE
-    id = $1
-LIMIT 1;
+    id = @id::uuid;
 
 -- name: ChannelGetForMember :one
-SELECT
-    c.id,
-    c.type,
-    c.owner_id,
-    c.created_at,
-    c.updated_at
-FROM
-    channels c
-    INNER JOIN channel_members cm ON cm.channel_id = c.id
-WHERE
-    c.id = $1
-    AND cm.user_id = $2;
-
--- name: ChannelUpdate :one
-UPDATE
-    channels
-SET
-    name = sqlc.narg('name'),
-    icon_url = sqlc.narg('icon_url'),
-    owner_id = sqlc.narg('owner_id'),
-    last_message_id = sqlc.narg('last_message_id'),
-    updated_at = @updated_at
-WHERE
-    id = @id
-RETURNING
-    *;
-
--- name: ChannelUpdateLastMessage :exec
-UPDATE
-    channels
-SET
-    last_message_id = @last_message_id,
-    updated_at = @updated_at
-WHERE
-    id = @channel_id;
-
--- name: ChannelDelete :exec
-DELETE FROM channels
-WHERE id = $1;
-
--- name: ChannelFindDM :one
 SELECT
     c.*
 FROM
     channels c
-    JOIN dm_channels dm ON c.id = dm.channel_id
+    INNER JOIN channel_members cm ON cm.channel_id = c.id
 WHERE
-    dm.user1_id = @user1_id
-    AND dm.user2_id = @user2_id;
-
--- name: ChannelListByUser :many
--- Used for populating the user's sidebar with channel info & peer profiles for DMs
-SELECT
-    cm.channel_id,
-    cm.user_id,
-    cm.last_read_message_id,
-    cm.mention_count,
-    cm.joined_at,
-    c.type AS channel_type,
-    c.owner_id AS channel_owner_id,
-    -- Fall back to peer's display name/username for 1-on-1 DMs
-    COALESCE(c.name, peer_up.display_name, peer_u.username) AS channel_name,
-    COALESCE(c.icon_url, peer_up.avatar_url) AS channel_icon_url,
-    c.last_message_id AS channel_last_message_id,
-    c.updated_at AS channel_updated_at,
-    peer_u.id AS peer_user_id
-FROM
-    channel_members cm
-    JOIN channels c ON cm.channel_id = c.id
-    LEFT JOIN dm_channels dm ON c.type = 0
-        AND dm.channel_id = c.id
-    LEFT JOIN users peer_u ON c.type = 0
-        AND ((dm.user1_id = cm.user_id
-                AND peer_u.id = dm.user2_id)
-            OR (dm.user2_id = cm.user_id
-                AND peer_u.id = dm.user1_id))
-    LEFT JOIN user_profiles peer_up ON peer_u.id = peer_up.user_id
-WHERE
-    cm.user_id = @user_id
-ORDER BY
-    c.updated_at DESC;
+    c.id = @channel_id::uuid
+    AND cm.user_id = @user_id::uuid;
 
 -- name: ChannelHasMessagesAfter :one
 SELECT
@@ -443,10 +249,10 @@ SELECT
         FROM
             messages
         WHERE
-            channel_id = $1
-            AND (created_at > $2
-                OR (created_at = $2
-                    AND id > $3)));
+            channel_id = @channel_id::uuid
+            AND (created_at > @created_at::timestamptz
+                OR (created_at = @created_at::timestamptz
+                    AND id > @message_id::uuid)));
 
 -- name: ChannelHasMessagesBefore :one
 SELECT
@@ -456,35 +262,100 @@ SELECT
         FROM
             messages
         WHERE
-            channel_id = $1
-            AND (created_at < $2
-                OR (created_at = $2
-                    AND id < $3)));
+            channel_id = @channel_id::uuid
+            AND (created_at < @created_at::timestamptz
+                OR (created_at = @created_at::timestamptz
+                    AND id < @message_id::uuid)));
+
+-- name: ChannelListByUser :many
+-- Used for populating the user's sidebar with channel info & peer profiles for DMs
+SELECT
+    -- 1. Primary Identifiers & References
+    cm.channel_id,
+    cm.user_id,
+    rp.peer_id AS peer_user_id,
+    c.type AS channel_type,
+    -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
+    COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+    COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+    -- 3. Read State, Activity & Metrics
+    c.last_message_id AS channel_last_message_id,
+    cm.last_read_message_id,
+    cm.mention_count,
+    -- 4. Timestamps
+    cm.created_at,
+    cm.last_read_at,
+    c.updated_at AS channel_updated_at
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+    -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
+    LEFT JOIN relationship_perspectives rp ON c.type = 0
+        AND rp.user_id = cm.user_id
+        AND rp.channel_id = c.id
+WHERE
+    cm.user_id = @user_id::uuid
+ORDER BY
+    c.updated_at DESC,
+    c.id ASC;
+
+-- name: ChannelUpdate :one
+UPDATE
+    channels
+SET
+    name = COALESCE(sqlc.narg('name')::text, name),
+    icon_url = COALESCE(sqlc.narg('icon_url')::text, icon_url),
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+RETURNING
+    *;
+
+-- name: ChannelUpdateLastMessage :one
+UPDATE
+    channels
+SET
+    last_message_id = @last_message_id::uuid,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @channel_id::uuid
+    AND updated_at <= @updated_at::timestamptz
+RETURNING
+    *;
 
 -- ============================================================================
 -- CHANNEL MEMBERS
 -- ============================================================================
 -- name: ChannelMemberAddBatch :exec
-INSERT INTO channel_members(channel_id, user_id, joined_at, last_read_message_id, mention_count)
+INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id)
 SELECT
-    @channel_id,
+    @channel_id::uuid,
     u.user_id,
-    u.joined_at,
-    u.last_read_message_id,
-    u.mention_count
+    u.created_at,
+    u.updated_at,
+    u.last_read_at,
+    u.mention_count,
+    u.last_read_message_id
 FROM
     ROWS
 FROM (unnest(@user_ids::uuid[]),
-    unnest(@joined_ats::timestamptz[]),
-    unnest(@last_read_message_ids::uuid[]),
-    unnest(@mention_counts::int[])) AS u(user_id,
-        joined_at,
-        last_read_message_id,
-        mention_count)
+    unnest(@created_ats::timestamptz[]),
+    unnest(@updated_ats::timestamptz[]),
+    unnest(@last_read_ats::timestamptz[]),
+    unnest(@mention_counts::int[]),
+    unnest(@last_read_message_ids::uuid[])) AS u(user_id,
+        created_at,
+        updated_at,
+        last_read_at,
+        mention_count,
+        last_read_message_id)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
-        joined_at = EXCLUDED.joined_at;
+        updated_at = EXCLUDED.updated_at,
+        last_read_at = EXCLUDED.last_read_at,
+        mention_count = EXCLUDED.mention_count,
+        last_read_message_id = COALESCE(EXCLUDED.last_read_message_id, channel_members.last_read_message_id);
 
 -- name: ChannelMemberGet :one
 SELECT
@@ -492,57 +363,8 @@ SELECT
 FROM
     channel_members
 WHERE
-    channel_id = @channel_id
-    AND user_id = @user_id
-LIMIT 1;
-
--- name: ChannelMemberListByChannel :many
-SELECT
-    cm.channel_id,
-    cm.user_id,
-    cm.joined_at,
-    cm.last_read_message_id,
-    cm.mention_count,
-    u.username,
-    up.display_name,
-    up.avatar_url,
-    u.preferred_presence
-FROM
-    channel_members cm
-    JOIN users u ON u.id = cm.user_id
-    LEFT JOIN user_profiles up ON up.user_id = cm.user_id
-WHERE
-    cm.channel_id = @channel_id
-ORDER BY
-    cm.joined_at ASC;
-
--- name: ChannelMemberUpdateReadState :exec
-UPDATE
-    channel_members
-SET
-    last_read_message_id = CASE WHEN $4 > last_read_at THEN
-        COALESCE($3, last_read_message_id)
-    ELSE
-        last_read_message_id
-    END,
-    last_read_at = GREATEST(last_read_at, $4)
-WHERE
-    channel_id = $1
-    AND user_id = $2;
-
--- name: ChannelMemberIncrementMentionCountBatch :exec
-UPDATE
-    channel_members
-SET
-    mention_count = mention_count + 1
-WHERE
-    channel_id = @channel_id
-    AND user_id = ANY (@user_ids::uuid[]);
-
--- name: ChannelMemberRemove :exec
-DELETE FROM channel_members
-WHERE channel_id = @channel_id
-    AND user_id = @user_id;
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
 
 -- name: ChannelMemberGetUnreadCount :one
 SELECT
@@ -550,19 +372,84 @@ SELECT
 FROM
     messages m
     JOIN channel_members cm ON cm.channel_id = m.channel_id
-        AND cm.user_id = @user_id
+        AND cm.user_id = @user_id::uuid
 WHERE
-    m.channel_id = @channel_id
+    m.channel_id = @channel_id::uuid
     AND m.created_at > cm.last_read_at;
 
+-- name: ChannelMemberIncrementMentionCountBatch :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = ANY (@user_ids::uuid[]);
+
+-- name: ChannelMemberListByChannel :many
+SELECT
+    cm.channel_id,
+    cm.user_id,
+    cm.created_at,
+    cm.updated_at,
+    cm.last_read_at,
+    cm.mention_count,
+    cm.last_read_message_id,
+    ua.username,
+    ua.display_name,
+    ua.avatar_url
+FROM
+    channel_members cm
+    JOIN user_aggregates ua ON ua.id = cm.user_id
+WHERE
+    cm.channel_id = @channel_id::uuid
+ORDER BY
+    cm.created_at ASC,
+    cm.user_id ASC;
+
+-- name: ChannelMemberRemove :exec
+DELETE FROM channel_members
+WHERE channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
+-- name: ChannelMemberResetMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = 0,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
+-- name: ChannelMemberUpdateLastRead :exec
+UPDATE
+    channel_members
+SET
+    last_read_message_id = CASE WHEN @last_read_at::timestamptz > last_read_at THEN
+        COALESCE(sqlc.narg('last_read_message_id')::uuid, last_read_message_id)
+    ELSE
+        last_read_message_id
+    END,
+    last_read_at = GREATEST(last_read_at, @last_read_at::timestamptz),
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
 -- ============================================================================
--- MESSAGES
+-- MESSAGES: TODO
 -- ============================================================================
 -- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, content, is_pinned, created_at)
-    VALUES (@id, @channel_id, sqlc.narg('author_id'), sqlc.narg('reply_to_message_id'), @content, @is_pinned, @created_at)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content)
+    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, sqlc.narg('edited_at')::timestamptz, @is_pinned::boolean, sqlc.narg('content')::text)
 RETURNING
     *;
+
+-- name: MessageDelete :exec
+DELETE FROM messages
+WHERE id = @id::uuid;
 
 -- name: MessageGet :one
 SELECT
@@ -570,7 +457,22 @@ SELECT
 FROM
     messages
 WHERE
-    id = @id
+    id = @id::uuid;
+
+-- name: MessageGetFirstUnread :one
+-- Fetches the first message created after the user's last_read_at timestamp
+SELECT
+    m.*
+FROM
+    messages m
+    JOIN channel_members cm ON cm.channel_id = m.channel_id
+        AND cm.user_id = @user_id::uuid
+WHERE
+    m.channel_id = @channel_id::uuid
+    AND m.created_at > cm.last_read_at
+ORDER BY
+    m.created_at ASC,
+    m.id ASC
 LIMIT 1;
 
 -- name: MessageGetLatest :one
@@ -579,28 +481,11 @@ SELECT
 FROM
     messages
 WHERE
-    channel_id = $1
-ORDER BY
-    created_at DESC
-LIMIT 1;
-
--- name: MessageListByChannelBefore :many
--- Fetches older messages using keyset pagination.
--- Uses explicit type casting for null-checks to allow optional cursor parameter generation in sqlc.
-SELECT
-    *
-FROM
-    messages
-WHERE
-    channel_id = @channel_id
-    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-        OR (created_at,
-            id) <(sqlc.narg('cursor_created_at')::timestamptz,
-            sqlc.narg('cursor_id')::uuid))
+    channel_id = @channel_id::uuid
 ORDER BY
     created_at DESC,
     id DESC
-LIMIT @result_limit;
+LIMIT 1;
 
 -- name: MessageListByChannelAfter :many
 -- Fetches newer messages using keyset pagination.
@@ -609,7 +494,7 @@ SELECT
 FROM
     messages
 WHERE
-    channel_id = @channel_id
+    channel_id = @channel_id::uuid
     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
         OR (created_at,
             id) >(sqlc.narg('cursor_created_at')::timestamptz,
@@ -617,7 +502,7 @@ WHERE
 ORDER BY
     created_at ASC,
     id ASC
-LIMIT @result_limit;
+LIMIT @result_limit::int;
 
 -- name: MessageListByChannelAround :many
 WITH around_window AS ((
@@ -626,28 +511,28 @@ WITH around_window AS ((
         FROM
             messages m1
         WHERE
-            m1.channel_id = @channel_id
+            m1.channel_id = @channel_id::uuid
             AND (m1.created_at,
                 m1.id) <=(@cursor_created_at::timestamptz,
                 @cursor_id::uuid)
         ORDER BY
             m1.created_at DESC,
             m1.id DESC
-        LIMIT @older_limit)
+        LIMIT @older_limit::int)
 UNION ALL (
     SELECT
         m2.*
     FROM
         messages m2
     WHERE
-        m2.channel_id = @channel_id
+        m2.channel_id = @channel_id::uuid
         AND (m2.created_at,
             m2.id) >(@cursor_created_at::timestamptz,
             @cursor_id::uuid)
     ORDER BY
         m2.created_at ASC,
         m2.id ASC
-    LIMIT @newer_limit))
+    LIMIT @newer_limit::int))
 SELECT
     m.*
 FROM
@@ -657,16 +542,34 @@ ORDER BY
     aw.created_at ASC,
     aw.id ASC;
 
+-- name: MessageListByChannelBefore :many
+-- Fetches older messages using keyset pagination.
+SELECT
+    *
+FROM
+    messages
+WHERE
+    channel_id = @channel_id::uuid
+    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+        OR (created_at,
+            id) <(sqlc.narg('cursor_created_at')::timestamptz,
+            sqlc.narg('cursor_id')::uuid))
+ORDER BY
+    created_at DESC,
+    id DESC
+LIMIT @result_limit::int;
+
 -- name: MessageListPinnedByChannel :many
 SELECT
     *
 FROM
     messages
 WHERE
-    channel_id = @channel_id
+    channel_id = @channel_id::uuid
     AND is_pinned = TRUE
 ORDER BY
-    created_at DESC;
+    created_at DESC,
+    id DESC;
 
 -- name: MessageListReplies :many
 SELECT
@@ -674,54 +577,34 @@ SELECT
 FROM
     messages m
 WHERE
-    m.reply_to_message_id = @reply_to_message_id
+    m.reply_to_message_id = @reply_to_message_id::uuid
 ORDER BY
     m.created_at ASC,
     m.id ASC;
-
--- name: MessageUpdateContent :one
-UPDATE
-    messages
-SET
-    content = @content,
-    edited_at = @edited_at
-WHERE
-    id = @id
-RETURNING
-    *;
 
 -- name: MessageSetPinned :one
 UPDATE
     messages
 SET
-    is_pinned = @is_pinned
+    is_pinned = @is_pinned::boolean
 WHERE
-    id = @id
+    id = @id::uuid
 RETURNING
     *;
 
--- name: MessageDelete :exec
-DELETE FROM messages
-WHERE id = @id;
-
--- name: MessageGetFirstUnread :one
--- Fetches the first message created after the user's last_read_at timestamp
-SELECT
-    m.*
-FROM
-    messages m
-    JOIN channel_members cm ON cm.channel_id = m.channel_id
-        AND cm.user_id = @user_id
+-- name: MessageUpdateContent :one
+UPDATE
+    messages
+SET
+    content = sqlc.narg('content')::text,
+    edited_at = @edited_at::timestamptz
 WHERE
-    m.channel_id = @channel_id
-    AND m.created_at > cm.last_read_at
-ORDER BY
-    m.created_at ASC,
-    m.id ASC
-LIMIT 1;
+    id = @id::uuid
+RETURNING
+    *;
 
 -- ============================================================================
--- MESSAGE ATTACHMENTS
+-- MESSAGE ATTACHMENTS: TODO
 -- ============================================================================
 -- name: AttachmentCreateBatch :exec
 INSERT INTO message_attachments(id, message_id, file_name, file_size, content_type, url, width, height, created_at)
@@ -764,7 +647,7 @@ DELETE FROM message_attachments
 WHERE message_id = $1;
 
 -- ============================================================================
--- MESSAGE REACTIONS
+-- MESSAGE REACTIONS: TODO
 -- ============================================================================
 -- name: ReactionAdd :one
 INSERT INTO message_reactions(message_id, user_id, emoji)
@@ -804,4 +687,96 @@ GROUP BY
     emoji
 ORDER BY
     count DESC;
+
+-- ============================================================================
+-- RELATIONSHIPS
+-- ============================================================================
+-- name: RelationshipGet :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
+
+-- name: RelationshipGetByChannelID :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    channel_id = @channel_id::uuid;
+
+-- name: RelationshipUpsert :one
+INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at, channel_id)
+    VALUES (LEAST(@user1_id::uuid, @user2_id::uuid), GREATEST(@user1_id::uuid, @user2_id::uuid), @actor_id, @variant, @created_at, @updated_at, sqlc.narg('channel_id')::uuid)
+ON CONFLICT (user1_id, user2_id)
+    DO UPDATE SET
+        variant = EXCLUDED.variant,
+        actor_id = EXCLUDED.actor_id,
+        updated_at = EXCLUDED.updated_at,
+        channel_id = COALESCE(EXCLUDED.channel_id, relationships.channel_id)
+    RETURNING
+        *;
+
+-- name: RelationshipDelete :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
+
+-- name: RelationshipDeleteVerified :exec
+DELETE FROM relationships
+WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
+    AND (variant != 3 -- 3 = Blocked
+        OR actor_id = @actor_id::uuid);
+
+-- name: RelationshipPerspectiveGet :one
+SELECT
+    *
+FROM
+    relationship_perspectives
+WHERE
+    user_id = @user_id::uuid
+    AND peer_id = @peer_id::uuid;
+
+-- name: RelationshipPerspectiveGetByChannelID :one
+SELECT
+    *
+FROM
+    relationship_perspectives
+WHERE
+    user_id = @user_id::uuid
+    AND channel_id = @channel_id::uuid;
+
+-- name: RelationshipPerspectivesList :many
+SELECT
+    *
+FROM
+    relationship_perspectives
+WHERE
+    user_id = @user_id::uuid
+    AND (sqlc.narg('filter_variant')::smallint IS NULL
+        OR variant = sqlc.narg('filter_variant'))
+ORDER BY
+    updated_at DESC;
+
+-- name: RelationshipHasBlockBetweenUserAndPeers :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            relationships r
+        WHERE
+            r.variant = 3 -- Blocked
+            AND (
+                -- Case A: Primary user is user1_id, peer is user2_id
+(r.user1_id = @user_id::uuid
+                    AND r.user2_id = ANY (@peer_ids::uuid[]))
+                OR
+                -- Case B: Peer is user1_id, Primary user is user2_id
+(r.user2_id = @user_id::uuid
+                    AND r.user1_id = ANY (@peer_ids::uuid[]))));
 

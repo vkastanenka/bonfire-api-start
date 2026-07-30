@@ -14,63 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type ChannelStore interface {
-	// ============================================================================
-	// CHANNELS
-	// ============================================================================
-	ChannelCreate(ctx context.Context, arg db.ChannelCreateParams) (db.Channel, error)
-	ChannelCreateDM(ctx context.Context, arg db.ChannelCreateDMParams) (db.DMChannel, error)
-	ChannelDelete(ctx context.Context, id pgtype.UUID) error
-	ChannelFindDM(ctx context.Context, arg db.ChannelFindDMParams) (db.Channel, error)
-	ChannelGet(ctx context.Context, id pgtype.UUID) (db.Channel, error)
-	ChannelGetForMember(ctx context.Context, arg db.ChannelGetForMemberParams) (db.Channel, error)
-	ChannelHasMessagesAfter(ctx context.Context, arg db.ChannelHasMessagesAfterParams) (bool, error)
-	ChannelHasMessagesBefore(ctx context.Context, arg db.ChannelHasMessagesBeforeParams) (bool, error)
-	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]db.ChannelListByUserRow, error)
-	ChannelUpdate(ctx context.Context, arg db.ChannelUpdateParams) (db.Channel, error)
-	ChannelUpdateLastMessage(ctx context.Context, arg db.ChannelUpdateLastMessageParams) error
-
-	// ============================================================================
-	// CHANNEL MEMBERS
-	// ============================================================================
-	ChannelMemberAddBatch(ctx context.Context, arg db.ChannelMemberAddBatchParams) error
-	ChannelMemberGet(ctx context.Context, arg db.ChannelMemberGetParams) (db.ChannelMember, error)
-	ChannelMemberGetUnreadCount(ctx context.Context, arg db.ChannelMemberGetUnreadCountParams) (int32, error)
-	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg db.ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.ChannelMember, error)
-	ChannelMemberRemove(ctx context.Context, arg db.ChannelMemberRemoveParams) error
-	ChannelMemberUpdateReadState(ctx context.Context, arg db.ChannelMemberUpdateReadStateParams) error
-
-	// ============================================================================
-	// MESSAGES
-	// ============================================================================
-	MessageCreate(ctx context.Context, arg db.MessageCreateParams) (db.Message, error)
-	MessageDelete(ctx context.Context, id pgtype.UUID) error
-	MessageGet(ctx context.Context, id pgtype.UUID) (db.Message, error)
-	MessageGetFirstUnread(ctx context.Context, arg db.MessageGetFirstUnreadParams) (db.Message, error)
-	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (db.Message, error)
-	MessageListByChannelAfter(ctx context.Context, arg db.MessageListByChannelAfterParams) ([]db.Message, error)
-	MessageListByChannelAround(ctx context.Context, arg db.MessageListByChannelAroundParams) ([]db.Message, error)
-	MessageListByChannelBefore(ctx context.Context, arg db.MessageListByChannelBeforeParams) ([]db.Message, error)
-	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]db.Message, error)
-	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]db.Message, error)
-	MessageSetPinned(ctx context.Context, arg db.MessageSetPinnedParams) (db.Message, error)
-	MessageUpdateContent(ctx context.Context, arg db.MessageUpdateContentParams) (db.Message, error)
-
-	// ============================================================================
-	// MESSAGE REACTIONS
-	// ============================================================================
-	ReactionAdd(ctx context.Context, arg db.ReactionAddParams) (db.MessageReaction, error)
-	ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]db.MessageReaction, error)
-	ReactionRemove(ctx context.Context, arg db.ReactionRemoveParams) error
-	ReactionSummarizeByMessage(ctx context.Context, arg db.ReactionSummarizeByMessageParams) ([]db.ReactionSummarizeByMessageRow, error)
-}
-
 type Channel struct {
-	store ChannelStore
+	store db.Querier
 }
 
-func NewChannel(store ChannelStore) *Channel {
+func NewChannel(store db.Querier) *Channel {
 	return &Channel{store: store}
 }
 
@@ -78,21 +26,20 @@ func NewChannel(store ChannelStore) *Channel {
 // CHANNELS
 // ============================================================================
 
-func (r *Channel) Create(ctx context.Context, ch *channel.Channel) error {
-	_, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
+func (r *Channel) Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
+	row, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
 		ID:        db.UUID(ch.ID()),
 		Type:      int16(ch.Type()),
-		OwnerID:   db.UUIDPtr(ch.OwnerID()),
 		Name:      db.StringerPtr(ch.Name()),
 		IconUrl:   db.StringerPtr(ch.IconURL()),
 		CreatedAt: db.Timestamptz(ch.CreatedAt()),
 		UpdatedAt: db.Timestamptz(ch.UpdatedAt()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityChannel)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
-	return nil
+	return channelFromRow(row)
 }
 
 func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
@@ -102,23 +49,6 @@ func (r *Channel) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
-}
-
-func (r *Channel) FindDM(ctx context.Context, user1ID, user2ID uuid.UUID) (*channel.Channel, error) {
-	u1, u2 := user1ID, user2ID
-	if u1.String() > u2.String() {
-		u1, u2 = u2, u1
-	}
-
-	row, err := r.store.ChannelFindDM(ctx, db.ChannelFindDMParams{
-		User1ID: db.UUID(u1),
-		User2ID: db.UUID(u2),
-	})
-	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
-	}
-
-	return channelFromRow(row)
 }
 
 func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
@@ -132,8 +62,8 @@ func (r *Channel) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, erro
 
 func (r *Channel) GetForMember(ctx context.Context, channelID, memberID uuid.UUID) (*channel.Channel, error) {
 	row, err := r.store.ChannelGetForMember(ctx, db.ChannelGetForMemberParams{
-		ID:     db.UUID(channelID),
-		UserID: db.UUID(memberID),
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(memberID),
 	})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannel)
@@ -146,7 +76,7 @@ func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, cre
 	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
 		ChannelID: db.UUID(channelID),
 		CreatedAt: db.Timestamptz(createdAt),
-		ID:        db.UUID(id),
+		MessageID: db.UUID(id),
 	})
 	if err != nil {
 		return false, db.NewError(err, db.EntityMessage)
@@ -159,7 +89,7 @@ func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, cr
 	exists, err := r.store.ChannelHasMessagesBefore(ctx, db.ChannelHasMessagesBeforeParams{
 		ChannelID: db.UUID(channelID),
 		CreatedAt: db.Timestamptz(createdAt),
-		ID:        db.UUID(id),
+		MessageID: db.UUID(id),
 	})
 	if err != nil {
 		return false, db.NewError(err, db.EntityMessage)
@@ -168,13 +98,22 @@ func (r *Channel) HasMessagesBefore(ctx context.Context, channelID uuid.UUID, cr
 	return exists, nil
 }
 
-func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]db.Channel, error) {
+func (r *Channel) ListByUser(ctx context.Context, userID uuid.UUID) ([]*channel.Channel, error) {
 	rows, err := r.store.ChannelListByUser(ctx, db.UUID(userID))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannel)
 	}
 
-	return rows, nil
+	channels := make([]*channel.Channel, 0, len(rows))
+	for _, row := range rows {
+		c, err := channelFromListRow(row)
+		if err != nil {
+			return nil, err
+		}
+		channels = append(channels, c)
+	}
+
+	return channels, nil
 }
 
 func (r *Channel) Update(ctx context.Context, ch *channel.Channel) error {
@@ -610,12 +549,23 @@ func channelFromRow(row db.Channel) (*channel.Channel, error) {
 	return channel.Reconstitute(
 		row.ID.Bytes,
 		channel.Type(row.Type),
-		db.UUIDPtrFromDB(row.OwnerID),
 		db.StringPtr(row.Name),
 		db.StringPtr(row.IconUrl),
 		db.UUIDPtrFromDB(row.LastMessageID),
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
+	)
+}
+
+func channelFromListRow(row db.ChannelListByUserRow) (*channel.Channel, error) {
+	return channel.Reconstitute(
+		row.ChannelID.Bytes,
+		channel.Type(row.ChannelType),
+		&row.ChannelName, // ChannelName is a string from COALESCE
+		db.StringPtr(row.ChannelIconUrl),
+		db.UUIDPtrFromDB(row.ChannelLastMessageID),
+		row.CreatedAt.Time.UTC(),
+		row.ChannelUpdatedAt.Time.UTC(),
 	)
 }
 

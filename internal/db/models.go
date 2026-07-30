@@ -12,11 +12,10 @@ import (
 
 type Channel struct {
 	ID            pgtype.UUID        `json:"id"`
-	OwnerID       pgtype.UUID        `json:"owner_id"`
-	LastMessageID pgtype.UUID        `json:"last_message_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	Type          int16              `json:"type"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
 	Name          pgtype.Text        `json:"name"`
 	IconUrl       pgtype.Text        `json:"icon_url"`
 }
@@ -24,23 +23,18 @@ type Channel struct {
 type ChannelMember struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
-	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 	MentionCount      int32              `json:"mention_count"`
-}
-
-type DMChannel struct {
-	User1ID   pgtype.UUID `json:"user1_id"`
-	User2ID   pgtype.UUID `json:"user2_id"`
-	ChannelID pgtype.UUID `json:"channel_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 }
 
 type Message struct {
 	ID               pgtype.UUID        `json:"id"`
 	ChannelID        pgtype.UUID        `json:"channel_id"`
-	AuthorID         pgtype.UUID        `json:"author_id"`
 	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
 	IsPinned         bool               `json:"is_pinned"`
@@ -88,21 +82,21 @@ type Relationship struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	Variant   int16              `json:"variant"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
 }
 
 type RelationshipPerspective struct {
-	UserID                pgtype.UUID        `json:"user_id"`
-	PeerID                pgtype.UUID        `json:"peer_id"`
-	Variant               int16              `json:"variant"`
-	ActorID               pgtype.UUID        `json:"actor_id"`
-	IsInitiator           bool               `json:"is_initiator"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
-	Username              string             `json:"username"`
-	DisplayName           pgtype.Text        `json:"display_name"`
-	AvatarUrl             pgtype.Text        `json:"avatar_url"`
-	UserPreferredPresence pgtype.Int2        `json:"user_preferred_presence"`
-	ChannelID             pgtype.UUID        `json:"channel_id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	PeerID      pgtype.UUID        `json:"peer_id"`
+	Variant     int16              `json:"variant"`
+	ActorID     pgtype.UUID        `json:"actor_id"`
+	IsInitiator bool               `json:"is_initiator"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Username    string             `json:"username"`
+	DisplayName pgtype.Text        `json:"display_name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	ChannelID   pgtype.UUID        `json:"channel_id"`
 }
 
 type Session struct {
