@@ -95,10 +95,10 @@ type Relationship struct {
 	User1ID   pgtype.UUID        `json:"user1_id"`
 	User2ID   pgtype.UUID        `json:"user2_id"`
 	ActorID   pgtype.UUID        `json:"actor_id"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	Variant   int16              `json:"variant"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
 }
 
 type RelationshipPerspective struct {
@@ -107,12 +107,12 @@ type RelationshipPerspective struct {
 	Variant     int16              `json:"variant"`
 	ActorID     pgtype.UUID        `json:"actor_id"`
 	IsInitiator bool               `json:"is_initiator"`
+	ChannelID   pgtype.UUID        `json:"channel_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Username    string             `json:"username"`
 	DisplayName pgtype.Text        `json:"display_name"`
 	AvatarUrl   pgtype.Text        `json:"avatar_url"`
-	ChannelID   pgtype.UUID        `json:"channel_id"`
 }
 
 type Session struct {

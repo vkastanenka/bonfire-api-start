@@ -12,7 +12,7 @@ import (
 
 type Querier interface {
 	// ============================================================================
-	// MESSAGE ATTACHMENTS:
+	// MESSAGE ATTACHMENTS
 	// ============================================================================
 	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
 	AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error
@@ -171,7 +171,7 @@ type Querier interface {
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
 	// ============================================================================
-	// MESSAGE REACTIONS:
+	// MESSAGE REACTIONS
 	// ============================================================================
 	ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error)
 	ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error
@@ -182,10 +182,20 @@ type Querier interface {
 	// ============================================================================
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
 	RelationshipGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relationship, error)
+	// -- name: RelationshipPerspectivesList :many
+	// SELECT
+	//     *
+	// FROM
+	//     relationship_perspectives
+	// WHERE
+	//     user_id = @user_id::uuid
+	//     AND (sqlc.narg('filter_variant')::smallint IS NULL
+	//         OR variant = sqlc.narg('filter_variant'))
+	// ORDER BY
+	//     updated_at DESC;
 	RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error)
 	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
 	RelationshipPerspectiveGetByChannelID(ctx context.Context, arg RelationshipPerspectiveGetByChannelIDParams) (RelationshipPerspective, error)
-	RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error)
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDelete(ctx context.Context, id pgtype.UUID) error

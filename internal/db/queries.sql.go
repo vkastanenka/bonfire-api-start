@@ -41,7 +41,7 @@ type AttachmentCreateBatchParams struct {
 }
 
 // ============================================================================
-// MESSAGE ATTACHMENTS:
+// MESSAGE ATTACHMENTS
 // ============================================================================
 func (q *Queries) AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error {
 	_, err := q.db.Exec(ctx, attachmentCreateBatch,
@@ -1427,7 +1427,7 @@ type ReactionAddParams struct {
 }
 
 // ============================================================================
-// MESSAGE REACTIONS:
+// MESSAGE REACTIONS
 // ============================================================================
 func (q *Queries) ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error) {
 	row := q.db.QueryRow(ctx, reactionAdd, arg.MessageID, arg.UserID, arg.Emoji)
@@ -1496,7 +1496,7 @@ func (q *Queries) RelationshipDeleteVerified(ctx context.Context, arg Relationsh
 
 const relationshipGet = `-- name: RelationshipGet :one
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
+    user1_id, user2_id, actor_id, channel_id, created_at, updated_at, variant
 FROM
     relationships
 WHERE
@@ -1519,17 +1519,17 @@ func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.ChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Variant,
-		&i.ChannelID,
 	)
 	return i, err
 }
 
 const relationshipGetByChannelID = `-- name: RelationshipGetByChannelID :one
 SELECT
-    user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
+    user1_id, user2_id, actor_id, channel_id, created_at, updated_at, variant
 FROM
     relationships
 WHERE
@@ -1543,15 +1543,16 @@ func (q *Queries) RelationshipGetByChannelID(ctx context.Context, channelID pgty
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.ChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Variant,
-		&i.ChannelID,
 	)
 	return i, err
 }
 
 const relationshipHasBlockBetweenUserAndPeers = `-- name: RelationshipHasBlockBetweenUserAndPeers :one
+
 SELECT
     EXISTS (
         SELECT
@@ -1575,6 +1576,24 @@ type RelationshipHasBlockBetweenUserAndPeersParams struct {
 	PeerIds []pgtype.UUID `json:"peer_ids"`
 }
 
+// -- name: RelationshipPerspectivesList :many
+// SELECT
+//
+//	*
+//
+// FROM
+//
+//	relationship_perspectives
+//
+// WHERE
+//
+//	user_id = @user_id::uuid
+//	AND (sqlc.narg('filter_variant')::smallint IS NULL
+//	    OR variant = sqlc.narg('filter_variant'))
+//
+// ORDER BY
+//
+//	updated_at DESC;
 func (q *Queries) RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error) {
 	row := q.db.QueryRow(ctx, relationshipHasBlockBetweenUserAndPeers, arg.UserID, arg.PeerIds)
 	var exists bool
@@ -1584,7 +1603,7 @@ func (q *Queries) RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, a
 
 const relationshipPerspectiveGet = `-- name: RelationshipPerspectiveGet :one
 SELECT
-    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
+    user_id, peer_id, variant, actor_id, is_initiator, channel_id, created_at, updated_at, username, display_name, avatar_url
 FROM
     relationship_perspectives
 WHERE
@@ -1606,19 +1625,19 @@ func (q *Queries) RelationshipPerspectiveGet(ctx context.Context, arg Relationsh
 		&i.Variant,
 		&i.ActorID,
 		&i.IsInitiator,
+		&i.ChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.ChannelID,
 	)
 	return i, err
 }
 
 const relationshipPerspectiveGetByChannelID = `-- name: RelationshipPerspectiveGetByChannelID :one
 SELECT
-    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
+    user_id, peer_id, variant, actor_id, is_initiator, channel_id, created_at, updated_at, username, display_name, avatar_url
 FROM
     relationship_perspectives
 WHERE
@@ -1640,87 +1659,41 @@ func (q *Queries) RelationshipPerspectiveGetByChannelID(ctx context.Context, arg
 		&i.Variant,
 		&i.ActorID,
 		&i.IsInitiator,
+		&i.ChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarUrl,
-		&i.ChannelID,
 	)
 	return i, err
 }
 
-const relationshipPerspectivesList = `-- name: RelationshipPerspectivesList :many
-SELECT
-    user_id, peer_id, variant, actor_id, is_initiator, created_at, updated_at, username, display_name, avatar_url, channel_id
-FROM
-    relationship_perspectives
-WHERE
-    user_id = $1::uuid
-    AND ($2::smallint IS NULL
-        OR variant = $2)
-ORDER BY
-    updated_at DESC
-`
-
-type RelationshipPerspectivesListParams struct {
-	UserID        pgtype.UUID `json:"user_id"`
-	FilterVariant pgtype.Int2 `json:"filter_variant"`
-}
-
-func (q *Queries) RelationshipPerspectivesList(ctx context.Context, arg RelationshipPerspectivesListParams) ([]RelationshipPerspective, error) {
-	rows, err := q.db.Query(ctx, relationshipPerspectivesList, arg.UserID, arg.FilterVariant)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RelationshipPerspective
-	for rows.Next() {
-		var i RelationshipPerspective
-		if err := rows.Scan(
-			&i.UserID,
-			&i.PeerID,
-			&i.Variant,
-			&i.ActorID,
-			&i.IsInitiator,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Username,
-			&i.DisplayName,
-			&i.AvatarUrl,
-			&i.ChannelID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const relationshipUpsert = `-- name: RelationshipUpsert :one
-INSERT INTO relationships(user1_id, user2_id, actor_id, variant, created_at, updated_at, channel_id)
-    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4, $5, $6, $7::uuid)
+INSERT INTO relationships(user1_id, user2_id, actor_id, channel_id, created_at, updated_at, variant)
+    VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3, $4::uuid, $5, $6, $7)
 ON CONFLICT (user1_id, user2_id)
     DO UPDATE SET
-        variant = EXCLUDED.variant,
         actor_id = EXCLUDED.actor_id,
+        channel_id = CASE WHEN EXCLUDED.variant = 2 THEN
+            COALESCE(EXCLUDED.channel_id, relationships.channel_id)
+        ELSE
+            NULL
+        END,
         updated_at = EXCLUDED.updated_at,
-        channel_id = COALESCE(EXCLUDED.channel_id, relationships.channel_id)
+        variant = EXCLUDED.variant
     RETURNING
-        user1_id, user2_id, actor_id, created_at, updated_at, variant, channel_id
+        user1_id, user2_id, actor_id, channel_id, created_at, updated_at, variant
 `
 
 type RelationshipUpsertParams struct {
 	User1ID   pgtype.UUID        `json:"user1_id"`
 	User2ID   pgtype.UUID        `json:"user2_id"`
 	ActorID   pgtype.UUID        `json:"actor_id"`
-	Variant   int16              `json:"variant"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
+	Variant   int16              `json:"variant"`
 }
 
 func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
@@ -1728,20 +1701,20 @@ func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsert
 		arg.User1ID,
 		arg.User2ID,
 		arg.ActorID,
-		arg.Variant,
+		arg.ChannelID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.ChannelID,
+		arg.Variant,
 	)
 	var i Relationship
 	err := row.Scan(
 		&i.User1ID,
 		&i.User2ID,
 		&i.ActorID,
+		&i.ChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Variant,
-		&i.ChannelID,
 	)
 	return i, err
 }

@@ -213,14 +213,14 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 
-CREATE TABLE relationships(
+CREATE TABLE relationships (
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     actor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id uuid UNIQUE REFERENCES channels(id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     variant smallint NOT NULL,
-    channel_id uuid UNIQUE REFERENCES channels(id) ON DELETE CASCADE,
     PRIMARY KEY (user1_id, user2_id),
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
@@ -242,12 +242,12 @@ SELECT
 (
         r.actor_id = r.user1_id
 ) AS is_initiator,
+    r.channel_id,
     r.created_at,
     r.updated_at,
     u.username,
     up.display_name,
-    up.avatar_url,
-    r.channel_id
+    up.avatar_url
 FROM
     relationships r
     JOIN users u ON u.id = r.user2_id
@@ -264,12 +264,12 @@ SELECT
 (
         r.actor_id = r.user2_id
 ) AS is_initiator,
+    r.channel_id,
     r.created_at,
     r.updated_at,
     u.username,
     up.display_name,
-    up.avatar_url,
-    r.channel_id
+    up.avatar_url
 FROM
     relationships r
     JOIN users u ON u.id = r.user1_id
