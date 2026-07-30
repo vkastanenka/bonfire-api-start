@@ -33,56 +33,31 @@ type RelationshipRepository interface {
 }
 
 type Repository interface {
-	// ============================================================================
-	// CHANNELS
-	// ============================================================================
 	Create(ctx context.Context, ch *Channel) (*Channel, error)
-	CreateDM(ctx context.Context, dm *DM) (*DM, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	FindDM(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Channel, error)
 	Get(ctx context.Context, id uuid.UUID) (*Channel, error)
 	GetForMember(ctx context.Context, channelID uuid.UUID, memberID uuid.UUID) (*Channel, error)
 	HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
 	HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
-	ListByUser(ctx context.Context, userID uuid.UUID) ([]Channel, error)
-	Update(ctx context.Context, ch *Channel) error
-	UpdateLastMessage(ctx context.Context, channelID uuid.UUID, messageID *uuid.UUID, updatedAt time.Time) error
-
-	// ============================================================================
-	// CHANNEL MEMBERS
-	// ============================================================================
 	IsMember(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (bool, error)
 	MemberAddBatch(ctx context.Context, members []*Member) error
 	MemberGet(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Member, error)
 	MemberGetUnreadCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (int32, error)
 	MemberIncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error
-	MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*Member, error)
 	MemberRemove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
-	MemberUpdateReadState(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
-
-	// ============================================================================
-	// MESSAGES
-	// ============================================================================
+	MemberResetMentionCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
+	MemberUpdateLastRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
 	MessageCreate(ctx context.Context, msg *Message) error
 	MessageDelete(ctx context.Context, id uuid.UUID) error
-	MessageGet(ctx context.Context, id uuid.UUID) (*Message, error)
+	MessageGet(ctx context.Context, id uuid.UUID, userID *uuid.UUID) (*MessageAggregate, error)
 	MessageGetFirstUnread(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Message, error)
 	MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*Message, error)
-	MessageListByChannelAfter(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, limit int32) ([]Message, error)
-	MessageListByChannelAround(ctx context.Context, channelID uuid.UUID, cursorCreatedAt time.Time, cursorID uuid.UUID, halfLimit int32) ([]Message, error)
-	MessageListByChannelBefore(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, limit int32) ([]Message, error)
-	MessageListPinnedByChannel(ctx context.Context, channelID uuid.UUID) ([]Message, error)
-	MessageListReplies(ctx context.Context, replyToMessageID uuid.UUID) ([]Message, error)
-	MessageSetPinned(ctx context.Context, id uuid.UUID, isPinned bool) error
-	MessageUpdateContent(ctx context.Context, msg *Message) error
-
-	// ============================================================================
-	// MESSAGE REACTIONS
-	// ============================================================================
+	MessageSetPinned(ctx context.Context, msg *Message) (*Message, error)
+	MessageUpdateContent(ctx context.Context, msg *Message) (*Message, error)
 	ReactionAdd(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji string) (*Reaction, error)
-	ReactionListByMessage(ctx context.Context, messageID uuid.UUID) ([]Reaction, error)
 	ReactionRemove(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji Emoji) error
-	ReactionSummarizeByMessage(ctx context.Context, messageID uuid.UUID, currentUserID uuid.UUID) ([]ReactionSummary, error)
+	Update(ctx context.Context, ch *Channel) (*Channel, error)
+	UpdateLastMessage(ctx context.Context, ch *Channel) (*Channel, error)
 }
 
 type PresenceStore interface {
@@ -114,42 +89,6 @@ func NewService(repo Repository, outbox OutboxRepository, relationship Relations
 	}
 }
 
-// type ServiceI interface {
-// 	// --- Channel Management ---
-// 	Create(ctx context.Context, rawCreatorID uuid.UUID, rawMemberIDs []uuid.UUID) (*Channel, error)
-// 	Get(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID) (*Channel, error)
-// 	GetDM(ctx context.Context, actorID uuid.UUID, targetUserID uuid.UUID) (*Channel, error) // Added
-// 	ListByUser(ctx context.Context, userID uuid.UUID) ([]Channel, error)
-// 	Update(ctx context.Context, input UpdateChannelParams) (*Channel, error)
-// 	Delete(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID) error
-
-// 	// --- Member Management ---
-// 	AddMembers(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID, memberIDs []uuid.UUID) error
-// 	RemoveMember(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID, targetUserID uuid.UUID) error
-// 	ListMembers(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID) ([]*Member, error)
-// 	UpdateNotificationSettings(ctx context.Context, channelID, userID uuid.UUID, isMuted bool) error // Added
-
-// 	// --- Messaging ---
-// 	SendMessage(ctx context.Context, params SendMessageParams) (*Message, error) // Updated for attachments
-// 	EditMessage(ctx context.Context, messageID uuid.UUID, authorID uuid.UUID, newRawContent string) (*Message, error)
-// 	DeleteMessage(ctx context.Context, messageID uuid.UUID, actorID uuid.UUID) error
-// 	ListMessages(ctx context.Context, params ListMessagesParams) (*ListMessagesResult, error)
-// 	GetInitialChannelMessages(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, limit int32) (*InitialMessagesResult, error)
-// 	SearchMessages(ctx context.Context, channelID, actorID uuid.UUID, query string, limit, offset int32) ([]*Message, error) // Added
-
-// 	// --- Pins & Reactions ---
-// 	ToggleMessagePin(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, isPinned bool) (*Message, error)
-// 	ListPinnedMessages(ctx context.Context, channelID, actorID uuid.UUID) ([]*Message, error) // Added
-// 	AddReaction(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, rawEmoji string) error
-// 	RemoveReaction(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, rawEmoji string) error
-
-// 	// --- Unreads & Ephemeral Signals ---
-// 	GetFirstUnreadMessage(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Message, error)
-// 	MarkAsRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID uuid.UUID) error
-// 	UpdateMemberReadState(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, readAt time.Time) error
-// 	SendTypingSignal(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
-// }
-
 // ============================================================================
 // CHANNELS
 // ============================================================================
@@ -166,14 +105,14 @@ func (s *Service) CreateGroup(ctx context.Context, rawCreatorID uuid.UUID, rawMe
 		return nil, errs.InvalidArgument("invalid member ID in list").Wrap(err)
 	}
 
-	// 1. Deduplicate creator + members
+	// Deduplicate creator + members
 	totalMembers := make(map[ID]struct{}, len(memberIDs)+1)
 	totalMembers[creatorID] = struct{}{}
 	for _, id := range memberIDs {
 		totalMembers[id] = struct{}{}
 	}
 
-	// 2. Member Limits Guard
+	// Member Limits Guard
 	if len(totalMembers) < MinMembers {
 		return nil, errs.InvalidArgument(fmt.Sprintf("group DMs require at least %d members", MinMembers))
 	}
@@ -181,40 +120,39 @@ func (s *Service) CreateGroup(ctx context.Context, rawCreatorID uuid.UUID, rawMe
 		return nil, errs.InvalidArgument(fmt.Sprintf("group DMs cannot exceed %d members", MaxMembers))
 	}
 
-	// 3. Extract Peers for Block Checking
-	peerUUIDs := make([]uuid.UUID, 0, len(totalMembers)-1)
-	for id := range totalMembers {
-		if !id.Equals(creatorID) {
-			peerUUIDs = append(peerUUIDs, id.UUID())
+	// Privacy Guard: Ensure creator hasn't blocked/been blocked by any invited peer
+	if len(totalMembers)-1 > 0 {
+		peerUUIDs := make([]uuid.UUID, 0, len(totalMembers)-1)
+		for id := range totalMembers {
+			if !id.Equals(creatorID) {
+				peerUUIDs = append(peerUUIDs, id.UUID())
+			}
+		}
+		hasBlock, err := s.relationship.HasBlockBetweenUserAndPeers(ctx, creatorID.UUID(), peerUUIDs)
+		if err != nil {
+			return nil, err
+		}
+		if hasBlock {
+			return nil, errs.InvalidArgument("cannot create group DM containing blocked users")
 		}
 	}
 
-	// 4. Privacy Guard: Ensure creator hasn't blocked/been blocked by any invited peer
-	hasBlock, err := s.relationship.HasBlockBetweenUserAndPeers(ctx, creatorID.UUID(), peerUUIDs)
-	if err != nil {
-		return nil, err
-	}
-	if hasBlock {
-		return nil, errs.InvalidArgument("cannot create group DM containing blocked users")
-	}
-
-	// 5. Instantiate Entities
-	creatorRef := &creatorID
-	ch, err := New(TypeGroup, creatorRef, name, nil)
+	// Instantiate Entities
+	ch, err := New(TypeGroup, nil, nil)
 	if err != nil {
 		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
 	}
 
 	memberBatch := make([]*Member, 0, len(totalMembers))
 	for id := range totalMembers {
-		m, err := NewMember(ch.ID(), id.UUID())
+		m, err := NewMember(uuid.UUID(ch.ID()), id.UUID())
 		if err != nil {
 			return nil, errs.InvalidArgument("invalid member properties").Wrap(err)
 		}
 		memberBatch = append(memberBatch, m)
 	}
 
-	// 6. Atomic Persistence
+	// Atomic Persistence
 	var newChannel *Channel
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		row, err := s.repo.Create(txCtx, ch)
@@ -257,104 +195,6 @@ func (s *Service) Get(ctx context.Context, rawChannelID, rawActorID uuid.UUID) (
 	return ch, nil
 }
 
-// ListByUser retrieves all channels that the specified user is a participant of.
-func (s *Service) ListByUser(ctx context.Context, rawUserID uuid.UUID) ([]Channel, error) {
-	userID, err := NewID(rawUserID)
-	if err != nil {
-		return nil, errs.InvalidArgument("invalid user ID").Wrap(err)
-	}
-
-	channels, err := s.repo.ListByUser(ctx, userID.UUID())
-	if err != nil {
-		return nil, err
-	}
-
-	return channels, nil
-}
-
-// type SidebarChannel struct {
-// 	ChannelID         uuid.UUID
-// 	UserID            uuid.UUID
-// 	Type              int16
-// 	Name              *string
-// 	IconURL           *string
-// 	OwnerID           *uuid.UUID
-// 	LastReadMessageID *uuid.UUID
-// 	LastMessageID     *uuid.UUID
-// 	MentionCount      int32
-// 	PeerUserID        *uuid.UUID
-// 	Presence          presence.Presence // Hydrated dynamically from Redis
-// 	UpdatedAt         time.Time
-// }
-
-// // ListByUser retrieves all sidebar channels for a user with real-time presence merged from cache.
-// func (s *Service) ListByUser(ctx context.Context, rawUserID uuid.UUID) ([]SidebarChannel, error) {
-// 	userID, err := NewID(rawUserID)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument("invalid user ID").Wrap(err)
-// 	}
-
-// 	rows, err := s.repo.ListByUser(ctx, userID.UUID())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if len(rows) == 0 {
-// 		return []SidebarChannel{}, nil
-// 	}
-
-// 	// 1. Collect unique peer user IDs from DMs
-// 	peerIDs := make([]uuid.UUID, 0, len(rows))
-// 	peerIDSet := make(map[uuid.UUID]struct{})
-
-// 	for _, row := range rows {
-// 		if row.PeerUserID.Valid {
-// 			id := uuid.UUID(row.PeerUserID.Bytes)
-// 			if _, exists := peerIDSet[id]; !exists {
-// 				peerIDSet[id] = struct{}{}
-// 				peerIDs = append(peerIDs, id)
-// 			}
-// 		}
-// 	}
-
-// 	// 2. Single MGET call to Redis for all DMs in the sidebar
-// 	presenceMap, err := s.presenceStore.GetPresenceBulk(ctx, peerIDs)
-// 	if err != nil {
-// 		// Log error if needed; fallback to offline so sidebar rendering doesn't crash on cache failure
-// 		presenceMap = make(map[uuid.UUID]presence.Presence)
-// 	}
-
-// 	// 3. Assemble response DTOs
-// 	channels := make([]SidebarChannel, len(rows))
-// 	for i, row := range rows {
-// 		item := SidebarChannel{
-// 			ChannelID:         uuid.UUID(row.ChannelID.Bytes),
-// 			UserID:            uuid.UUID(row.UserID.Bytes),
-// 			Type:              row.ChannelType,
-// 			Name:              db.StringPtr(row.ChannelName),
-// 			IconURL:           db.StringPtr(row.ChannelIconUrl),
-// 			OwnerID:           db.UUIDPtrFromPG(row.ChannelOwnerID),
-// 			LastReadMessageID: db.UUIDPtrFromPG(row.LastReadMessageID),
-// 			LastMessageID:     db.UUIDPtrFromPG(row.ChannelLastMessageID),
-// 			MentionCount:      row.MentionCount,
-// 			UpdatedAt:         row.ChannelUpdatedAt.Time,
-// 			Presence:          presence.PresenceOffline, // Default fallback
-// 		}
-
-// 		if row.PeerUserID.Valid {
-// 			peerID := uuid.UUID(row.PeerUserID.Bytes)
-// 			item.PeerUserID = &peerID
-// 			if p, ok := presenceMap[peerID]; ok {
-// 				item.Presence = p
-// 			}
-// 		}
-
-// 		channels[i] = item
-// 	}
-
-// 	return channels, nil
-// }
-
 type UpdateChannelInput struct {
 	ChannelID uuid.UUID
 	ActorID   uuid.UUID
@@ -387,7 +227,7 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (*Channe
 		}
 
 		if !ch.Name().Equals(nameVO) {
-			if err := ch.UpdateName(nameVO); err != nil {
+			if err := ch.SetName(nameVO); err != nil {
 				return nil, err
 			}
 			updated = true
@@ -402,7 +242,7 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (*Channe
 		}
 
 		if !ch.IconURL().Equals(iconVO) {
-			if err := ch.UpdateIcon(iconVO); err != nil {
+			if err := ch.SetIcon(iconVO); err != nil {
 				return nil, err
 			}
 			updated = true
@@ -416,12 +256,12 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (*Channe
 
 	// 5. Persist entity changes and emit Outbox event in a single atomic transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if err := s.repo.Update(txCtx, ch); err != nil {
+		if _, err := s.repo.Update(txCtx, ch); err != nil {
 			return err
 		}
 
 		payload := ChannelUpdatedPayload{
-			ChannelID: ch.ID(),
+			ChannelID: uuid.UUID(ch.ID()),
 			ActorID:   input.ActorID,
 			Name:      db.ToStringPtr(ch.Name()),
 			IconURL:   db.ToStringPtr(ch.IconURL()),
@@ -436,49 +276,6 @@ func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (*Channe
 	}
 
 	return ch, nil
-}
-
-// Delete permanently or soft deletes a channel aggregate.
-// Note: Direct Messages cannot be deleted; users should hide/close DMs instead.
-func (s *Service) Delete(ctx context.Context, rawChannelID, rawActorID uuid.UUID) error {
-	channelID, err := NewID(rawChannelID)
-	if err != nil {
-		return errs.InvalidArgument("invalid channel ID").Wrap(err)
-	}
-
-	actorID, err := NewID(rawActorID)
-	if err != nil {
-		return errs.InvalidArgument("invalid actor ID").Wrap(err)
-	}
-
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		ch, err := s.repo.Get(txCtx, channelID.UUID())
-		if err != nil {
-			return err
-		}
-
-		if ch.Type() == TypeDirect {
-			return errs.FailedPrecondition("direct messages cannot be deleted")
-		}
-
-		if !ch.IsOwner(actorID.UUID()) {
-			return errs.PermissionDenied("only the owner can delete this channel").Wrap(ErrNotGroupOwner)
-		}
-
-		if err := s.repo.Delete(txCtx, channelID.UUID()); err != nil {
-			return err
-		}
-
-		_, err = s.outbox.Publish(txCtx, EventChannelDeleted, DeletedPayload{
-			ChannelID: channelID.UUID(),
-			ActorID:   actorID.UUID(),
-		})
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
 }
 
 // ============================================================================
