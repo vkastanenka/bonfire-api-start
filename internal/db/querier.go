@@ -28,8 +28,6 @@ type Querier interface {
 	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (Channel, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
-	// Used for populating the user's sidebar with channel info & peer profiles for DMs
-	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelListByUserRow, error)
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
@@ -37,14 +35,45 @@ type Querier interface {
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
+	ChannelMemberListItemsByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListItemsByChannelRow, error)
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
 	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
 	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
+	// -- name: ChannelListByUser :many
+	// -- Used for populating the user's sidebar with channel info & peer profiles for DMs
+	// SELECT
+	//     -- 1. Primary Identifiers & References
+	//     cm.channel_id,
+	//     cm.user_id,
+	//     rp.peer_id AS peer_user_id,
+	//     c.type AS channel_type,
+	//     -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
+	//     COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+	//     COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+	//     -- 3. Read State, Activity & Metrics
+	//     c.last_message_id AS channel_last_message_id,
+	//     cm.last_read_message_id,
+	//     cm.mention_count,
+	//     -- 4. Timestamps
+	//     cm.created_at,
+	//     cm.last_read_at,
+	//     c.updated_at AS channel_updated_at
+	// FROM
+	//     channel_members cm
+	//     JOIN channels c ON cm.channel_id = c.id
+	//     -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
+	//     LEFT JOIN relationship_perspectives rp ON c.type = 0
+	//         AND rp.user_id = cm.user_id
+	//         AND rp.channel_id = c.id
+	// WHERE
+	//     cm.user_id = @user_id::uuid
+	// ORDER BY
+	//     c.updated_at DESC,
+	//     c.id ASC;
 	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
 	// ============================================================================
-	// MESSAGES: TODO
+	// MESSAGES:
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
@@ -52,13 +81,87 @@ type Querier interface {
 	// Fetches the first message created after the user's last_read_at timestamp
 	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
 	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
-	// Fetches newer messages using keyset pagination.
-	MessageListByChannelAfter(ctx context.Context, arg MessageListByChannelAfterParams) ([]Message, error)
-	MessageListByChannelAround(ctx context.Context, arg MessageListByChannelAroundParams) ([]Message, error)
-	// Fetches older messages using keyset pagination.
-	MessageListByChannelBefore(ctx context.Context, arg MessageListByChannelBeforeParams) ([]Message, error)
-	MessageListPinnedByChannel(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
-	MessageListReplies(ctx context.Context, replyToMessageID pgtype.UUID) ([]Message, error)
+	// -- name: MessageListByChannelAfter :many
+	// -- Fetches newer messages using keyset pagination.
+	// SELECT
+	//     *
+	// FROM
+	//     messages
+	// WHERE
+	//     channel_id = @channel_id::uuid
+	//     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+	//         OR (created_at,
+	//             id) >(sqlc.narg('cursor_created_at')::timestamptz,
+	//             sqlc.narg('cursor_id')::uuid))
+	// ORDER BY
+	//     created_at ASC,
+	//     id ASC
+	// LIMIT @result_limit::int;
+	// -- name: MessageListByChannelAround :many
+	// WITH around_window AS ((
+	//         SELECT
+	//             m1.*
+	//         FROM
+	//             messages m1
+	//         WHERE
+	//             m1.channel_id = @channel_id::uuid
+	//             AND (m1.created_at,
+	//                 m1.id) <=(@cursor_created_at::timestamptz,
+	//                 @cursor_id::uuid)
+	//         ORDER BY
+	//             m1.created_at DESC,
+	//             m1.id DESC
+	//         LIMIT @older_limit::int)
+	// UNION ALL (
+	//     SELECT
+	//         m2.*
+	//     FROM
+	//         messages m2
+	//     WHERE
+	//         m2.channel_id = @channel_id::uuid
+	//         AND (m2.created_at,
+	//             m2.id) >(@cursor_created_at::timestamptz,
+	//             @cursor_id::uuid)
+	//     ORDER BY
+	//         m2.created_at ASC,
+	//         m2.id ASC
+	//     LIMIT @newer_limit::int))
+	// SELECT
+	//     m.*
+	// FROM
+	//     around_window aw
+	//     JOIN messages m ON m.id = aw.id
+	// ORDER BY
+	//     aw.created_at ASC,
+	//     aw.id ASC;
+	// -- name: MessageListByChannelBefore :many
+	// -- Fetches older messages using keyset pagination.
+	// SELECT
+	//     *
+	// FROM
+	//     messages
+	// WHERE
+	//     channel_id = @channel_id::uuid
+	//     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+	//         OR (created_at,
+	//             id) <(sqlc.narg('cursor_created_at')::timestamptz,
+	//             sqlc.narg('cursor_id')::uuid))
+	// ORDER BY
+	//     created_at DESC,
+	//     id DESC
+	// LIMIT @result_limit::int;
+	// TODO: ADD LIMIT
+	// -- name: MessageListPinnedByChannel :many
+	// SELECT
+	//     *
+	// FROM
+	//     messages
+	// WHERE
+	//     channel_id = @channel_id::uuid
+	//     AND is_pinned = TRUE
+	// ORDER BY
+	//     created_at DESC,
+	//     id DESC;
 	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) (Message, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
 	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)

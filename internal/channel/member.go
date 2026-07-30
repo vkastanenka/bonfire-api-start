@@ -152,3 +152,62 @@ func (m *Member) touch() {
 func (m *Member) touchWith(t time.Time) {
 	m.updatedAt = t
 }
+
+// -----------------------------------------------------------------------------
+// MemberListItem
+// -----------------------------------------------------------------------------
+
+// MemberListItem represents a read-optimized projection of a channel member
+// joined with their aggregate user profile data.
+type MemberListItem struct {
+	channelID     ID
+	userID        UserID
+	username      string
+	displayName   string
+	avatarURL     *string
+	userCreatedAt time.Time
+}
+
+// -----------------------------------------------------------------------------
+// Getters
+// -----------------------------------------------------------------------------
+
+func (m *MemberListItem) ChannelID() ID            { return m.channelID }
+func (m *MemberListItem) UserID() UserID           { return m.userID }
+func (m *MemberListItem) Username() string         { return m.username }
+func (m *MemberListItem) DisplayName() string      { return m.displayName }
+func (m *MemberListItem) AvatarURL() *string       { return m.avatarURL }
+func (m *MemberListItem) UserCreatedAt() time.Time { return m.userCreatedAt }
+
+// -----------------------------------------------------------------------------
+// Factory Methods
+// -----------------------------------------------------------------------------
+
+// ReconstituteMemberListItem restores a MemberListItem projection from persistence.
+func ReconstituteMemberListItem(
+	rawChannelID uuid.UUID,
+	rawUserID uuid.UUID,
+	username string,
+	displayName string,
+	rawAvatarURL *string,
+	userCreatedAt time.Time,
+) (*MemberListItem, error) {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	userID, err := NewUserID(rawUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MemberListItem{
+		channelID:     channelID,
+		userID:        userID,
+		username:      username,
+		displayName:   displayName,
+		avatarURL:     rawAvatarURL,
+		userCreatedAt: userCreatedAt,
+	}, nil
+}

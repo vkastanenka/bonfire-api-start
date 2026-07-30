@@ -267,38 +267,37 @@ SELECT
                 OR (created_at = @created_at::timestamptz
                     AND id < @message_id::uuid)));
 
--- name: ChannelListByUser :many
--- Used for populating the user's sidebar with channel info & peer profiles for DMs
-SELECT
-    -- 1. Primary Identifiers & References
-    cm.channel_id,
-    cm.user_id,
-    rp.peer_id AS peer_user_id,
-    c.type AS channel_type,
-    -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
-    COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
-    COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
-    -- 3. Read State, Activity & Metrics
-    c.last_message_id AS channel_last_message_id,
-    cm.last_read_message_id,
-    cm.mention_count,
-    -- 4. Timestamps
-    cm.created_at,
-    cm.last_read_at,
-    c.updated_at AS channel_updated_at
-FROM
-    channel_members cm
-    JOIN channels c ON cm.channel_id = c.id
-    -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
-    LEFT JOIN relationship_perspectives rp ON c.type = 0
-        AND rp.user_id = cm.user_id
-        AND rp.channel_id = c.id
-WHERE
-    cm.user_id = @user_id::uuid
-ORDER BY
-    c.updated_at DESC,
-    c.id ASC;
-
+-- -- name: ChannelListByUser :many
+-- -- Used for populating the user's sidebar with channel info & peer profiles for DMs
+-- SELECT
+--     -- 1. Primary Identifiers & References
+--     cm.channel_id,
+--     cm.user_id,
+--     rp.peer_id AS peer_user_id,
+--     c.type AS channel_type,
+--     -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
+--     COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+--     COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+--     -- 3. Read State, Activity & Metrics
+--     c.last_message_id AS channel_last_message_id,
+--     cm.last_read_message_id,
+--     cm.mention_count,
+--     -- 4. Timestamps
+--     cm.created_at,
+--     cm.last_read_at,
+--     c.updated_at AS channel_updated_at
+-- FROM
+--     channel_members cm
+--     JOIN channels c ON cm.channel_id = c.id
+--     -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
+--     LEFT JOIN relationship_perspectives rp ON c.type = 0
+--         AND rp.user_id = cm.user_id
+--         AND rp.channel_id = c.id
+-- WHERE
+--     cm.user_id = @user_id::uuid
+-- ORDER BY
+--     c.updated_at DESC,
+--     c.id ASC;
 -- name: ChannelUpdate :one
 UPDATE
     channels
@@ -355,7 +354,7 @@ ON CONFLICT (channel_id,
         updated_at = EXCLUDED.updated_at,
         last_read_at = EXCLUDED.last_read_at,
         mention_count = EXCLUDED.mention_count,
-        last_read_message_id = COALESCE(EXCLUDED.last_read_message_id, channel_members.last_read_message_id);
+        last_read_message_id = EXCLUDED.last_read_message_id;
 
 -- name: ChannelMemberGet :one
 SELECT
@@ -387,18 +386,14 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = ANY (@user_ids::uuid[]);
 
--- name: ChannelMemberListByChannel :many
+-- name: ChannelMemberListItemsByChannel :many
 SELECT
     cm.channel_id,
     cm.user_id,
-    cm.created_at,
-    cm.updated_at,
-    cm.last_read_at,
-    cm.mention_count,
-    cm.last_read_message_id,
     ua.username,
     ua.display_name,
-    ua.avatar_url
+    ua.avatar_url,
+    ua.created_at
 FROM
     channel_members cm
     JOIN user_aggregates ua ON ua.id = cm.user_id
@@ -439,7 +434,7 @@ WHERE
     AND user_id = @user_id::uuid;
 
 -- ============================================================================
--- MESSAGES: TODO
+-- MESSAGES:
 -- ============================================================================
 -- name: MessageCreate :one
 INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)
@@ -487,106 +482,93 @@ ORDER BY
     id DESC
 LIMIT 1;
 
--- name: MessageListByChannelAfter :many
--- Fetches newer messages using keyset pagination.
-SELECT
-    *
-FROM
-    messages
-WHERE
-    channel_id = @channel_id::uuid
-    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-        OR (created_at,
-            id) >(sqlc.narg('cursor_created_at')::timestamptz,
-            sqlc.narg('cursor_id')::uuid))
-ORDER BY
-    created_at ASC,
-    id ASC
-LIMIT @result_limit::int;
-
--- name: MessageListByChannelAround :many
-WITH around_window AS ((
-        SELECT
-            m1.*
-        FROM
-            messages m1
-        WHERE
-            m1.channel_id = @channel_id::uuid
-            AND (m1.created_at,
-                m1.id) <=(@cursor_created_at::timestamptz,
-                @cursor_id::uuid)
-        ORDER BY
-            m1.created_at DESC,
-            m1.id DESC
-        LIMIT @older_limit::int)
-UNION ALL (
-    SELECT
-        m2.*
-    FROM
-        messages m2
-    WHERE
-        m2.channel_id = @channel_id::uuid
-        AND (m2.created_at,
-            m2.id) >(@cursor_created_at::timestamptz,
-            @cursor_id::uuid)
-    ORDER BY
-        m2.created_at ASC,
-        m2.id ASC
-    LIMIT @newer_limit::int))
-SELECT
-    m.*
-FROM
-    around_window aw
-    JOIN messages m ON m.id = aw.id
-ORDER BY
-    aw.created_at ASC,
-    aw.id ASC;
-
--- name: MessageListByChannelBefore :many
--- Fetches older messages using keyset pagination.
-SELECT
-    *
-FROM
-    messages
-WHERE
-    channel_id = @channel_id::uuid
-    AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-        OR (created_at,
-            id) <(sqlc.narg('cursor_created_at')::timestamptz,
-            sqlc.narg('cursor_id')::uuid))
-ORDER BY
-    created_at DESC,
-    id DESC
-LIMIT @result_limit::int;
-
--- name: MessageListPinnedByChannel :many
-SELECT
-    *
-FROM
-    messages
-WHERE
-    channel_id = @channel_id::uuid
-    AND is_pinned = TRUE
-ORDER BY
-    created_at DESC,
-    id DESC;
-
--- name: MessageListReplies :many
-SELECT
-    m.*
-FROM
-    messages m
-WHERE
-    m.reply_to_message_id = @reply_to_message_id::uuid
-ORDER BY
-    m.created_at ASC,
-    m.id ASC;
-
+-- -- name: MessageListByChannelAfter :many
+-- -- Fetches newer messages using keyset pagination.
+-- SELECT
+--     *
+-- FROM
+--     messages
+-- WHERE
+--     channel_id = @channel_id::uuid
+--     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+--         OR (created_at,
+--             id) >(sqlc.narg('cursor_created_at')::timestamptz,
+--             sqlc.narg('cursor_id')::uuid))
+-- ORDER BY
+--     created_at ASC,
+--     id ASC
+-- LIMIT @result_limit::int;
+-- -- name: MessageListByChannelAround :many
+-- WITH around_window AS ((
+--         SELECT
+--             m1.*
+--         FROM
+--             messages m1
+--         WHERE
+--             m1.channel_id = @channel_id::uuid
+--             AND (m1.created_at,
+--                 m1.id) <=(@cursor_created_at::timestamptz,
+--                 @cursor_id::uuid)
+--         ORDER BY
+--             m1.created_at DESC,
+--             m1.id DESC
+--         LIMIT @older_limit::int)
+-- UNION ALL (
+--     SELECT
+--         m2.*
+--     FROM
+--         messages m2
+--     WHERE
+--         m2.channel_id = @channel_id::uuid
+--         AND (m2.created_at,
+--             m2.id) >(@cursor_created_at::timestamptz,
+--             @cursor_id::uuid)
+--     ORDER BY
+--         m2.created_at ASC,
+--         m2.id ASC
+--     LIMIT @newer_limit::int))
+-- SELECT
+--     m.*
+-- FROM
+--     around_window aw
+--     JOIN messages m ON m.id = aw.id
+-- ORDER BY
+--     aw.created_at ASC,
+--     aw.id ASC;
+-- -- name: MessageListByChannelBefore :many
+-- -- Fetches older messages using keyset pagination.
+-- SELECT
+--     *
+-- FROM
+--     messages
+-- WHERE
+--     channel_id = @channel_id::uuid
+--     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
+--         OR (created_at,
+--             id) <(sqlc.narg('cursor_created_at')::timestamptz,
+--             sqlc.narg('cursor_id')::uuid))
+-- ORDER BY
+--     created_at DESC,
+--     id DESC
+-- LIMIT @result_limit::int;
+-- TODO: ADD LIMIT
+-- -- name: MessageListPinnedByChannel :many
+-- SELECT
+--     *
+-- FROM
+--     messages
+-- WHERE
+--     channel_id = @channel_id::uuid
+--     AND is_pinned = TRUE
+-- ORDER BY
+--     created_at DESC,
+--     id DESC;
 -- name: MessageSetPinned :one
 UPDATE
     messages
 SET
-    is_pinned = @is_pinned::boolean
+    is_pinned = @is_pinned::boolean,
+    updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid
 RETURNING
@@ -597,6 +579,7 @@ UPDATE
     messages
 SET
     content = sqlc.narg('content')::text,
+    updated_at = @updated_at::timestamptz,
     edited_at = @edited_at::timestamptz
 WHERE
     id = @id::uuid
