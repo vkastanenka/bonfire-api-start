@@ -145,8 +145,26 @@ CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id, created_at A
 WHERE
     reply_to_message_id IS NOT NULL;
 
+CREATE OR REPLACE VIEW message_base_aggregates AS
+SELECT
+    m.id,
+    m.channel_id,
+    m.reply_to_message_id,
+    m.author_id,
+    ua.username AS author_username,
+    ua.display_name AS author_display_name,
+    ua.avatar_url AS author_avatar_url,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.is_pinned,
+    m.content
+FROM
+    messages m
+    LEFT JOIN user_aggregates ua ON ua.id = m.author_id;
+
 ALTER TABLE channels
-    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
+    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
 
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -169,13 +187,13 @@ WHERE
 CREATE TABLE message_attachments(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    file_name text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     file_size integer NOT NULL, -- Size in bytes (supports files up to 2GB, or use bigint if larger limits needed)
-    content_type text NOT NULL, -- e.g., 'image/png', 'application/pdf'
-    url text NOT NULL, -- CDN URL or object storage path (e.g., S3 key or public URL)
     width integer DEFAULT NULL, -- Populated if the file is an image/video
     height integer DEFAULT NULL, -- Populated if the file is an image/video
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    file_name text NOT NULL,
+    content_type text NOT NULL, -- e.g., 'image/png', 'application/pdf'
+    url text NOT NULL, -- CDN URL or object storage path (e.g., S3 key or public URL)
     CONSTRAINT file_name_validity CHECK (length(trim(file_name)) BETWEEN 1 AND 255),
     CONSTRAINT file_size_positive CHECK (file_size > 0),
     CONSTRAINT content_type_validity CHECK (length(trim(content_type)) BETWEEN 1 AND 128),

@@ -337,13 +337,17 @@ func (r *Channel) MessageDelete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *Channel) MessageGet(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
-	row, err := r.store.MessageGet(ctx, db.UUID(id))
+func (r *Channel) MessageGet(
+	ctx context.Context,
+	id uuid.UUID,
+	userID *uuid.UUID,
+) (*channel.MessageAggregate, error) {
+	row, err := r.store.MessageGetAggregate(ctx, db.UUID(id))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	return messageFromRow(row)
+	return messageAggregateFromRow(row, userID)
 }
 
 func (r *Channel) MessageGetFirstUnread(ctx context.Context, channelID, userID uuid.UUID) (*channel.Message, error) {
@@ -483,25 +487,6 @@ func (r *Channel) ReactionAdd(ctx context.Context, messageID, userID uuid.UUID, 
 	return reactionFromRow(row)
 }
 
-// TODO: Remove
-func (r *Channel) ReactionListByMessage(ctx context.Context, messageID uuid.UUID) ([]channel.Reaction, error) {
-	rows, err := r.store.ReactionListByMessage(ctx, db.UUID(messageID))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityMessageReaction)
-	}
-
-	reactions := make([]channel.Reaction, 0, len(rows))
-	for _, row := range rows {
-		react, err := reactionFromRow(row)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityMessageReaction)
-		}
-		reactions = append(reactions, *react)
-	}
-
-	return reactions, nil
-}
-
 func (r *Channel) ReactionRemove(ctx context.Context, messageID, userID uuid.UUID, emoji channel.Emoji) error {
 	err := r.store.ReactionRemove(ctx, db.ReactionRemoveParams{
 		MessageID: db.UUID(messageID),
@@ -513,32 +498,6 @@ func (r *Channel) ReactionRemove(ctx context.Context, messageID, userID uuid.UUI
 	}
 
 	return nil
-}
-
-// TODO: Remove
-func (r *Channel) ReactionSummarizeByMessage(ctx context.Context, messageID, currentUserID uuid.UUID) ([]channel.ReactionSummary, error) {
-	rows, err := r.store.ReactionSummarizeByMessage(ctx, db.ReactionSummarizeByMessageParams{
-		MessageID:     db.UUID(messageID),
-		CurrentUserID: db.UUID(currentUserID),
-	})
-	if err != nil {
-		return nil, db.NewError(err, db.EntityMessageReaction)
-	}
-
-	summaries := make([]channel.ReactionSummary, 0, len(rows))
-	for _, row := range rows {
-		summary, err := channel.ReconstituteReactionSummary(
-			row.Emoji,
-			int64(row.Count),
-			row.MeReacted,
-		)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityMessageReaction)
-		}
-		summaries = append(summaries, summary)
-	}
-
-	return summaries, nil
 }
 
 // ============================================================================
@@ -612,6 +571,60 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 	}
 
 	return msg, nil
+}
+
+func messageAggregateFromRow(row db.MessageGetAggregateRow, currentUserID *uuid.UUID) (*channel.MessageAggregate, error) {
+	// 1. Reconstitute Base Message
+	msg, err := channel.ReconstituteMessage(
+		row.ID.Bytes,
+		row.ChannelID.Bytes,
+		db.UUIDPtrFromDB(row.AuthorID),
+		db.UUIDPtrFromDB(row.ReplyToMessageID),
+		db.StringPtr(row.Content),
+		row.IsPinned,
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
+		db.TimePtr(row.EditedAt),
+	)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	// 2. Reconstitute Author Summary
+	authorID := db.UUIDPtrFromDB(row.AuthorID)
+	var author channel.AuthorSummary
+	if authorID != nil {
+		var err error
+		author, err = channel.ReconstituteAuthorSummary(
+			authorID,
+			row.AuthorUsername.String,
+			row.AuthorDisplayName.String,
+			db.StringPtr(row.AuthorAvatarUrl),
+		)
+		if err != nil {
+			return nil, db.NewError(err, db.EntityMessage)
+		}
+	}
+
+	// 3. Unmarshal Attachments from JSON
+	attachments, err := channel.UnmarshalAttachmentsJSON(row.ID.Bytes, row.Attachments)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	// 4. Unmarshal and aggregate ReactionSummaries from JSON
+	reactions, err := channel.UnmarshalReactionsJSON(row.Reactions, currentUserID)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	// 5. Build Final Domain Aggregate
+	agg, err := channel.ReconstituteMessageAggregate(msg, author, attachments, reactions)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return agg, nil
 }
 
 func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {

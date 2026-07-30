@@ -41,7 +41,7 @@ type AttachmentCreateBatchParams struct {
 }
 
 // ============================================================================
-// MESSAGE ATTACHMENTS: TODO
+// MESSAGE ATTACHMENTS:
 // ============================================================================
 func (q *Queries) AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error {
 	_, err := q.db.Exec(ctx, attachmentCreateBatch,
@@ -66,89 +66,6 @@ WHERE message_id = $1
 func (q *Queries) AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, attachmentDeleteByMessage, messageID)
 	return err
-}
-
-const attachmentListByMessage = `-- name: AttachmentListByMessage :many
-SELECT
-    id, message_id, file_name, file_size, content_type, url, width, height, created_at
-FROM
-    message_attachments
-WHERE
-    message_id = $1
-ORDER BY
-    created_at ASC
-`
-
-func (q *Queries) AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error) {
-	rows, err := q.db.Query(ctx, attachmentListByMessage, messageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []MessageAttachment
-	for rows.Next() {
-		var i MessageAttachment
-		if err := rows.Scan(
-			&i.ID,
-			&i.MessageID,
-			&i.FileName,
-			&i.FileSize,
-			&i.ContentType,
-			&i.Url,
-			&i.Width,
-			&i.Height,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const attachmentListByMessagesBatch = `-- name: AttachmentListByMessagesBatch :many
-SELECT
-    id, message_id, file_name, file_size, content_type, url, width, height, created_at
-FROM
-    message_attachments
-WHERE
-    message_id = ANY ($1::uuid[])
-ORDER BY
-    created_at ASC
-`
-
-// Highly efficient for bulk-loading attachments when fetching a page of messages
-func (q *Queries) AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error) {
-	rows, err := q.db.Query(ctx, attachmentListByMessagesBatch, messageIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []MessageAttachment
-	for rows.Next() {
-		var i MessageAttachment
-		if err := rows.Scan(
-			&i.ID,
-			&i.MessageID,
-			&i.FileName,
-			&i.FileSize,
-			&i.ContentType,
-			&i.Url,
-			&i.Width,
-			&i.Height,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const channelCreate = `-- name: ChannelCreate :one
@@ -741,28 +658,79 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-const messageGet = `-- name: MessageGet :one
+const messageGetAggregate = `-- name: MessageGetAggregate :one
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
+    mb.id,
+    mb.channel_id,
+    mb.reply_to_message_id,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.is_pinned,
+    mb.content,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
-    messages
+    message_base_aggregates mb
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = mb.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = mb.id) rec ON TRUE
 WHERE
-    id = $1::uuid
+    mb.id = $1::uuid
 `
 
-func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, error) {
-	row := q.db.QueryRow(ctx, messageGet, id)
-	var i Message
+type MessageGetAggregateRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
+	Attachments       []byte             `json:"attachments"`
+	Reactions         []byte             `json:"reactions"`
+}
+
+func (q *Queries) MessageGetAggregate(ctx context.Context, id pgtype.UUID) (MessageGetAggregateRow, error) {
+	row := q.db.QueryRow(ctx, messageGetAggregate, id)
+	var i MessageGetAggregateRow
 	err := row.Scan(
 		&i.ID,
 		&i.ChannelID,
 		&i.ReplyToMessageID,
 		&i.AuthorID,
+		&i.AuthorUsername,
+		&i.AuthorDisplayName,
+		&i.AuthorAvatarUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
+		&i.Attachments,
+		&i.Reactions,
 	)
 	return i, err
 }
@@ -834,6 +802,116 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 		&i.Content,
 	)
 	return i, err
+}
+
+const messageListAggregateByChannel = `-- name: MessageListAggregateByChannel :many
+SELECT
+    mb.id,
+    mb.channel_id,
+    mb.reply_to_message_id,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.is_pinned,
+    mb.content,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
+FROM
+    message_base_aggregates mb
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = mb.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = mb.id) rec ON TRUE
+WHERE
+    mb.channel_id = $1::uuid
+    AND ($2::timestamptz IS NULL
+        OR (mb.created_at,
+            mb.id) <($2::timestamptz,
+            $3::uuid))
+ORDER BY
+    mb.created_at DESC,
+    mb.id DESC
+LIMIT $4::int
+`
+
+type MessageListAggregateByChannelParams struct {
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.UUID        `json:"cursor_id"`
+	LimitVal        int32              `json:"limit_val"`
+}
+
+type MessageListAggregateByChannelRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
+	Attachments       []byte             `json:"attachments"`
+	Reactions         []byte             `json:"reactions"`
+}
+
+func (q *Queries) MessageListAggregateByChannel(ctx context.Context, arg MessageListAggregateByChannelParams) ([]MessageListAggregateByChannelRow, error) {
+	rows, err := q.db.Query(ctx, messageListAggregateByChannel,
+		arg.ChannelID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.LimitVal,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageListAggregateByChannelRow
+	for rows.Next() {
+		var i MessageListAggregateByChannelRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ReplyToMessageID,
+			&i.AuthorID,
+			&i.AuthorUsername,
+			&i.AuthorDisplayName,
+			&i.AuthorAvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+			&i.Attachments,
+			&i.Reactions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const messageSetPinned = `-- name: MessageSetPinned :one
@@ -1349,7 +1427,7 @@ type ReactionAddParams struct {
 }
 
 // ============================================================================
-// MESSAGE REACTIONS: TODO
+// MESSAGE REACTIONS:
 // ============================================================================
 func (q *Queries) ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error) {
 	row := q.db.QueryRow(ctx, reactionAdd, arg.MessageID, arg.UserID, arg.Emoji)
@@ -1361,42 +1439,6 @@ func (q *Queries) ReactionAdd(ctx context.Context, arg ReactionAddParams) (Messa
 		&i.Emoji,
 	)
 	return i, err
-}
-
-const reactionListByMessage = `-- name: ReactionListByMessage :many
-SELECT
-    message_id, user_id, created_at, emoji
-FROM
-    message_reactions
-WHERE
-    message_id = $1
-ORDER BY
-    created_at ASC
-`
-
-func (q *Queries) ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageReaction, error) {
-	rows, err := q.db.Query(ctx, reactionListByMessage, messageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []MessageReaction
-	for rows.Next() {
-		var i MessageReaction
-		if err := rows.Scan(
-			&i.MessageID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.Emoji,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const reactionRemove = `-- name: ReactionRemove :exec
@@ -1415,52 +1457,6 @@ type ReactionRemoveParams struct {
 func (q *Queries) ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error {
 	_, err := q.db.Exec(ctx, reactionRemove, arg.MessageID, arg.UserID, arg.Emoji)
 	return err
-}
-
-const reactionSummarizeByMessage = `-- name: ReactionSummarizeByMessage :many
-SELECT
-    emoji,
-    COUNT(*)::int AS count,
-    BOOL_OR(user_id = $1) AS me_reacted
-FROM
-    message_reactions
-WHERE
-    message_id = $2
-GROUP BY
-    emoji
-ORDER BY
-    count DESC
-`
-
-type ReactionSummarizeByMessageParams struct {
-	CurrentUserID pgtype.UUID `json:"current_user_id"`
-	MessageID     pgtype.UUID `json:"message_id"`
-}
-
-type ReactionSummarizeByMessageRow struct {
-	Emoji     string `json:"emoji"`
-	Count     int32  `json:"count"`
-	MeReacted bool   `json:"me_reacted"`
-}
-
-func (q *Queries) ReactionSummarizeByMessage(ctx context.Context, arg ReactionSummarizeByMessageParams) ([]ReactionSummarizeByMessageRow, error) {
-	rows, err := q.db.Query(ctx, reactionSummarizeByMessage, arg.CurrentUserID, arg.MessageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ReactionSummarizeByMessageRow
-	for rows.Next() {
-		var i ReactionSummarizeByMessageRow
-		if err := rows.Scan(&i.Emoji, &i.Count, &i.MeReacted); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const relationshipDelete = `-- name: RelationshipDelete :exec

@@ -12,13 +12,10 @@ import (
 
 type Querier interface {
 	// ============================================================================
-	// MESSAGE ATTACHMENTS: TODO
+	// MESSAGE ATTACHMENTS:
 	// ============================================================================
 	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
 	AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error
-	AttachmentListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageAttachment, error)
-	// Highly efficient for bulk-loading attachments when fetching a page of messages
-	AttachmentListByMessagesBatch(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error)
 	// ============================================================================
 	// CHANNELS
 	// ============================================================================
@@ -77,10 +74,11 @@ type Querier interface {
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
-	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
+	MessageGetAggregate(ctx context.Context, id pgtype.UUID) (MessageGetAggregateRow, error)
 	// Fetches the first message created after the user's last_read_at timestamp
 	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
 	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
+	MessageListAggregateByChannel(ctx context.Context, arg MessageListAggregateByChannelParams) ([]MessageListAggregateByChannelRow, error)
 	// -- name: MessageListByChannelAfter :many
 	// -- Fetches newer messages using keyset pagination.
 	// SELECT
@@ -173,12 +171,10 @@ type Querier interface {
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
 	// ============================================================================
-	// MESSAGE REACTIONS: TODO
+	// MESSAGE REACTIONS:
 	// ============================================================================
 	ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error)
-	ReactionListByMessage(ctx context.Context, messageID pgtype.UUID) ([]MessageReaction, error)
 	ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error
-	ReactionSummarizeByMessage(ctx context.Context, arg ReactionSummarizeByMessageParams) ([]ReactionSummarizeByMessageRow, error)
 	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	// ============================================================================

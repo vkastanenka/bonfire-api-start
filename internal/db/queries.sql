@@ -446,13 +446,87 @@ RETURNING
 DELETE FROM messages
 WHERE id = @id::uuid;
 
--- name: MessageGet :one
+-- name: MessageGetAggregate :one
 SELECT
-    *
+    mb.id,
+    mb.channel_id,
+    mb.reply_to_message_id,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.is_pinned,
+    mb.content,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
-    messages
+    message_base_aggregates mb
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = mb.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = mb.id) rec ON TRUE
 WHERE
-    id = @id::uuid;
+    mb.id = @id::uuid;
+
+-- name: MessageListAggregateByChannel :many
+SELECT
+    mb.id,
+    mb.channel_id,
+    mb.reply_to_message_id,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.is_pinned,
+    mb.content,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
+FROM
+    message_base_aggregates mb
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = mb.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = mb.id) rec ON TRUE
+WHERE
+    mb.channel_id = @channel_id::uuid
+    AND (@cursor_created_at::timestamptz IS NULL
+        OR (mb.created_at,
+            mb.id) <(@cursor_created_at::timestamptz,
+            @cursor_id::uuid))
+ORDER BY
+    mb.created_at DESC,
+    mb.id DESC
+LIMIT @limit_val::int;
 
 -- name: MessageGetFirstUnread :one
 -- Fetches the first message created after the user's last_read_at timestamp
@@ -587,7 +661,7 @@ RETURNING
     *;
 
 -- ============================================================================
--- MESSAGE ATTACHMENTS: TODO
+-- MESSAGE ATTACHMENTS:
 -- ============================================================================
 -- name: AttachmentCreateBatch :exec
 INSERT INTO message_attachments(id, message_id, file_name, file_size, content_type, url, width, height, created_at)
@@ -604,33 +678,12 @@ SELECT
 WHERE
     @message_id IS NOT NULL;
 
--- name: AttachmentListByMessage :many
-SELECT
-    *
-FROM
-    message_attachments
-WHERE
-    message_id = $1
-ORDER BY
-    created_at ASC;
-
--- name: AttachmentListByMessagesBatch :many
--- Highly efficient for bulk-loading attachments when fetching a page of messages
-SELECT
-    *
-FROM
-    message_attachments
-WHERE
-    message_id = ANY (@message_ids::uuid[])
-ORDER BY
-    created_at ASC;
-
 -- name: AttachmentDeleteByMessage :exec
 DELETE FROM message_attachments
 WHERE message_id = $1;
 
 -- ============================================================================
--- MESSAGE REACTIONS: TODO
+-- MESSAGE REACTIONS:
 -- ============================================================================
 -- name: ReactionAdd :one
 INSERT INTO message_reactions(message_id, user_id, emoji)
@@ -646,30 +699,6 @@ DELETE FROM message_reactions
 WHERE message_id = @message_id
     AND user_id = @user_id
     AND emoji = @emoji;
-
--- name: ReactionListByMessage :many
-SELECT
-    *
-FROM
-    message_reactions
-WHERE
-    message_id = $1
-ORDER BY
-    created_at ASC;
-
--- name: ReactionSummarizeByMessage :many
-SELECT
-    emoji,
-    COUNT(*)::int AS count,
-    BOOL_OR(user_id = @current_user_id) AS me_reacted
-FROM
-    message_reactions
-WHERE
-    message_id = @message_id
-GROUP BY
-    emoji
-ORDER BY
-    count DESC;
 
 -- ============================================================================
 -- RELATIONSHIPS

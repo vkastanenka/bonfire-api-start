@@ -45,13 +45,28 @@ type Message struct {
 type MessageAttachment struct {
 	ID          pgtype.UUID        `json:"id"`
 	MessageID   pgtype.UUID        `json:"message_id"`
-	FileName    string             `json:"file_name"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	FileSize    int32              `json:"file_size"`
-	ContentType string             `json:"content_type"`
-	Url         string             `json:"url"`
 	Width       pgtype.Int4        `json:"width"`
 	Height      pgtype.Int4        `json:"height"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	FileName    string             `json:"file_name"`
+	ContentType string             `json:"content_type"`
+	Url         string             `json:"url"`
+}
+
+type MessageBaseAggregate struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
 }
 
 type MessageReaction struct {
