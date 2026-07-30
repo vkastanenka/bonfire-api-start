@@ -72,6 +72,17 @@ func NewUserID(raw uuid.UUID) (UserID, error) {
 	return UserID(raw), nil
 }
 
+func NewUserIDPtr(raw *uuid.UUID) (*UserID, error) {
+	if raw == nil || *raw == uuid.Nil {
+		return nil, nil
+	}
+	id, err := NewUserID(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
 func ParseUserID(raw string) (UserID, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -276,10 +287,33 @@ func NewContent(raw string) (Content, error) {
 	return Content{value: s}, nil
 }
 
+func NewContentPtr(raw *string) (*Content, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	s := strings.TrimSpace(*raw)
+	if s == "" {
+		return nil, nil
+	}
+
+	content, err := NewContent(s)
+	if err != nil {
+		return nil, err
+	}
+	return &content, nil
+}
+
 func (c Content) String() string { return c.value }
 func (c Content) IsValid() bool  { return c.value != "" }
 
-func (c Content) Equals(other Content) bool {
+func (c *Content) Equals(other *Content) bool {
+	if c == nil && other == nil {
+		return true
+	}
+	if c == nil || other == nil {
+		return false
+	}
 	return c.value == other.value
 }
 

@@ -128,6 +128,7 @@ CREATE TABLE messages(
     reply_to_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     author_id uuid REFERENCES users(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at timestamptz DEFAULT NULL,
     is_pinned boolean NOT NULL DEFAULT FALSE,
     content text,
