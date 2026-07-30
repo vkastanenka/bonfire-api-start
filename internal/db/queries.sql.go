@@ -738,10 +738,10 @@ func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdat
 }
 
 const messageCreate = `-- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content)
-    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::boolean, $8::text)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::boolean, $9::text)
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 `
 
 type MessageCreateParams struct {
@@ -750,6 +750,7 @@ type MessageCreateParams struct {
 	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
 	AuthorID         pgtype.UUID        `json:"author_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
 	IsPinned         bool               `json:"is_pinned"`
 	Content          pgtype.Text        `json:"content"`
@@ -765,6 +766,7 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		arg.ReplyToMessageID,
 		arg.AuthorID,
 		arg.CreatedAt,
+		arg.UpdatedAt,
 		arg.EditedAt,
 		arg.IsPinned,
 		arg.Content,
@@ -776,6 +778,7 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
@@ -795,7 +798,7 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 
 const messageGet = `-- name: MessageGet :one
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
@@ -811,6 +814,7 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
@@ -820,7 +824,7 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 
 const messageGetFirstUnread = `-- name: MessageGetFirstUnread :one
 SELECT
-    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.updated_at, m.edited_at, m.is_pinned, m.content
 FROM
     messages m
     JOIN channel_members cm ON cm.channel_id = m.channel_id
@@ -849,6 +853,7 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
@@ -858,7 +863,7 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 
 const messageGetLatest = `-- name: MessageGetLatest :one
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
@@ -878,6 +883,7 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
@@ -887,7 +893,7 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 
 const messageListByChannelAfter = `-- name: MessageListByChannelAfter :many
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
@@ -930,6 +936,7 @@ func (q *Queries) MessageListByChannelAfter(ctx context.Context, arg MessageList
 			&i.ReplyToMessageID,
 			&i.AuthorID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
 			&i.Content,
@@ -947,7 +954,7 @@ func (q *Queries) MessageListByChannelAfter(ctx context.Context, arg MessageList
 const messageListByChannelAround = `-- name: MessageListByChannelAround :many
 WITH around_window AS ((
         SELECT
-            m1.id, m1.channel_id, m1.reply_to_message_id, m1.author_id, m1.created_at, m1.edited_at, m1.is_pinned, m1.content
+            m1.id, m1.channel_id, m1.reply_to_message_id, m1.author_id, m1.created_at, m1.updated_at, m1.edited_at, m1.is_pinned, m1.content
         FROM
             messages m1
         WHERE
@@ -961,7 +968,7 @@ WITH around_window AS ((
         LIMIT $4::int)
 UNION ALL (
     SELECT
-        m2.id, m2.channel_id, m2.reply_to_message_id, m2.author_id, m2.created_at, m2.edited_at, m2.is_pinned, m2.content
+        m2.id, m2.channel_id, m2.reply_to_message_id, m2.author_id, m2.created_at, m2.updated_at, m2.edited_at, m2.is_pinned, m2.content
     FROM
         messages m2
     WHERE
@@ -974,7 +981,7 @@ UNION ALL (
         m2.id ASC
     LIMIT $5::int))
 SELECT
-    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.updated_at, m.edited_at, m.is_pinned, m.content
 FROM
     around_window aw
     JOIN messages m ON m.id = aw.id
@@ -1012,6 +1019,7 @@ func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageLis
 			&i.ReplyToMessageID,
 			&i.AuthorID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
 			&i.Content,
@@ -1028,7 +1036,7 @@ func (q *Queries) MessageListByChannelAround(ctx context.Context, arg MessageLis
 
 const messageListByChannelBefore = `-- name: MessageListByChannelBefore :many
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
@@ -1071,6 +1079,7 @@ func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageLis
 			&i.ReplyToMessageID,
 			&i.AuthorID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
 			&i.Content,
@@ -1087,7 +1096,7 @@ func (q *Queries) MessageListByChannelBefore(ctx context.Context, arg MessageLis
 
 const messageListPinnedByChannel = `-- name: MessageListPinnedByChannel :many
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 FROM
     messages
 WHERE
@@ -1113,6 +1122,7 @@ func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgty
 			&i.ReplyToMessageID,
 			&i.AuthorID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
 			&i.Content,
@@ -1129,7 +1139,7 @@ func (q *Queries) MessageListPinnedByChannel(ctx context.Context, channelID pgty
 
 const messageListReplies = `-- name: MessageListReplies :many
 SELECT
-    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.updated_at, m.edited_at, m.is_pinned, m.content
 FROM
     messages m
 WHERE
@@ -1154,6 +1164,7 @@ func (q *Queries) MessageListReplies(ctx context.Context, replyToMessageID pgtyp
 			&i.ReplyToMessageID,
 			&i.AuthorID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.IsPinned,
 			&i.Content,
@@ -1176,7 +1187,7 @@ SET
 WHERE
     id = $2::uuid
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 `
 
 type MessageSetPinnedParams struct {
@@ -1193,6 +1204,7 @@ func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedPara
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,
@@ -1209,7 +1221,7 @@ SET
 WHERE
     id = $3::uuid
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 `
 
 type MessageUpdateContentParams struct {
@@ -1227,6 +1239,7 @@ func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateCon
 		&i.ReplyToMessageID,
 		&i.AuthorID,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.IsPinned,
 		&i.Content,

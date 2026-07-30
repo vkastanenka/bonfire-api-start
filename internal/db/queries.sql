@@ -442,8 +442,8 @@ WHERE
 -- MESSAGES: TODO
 -- ============================================================================
 -- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, edited_at, is_pinned, content)
-    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, sqlc.narg('edited_at')::timestamptz, @is_pinned::boolean, sqlc.narg('content')::text)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)
+    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, @is_pinned::boolean, sqlc.narg('content')::text)
 RETURNING
     *;
 

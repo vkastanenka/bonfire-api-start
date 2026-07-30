@@ -52,7 +52,7 @@ func NewMessage(
 	rawChannelID uuid.UUID,
 	rawAuthorID *uuid.UUID,
 	rawReplyToID *uuid.UUID,
-	content *Content,
+	rawContent *string,
 ) (*Message, error) {
 	chID, err := NewID(rawChannelID)
 	if err != nil {
@@ -68,6 +68,8 @@ func NewMessage(
 	if err != nil {
 		return nil, err
 	}
+
+	content, err := NewContentPtr(rawContent)
 
 	rawID := uuid.Must(uuid.NewV7())
 	msgID, err := NewMessageID(rawID)

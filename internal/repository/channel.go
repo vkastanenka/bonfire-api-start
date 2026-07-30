@@ -546,36 +546,31 @@ func (r *Channel) ReactionSummarizeByMessage(ctx context.Context, messageID, cur
 // ============================================================================
 
 func channelFromRow(row db.Channel) (*channel.Channel, error) {
-	return channel.Reconstitute(
+	ch, err := channel.Reconstitute(
 		row.ID.Bytes,
-		channel.Type(row.Type),
+		row.Type,
 		db.StringPtr(row.Name),
 		db.StringPtr(row.IconUrl),
 		db.UUIDPtrFromDB(row.LastMessageID),
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
 	)
-}
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannel)
+	}
 
-func channelFromListRow(row db.ChannelListByUserRow) (*channel.Channel, error) {
-	return channel.Reconstitute(
-		row.ChannelID.Bytes,
-		channel.Type(row.ChannelType),
-		&row.ChannelName, // ChannelName is a string from COALESCE
-		db.StringPtr(row.ChannelIconUrl),
-		db.UUIDPtrFromDB(row.ChannelLastMessageID),
-		row.CreatedAt.Time.UTC(),
-		row.ChannelUpdatedAt.Time.UTC(),
-	)
+	return ch, nil
 }
 
 func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
 	mem, err := channel.ReconstituteMember(
 		row.ChannelID.Bytes,
 		row.UserID.Bytes,
-		row.JoinedAt.Time.UTC(),
 		db.UUIDPtrFromDB(row.LastReadMessageID),
 		row.MentionCount,
+		row.LastReadAt.Time.UTC(),
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
 	)
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannelMember)
@@ -585,26 +580,32 @@ func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
 }
 
 func messageFromRow(row db.Message) (*channel.Message, error) {
-	return channel.ReconstituteMessage(
+	msg, err := channel.ReconstituteMessage(
 		row.ID.Bytes,
 		row.ChannelID.Bytes,
 		db.UUIDPtrFromDB(row.AuthorID),
 		db.UUIDPtrFromDB(row.ReplyToMessageID),
-		row.Content.String,
+		db.StringPtr(row.Content),
 		row.IsPinned,
 		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
 		db.TimePtr(row.EditedAt),
 	)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return msg, nil
 }
 
-func messagesFromRows(rows []db.Message) ([]channel.Message, error) {
-	messages := make([]channel.Message, 0, len(rows))
+func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {
+	messages := make([]*channel.Message, 0, len(rows))
 	for _, row := range rows {
 		msg, err := messageFromRow(row)
 		if err != nil {
-			return nil, db.NewError(err, db.EntityMessage)
+			return nil, err
 		}
-		messages = append(messages, *msg)
+		messages = append(messages, msg)
 	}
 	return messages, nil
 }

@@ -19,8 +19,8 @@ var (
 
 // Reaction represents an individual emoji reaction on a message by a user.
 type Reaction struct {
-	messageID uuid.UUID
-	userID    uuid.UUID
+	messageID MessageID
+	userID    UserID
 	emoji     Emoji
 	createdAt time.Time
 }
@@ -29,8 +29,8 @@ type Reaction struct {
 // Getters
 // -----------------------------------------------------------------------------
 
-func (r *Reaction) MessageID() uuid.UUID { return r.messageID }
-func (r *Reaction) UserID() uuid.UUID    { return r.userID }
+func (r *Reaction) MessageID() MessageID { return r.messageID }
+func (r *Reaction) UserID() UserID       { return r.userID }
 func (r *Reaction) Emoji() Emoji         { return r.emoji }
 func (r *Reaction) CreatedAt() time.Time { return r.createdAt }
 
@@ -39,17 +39,24 @@ func (r *Reaction) CreatedAt() time.Time { return r.createdAt }
 // -----------------------------------------------------------------------------
 
 // NewReaction creates a fresh Reaction domain entity.
-func NewReaction(messageID, userID uuid.UUID, emoji Emoji) (*Reaction, error) {
-	if messageID == uuid.Nil {
+func NewReaction(rawMessageID, rawUserID uuid.UUID, emoji Emoji) (*Reaction, error) {
+	msgID, err := NewMessageID(rawMessageID)
+	if err != nil {
 		return nil, ErrReactionMessageIDRequired
 	}
-	if userID == uuid.Nil {
+
+	uID, err := NewUserID(rawUserID)
+	if err != nil {
 		return nil, ErrReactionUserIDRequired
 	}
 
+	if !emoji.IsValid() {
+		return nil, ErrEmojiEmpty
+	}
+
 	return &Reaction{
-		messageID: messageID,
-		userID:    userID,
+		messageID: msgID,
+		userID:    uID,
 		emoji:     emoji,
 		createdAt: time.Now().UTC(),
 	}, nil
@@ -57,20 +64,30 @@ func NewReaction(messageID, userID uuid.UUID, emoji Emoji) (*Reaction, error) {
 
 // ReconstituteReaction restores an existing Reaction entity from persistence.
 func ReconstituteReaction(
-	messageID, userID uuid.UUID,
-	emoji string,
+	rawMessageID, rawUserID uuid.UUID,
+	rawEmoji string,
 	createdAt time.Time,
 ) (*Reaction, error) {
-	emojiVO, err := NewEmoji(emoji)
+	msgID, err := NewMessageID(rawMessageID)
+	if err != nil {
+		return nil, ErrReactionMessageIDRequired
+	}
+
+	uID, err := NewUserID(rawUserID)
+	if err != nil {
+		return nil, ErrReactionUserIDRequired
+	}
+
+	emojiVO, err := NewEmoji(rawEmoji)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Reaction{
-		messageID: messageID,
-		userID:    userID,
+		messageID: msgID,
+		userID:    uID,
 		emoji:     emojiVO,
-		createdAt: createdAt,
+		createdAt: createdAt.UTC(),
 	}, nil
 }
 
@@ -89,13 +106,13 @@ func (rs ReactionSummary) Emoji() Emoji     { return rs.emoji }
 func (rs ReactionSummary) Count() int64     { return rs.count }
 func (rs ReactionSummary) HasReacted() bool { return rs.hasReacted }
 
-// ReconstituteReactionSummary constructs a ReactionSummary read model.
-func ReconstituteReactionSummary(emoji string, count int64, hasReacted bool) (ReactionSummary, error) {
+// ReconstituteReactionSummary constructs a ReactionSummary read model from persistence/queries.
+func ReconstituteReactionSummary(rawEmoji string, count int64, hasReacted bool) (ReactionSummary, error) {
 	if count < 0 {
 		return ReactionSummary{}, ErrInvalidReactionCount
 	}
 
-	emojiVO, err := NewEmoji(emoji)
+	emojiVO, err := NewEmoji(rawEmoji)
 	if err != nil {
 		return ReactionSummary{}, err
 	}

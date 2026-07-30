@@ -36,6 +36,7 @@ type Message struct {
 	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
 	AuthorID         pgtype.UUID        `json:"author_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
 	IsPinned         bool               `json:"is_pinned"`
 	Content          pgtype.Text        `json:"content"`
