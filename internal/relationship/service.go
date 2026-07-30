@@ -5,11 +5,17 @@ import (
 	"errors"
 	"time"
 
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
 )
+
+type ChannelRepository interface {
+	Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error)
+	MemberAddBatch(ctx context.Context, members []*channel.Member) error
+}
 
 type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
@@ -30,60 +36,251 @@ type Tx interface {
 }
 
 type Service struct {
-	repo   Repository
-	outbox OutboxRepository
-	tx     Tx
+	repo    Repository
+	channel ChannelRepository
+	outbox  OutboxRepository
+	tx      Tx
 }
 
-func NewService(repo Repository, outbox OutboxRepository, tx Tx) *Service {
+func NewService(repo Repository, channel ChannelRepository, outbox OutboxRepository, tx Tx) *Service {
 	return &Service{
-		repo:   repo,
-		outbox: outbox,
-		tx:     tx,
+		repo:    repo,
+		channel: channel,
+		outbox:  outbox,
+		tx:      tx,
 	}
 }
 
-func (s *Service) ListPerspectives(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
-	if filter != nil && !filter.IsValid() {
-		return nil, errs.InvalidArgument("invalid relationship status filter")
-	}
-
-	perspectives, err := s.repo.ListPerspectives(ctx, userID, filter)
+// AcceptFriendRequest explicitly accepts a pending incoming friend request.
+func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := NewUserID(rawActorID)
 	if err != nil {
-		if errs.IsNotFound(err) {
-			return []Perspective{}, nil
-		}
-		return nil, err
+		return errs.InvalidArgument("invalid actor id")
 	}
 
-	return perspectives, nil
+	peerID, err := NewUserID(rawPeerID)
+	if err != nil {
+		return errs.InvalidArgument("invalid peer id")
+	}
+
+	if actorID == peerID {
+		return errs.InvalidArgument("cannot accept friend request from yourself")
+	}
+
+	u1, u2 := sortUserIDs(actorID, peerID)
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		rel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("no pending request to accept").Wrap(err)
+			}
+			return err
+		}
+
+		return s.acceptPendingRequestTx(txCtx, rel, actorID.UUID())
+	})
 }
 
-func (s *Service) GetPerspective(ctx context.Context, userID, peerID uuid.UUID) (*Perspective, error) {
+// Block places a block on a user, overriding any existing friend or pending state.
+func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := NewUserID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor id")
+	}
+
+	peerID, err := NewUserID(rawPeerID)
+	if err != nil {
+		return errs.InvalidArgument("invalid peer id")
+	}
+
+	if actorID == peerID {
+		return errs.InvalidArgument("cannot block yourself")
+	}
+
+	u1, u2 := sortUserIDs(actorID, peerID)
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var rel *Relationship
+
+		fetchedRel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
+		if err != nil && !errs.IsNotFound(err) {
+			return err
+		}
+
+		if errs.IsNotFound(err) {
+			now := time.Now().UTC()
+			rel, err = Reconstitute(
+				u1.UUID(),
+				u2.UUID(),
+				actorID.UUID(),
+				nil, // rawChannelID (*uuid.UUID) - nil since VariantBlocked isn't VariantFriends
+				uint8(VariantBlocked),
+				now,
+				now,
+			)
+			if err != nil {
+				return errs.InvalidArgument(err.Error()).Wrap(err)
+			}
+		} else {
+			rel = fetchedRel
+			// If already blocked by the OTHER party, do nothing (don't overwrite their block ownership)
+			if rel.IsBlocked() && rel.ActorID() != actorID {
+				return nil
+			}
+
+			if err := rel.Block(actorID); err != nil {
+				return errs.InvalidArgument(err.Error()).Wrap(err)
+			}
+		}
+
+		if err := s.repo.Upsert(txCtx, rel); err != nil {
+			return err
+		}
+
+		// Emit outbox event for blocking
+		_, err = s.outbox.Publish(txCtx, EventUserBlocked, UserBlockedPayload{
+			ActorID:  actorID.UUID(),
+			TargetID: peerID.UUID(),
+		})
+		return err
+	})
+}
+
+// Delete forcefully removes a relationship (System/Admin scope).
+func (s *Service) Delete(ctx context.Context, rawUser1ID, rawUser2ID uuid.UUID) error {
+	u1ID, err := NewUserID(rawUser1ID)
+	if err != nil {
+		return errs.InvalidArgument("invalid user1 id")
+	}
+
+	u2ID, err := NewUserID(rawUser2ID)
+	if err != nil {
+		return errs.InvalidArgument("invalid user2 id")
+	}
+
+	if u1ID == u2ID {
+		return errs.InvalidArgument("cannot delete self relationship").Wrap(ErrSelfRelationship)
+	}
+
+	u1, u2 := sortUserIDs(u1ID, u2ID)
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		err := s.repo.Delete(txCtx, u1.UUID(), u2.UUID())
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("relationship not found").Wrap(err)
+			}
+			return err
+		}
+
+		// Admin deletion event broadcasted to both parties
+		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
+			ActorID:  u1ID.UUID(),
+			TargetID: u2ID.UUID(),
+		})
+		return err
+	})
+}
+
+// DeleteVerified verifies permissions before removing a friendship or request.
+func (s *Service) DeleteVerified(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := NewUserID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor id")
+	}
+
+	peerID, err := NewUserID(rawPeerID)
+	if err != nil {
+		return errs.InvalidArgument("invalid peer id")
+	}
+
+	if actorID == peerID {
+		return errs.InvalidArgument("cannot target yourself").Wrap(ErrSelfRelationship)
+	}
+
+	u1, u2 := sortUserIDs(actorID, peerID)
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		err := s.repo.DeleteVerified(txCtx, u1.UUID(), u2.UUID(), actorID.UUID())
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("relationship not found").Wrap(err)
+			}
+			if errors.Is(err, ErrRelationshipBlocked) {
+				return errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
+			}
+			return err
+		}
+
+		// Emit outbox event for removal (unfriend / cancel request)
+		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
+			ActorID:  actorID.UUID(),
+			TargetID: peerID.UUID(),
+		})
+		return err
+	})
+}
+
+func (s *Service) GetPerspective(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (*Perspective, error) {
+	userID, err := NewUserID(rawUserID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid user id")
+	}
+
+	peerID, err := NewUserID(rawPeerID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid peer id")
+	}
+
 	if userID == peerID {
-		return nil, errs.InvalidArgument("cannot get perspective for oneself")
+		return nil, errs.InvalidArgument("cannot get your own perspective")
 	}
 
-	perspective, err := s.repo.GetPerspective(ctx, userID, peerID)
+	perspective, err := s.repo.GetPerspective(ctx, userID.UUID(), peerID.UUID())
 	if err != nil {
-		if errs.IsNotFound(err) {
-			return nil, errs.NotFound("relationship projection not found").Wrap(err)
-		}
 		return nil, err
 	}
+
 	return perspective, nil
 }
 
-func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.UUID) error {
+// func (s *Service) ListPerspectives(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
+// 	if filter != nil && !filter.IsValid() {
+// 		return nil, errs.InvalidArgument("invalid relationship status filter")
+// 	}
+
+// 	perspectives, err := s.repo.ListPerspectives(ctx, userID, filter)
+// 	if err != nil {
+// 		if errs.IsNotFound(err) {
+// 			return []Perspective{}, nil
+// 		}
+// 		return nil, err
+// 	}
+
+// 	return perspectives, nil
+// }
+
+func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawTargetID uuid.UUID) error {
+	actorID, err := NewUserID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor id")
+	}
+
+	targetID, err := NewUserID(rawTargetID)
+	if err != nil {
+		return errs.InvalidArgument("invalid peer id")
+	}
+
 	if actorID == targetID {
-		return errs.InvalidArgument("cannot add yourself as a friend").Wrap(ErrSelfRelationship)
+		return errs.InvalidArgument("cannot friend yourself")
 	}
 
 	u1, u2 := sortUserIDs(actorID, targetID)
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Fetch with row-level lock to prevent concurrent request race conditions inside the transaction
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		rel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
 		if err != nil {
 			if errs.IsNotFound(err) {
 				newRel, reqErr := New(actorID, targetID)
@@ -97,8 +294,8 @@ func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.
 
 				// Emit outbox event atomically
 				_, err := s.outbox.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{
-					ActorID:  actorID,
-					TargetID: targetID,
+					ActorID:  actorID.UUID(),
+					TargetID: targetID.UUID(),
 				})
 				return err
 			}
@@ -115,7 +312,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.
 		case VariantPending:
 			// Cross-request scenario: Peer already sent a request to actor, auto-accept it!
 			if rel.ActorID() != actorID {
-				return s.acceptPendingRequestTx(txCtx, rel, actorID)
+				return s.acceptPendingRequestTx(txCtx, rel, actorID.UUID())
 			}
 			return errs.AlreadyExists("friend request already pending")
 		}
@@ -124,134 +321,72 @@ func (s *Service) SendFriendRequest(ctx context.Context, actorID, targetID uuid.
 	})
 }
 
-// AcceptFriendRequest explicitly accepts a pending incoming friend request.
-func (s *Service) AcceptFriendRequest(ctx context.Context, actorID, peerID uuid.UUID) error {
-	if actorID == peerID {
-		return errs.InvalidArgument("cannot accept friend request from yourself").Wrap(ErrSelfRelationship)
+// Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
+func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relationship, actorID uuid.UUID) error {
+	actID, err := NewUserID(actorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor id")
 	}
 
-	u1, u2 := sortUserIDs(actorID, peerID)
+	var channelID ChannelID
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+	// 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
+	if existingChID := rel.ChannelID(); existingChID != nil {
+		channelID = *existingChID
+	} else {
+		// 2. Instantiate new 1:1 Direct Message Channel entity (TypeDirect)
+		ch, err := channel.New(channel.TypeDirect, nil, nil)
 		if err != nil {
-			if errs.IsNotFound(err) {
-				return errs.NotFound("no pending request to accept").Wrap(err)
-			}
+			return errs.InvalidArgument("failed to construct DM channel").Wrap(err)
+		}
+
+		// 3. Persist Channel record inside current transaction
+		createdCh, err := s.channel.Create(ctx, ch)
+		if err != nil {
 			return err
 		}
 
-		return s.acceptPendingRequestTx(txCtx, rel, actorID)
-	})
-}
+		// 4. Construct & batch-add members
+		chUUID := createdCh.ID().UUID()
+		u1ID := rel.User1ID().UUID()
+		u2ID := rel.User2ID().UUID()
 
-// Private helper for transactional acceptance and outbox event publishing.
-func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relationship, actorID uuid.UUID) error {
-	if err := rel.Accept(actorID); err != nil {
+		m1, err := channel.NewMember(chUUID, u1ID)
+		if err != nil {
+			return errs.InvalidArgument("invalid member 1").Wrap(err)
+		}
+
+		m2, err := channel.NewMember(chUUID, u2ID)
+		if err != nil {
+			return errs.InvalidArgument("invalid member 2").Wrap(err)
+		}
+
+		if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
+			return err
+		}
+
+		channelID = ChannelID(createdCh.ID())
+	}
+
+	// 5. Transition relationship state to VariantFriends with the active channel ID
+	if err := rel.Accept(actID, channelID); err != nil {
 		if errors.Is(err, ErrCannotAccept) {
 			return errs.PermissionDenied("cannot accept your own outgoing friend request").Wrap(err)
 		}
 		return errs.InvalidArgument(err.Error()).Wrap(err)
 	}
 
+	// 6. Upsert updated relationship state
 	if err := s.repo.Upsert(ctx, rel); err != nil {
 		return err
 	}
 
-	// Emit outbox event notifying that the request was accepted
-	_, err := s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
-		ActorID:  actorID,
-		TargetID: rel.GetPeerID(actorID), // Sends to the person who originated the request
+	// 7. Emit outbox event
+	peerID := rel.GetPeerID(actID)
+	_, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
+		ActorID:   actorID,
+		TargetID:  peerID.UUID(),
+		ChannelID: channelID.UUID(),
 	})
 	return err
-}
-
-// Block places a block on a user, overriding any existing friend or pending state.
-func (s *Service) Block(ctx context.Context, actorID, peerID uuid.UUID) error {
-	if actorID == peerID {
-		return errs.InvalidArgument("cannot block yourself").Wrap(ErrSelfRelationship)
-	}
-
-	u1, u2 := sortUserIDs(actorID, peerID)
-
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
-		if err != nil && !errs.IsNotFound(err) {
-			return err
-		}
-
-		if errs.IsNotFound(err) {
-			rel = Reconstitute(u1, u2, actorID, VariantBlocked, time.Now().UTC(), time.Now().UTC())
-		} else {
-			if rel.IsBlocked() && rel.ActorID() != actorID {
-				return nil
-			}
-
-			if err := rel.Block(actorID); err != nil {
-				return errs.InvalidArgument(err.Error()).Wrap(err)
-			}
-		}
-
-		if err := s.repo.Upsert(txCtx, rel); err != nil {
-			return err
-		}
-
-		// Emit outbox event for blocking
-		_, err = s.outbox.Publish(txCtx, EventUserBlocked, UserBlockedPayload{
-			ActorID:  actorID,
-			TargetID: peerID,
-		})
-		return err
-	})
-}
-
-// DeleteVerified verifies permissions before removing a friendship or request.
-func (s *Service) DeleteVerified(ctx context.Context, actorID, peerID uuid.UUID) error {
-	if actorID == peerID {
-		return errs.InvalidArgument("cannot target yourself").Wrap(ErrSelfRelationship)
-	}
-
-	u1, u2 := sortUserIDs(actorID, peerID)
-
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		err := s.repo.DeleteVerified(txCtx, u1, u2, actorID)
-		if err != nil {
-			if errs.IsNotFound(err) {
-				return errs.NotFound("relationship not found").Wrap(err)
-			}
-			if errors.Is(err, ErrRelationshipBlocked) {
-				return errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
-			}
-			return err
-		}
-
-		// Emit outbox event for removal (unfriend / cancel request)
-		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
-			ActorID:  actorID,
-			TargetID: peerID,
-		})
-		return err
-	})
-}
-
-// Delete forcefully removes a relationship (System/Admin scope).
-func (s *Service) Delete(ctx context.Context, user1ID, user2ID uuid.UUID) error {
-	u1, u2 := sortUserIDs(user1ID, user2ID)
-
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		err := s.repo.Delete(txCtx, u1, u2)
-		if err != nil {
-			if errs.IsNotFound(err) {
-				return errs.NotFound("relationship not found").Wrap(err)
-			}
-			return err
-		}
-
-		// Optional: Admin deletion event broadcasted to both parties
-		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
-			ActorID:  user1ID,
-			TargetID: user2ID,
-		})
-		return err
-	})
 }

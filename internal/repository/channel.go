@@ -224,23 +224,23 @@ func (r *Channel) MemberIncrementMentionCountBatch(ctx context.Context, channelI
 	return nil
 }
 
-func (r *Channel) MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.MemberListItem, error) {
-	rows, err := r.store.ChannelMemberListItemsByChannel(ctx, db.UUID(channelID))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityChannelMember)
-	}
+// func (r *Channel) MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.MemberListItem, error) {
+// 	rows, err := r.store.ChannelMemberListItemsByChannel(ctx, db.UUID(channelID))
+// 	if err != nil {
+// 		return nil, db.NewError(err, db.EntityChannelMember)
+// 	}
 
-	members := make([]*channel.MemberListItem, 0, len(rows))
-	for _, row := range rows {
-		member, err := memberListItemFromRow(row)
-		if err != nil {
-			return nil, db.NewError(err, db.EntityChannelMember)
-		}
-		members = append(members, member)
-	}
+// 	members := make([]*channel.MemberListItem, 0, len(rows))
+// 	for _, row := range rows {
+// 		member, err := memberListItemFromRow(row)
+// 		if err != nil {
+// 			return nil, db.NewError(err, db.EntityChannelMember)
+// 		}
+// 		members = append(members, member)
+// 	}
 
-	return members, nil
-}
+// 	return members, nil
+// }
 
 func (r *Channel) MemberRemove(ctx context.Context, channelID, userID uuid.UUID) error {
 	err := r.store.ChannelMemberRemove(ctx, db.ChannelMemberRemoveParams{

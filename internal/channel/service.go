@@ -11,7 +11,6 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/relationship"
 
 	"github.com/google/uuid"
 )
@@ -30,7 +29,6 @@ type OutboxRepository interface {
 }
 
 type RelationshipRepository interface {
-	Get(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Relationship, error)
 	HasBlockBetweenUserAndPeers(ctx context.Context, userID uuid.UUID, peerIDs []uuid.UUID) (bool, error)
 }
 

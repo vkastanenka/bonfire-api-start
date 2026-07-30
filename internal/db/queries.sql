@@ -724,6 +724,16 @@ WHERE
     user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
     AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid);
 
+-- name: RelationshipGetForUpdate :one
+SELECT
+    *
+FROM
+    relationships
+WHERE
+    user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
+    AND user2_id = GREATEST(@user1_id::uuid, @user2_id::uuid)
+FOR UPDATE;
+
 -- name: RelationshipGetByChannelID :one
 SELECT
     *

@@ -1470,6 +1470,9 @@ type RelationshipDeleteParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
+// ============================================================================
+// RELATIONSHIPS
+// ============================================================================
 func (q *Queries) RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error {
 	_, err := q.db.Exec(ctx, relationshipDelete, arg.User1ID, arg.User2ID)
 	return err
@@ -1509,9 +1512,6 @@ type RelationshipGetParams struct {
 	User2ID pgtype.UUID `json:"user2_id"`
 }
 
-// ============================================================================
-// RELATIONSHIPS
-// ============================================================================
 func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipGet, arg.User1ID, arg.User2ID)
 	var i Relationship
@@ -1551,8 +1551,38 @@ func (q *Queries) RelationshipGetByChannelID(ctx context.Context, channelID pgty
 	return i, err
 }
 
-const relationshipHasBlockBetweenUserAndPeers = `-- name: RelationshipHasBlockBetweenUserAndPeers :one
+const relationshipGetForUpdate = `-- name: RelationshipGetForUpdate :one
+SELECT
+    user1_id, user2_id, actor_id, channel_id, created_at, updated_at, variant
+FROM
+    relationships
+WHERE
+    user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+FOR UPDATE
+`
 
+type RelationshipGetForUpdateParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+func (q *Queries) RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipGetForUpdate, arg.User1ID, arg.User2ID)
+	var i Relationship
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.ChannelID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Variant,
+	)
+	return i, err
+}
+
+const relationshipHasBlockBetweenUserAndPeers = `-- name: RelationshipHasBlockBetweenUserAndPeers :one
 SELECT
     EXISTS (
         SELECT
@@ -1576,24 +1606,6 @@ type RelationshipHasBlockBetweenUserAndPeersParams struct {
 	PeerIds []pgtype.UUID `json:"peer_ids"`
 }
 
-// -- name: RelationshipPerspectivesList :many
-// SELECT
-//
-//	*
-//
-// FROM
-//
-//	relationship_perspectives
-//
-// WHERE
-//
-//	user_id = @user_id::uuid
-//	AND (sqlc.narg('filter_variant')::smallint IS NULL
-//	    OR variant = sqlc.narg('filter_variant'))
-//
-// ORDER BY
-//
-//	updated_at DESC;
 func (q *Queries) RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error) {
 	row := q.db.QueryRow(ctx, relationshipHasBlockBetweenUserAndPeers, arg.UserID, arg.PeerIds)
 	var exists bool
@@ -1696,6 +1708,24 @@ type RelationshipUpsertParams struct {
 	Variant   int16              `json:"variant"`
 }
 
+// -- name: RelationshipPerspectivesList :many
+// SELECT
+//
+//	*
+//
+// FROM
+//
+//	relationship_perspectives
+//
+// WHERE
+//
+//	user_id = @user_id::uuid
+//	AND (sqlc.narg('filter_variant')::smallint IS NULL
+//	    OR variant = sqlc.narg('filter_variant'))
+//
+// ORDER BY
+//
+//	updated_at DESC;
 func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
 	row := q.db.QueryRow(ctx, relationshipUpsert,
 		arg.User1ID,

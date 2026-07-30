@@ -68,6 +68,19 @@ func (r *Relationship) GetByChannelID(ctx context.Context, channelID uuid.UUID) 
 	return relationshipFromGetByChannelIDRow(row)
 }
 
+// GetForUpdate fetches a single relationship aggregate by participants and locks the row FOR UPDATE.
+func (r *Relationship) GetForUpdate(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Relationship, error) {
+	row, err := r.store.RelationshipGetForUpdate(ctx, db.RelationshipGetForUpdateParams{
+		User1ID: db.UUID(user1ID),
+		User2ID: db.UUID(user2ID),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityRelationship)
+	}
+
+	return relationshipFromRow(row)
+}
+
 // GetPerspectiveByChannelID retrieves the UI projection for a user by DM channel ID.
 func (r *Relationship) GetPerspective(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Perspective, error) {
 	row, err := r.store.RelationshipPerspectiveGet(ctx, db.RelationshipPerspectiveGetParams{

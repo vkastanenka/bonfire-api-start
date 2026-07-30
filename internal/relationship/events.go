@@ -25,8 +25,9 @@ type FriendRequestSentPayload struct {
 }
 
 type FriendRequestAcceptedPayload struct {
-	ActorID  uuid.UUID `json:"actor_id"`
-	TargetID uuid.UUID `json:"target_id"`
+	ActorID   uuid.UUID `json:"actor_id"`
+	TargetID  uuid.UUID `json:"target_id"`
+	ChannelID uuid.UUID `json:"channel_id"`
 }
 
 type RelationshipRemovedPayload struct {
