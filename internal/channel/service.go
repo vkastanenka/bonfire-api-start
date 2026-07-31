@@ -37,7 +37,7 @@ type Repository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	Get(ctx context.Context, id uuid.UUID) (*Channel, error)
 	GetForMember(ctx context.Context, channelID uuid.UUID, memberID uuid.UUID) (*Channel, error)
-	GetForMemberUpdate(ctx context.Context, channelID, memberID uuid.UUID) (*Channel, error)
+	GetForMemberUpdate(ctx context.Context, channelID uuid.UUID, memberID uuid.UUID) (*Channel, error)
 	HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
 	HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
 	IsMember(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (bool, error)
@@ -47,31 +47,22 @@ type Repository interface {
 	MemberGetUnreadCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (int32, error)
 	MemberIncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error
 	MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*Member, error)
-	MemberListItemsByChannel(
-		ctx context.Context,
-		channelID uuid.UUID,
-		cursorCreatedAt *time.Time,
-		cursorUserID *uuid.UUID,
-		limit int32,
-	) ([]*MemberListItem, error)
+	MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorUserID *uuid.UUID, limit int32) ([]*MemberListItem, error)
 	MemberRemove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberResetMentionCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
-	MemberUpdateLastRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
+	MemberUpdateRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
 	MessageCreate(ctx context.Context, msg *Message) (*Message, error)
 	MessageDelete(ctx context.Context, id uuid.UUID) error
 	MessageGet(ctx context.Context, messageID uuid.UUID) (*Message, error)
 	MessageGetAggregate(ctx context.Context, id uuid.UUID, userID *uuid.UUID) (*MessageAggregate, error)
 	MessageGetFirstUnread(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Message, error)
 	MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*Message, error)
-	MessageSetPinned(ctx context.Context, msg *Message) (*Message, error)
+	MessageListAggregateAfter(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
+	MessageListAggregateAround(ctx context.Context, channelID uuid.UUID, targetID uuid.UUID, userID *uuid.UUID, olderLimit int32, newerLimit int32) ([]*MessageAggregate, error)
+	MessageListAggregateBefore(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
+	MessageListPinnedAggregate(ctx context.Context, channelID uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
+	MessageTogglePinned(ctx context.Context, msg *Message) (*Message, error)
 	MessageUpdateContent(ctx context.Context, msg *Message) (*Message, error)
-	MemberUpdateRead(
-		ctx context.Context,
-		channelID uuid.UUID,
-		userID uuid.UUID,
-		messageID *uuid.UUID,
-		lastReadAt time.Time,
-	) error
 	ReactionAdd(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji string) (*Reaction, error)
 	ReactionRemove(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji Emoji) error
 	Update(ctx context.Context, ch *Channel) (*Channel, error)
@@ -411,7 +402,7 @@ func (s *Service) AddMembers(ctx context.Context, rawChannelID uuid.UUID, rawAct
 }
 
 // Leave handles a user leaving a channel, performing cleanup if they are the last member.
-func (s *Service) Leave(ctx context.Context, rawChannelID uuid.UUID, rawActorID uuid.UUID) error {
+func (s *Service) LeaveGroup(ctx context.Context, rawChannelID uuid.UUID, rawActorID uuid.UUID) error {
 	channelID, err := NewID(rawChannelID)
 	if err != nil {
 		return errs.InvalidArgument("invalid channel ID").Wrap(err)
@@ -580,6 +571,125 @@ var (
 // MESSAGES
 // ============================================================================
 
+// DeleteMessage deletes a message if requested by its author or an authorized user.
+func (s *Service) DeleteMessage(ctx context.Context, rawMsgID, rawActorID uuid.UUID) error {
+	msgID, err := NewID(rawMsgID)
+	if err != nil {
+		return errs.InvalidArgument("invalid message ID").Wrap(err)
+	}
+
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		msg, err := s.repo.MessageGet(txCtx, msgID.UUID())
+		if err != nil {
+			return err
+		}
+
+		// Authorization Guard: Check if actor is author
+		isAuthor := msg.AuthorID() != nil && *msg.AuthorID() == UserID(actorID.UUID())
+		if !isAuthor {
+			return errs.PermissionDenied("cannot delete messages sent by another user").Wrap(ErrCannotEditOther)
+		}
+
+		// Fetch channel to check if this message is the channel's last_message_id
+		ch, err := s.repo.Get(txCtx, msg.ChannelID().UUID())
+		if err != nil {
+			return err
+		}
+
+		// Persist deletion in database
+		if err := s.repo.MessageDelete(txCtx, msgID.UUID()); err != nil {
+			return err
+		}
+
+		// If deleted message was the last_message_id, recalculate and update
+		if ch.LastMessageID() != nil && *ch.LastMessageID() == MessageID(msgID.UUID()) {
+			latestMsg, err := s.repo.MessageGetLatest(txCtx, msg.ChannelID().UUID())
+			if err != nil {
+				return err
+			}
+
+			ch.SetLastMessage(latestMsg.ID())
+
+			_, err = s.repo.UpdateLastMessage(txCtx, ch)
+			if err != nil {
+				return err
+			}
+		}
+
+		// 4. Publish outbox event
+		now := time.Now().UTC()
+		_, err = s.outbox.Publish(txCtx, EventMessageDeleted, MessageDeletedPayload{
+			MessageID: msg.ID().UUID(),
+			ChannelID: msg.ChannelID().UUID(),
+			ActorID:   actorID.UUID(),
+			DeletedAt: now,
+		})
+		return err
+	})
+}
+
+// EditMessage allows the author to update message content.
+func (s *Service) EditMessageContent(ctx context.Context, rawMsgID, rawAuthorID uuid.UUID, newRawContent string) (*Message, error) {
+	msgID, err := NewID(rawMsgID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid message ID").Wrap(err)
+	}
+
+	authorID, err := NewID(rawAuthorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid author ID").Wrap(err)
+	}
+
+	contentVO, err := NewContent(newRawContent)
+	if err != nil {
+		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
+	}
+
+	var updated *Message
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		msg1, err := s.repo.MessageGet(txCtx, msgID.UUID())
+		if err != nil {
+			return err
+		}
+
+		if msg1.AuthorID() == nil || *msg1.AuthorID() != UserID(authorID.UUID()) {
+			return errs.PermissionDenied("cannot edit messages sent by another user").Wrap(ErrCannotEditOther)
+		}
+
+		msg1.EditContent(ptr.To(contentVO))
+
+		msg2, err := s.repo.MessageUpdateContent(txCtx, msg1)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.outbox.Publish(txCtx, EventMessageUpdated, MessageUpdatedPayload{
+			MessageID: msg2.ID().UUID(),
+			ChannelID: msg2.ChannelID().UUID(),
+			AuthorID:  ptr.To(msg2.AuthorID().UUID()),
+			Content:   msg2.Content().String(),
+			EditedAt:  msg2.EditedAt(),
+		})
+		if err != nil {
+			return err
+		}
+
+		updated = msg2
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
 // SendMessage validates domain invariants, persists the message, updates channel metadata, and publishes outbox events.
 func (s *Service) SendMessage(ctx context.Context, rawChannelID, rawAuthorID uuid.UUID, rawContent *string, replyToID *uuid.UUID) (*Message, error) {
 	channelID, err := NewID(rawChannelID)
@@ -660,167 +770,126 @@ func (s *Service) SendMessage(ctx context.Context, rawChannelID, rawAuthorID uui
 	return msg, nil
 }
 
-// // EditMessage allows the author to update message content.
-// func (s *Service) EditMessage(ctx context.Context, messageID, authorID uuid.UUID, newRawContent string) (*Message, error) {
-// 	if messageID == uuid.Nil || authorID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("message ID and author ID cannot be nil")
-// 	}
+// ToggleMessagePin handles pinning or unpinning a message for channel members.
+func (s *Service) ToggleMessagePin(ctx context.Context, rawMsgID, rawActorID uuid.UUID) (*Message, error) {
+	msgID, err := NewID(rawMsgID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid message ID").Wrap(err)
+	}
 
-// 	contentVO, err := NewContent(newRawContent)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
 
-// 	var updated *Message
+	var updated *Message
 
-// 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		msg, err := s.repo.MessageGet(txCtx, messageID)
-// 		if err != nil {
-// 			return err
-// 		}
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		msg, err := s.repo.MessageGet(txCtx, msgID.UUID())
+		if err != nil {
+			return err
+		}
 
-// 		if msg.AuthorID() == nil || *msg.AuthorID() != authorID {
-// 			return errs.PermissionDenied("cannot edit messages sent by another user").Wrap(ErrCannotEditOther)
-// 		}
+		// 1. Authorization Guard: Check channel membership for the pin action
+		ok, err := s.repo.IsMember(txCtx, msg.ChannelID().UUID(), actorID.UUID())
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+		}
 
-// 		msg.EditContent(contentVO)
+		// 2. Mutate state & persist
+		msg.SetPinned(!msg.IsPinned())
 
-// 		if err := s.repo.MessageUpdateContent(txCtx, msg); err != nil {
-// 			return err
-// 		}
+		msg1, err := s.repo.MessageTogglePinned(txCtx, msg)
+		if err != nil {
+			return err
+		}
 
-// 		_, err = s.outbox.Publish(txCtx, EventMessageUpdated, MessageUpdatedPayload{
-// 			MessageID: msg.ID(),
-// 			ChannelID: msg.ChannelID(),
-// 			AuthorID:  msg.AuthorID(),
-// 			Content:   msg.Content().String(),
-// 			EditedAt:  msg.EditedAt(),
-// 		})
-// 		if err != nil {
-// 			return err
-// 		}
+		// 3. Publish outbox event
+		_, err = s.outbox.Publish(txCtx, EventMessagePinned, MessagePinnedPayload{
+			MessageID: msg1.ID().UUID(),
+			ChannelID: msg1.ChannelID().UUID(),
+			IsPinned:  msg1.IsPinned(),
+		})
+		if err != nil {
+			return err
+		}
 
-// 		updated = msg
-// 		return nil
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
+		updated = msg
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
-// 	return updated, nil
-// }
+	return updated, nil
+}
 
-// // DeleteMessage deletes a message if requested by its author or an authorized user.
-// func (s *Service) DeleteMessage(ctx context.Context, messageID, actorID uuid.UUID) error {
-// 	if messageID == uuid.Nil || actorID == uuid.Nil {
-// 		return errs.InvalidArgument("message ID and actor ID cannot be nil")
-// 	}
+// ============================================================================
+// REACTIONS
+// ============================================================================
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		msg, err := s.repo.MessageGet(txCtx, messageID)
-// 		if err != nil {
-// 			return err
-// 		}
+// AddReaction adds a reaction emoji to a message.
+func (s *Service) AddReaction(ctx context.Context, messageID, userID uuid.UUID, rawEmoji string) error {
+	emojiVO, err := NewEmoji(rawEmoji)
+	if err != nil {
+		return errs.InvalidArgument(err.Error()).Wrap(err)
+	}
 
-// 		// 1. Authorization Guard: Check if actor is author
-// 		isAuthor := msg.AuthorID() != nil && *msg.AuthorID() == actorID
-// 		if !isAuthor {
-// 			return errs.PermissionDenied("cannot delete messages sent by another user").Wrap(ErrCannotEditOther)
-// 		}
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		msg, err := s.repo.MessageGet(txCtx, messageID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("message not found").Wrap(err)
+			}
+			return err
+		}
 
-// 		// Fetch channel to check if this message is the channel's last_message_id
-// 		ch, err := s.repo.Get(txCtx, msg.ChannelID())
-// 		if err != nil {
-// 			return err
-// 		}
+		if _, err := s.repo.ReactionAdd(txCtx, messageID, userID, emojiVO.String()); err != nil {
+			return err
+		}
 
-// 		// 2. Persist deletion in database
-// 		if err := s.repo.MessageDelete(txCtx, messageID); err != nil {
-// 			return err
-// 		}
+		_, err = s.outbox.Publish(txCtx, EventReactionAdded, ReactionPayload{
+			MessageID: messageID,
+			ChannelID: msg.ChannelID().UUID(),
+			UserID:    userID,
+			Emoji:     emojiVO.String(),
+		})
+		return err
+	})
+}
 
-// 		// 3. If deleted message was the last_message_id, recalculate and update
-// 		if ch.LastMessageID() != nil && *ch.LastMessageID() == messageID {
-// 			latestMsg, err := s.repo.MessageGetLatest(txCtx, msg.ChannelID())
-// 			if err != nil {
-// 				return err
-// 			}
+// RemoveReaction removes a user reaction from a message.
+func (s *Service) RemoveReaction(ctx context.Context, messageID, userID uuid.UUID, rawEmoji string) error {
+	emojiVO, err := NewEmoji(rawEmoji)
+	if err != nil {
+		return errs.InvalidArgument(err.Error()).Wrap(err)
+	}
 
-// 			var nextMsgID *uuid.UUID
-// 			var updatedAt = time.Now().UTC()
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		msg, err := s.repo.MessageGet(txCtx, messageID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("message not found").Wrap(err)
+			}
+			return err
+		}
 
-// 			if latestMsg != nil {
-// 				id := latestMsg.ID()
-// 				nextMsgID = &id
-// 				updatedAt = latestMsg.CreatedAt()
-// 			}
+		if err := s.repo.ReactionRemove(txCtx, messageID, userID, emojiVO); err != nil {
+			return err
+		}
 
-// 			if err := s.repo.UpdateLastMessage(txCtx, msg.ChannelID(), nextMsgID, updatedAt); err != nil {
-// 				return err
-// 			}
-// 		}
-
-// 		// 4. Publish outbox event
-// 		now := time.Now().UTC()
-// 		_, err = s.outbox.Publish(txCtx, EventMessageDeleted, MessageDeletedPayload{
-// 			MessageID: msg.ID(),
-// 			ChannelID: msg.ChannelID(),
-// 			ActorID:   actorID,
-// 			DeletedAt: now,
-// 		})
-// 		return err
-// 	})
-// }
-
-// // ToggleMessagePin handles pinning or unpinning a message for channel members.
-// func (s *Service) ToggleMessagePin(ctx context.Context, messageID, userID uuid.UUID, isPinned bool) (*Message, error) {
-// 	if messageID == uuid.Nil || userID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("message ID and user ID cannot be nil")
-// 	}
-
-// 	var updated *Message
-
-// 	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		msg, err := s.repo.MessageGet(txCtx, messageID)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// 1. Authorization Guard: Check channel membership for the pin action
-// 		ok, err := s.repo.IsMember(txCtx, msg.ChannelID(), userID)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if !ok {
-// 			return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 		}
-
-// 		// 2. Mutate state & persist
-// 		msg.SetPinned(isPinned)
-
-// 		if err := s.repo.MessageSetPinned(txCtx, msg.ID(), isPinned); err != nil {
-// 			return err
-// 		}
-
-// 		// 3. Publish outbox event
-// 		_, err = s.outbox.Publish(txCtx, EventMessagePinned, MessagePinnedPayload{
-// 			MessageID: msg.ID(),
-// 			ChannelID: msg.ChannelID(),
-// 			IsPinned:  msg.IsPinned(),
-// 		})
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		updated = msg
-// 		return nil
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return updated, nil
-// }
+		_, err = s.outbox.Publish(txCtx, EventReactionRemoved, ReactionPayload{
+			MessageID: messageID,
+			ChannelID: msg.ChannelID().UUID(),
+			UserID:    userID,
+			Emoji:     emojiVO.String(),
+		})
+		return err
+	})
+}
 
 // // TODO: aggregate reactions into message
 
@@ -1112,80 +1181,6 @@ func (s *Service) SendMessage(ctx context.Context, rawChannelID, rawAuthorID uui
 // 	}
 
 // 	return msg, nil
-// }
-
-// // AddReaction adds a reaction emoji to a message.
-// func (s *Service) AddReaction(ctx context.Context, messageID, userID uuid.UUID, rawEmoji string) error {
-// 	emojiVO, err := NewEmoji(rawEmoji)
-// 	if err != nil {
-// 		return errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
-
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		msg, err := s.repo.MessageGet(txCtx, messageID)
-// 		if err != nil {
-// 			if errs.IsNotFound(err) {
-// 				return errs.NotFound("message not found").Wrap(err)
-// 			}
-// 			return err
-// 		}
-
-// 		if _, err := s.repo.ReactionAdd(txCtx, messageID, userID, emojiVO.String()); err != nil {
-// 			return err
-// 		}
-
-// 		_, err = s.outbox.Publish(txCtx, EventReactionAdded, ReactionPayload{
-// 			MessageID: messageID,
-// 			ChannelID: msg.ChannelID(),
-// 			UserID:    userID,
-// 			Emoji:     emojiVO.String(),
-// 		})
-// 		return err
-// 	})
-// }
-
-// // RemoveReaction removes a user reaction from a message.
-// func (s *Service) RemoveReaction(ctx context.Context, messageID, userID uuid.UUID, rawEmoji string) error {
-// 	emojiVO, err := NewEmoji(rawEmoji)
-// 	if err != nil {
-// 		return errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
-
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		msg, err := s.repo.MessageGet(txCtx, messageID)
-// 		if err != nil {
-// 			if errs.IsNotFound(err) {
-// 				return errs.NotFound("message not found").Wrap(err)
-// 			}
-// 			return err
-// 		}
-
-// 		if err := s.repo.ReactionRemove(txCtx, messageID, userID, emojiVO); err != nil {
-// 			return err
-// 		}
-
-// 		_, err = s.outbox.Publish(txCtx, EventReactionRemoved, ReactionPayload{
-// 			MessageID: messageID,
-// 			ChannelID: msg.ChannelID(),
-// 			UserID:    userID,
-// 			Emoji:     emojiVO.String(),
-// 		})
-// 		return err
-// 	})
-// }
-
-// // MarkAsRead updates a member's unread position and clears their mention count.
-// func (s *Service) MarkAsRead(ctx context.Context, channelID, userID, messageID uuid.UUID) error {
-// 	ok, err := s.repo.IsMember(ctx, channelID, userID)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if !ok {
-// 		return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
-
-// 	now := time.Now().UTC()
-// 	return s.repo.MemberUpdateReadState(ctx, channelID, userID, &messageID, now)
 // }
 
 // // SendTypingSignal records an active typing state in Redis.

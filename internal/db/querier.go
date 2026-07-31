@@ -82,89 +82,15 @@ type Querier interface {
 	// Fetches the first message created after the user's last_read_at timestamp
 	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
 	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
-	MessageListAggregateByChannel(ctx context.Context, arg MessageListAggregateByChannelParams) ([]MessageListAggregateByChannelRow, error)
-	// -- name: MessageListByChannelAfter :many
-	// -- Fetches newer messages using keyset pagination.
-	// SELECT
-	//     *
-	// FROM
-	//     messages
-	// WHERE
-	//     channel_id = @channel_id::uuid
-	//     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-	//         OR (created_at,
-	//             id) >(sqlc.narg('cursor_created_at')::timestamptz,
-	//             sqlc.narg('cursor_id')::uuid))
-	// ORDER BY
-	//     created_at ASC,
-	//     id ASC
-	// LIMIT @result_limit::int;
-	// -- name: MessageListByChannelAround :many
-	// WITH around_window AS ((
-	//         SELECT
-	//             m1.*
-	//         FROM
-	//             messages m1
-	//         WHERE
-	//             m1.channel_id = @channel_id::uuid
-	//             AND (m1.created_at,
-	//                 m1.id) <=(@cursor_created_at::timestamptz,
-	//                 @cursor_id::uuid)
-	//         ORDER BY
-	//             m1.created_at DESC,
-	//             m1.id DESC
-	//         LIMIT @older_limit::int)
-	// UNION ALL (
-	//     SELECT
-	//         m2.*
-	//     FROM
-	//         messages m2
-	//     WHERE
-	//         m2.channel_id = @channel_id::uuid
-	//         AND (m2.created_at,
-	//             m2.id) >(@cursor_created_at::timestamptz,
-	//             @cursor_id::uuid)
-	//     ORDER BY
-	//         m2.created_at ASC,
-	//         m2.id ASC
-	//     LIMIT @newer_limit::int))
-	// SELECT
-	//     m.*
-	// FROM
-	//     around_window aw
-	//     JOIN messages m ON m.id = aw.id
-	// ORDER BY
-	//     aw.created_at ASC,
-	//     aw.id ASC;
-	// -- name: MessageListByChannelBefore :many
-	// -- Fetches older messages using keyset pagination.
-	// SELECT
-	//     *
-	// FROM
-	//     messages
-	// WHERE
-	//     channel_id = @channel_id::uuid
-	//     AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-	//         OR (created_at,
-	//             id) <(sqlc.narg('cursor_created_at')::timestamptz,
-	//             sqlc.narg('cursor_id')::uuid))
-	// ORDER BY
-	//     created_at DESC,
-	//     id DESC
-	// LIMIT @result_limit::int;
-	// TODO: ADD LIMIT
-	// -- name: MessageListPinnedByChannel :many
-	// SELECT
-	//     *
-	// FROM
-	//     messages
-	// WHERE
-	//     channel_id = @channel_id::uuid
-	//     AND is_pinned = TRUE
-	// ORDER BY
-	//     created_at DESC,
-	//     id DESC;
-	MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) (Message, error)
+	// Fetches newer messages strictly after the cursor tuple (Chronological ASC)
+	MessageListAggregateAfter(ctx context.Context, arg MessageListAggregateAfterParams) ([]MessageListAggregateAfterRow, error)
+	// Fetches older/target messages and newer messages relative to target, returned ASC
+	MessageListAggregateAround(ctx context.Context, arg MessageListAggregateAroundParams) ([]MessageListAggregateAroundRow, error)
+	// Fetches older messages strictly before the cursor tuple (Reverse DESC order for indexing)
+	MessageListAggregateBefore(ctx context.Context, arg MessageListAggregateBeforeParams) ([]MessageListAggregateBeforeRow, error)
+	// Fetches pinned aggregate messages for a channel ordered by newest first
+	MessageListPinnedAggregate(ctx context.Context, arg MessageListPinnedAggregateParams) ([]MessageListPinnedAggregateRow, error)
+	MessageTogglePinned(ctx context.Context, arg MessageTogglePinnedParams) (Message, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
 	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)

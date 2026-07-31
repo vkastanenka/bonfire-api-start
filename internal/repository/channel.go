@@ -439,80 +439,94 @@ func (r *Channel) MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*c
 	return messageFromRow(row)
 }
 
-// func (r *Channel) MessageListByChannelAfter(
-// 	ctx context.Context,
-// 	channelID uuid.UUID,
-// 	cursorCreatedAt *time.Time,
-// 	cursorID *uuid.UUID,
-// 	limit int32,
-// ) ([]channel.Message, error) {
-// 	rows, err := r.store.MessageListByChannelAfter(ctx, db.MessageListByChannelAfterParams{
-// 		ChannelID:       db.UUID(channelID),
-// 		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
-// 		CursorID:        db.UUIDPtr(cursorID),
-// 		ResultLimit:     limit,
-// 	})
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityMessage)
-// 	}
+func (r *Channel) MessageListAggregateAfter(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorID *uuid.UUID,
+	userID *uuid.UUID,
+	limit int32,
+) ([]*channel.MessageAggregate, error) {
+	rows, err := r.store.MessageListAggregateAfter(ctx, db.MessageListAggregateAfterParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:        db.UUIDPtr(cursorID),
+		LimitVal:        limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
 
-// 	return messagesFromRows(rows)
-// }
+	return messageAggregatesFromRows(rows, userID)
+}
 
-// func (r *Channel) MessageListByChannelAround(
-// 	ctx context.Context,
-// 	channelID uuid.UUID,
-// 	cursorCreatedAt time.Time,
-// 	cursorID uuid.UUID,
-// 	halfLimit int32,
-// ) ([]channel.Message, error) {
-// 	rows, err := r.store.MessageListByChannelAround(ctx, db.MessageListByChannelAroundParams{
-// 		ChannelID:       db.UUID(channelID),
-// 		CursorCreatedAt: db.Timestamptz(cursorCreatedAt),
-// 		CursorID:        db.UUID(cursorID),
-// 		OlderLimit:      halfLimit + 1,
-// 		NewerLimit:      halfLimit,
-// 	})
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityMessage)
-// 	}
+func (r *Channel) MessageListAggregateAround(
+	ctx context.Context,
+	channelID uuid.UUID,
+	targetID uuid.UUID,
+	userID *uuid.UUID,
+	olderLimit int32,
+	newerLimit int32,
+) ([]*channel.MessageAggregate, error) {
+	rows, err := r.store.MessageListAggregateAround(ctx, db.MessageListAggregateAroundParams{
+		ChannelID:  db.UUID(channelID),
+		TargetID:   db.UUID(targetID),
+		OlderLimit: olderLimit,
+		NewerLimit: newerLimit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
 
-// 	return messagesFromRows(rows)
-// }
+	return messageAggregatesFromRows(rows, userID)
+}
 
-// func (r *Channel) MessageListByChannelBefore(
-// 	ctx context.Context,
-// 	channelID uuid.UUID,
-// 	cursorCreatedAt *time.Time,
-// 	cursorID *uuid.UUID,
-// 	limit int32,
-// ) ([]channel.Message, error) {
-// 	rows, err := r.store.MessageListByChannelBefore(ctx, db.MessageListByChannelBeforeParams{
-// 		ChannelID:       db.UUID(channelID),
-// 		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
-// 		CursorID:        db.UUIDPtr(cursorID),
-// 		ResultLimit:     limit,
-// 	})
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityMessage)
-// 	}
+func (r *Channel) MessageListAggregateBefore(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorID *uuid.UUID,
+	userID *uuid.UUID,
+	limit int32,
+) ([]*channel.MessageAggregate, error) {
+	rows, err := r.store.MessageListAggregateBefore(ctx, db.MessageListAggregateBeforeParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:        db.UUIDPtr(cursorID),
+		LimitVal:        limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
 
-// 	return messagesFromRows(rows)
-// }
+	// Reverse DESC results to maintain ASC chronological order across pagination endpoints
+	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+		rows[i], rows[j] = rows[j], rows[i]
+	}
 
-// func (r *Channel) MessageListPinnedByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.Message, error) {
-// 	rows, err := r.store.MessageListPinnedByChannel(ctx, db.UUID(channelID))
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityMessage)
-// 	}
+	return messageAggregatesFromRows(rows, userID)
+}
 
-// 	return messagesFromRows(rows)
-// }
+func (r *Channel) MessageListPinnedAggregate(
+	ctx context.Context,
+	channelID uuid.UUID,
+	userID *uuid.UUID,
+	limit int32,
+) ([]*channel.MessageAggregate, error) {
+	rows, err := r.store.MessageListPinnedAggregate(ctx, db.MessageListPinnedAggregateParams{
+		ChannelID: db.UUID(channelID),
+		LimitVal:  limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
 
-func (r *Channel) MessageSetPinned(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
-	row, err := r.store.MessageSetPinned(ctx, db.MessageSetPinnedParams{
+	return messageAggregatesFromRows(rows, userID)
+}
+
+func (r *Channel) MessageTogglePinned(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
+	row, err := r.store.MessageTogglePinned(ctx, db.MessageTogglePinnedParams{
 		ID:        db.UUID(msg.ID().UUID()),
-		IsPinned:  msg.IsPinned(),
 		UpdatedAt: db.Timestamptz(msg.UpdatedAt()),
 	})
 	if err != nil {
@@ -704,6 +718,31 @@ func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {
 		messages = append(messages, msg)
 	}
 	return messages, nil
+}
+
+// Define a type constraint matching all sqlc row types for message aggregates
+type aggregateRow interface {
+	db.MessageGetAggregateRow |
+		db.MessageListAggregateBeforeRow |
+		db.MessageListAggregateAfterRow |
+		db.MessageListAggregateAroundRow |
+		db.MessageListPinnedAggregateRow
+}
+
+// Single generic messageAggregatesFromRows helper
+func messageAggregatesFromRows[R aggregateRow](rows []R, currentUserID *uuid.UUID) ([]*channel.MessageAggregate, error) {
+	aggregates := make([]*channel.MessageAggregate, 0, len(rows))
+	for _, row := range rows {
+		// Convert the specific row type into db.MessageGetAggregateRow
+		getAggRow := db.MessageGetAggregateRow(row)
+
+		agg, err := messageAggregateFromRow(getAggRow, currentUserID)
+		if err != nil {
+			return nil, err
+		}
+		aggregates = append(aggregates, agg)
+	}
+	return aggregates, nil
 }
 
 func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {

@@ -956,60 +956,68 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 	return i, err
 }
 
-const messageListAggregateByChannel = `-- name: MessageListAggregateByChannel :many
-SELECT
-    mb.id,
-    mb.channel_id,
-    mb.reply_to_message_id,
-    mb.author_id,
-    mb.author_username,
-    mb.author_display_name,
-    mb.author_avatar_url,
-    mb.created_at,
-    mb.updated_at,
-    mb.edited_at,
-    mb.is_pinned,
-    mb.content,
-    COALESCE(att.attachments, '[]'::json) AS attachments,
-    COALESCE(rec.reactions, '[]'::json) AS reactions
-FROM
-    message_base_aggregates mb
-    LEFT JOIN LATERAL (
-        SELECT
-            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
-            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
-        FROM
-            message_attachments a
+const messageListAggregateAfter = `-- name: MessageListAggregateAfter :many
+WITH hydrated_messages AS (
+    SELECT
+        mb.id,
+        mb.channel_id,
+        mb.reply_to_message_id,
+        mb.author_id,
+        mb.author_username,
+        mb.author_display_name,
+        mb.author_avatar_url,
+        mb.created_at,
+        mb.updated_at,
+        mb.edited_at,
+        mb.is_pinned,
+        mb.content,
+        COALESCE(att.attachments, '[]'::json) AS attachments,
+        COALESCE(rec.reactions, '[]'::json) AS reactions
+    FROM
+        message_base_aggregates mb
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+            FROM
+                message_attachments a
+            WHERE
+                a.message_id = mb.id) att ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+            FROM
+                message_reactions r
+            WHERE
+                r.message_id = mb.id) rec ON TRUE
         WHERE
-            a.message_id = mb.id) att ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT
-            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
-            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
-        FROM
-            message_reactions r
-        WHERE
-            r.message_id = mb.id) rec ON TRUE
-WHERE
-    mb.channel_id = $1::uuid
-    AND ($2::timestamptz IS NULL
-        OR (mb.created_at,
-            mb.id) <($2::timestamptz,
-            $3::uuid))
-ORDER BY
-    mb.created_at DESC,
-    mb.id DESC
-LIMIT $4::int
+            mb.channel_id = $1::uuid
+)
+    SELECT
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+    FROM
+        hydrated_messages hm
+    WHERE
+        hm.channel_id = $1::uuid
+        AND ($2::timestamptz IS NULL
+            OR (hm.created_at,
+                hm.id) >($2::timestamptz,
+                $3::uuid))
+    ORDER BY
+        hm.created_at ASC,
+        hm.id ASC
+    LIMIT $4::int
 `
 
-type MessageListAggregateByChannelParams struct {
+type MessageListAggregateAfterParams struct {
 	ChannelID       pgtype.UUID        `json:"channel_id"`
 	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
 	CursorID        pgtype.UUID        `json:"cursor_id"`
 	LimitVal        int32              `json:"limit_val"`
 }
 
-type MessageListAggregateByChannelRow struct {
+type MessageListAggregateAfterRow struct {
 	ID                pgtype.UUID        `json:"id"`
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
@@ -1026,8 +1034,9 @@ type MessageListAggregateByChannelRow struct {
 	Reactions         []byte             `json:"reactions"`
 }
 
-func (q *Queries) MessageListAggregateByChannel(ctx context.Context, arg MessageListAggregateByChannelParams) ([]MessageListAggregateByChannelRow, error) {
-	rows, err := q.db.Query(ctx, messageListAggregateByChannel,
+// Fetches newer messages strictly after the cursor tuple (Chronological ASC)
+func (q *Queries) MessageListAggregateAfter(ctx context.Context, arg MessageListAggregateAfterParams) ([]MessageListAggregateAfterRow, error) {
+	rows, err := q.db.Query(ctx, messageListAggregateAfter,
 		arg.ChannelID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -1037,9 +1046,9 @@ func (q *Queries) MessageListAggregateByChannel(ctx context.Context, arg Message
 		return nil, err
 	}
 	defer rows.Close()
-	var items []MessageListAggregateByChannelRow
+	var items []MessageListAggregateAfterRow
 	for rows.Next() {
-		var i MessageListAggregateByChannelRow
+		var i MessageListAggregateAfterRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
@@ -1066,140 +1075,411 @@ func (q *Queries) MessageListAggregateByChannel(ctx context.Context, arg Message
 	return items, nil
 }
 
-const messageSetPinned = `-- name: MessageSetPinned :one
+const messageListAggregateAround = `-- name: MessageListAggregateAround :many
+WITH target AS (
+    SELECT
+        created_at
+    FROM
+        messages
+    WHERE
+        id = $1::uuid
+),
+older_window AS (
+    SELECT
+        m.id,
+        m.created_at
+    FROM
+        messages m,
+        target t
+    WHERE
+        m.channel_id = $2::uuid
+        AND (m.created_at,
+            m.id) <=(t.created_at,
+            $1::uuid)
+    ORDER BY
+        m.created_at DESC,
+        m.id DESC
+    LIMIT $3::int
+),
+newer_window AS (
+    SELECT
+        m.id,
+        m.created_at
+    FROM
+        messages m,
+        target t
+    WHERE
+        m.channel_id = $2::uuid
+        AND (m.created_at,
+            m.id) >(t.created_at,
+            $1::uuid)
+    ORDER BY
+        m.created_at ASC,
+        m.id ASC
+    LIMIT $4::int
+),
+around_ids AS (
+    SELECT
+        id,
+        created_at
+    FROM
+        older_window
+    UNION ALL
+    SELECT
+        id,
+        created_at
+    FROM
+        newer_window
+)
+SELECT
+    mb.id,
+    mb.channel_id,
+    mb.reply_to_message_id,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.is_pinned,
+    mb.content,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
+FROM
+    around_ids ai
+    JOIN message_base_aggregates mb ON mb.id = ai.id
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = mb.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = mb.id) rec ON TRUE
+ORDER BY
+    ai.created_at ASC,
+    ai.id ASC
+`
+
+type MessageListAggregateAroundParams struct {
+	TargetID   pgtype.UUID `json:"target_id"`
+	ChannelID  pgtype.UUID `json:"channel_id"`
+	OlderLimit int32       `json:"older_limit"`
+	NewerLimit int32       `json:"newer_limit"`
+}
+
+type MessageListAggregateAroundRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
+	Attachments       []byte             `json:"attachments"`
+	Reactions         []byte             `json:"reactions"`
+}
+
+// Fetches older/target messages and newer messages relative to target, returned ASC
+func (q *Queries) MessageListAggregateAround(ctx context.Context, arg MessageListAggregateAroundParams) ([]MessageListAggregateAroundRow, error) {
+	rows, err := q.db.Query(ctx, messageListAggregateAround,
+		arg.TargetID,
+		arg.ChannelID,
+		arg.OlderLimit,
+		arg.NewerLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageListAggregateAroundRow
+	for rows.Next() {
+		var i MessageListAggregateAroundRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ReplyToMessageID,
+			&i.AuthorID,
+			&i.AuthorUsername,
+			&i.AuthorDisplayName,
+			&i.AuthorAvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+			&i.Attachments,
+			&i.Reactions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListAggregateBefore = `-- name: MessageListAggregateBefore :many
+WITH hydrated_messages AS (
+    SELECT
+        mb.id,
+        mb.channel_id,
+        mb.reply_to_message_id,
+        mb.author_id,
+        mb.author_username,
+        mb.author_display_name,
+        mb.author_avatar_url,
+        mb.created_at,
+        mb.updated_at,
+        mb.edited_at,
+        mb.is_pinned,
+        mb.content,
+        COALESCE(att.attachments, '[]'::json) AS attachments,
+        COALESCE(rec.reactions, '[]'::json) AS reactions
+    FROM
+        message_base_aggregates mb
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+            FROM
+                message_attachments a
+            WHERE
+                a.message_id = mb.id) att ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+            FROM
+                message_reactions r
+            WHERE
+                r.message_id = mb.id) rec ON TRUE
+        WHERE
+            mb.channel_id = $1::uuid
+)
+    SELECT
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+    FROM
+        hydrated_messages hm
+    WHERE
+        hm.channel_id = $1::uuid
+        AND ($2::timestamptz IS NULL
+            OR (hm.created_at,
+                hm.id) <($2::timestamptz,
+                $3::uuid))
+    ORDER BY
+        hm.created_at DESC,
+        hm.id DESC
+    LIMIT $4::int
+`
+
+type MessageListAggregateBeforeParams struct {
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.UUID        `json:"cursor_id"`
+	LimitVal        int32              `json:"limit_val"`
+}
+
+type MessageListAggregateBeforeRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
+	Attachments       []byte             `json:"attachments"`
+	Reactions         []byte             `json:"reactions"`
+}
+
+// Fetches older messages strictly before the cursor tuple (Reverse DESC order for indexing)
+func (q *Queries) MessageListAggregateBefore(ctx context.Context, arg MessageListAggregateBeforeParams) ([]MessageListAggregateBeforeRow, error) {
+	rows, err := q.db.Query(ctx, messageListAggregateBefore,
+		arg.ChannelID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.LimitVal,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageListAggregateBeforeRow
+	for rows.Next() {
+		var i MessageListAggregateBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ReplyToMessageID,
+			&i.AuthorID,
+			&i.AuthorUsername,
+			&i.AuthorDisplayName,
+			&i.AuthorAvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+			&i.Attachments,
+			&i.Reactions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListPinnedAggregate = `-- name: MessageListPinnedAggregate :many
+WITH hydrated_pinned_messages AS (
+    SELECT
+        mb.id,
+        mb.channel_id,
+        mb.reply_to_message_id,
+        mb.author_id,
+        mb.author_username,
+        mb.author_display_name,
+        mb.author_avatar_url,
+        mb.created_at,
+        mb.updated_at,
+        mb.edited_at,
+        mb.is_pinned,
+        mb.content,
+        COALESCE(att.attachments, '[]'::json) AS attachments,
+        COALESCE(rec.reactions, '[]'::json) AS reactions
+    FROM
+        message_base_aggregates mb
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+            FROM
+                message_attachments a
+            WHERE
+                a.message_id = mb.id) att ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+            FROM
+                message_reactions r
+            WHERE
+                r.message_id = mb.id) rec ON TRUE
+        WHERE
+            mb.channel_id = $2::uuid
+            AND mb.is_pinned = TRUE
+)
+    SELECT
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+    FROM
+        hydrated_pinned_messages hm
+    ORDER BY
+        hm.created_at DESC,
+        hm.id DESC
+    LIMIT $1::int
+`
+
+type MessageListPinnedAggregateParams struct {
+	LimitVal  int32       `json:"limit_val"`
+	ChannelID pgtype.UUID `json:"channel_id"`
+}
+
+type MessageListPinnedAggregateRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	AuthorUsername    pgtype.Text        `json:"author_username"`
+	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
+	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	EditedAt          pgtype.Timestamptz `json:"edited_at"`
+	IsPinned          bool               `json:"is_pinned"`
+	Content           pgtype.Text        `json:"content"`
+	Attachments       []byte             `json:"attachments"`
+	Reactions         []byte             `json:"reactions"`
+}
+
+// Fetches pinned aggregate messages for a channel ordered by newest first
+func (q *Queries) MessageListPinnedAggregate(ctx context.Context, arg MessageListPinnedAggregateParams) ([]MessageListPinnedAggregateRow, error) {
+	rows, err := q.db.Query(ctx, messageListPinnedAggregate, arg.LimitVal, arg.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageListPinnedAggregateRow
+	for rows.Next() {
+		var i MessageListPinnedAggregateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.ReplyToMessageID,
+			&i.AuthorID,
+			&i.AuthorUsername,
+			&i.AuthorDisplayName,
+			&i.AuthorAvatarUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.IsPinned,
+			&i.Content,
+			&i.Attachments,
+			&i.Reactions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageTogglePinned = `-- name: MessageTogglePinned :one
 UPDATE
     messages
 SET
-    is_pinned = $1::boolean,
-    updated_at = $2::timestamptz
+    is_pinned = NOT is_pinned,
+    updated_at = $1::timestamptz
 WHERE
-    id = $3::uuid
+    id = $2::uuid
 RETURNING
     id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
 `
 
-type MessageSetPinnedParams struct {
-	IsPinned  bool               `json:"is_pinned"`
+type MessageTogglePinnedParams struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 }
 
-// -- name: MessageListByChannelAfter :many
-// -- Fetches newer messages using keyset pagination.
-// SELECT
-//
-//	*
-//
-// FROM
-//
-//	messages
-//
-// WHERE
-//
-//	channel_id = @channel_id::uuid
-//	AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-//	    OR (created_at,
-//	        id) >(sqlc.narg('cursor_created_at')::timestamptz,
-//	        sqlc.narg('cursor_id')::uuid))
-//
-// ORDER BY
-//
-//	created_at ASC,
-//	id ASC
-//
-// LIMIT @result_limit::int;
-// -- name: MessageListByChannelAround :many
-// WITH around_window AS ((
-//
-//	SELECT
-//	    m1.*
-//	FROM
-//	    messages m1
-//	WHERE
-//	    m1.channel_id = @channel_id::uuid
-//	    AND (m1.created_at,
-//	        m1.id) <=(@cursor_created_at::timestamptz,
-//	        @cursor_id::uuid)
-//	ORDER BY
-//	    m1.created_at DESC,
-//	    m1.id DESC
-//	LIMIT @older_limit::int)
-//
-// UNION ALL (
-//
-//	SELECT
-//	    m2.*
-//	FROM
-//	    messages m2
-//	WHERE
-//	    m2.channel_id = @channel_id::uuid
-//	    AND (m2.created_at,
-//	        m2.id) >(@cursor_created_at::timestamptz,
-//	        @cursor_id::uuid)
-//	ORDER BY
-//	    m2.created_at ASC,
-//	    m2.id ASC
-//	LIMIT @newer_limit::int))
-//
-// SELECT
-//
-//	m.*
-//
-// FROM
-//
-//	around_window aw
-//	JOIN messages m ON m.id = aw.id
-//
-// ORDER BY
-//
-//	aw.created_at ASC,
-//	aw.id ASC;
-//
-// -- name: MessageListByChannelBefore :many
-// -- Fetches older messages using keyset pagination.
-// SELECT
-//
-//	*
-//
-// FROM
-//
-//	messages
-//
-// WHERE
-//
-//	channel_id = @channel_id::uuid
-//	AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-//	    OR (created_at,
-//	        id) <(sqlc.narg('cursor_created_at')::timestamptz,
-//	        sqlc.narg('cursor_id')::uuid))
-//
-// ORDER BY
-//
-//	created_at DESC,
-//	id DESC
-//
-// LIMIT @result_limit::int;
-// TODO: ADD LIMIT
-// -- name: MessageListPinnedByChannel :many
-// SELECT
-//
-//	*
-//
-// FROM
-//
-//	messages
-//
-// WHERE
-//
-//	channel_id = @channel_id::uuid
-//	AND is_pinned = TRUE
-//
-// ORDER BY
-//
-//	created_at DESC,
-//	id DESC;
-func (q *Queries) MessageSetPinned(ctx context.Context, arg MessageSetPinnedParams) (Message, error) {
-	row := q.db.QueryRow(ctx, messageSetPinned, arg.IsPinned, arg.UpdatedAt, arg.ID)
+func (q *Queries) MessageTogglePinned(ctx context.Context, arg MessageTogglePinnedParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageTogglePinned, arg.UpdatedAt, arg.ID)
 	var i Message
 	err := row.Scan(
 		&i.ID,

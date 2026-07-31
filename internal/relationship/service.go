@@ -147,42 +147,6 @@ func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) er
 	})
 }
 
-// Delete forcefully removes a relationship (System/Admin scope).
-func (s *Service) Delete(ctx context.Context, rawUser1ID, rawUser2ID uuid.UUID) error {
-	u1ID, err := NewUserID(rawUser1ID)
-	if err != nil {
-		return errs.InvalidArgument("invalid user1 id")
-	}
-
-	u2ID, err := NewUserID(rawUser2ID)
-	if err != nil {
-		return errs.InvalidArgument("invalid user2 id")
-	}
-
-	if u1ID == u2ID {
-		return errs.InvalidArgument("cannot delete self relationship").Wrap(ErrSelfRelationship)
-	}
-
-	u1, u2 := sortUserIDs(u1ID, u2ID)
-
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		err := s.repo.Delete(txCtx, u1.UUID(), u2.UUID())
-		if err != nil {
-			if errs.IsNotFound(err) {
-				return errs.NotFound("relationship not found").Wrap(err)
-			}
-			return err
-		}
-
-		// Admin deletion event broadcasted to both parties
-		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
-			ActorID:  u1ID.UUID(),
-			TargetID: u2ID.UUID(),
-		})
-		return err
-	})
-}
-
 // DeleteVerified verifies permissions before removing a friendship or request.
 func (s *Service) DeleteVerified(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, err := NewUserID(rawActorID)
