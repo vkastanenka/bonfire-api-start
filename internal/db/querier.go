@@ -77,6 +77,7 @@ type Querier interface {
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
+	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
 	MessageGetAggregate(ctx context.Context, id pgtype.UUID) (MessageGetAggregateRow, error)
 	// Fetches the first message created after the user's last_read_at timestamp
 	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)

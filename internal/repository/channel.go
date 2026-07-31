@@ -354,7 +354,7 @@ func (r *Channel) IsMember(ctx context.Context, channelID, userID uuid.UUID) (bo
 // MESSAGES
 // ============================================================================
 
-func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) error {
+func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	var authorID *uuid.UUID
 	if id := msg.AuthorID(); id != nil {
 		u := id.UUID()
@@ -367,7 +367,7 @@ func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) error
 		replyToMsgID = &u
 	}
 
-	_, err := r.store.MessageCreate(ctx, db.MessageCreateParams{
+	row, err := r.store.MessageCreate(ctx, db.MessageCreateParams{
 		ID:               db.UUID(msg.ID().UUID()),
 		ChannelID:        db.UUID(msg.ChannelID().UUID()),
 		AuthorID:         db.UUIDPtr(authorID),
@@ -378,10 +378,10 @@ func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) error
 		UpdatedAt:        db.Timestamptz(msg.UpdatedAt()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityMessage)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
-	return nil
+	return messageFromRow(row)
 }
 
 func (r *Channel) MessageDelete(ctx context.Context, id uuid.UUID) error {
@@ -393,7 +393,16 @@ func (r *Channel) MessageDelete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *Channel) MessageGet(
+func (r *Channel) MessageGet(ctx context.Context, messageID uuid.UUID) (*channel.Message, error) {
+	row, err := r.store.MessageGet(ctx, db.UUID(messageID))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityMessage)
+	}
+
+	return messageFromRow(row)
+}
+
+func (r *Channel) MessageGetAggregate(
 	ctx context.Context,
 	id uuid.UUID,
 	userID *uuid.UUID,

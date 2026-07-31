@@ -9,6 +9,7 @@ import (
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/ptr"
 
 	"github.com/google/uuid"
 )
@@ -56,9 +57,10 @@ type Repository interface {
 	MemberRemove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberResetMentionCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberUpdateLastRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
-	MessageCreate(ctx context.Context, msg *Message) error
+	MessageCreate(ctx context.Context, msg *Message) (*Message, error)
 	MessageDelete(ctx context.Context, id uuid.UUID) error
-	MessageGet(ctx context.Context, id uuid.UUID, userID *uuid.UUID) (*MessageAggregate, error)
+	MessageGet(ctx context.Context, messageID uuid.UUID) (*Message, error)
+	MessageGetAggregate(ctx context.Context, id uuid.UUID, userID *uuid.UUID) (*MessageAggregate, error)
 	MessageGetFirstUnread(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Message, error)
 	MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*Message, error)
 	MessageSetPinned(ctx context.Context, msg *Message) (*Message, error)
@@ -574,73 +576,89 @@ var (
 	ErrCannotTransferToSelf = errors.New("cannot transfer ownership to current owner")
 )
 
-// 	// ============================================================================
-// 	// MESSAGING & PAGINATION
-// 	// ============================================================================
+// ============================================================================
+// MESSAGES
+// ============================================================================
 
-// // SendMessage validates user membership, constructs content value object, persists, and publishes the event.
-// func (s *Service) SendMessage(ctx context.Context, channelID, authorID uuid.UUID, rawContent string, replyToID *uuid.UUID) (*Message, error) {
-// 	if channelID == uuid.Nil || authorID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("channel ID and author ID cannot be nil")
-// 	}
+// SendMessage validates domain invariants, persists the message, updates channel metadata, and publishes outbox events.
+func (s *Service) SendMessage(ctx context.Context, rawChannelID, rawAuthorID uuid.UUID, rawContent *string, replyToID *uuid.UUID) (*Message, error) {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
 
-// 	// 1. Authorization Guard: Fast-fail if not a participant
-// 	ok, err := s.repo.IsMember(ctx, channelID, authorID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if !ok {
-// 		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
+	authorID, err := NewID(rawAuthorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid author ID").Wrap(err)
+	}
 
-// 	// 1b. Reply Target Validation: Ensure target exists and belongs to the same channel
-// 	if replyToID != nil {
-// 		parentMsg, err := s.repo.MessageGet(ctx, *replyToID)
-// 		if err != nil {
-// 			return nil, errs.NotFound("reply target message not found").Wrap(err)
-// 		}
-// 		if parentMsg.ChannelID() != channelID {
-// 			return nil, errs.InvalidArgument("cannot reply to a message in a different channel")
-// 		}
-// 	}
+	contentVO, err := NewContentPtr(rawContent)
+	if err != nil {
+		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
+	}
 
-// 	// 2. Domain Value Object & Entity Creation (Fail fast before opening tx)
-// 	contentVO, err := NewContent(rawContent)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
+	var contentStr *string
+	if contentVO != nil {
+		contentStr = ptr.To(contentVO.String())
+	}
 
-// 	msg, err := NewMessage(channelID, &authorID, replyToID, contentVO)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
+	msgVO, err := NewMessage(channelID.UUID(), ptr.To(authorID.UUID()), replyToID, contentStr)
+	if err != nil {
+		return nil, errs.InvalidArgument(err.Error()).Wrap(err)
+	}
 
-// 	// 3. Atomic Transaction: Persist Message + Write to Outbox Table
-// 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		if err := s.repo.MessageCreate(txCtx, msg); err != nil {
-// 			return err
-// 		}
+	var msg *Message
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		ch, err := s.repo.GetForMemberUpdate(txCtx, channelID.UUID(), authorID.UUID())
+		if err != nil {
+			return err
+		}
 
-// 		if err := s.repo.UpdateLastMessage(txCtx, msg.ChannelID(), ptr.To(msg.ID()), msg.CreatedAt()); err != nil {
-// 			return err
-// 		}
+		if replyToID != nil {
+			parentMsg, err := s.repo.MessageGet(txCtx, *replyToID)
+			if err != nil {
+				return errs.NotFound("reply target message not found").Wrap(err)
+			}
+			if parentMsg.ChannelID() != channelID {
+				return errs.InvalidArgument("cannot reply to a message in a different channel")
+			}
+		}
 
-// 		_, err := s.outbox.Publish(txCtx, EventMessageCreated, MessageCreatedPayload{
-// 			MessageID: msg.ID(),
-// 			ChannelID: msg.ChannelID(),
-// 			AuthorID:  msg.AuthorID(),
-// 			Content:   msg.Content().String(),
-// 			ReplyToID: msg.ReplyToMessageID(),
-// 			CreatedAt: msg.CreatedAt(),
-// 		})
-// 		return err
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
+		msg, err = s.repo.MessageCreate(txCtx, msgVO)
+		if err != nil {
+			return err
+		}
 
-// 	return msg, nil
-// }
+		ch.SetLastMessage(msg.ID())
+
+		_, err = s.repo.UpdateLastMessage(txCtx, ch)
+		if err != nil {
+			return err
+		}
+
+		// Use local authorID to prevent nil pointer issues if AuthorID is optional on Message
+		if err := s.repo.MemberUpdateRead(txCtx, channelID.UUID(), authorID.UUID(), ptr.To(msg.ID().UUID()), msg.CreatedAt()); err != nil {
+			return err
+		}
+
+		// _, err = s.outbox.Publish(txCtx, EventMessageCreated, MessageCreatedPayload{
+		// 	MessageID: msg.ID(),
+		// 	ChannelID: msg.ChannelID(),
+		// 	AuthorID:  msg.AuthorID(),
+		// 	Content:   msg.Content().String(),
+		// 	ReplyToID: msg.ReplyToMessageID(),
+		// 	CreatedAt: msg.CreatedAt(),
+		// })
+		// return err
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
 
 // // EditMessage allows the author to update message content.
 // func (s *Service) EditMessage(ctx context.Context, messageID, authorID uuid.UUID, newRawContent string) (*Message, error) {

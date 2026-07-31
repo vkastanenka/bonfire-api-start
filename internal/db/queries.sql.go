@@ -776,6 +776,40 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const messageGet = `-- name: MessageGet :one
+SELECT
+    id,
+    channel_id,
+    reply_to_message_id,
+    author_id,
+    created_at,
+    updated_at,
+    edited_at,
+    is_pinned,
+    content
+FROM
+    messages
+WHERE
+    id = $1::uuid
+`
+
+func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, error) {
+	row := q.db.QueryRow(ctx, messageGet, id)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.ReplyToMessageID,
+		&i.AuthorID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EditedAt,
+		&i.IsPinned,
+		&i.Content,
+	)
+	return i, err
+}
+
 const messageGetAggregate = `-- name: MessageGetAggregate :one
 SELECT
     mb.id,

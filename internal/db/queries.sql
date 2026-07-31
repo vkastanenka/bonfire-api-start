@@ -490,6 +490,22 @@ RETURNING
 DELETE FROM messages
 WHERE id = @id::uuid;
 
+-- name: MessageGet :one
+SELECT
+    id,
+    channel_id,
+    reply_to_message_id,
+    author_id,
+    created_at,
+    updated_at,
+    edited_at,
+    is_pinned,
+    content
+FROM
+    messages
+WHERE
+    id = @id::uuid;
+
 -- name: MessageGetAggregate :one
 SELECT
     mb.id,
