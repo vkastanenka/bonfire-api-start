@@ -351,7 +351,7 @@ CREATE INDEX idx_relationships_u1_perf ON relationships(user1_id, variant, actor
 
 CREATE INDEX idx_relationships_u2_perf ON relationships(user2_id, variant, actor_id) INCLUDE (created_at, updated_at);
 
-CREATE OR REPLACE VIEW relationship_perspectives WITH ( security_invoker = TRUE
+CREATE OR REPLACE VIEW relationship_aggregates WITH ( security_invoker = TRUE
 ) AS
 SELECT
     r.user1_id AS user_id,
