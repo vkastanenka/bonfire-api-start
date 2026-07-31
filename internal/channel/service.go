@@ -46,6 +46,13 @@ type Repository interface {
 	MemberGetUnreadCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (int32, error)
 	MemberIncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error
 	MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*Member, error)
+	MemberListItemsByChannel(
+		ctx context.Context,
+		channelID uuid.UUID,
+		cursorCreatedAt *time.Time,
+		cursorUserID *uuid.UUID,
+		limit int32,
+	) ([]*MemberListItem, error)
 	MemberRemove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberResetMentionCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberUpdateLastRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
@@ -394,103 +401,116 @@ func (s *Service) AddMembers(ctx context.Context, rawChannelID uuid.UUID, rawAct
 	})
 }
 
-// // ListMembers returns all member records for a channel after confirming the requesting user is a participant.
-// func (s *Service) ListMembers(ctx context.Context, channelID, actorID uuid.UUID) ([]*Member, error) {
-// 	if channelID == uuid.Nil || actorID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("channel ID and actor ID cannot be nil")
-// 	}
+// ListMembers returns keyset-paginated member roster records for a channel
+// after confirming the requesting user is a participant.
+func (s *Service) ListMembers(
+	ctx context.Context,
+	rawChannelID, rawActorID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorUserID *uuid.UUID,
+	limit int32,
+) ([]*MemberListItem, error) {
+	// Parse inputs
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
 
-// 	// 1. Authorization Guard: Ensure the requesting user belongs to the channel
-// 	ok, err := s.repo.IsMember(ctx, channelID, actorID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if !ok {
-// 		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
 
-// 	// 2. Fetch member roster
-// 	members, err := s.repo.MemberListByChannel(ctx, channelID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	if limit <= 0 {
+		return nil, errs.InvalidArgument("limit must be greater than 0")
+	}
 
-// 	return members, nil
-// }
+	// 1. Authorization Guard: Ensure the requesting user belongs to the channel
+	ok, err := s.repo.IsMember(ctx, channelID.UUID(), actorID.UUID())
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+	}
 
-// // RemoveMember removes a user from a channel, or handles leaving/channel cleanup if they are the last member.
-// func (s *Service) RemoveMember(ctx context.Context, channelID uuid.UUID, actorID uuid.UUID, targetUserID uuid.UUID) error {
-// 	if channelID == uuid.Nil || actorID == uuid.Nil || targetUserID == uuid.Nil {
-// 		return errs.InvalidArgument("channel ID, actor ID, and target user ID cannot be nil")
-// 	}
+	// 2. Fetch paginated member roster projection
+	members, err := s.repo.MemberListItemsByChannel(
+		ctx,
+		channelID.UUID(),
+		cursorCreatedAt,
+		cursorUserID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		ch, err := s.repo.Get(txCtx, channelID)
-// 		if err != nil {
-// 			return err
-// 		}
+	// TODO: Add presence
 
-// 		// 1. Direct Messages cannot have members removed.
-// 		// In 1-on-1 DMs, "leaving" should trigger a channel close/delete for the user rather than member removal.
-// 		if ch.Type() == TypeDirect {
-// 			return errs.InvalidArgument("cannot remove members from a direct message channel; delete or close the DM instead")
-// 		}
+	return members, nil
+}
 
-// 		// 2. Authorization: Check that actor is in the channel
-// 		actorIsMember, err := s.repo.IsMember(txCtx, channelID, actorID)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if !actorIsMember {
-// 			return errs.PermissionDenied("you must be a member of this channel to perform this action").Wrap(ErrNotParticipant)
-// 		}
+// Leave handles a user leaving a channel, performing cleanup if they are the last member.
+func (s *Service) Leave(ctx context.Context, rawChannelID uuid.UUID, rawActorID uuid.UUID) error {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
 
-// 		// 3. Verify target user is actually a member of the channel
-// 		targetIsMember, err := s.repo.IsMember(txCtx, channelID, targetUserID)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if !targetIsMember {
-// 			return errs.NotFound("target user is not a member of this channel")
-// 		}
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
 
-// 		// 4. Check current member roster to determine remaining count
-// 		existingMembers, err := s.repo.MemberListByChannel(txCtx, channelID)
-// 		if err != nil {
-// 			return err
-// 		}
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Lock channel row & verify membership via FOR UPDATE
+		ch, err := s.repo.GetForMemberUpdate(txCtx, channelID.UUID(), actorID.UUID())
+		if err != nil {
+			return err
+		}
 
-// 		// 5. IF LAST MEMBER: Clean up the entire channel
-// 		if len(existingMembers) <= 1 {
-// 			if err := s.repo.Delete(txCtx, channelID); err != nil {
-// 				return err
-// 			}
+		if ch.Type() == TypeDirect {
+			return errs.InvalidArgument("cannot leave a direct message channel")
+		}
 
-// 			// _, err = s.outbox.Publish(txCtx, "channel.deleted", ChannelDeletedPayload{
-// 			// 	ChannelID: channelID,
-// 			// 	ActorID:   actorID,
-// 			// })
-// 			// return err
-// 		}
+		// Efficiently count remaining members without fetching row data
+		count, err := s.repo.MemberCount(txCtx, channelID.UUID())
+		if err != nil {
+			return err
+		}
 
-// 		// 6. IF MULTIPLE MEMBERS: Remove target user from channel_members
-// 		if err := s.repo.MemberRemove(txCtx, channelID, targetUserID); err != nil {
-// 			return err
-// 		}
+		// 3. If last member, delete channel (cascades related tables) and exit
+		if count <= 1 {
+			if err := s.repo.Delete(txCtx, channelID.UUID()); err != nil {
+				return err
+			}
 
-// 		// // 7. Emit outbox event for gateway fanout
-// 		// _, err = s.outbox.Publish(txCtx, "channel.member_removed", ChannelMemberRemovedPayload{
-// 		// 	ChannelID:    channelID,
-// 		// 	ActorID:      actorID,
-// 		// 	TargetUserID: targetUserID,
-// 		// })
-// 		// if err != nil {
-// 		// 	return err
-// 		// }
+			// _, err = s.outbox.Publish(txCtx, "channel.deleted", ChannelDeletedPayload{
+			// 	ChannelID: channelID,
+			// 	ActorID:   actorID,
+			// })
+			// return err
 
-// 		return nil
-// 	})
-// }
+			return nil // Critical: Return early so we don't attempt MemberRemove on a deleted channel
+		}
+
+		// 4. Remove member record
+		if err := s.repo.MemberRemove(txCtx, channelID.UUID(), actorID.UUID()); err != nil {
+			return err
+		}
+
+		// // 5. Emit outbox event for gateway fanout
+		// _, err = s.outbox.Publish(txCtx, "channel.member_removed", ChannelMemberRemovedPayload{
+		// 	ChannelID:    channelID,
+		// 	ActorID:      actorID,
+		// 	TargetUserID: actorID,
+		// })
+		// return err
+
+		return nil
+	})
+}
 
 // // UpdateMemberReadState updates the user's read marker for a channel and emits an outbox event.
 // func (s *Service) UpdateMemberReadState(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, readAt time.Time) error {

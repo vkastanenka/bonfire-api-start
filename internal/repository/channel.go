@@ -263,23 +263,34 @@ func (r *Channel) MemberListByChannel(ctx context.Context, channelID uuid.UUID) 
 	return members, nil
 }
 
-// func (r *Channel) MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.MemberListItem, error) {
-// 	rows, err := r.store.ChannelMemberListItemsByChannel(ctx, db.UUID(channelID))
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityChannelMember)
-// 	}
+func (r *Channel) MemberListItemsByChannel(
+	ctx context.Context,
+	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorUserID *uuid.UUID,
+	limit int32,
+) ([]*channel.MemberListItem, error) {
+	rows, err := r.store.ChannelMemberListItemsByChannel(ctx, db.ChannelMemberListItemsByChannelParams{
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorUserID:    db.UUIDPtr(cursorUserID),
+		LimitVal:        limit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannelMember)
+	}
 
-// 	members := make([]*channel.MemberListItem, 0, len(rows))
-// 	for _, row := range rows {
-// 		member, err := memberListItemFromRow(row)
-// 		if err != nil {
-// 			return nil, db.NewError(err, db.EntityChannelMember)
-// 		}
-// 		members = append(members, member)
-// 	}
+	members := make([]*channel.MemberListItem, 0, len(rows))
+	for _, row := range rows {
+		member, err := memberListItemFromRow(row)
+		if err != nil {
+			return nil, db.NewError(err, db.EntityChannelMember)
+		}
+		members = append(members, member)
+	}
 
-// 	return members, nil
-// }
+	return members, nil
+}
 
 func (r *Channel) MemberRemove(ctx context.Context, channelID, userID uuid.UUID) error {
 	err := r.store.ChannelMemberRemove(ctx, db.ChannelMemberRemoveParams{
@@ -581,6 +592,8 @@ func memberListItemFromRow(row db.ChannelMemberListItemsByChannelRow) (*channel.
 	mem, err := channel.ReconstituteMemberListItem(
 		row.ChannelID.Bytes,
 		row.UserID.Bytes,
+		row.MemberSince.Time.UTC(),
+		row.LastReadAt.Time.UTC(),
 		row.Username,
 		row.DisplayName,
 		db.StringPtr(row.AvatarUrl),

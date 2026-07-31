@@ -162,6 +162,8 @@ func (m *Member) touchWith(t time.Time) {
 type MemberListItem struct {
 	channelID     ID
 	userID        UserID
+	memberSince   time.Time
+	lastReadAt    time.Time
 	username      string
 	displayName   string
 	avatarURL     *string
@@ -174,6 +176,8 @@ type MemberListItem struct {
 
 func (m *MemberListItem) ChannelID() ID            { return m.channelID }
 func (m *MemberListItem) UserID() UserID           { return m.userID }
+func (m *MemberListItem) MemberSince() time.Time   { return m.memberSince }
+func (m *MemberListItem) LastReadAt() time.Time    { return m.lastReadAt }
 func (m *MemberListItem) Username() string         { return m.username }
 func (m *MemberListItem) DisplayName() string      { return m.displayName }
 func (m *MemberListItem) AvatarURL() *string       { return m.avatarURL }
@@ -187,6 +191,8 @@ func (m *MemberListItem) UserCreatedAt() time.Time { return m.userCreatedAt }
 func ReconstituteMemberListItem(
 	rawChannelID uuid.UUID,
 	rawUserID uuid.UUID,
+	memberSince time.Time,
+	lastReadAt time.Time,
 	username string,
 	displayName string,
 	rawAvatarURL *string,
@@ -205,9 +211,11 @@ func ReconstituteMemberListItem(
 	return &MemberListItem{
 		channelID:     channelID,
 		userID:        userID,
+		memberSince:   memberSince.UTC(),
+		lastReadAt:    lastReadAt.UTC(),
 		username:      username,
 		displayName:   displayName,
 		avatarURL:     rawAvatarURL,
-		userCreatedAt: userCreatedAt,
+		userCreatedAt: userCreatedAt.UTC(),
 	}, nil
 }
