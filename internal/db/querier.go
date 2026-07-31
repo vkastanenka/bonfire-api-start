@@ -38,7 +38,7 @@ type Querier interface {
 	ChannelMemberListItemsByChannel(ctx context.Context, arg ChannelMemberListItemsByChannelParams) ([]ChannelMemberListItemsByChannelRow, error)
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
 	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
-	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
+	ChannelMemberUpdateRead(ctx context.Context, arg ChannelMemberUpdateReadParams) error
 	// -- name: ChannelListByUser :many
 	// -- Used for populating the user's sidebar with channel info & peer profiles for DMs
 	// SELECT

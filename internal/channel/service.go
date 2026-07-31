@@ -63,6 +63,13 @@ type Repository interface {
 	MessageGetLatest(ctx context.Context, channelID uuid.UUID) (*Message, error)
 	MessageSetPinned(ctx context.Context, msg *Message) (*Message, error)
 	MessageUpdateContent(ctx context.Context, msg *Message) (*Message, error)
+	MemberUpdateRead(
+		ctx context.Context,
+		channelID uuid.UUID,
+		userID uuid.UUID,
+		messageID *uuid.UUID,
+		lastReadAt time.Time,
+	) error
 	ReactionAdd(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji string) (*Reaction, error)
 	ReactionRemove(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji Emoji) error
 	Update(ctx context.Context, ch *Channel) (*Channel, error)
@@ -401,56 +408,6 @@ func (s *Service) AddMembers(ctx context.Context, rawChannelID uuid.UUID, rawAct
 	})
 }
 
-// ListMembers returns keyset-paginated member roster records for a channel
-// after confirming the requesting user is a participant.
-func (s *Service) ListMembers(
-	ctx context.Context,
-	rawChannelID, rawActorID uuid.UUID,
-	cursorCreatedAt *time.Time,
-	cursorUserID *uuid.UUID,
-	limit int32,
-) ([]*MemberListItem, error) {
-	// Parse inputs
-	channelID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
-	}
-
-	actorID, err := NewID(rawActorID)
-	if err != nil {
-		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
-	}
-
-	if limit <= 0 {
-		return nil, errs.InvalidArgument("limit must be greater than 0")
-	}
-
-	// 1. Authorization Guard: Ensure the requesting user belongs to the channel
-	ok, err := s.repo.IsMember(ctx, channelID.UUID(), actorID.UUID())
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-	}
-
-	// 2. Fetch paginated member roster projection
-	members, err := s.repo.MemberListItemsByChannel(
-		ctx,
-		channelID.UUID(),
-		cursorCreatedAt,
-		cursorUserID,
-		limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: Add presence
-
-	return members, nil
-}
-
 // Leave handles a user leaving a channel, performing cleanup if they are the last member.
 func (s *Service) Leave(ctx context.Context, rawChannelID uuid.UUID, rawActorID uuid.UUID) error {
 	channelID, err := NewID(rawChannelID)
@@ -512,42 +469,104 @@ func (s *Service) Leave(ctx context.Context, rawChannelID uuid.UUID, rawActorID 
 	})
 }
 
-// // UpdateMemberReadState updates the user's read marker for a channel and emits an outbox event.
-// func (s *Service) UpdateMemberReadState(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, readAt time.Time) error {
-// 	if channelID == uuid.Nil || userID == uuid.Nil {
-// 		return errs.InvalidArgument("channel ID and user ID cannot be nil")
-// 	}
+// ListMembers returns keyset-paginated member roster records for a channel
+// after confirming the requesting user is a participant.
+func (s *Service) ListMembers(
+	ctx context.Context,
+	rawChannelID, rawActorID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorUserID *uuid.UUID,
+	limit int32,
+) ([]*MemberListItem, error) {
+	// Parse inputs
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
 
-// 	if readAt.IsZero() {
-// 		readAt = time.Now().UTC()
-// 	}
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
 
-// 	// Wrap in transaction so DB update and outbox payload commit atomically
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		// 1. Authorization Guard: Check channel membership
-// 		isMember, err := s.repo.IsMember(txCtx, channelID, userID)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if !isMember {
-// 			return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 		}
+	if limit <= 0 {
+		return nil, errs.InvalidArgument("limit must be greater than 0")
+	}
 
-// 		// 2 & 3. Persist via Repository (Monotonicity handled via CASE/GREATEST in SQL)
-// 		if err := s.repo.MemberUpdateReadState(txCtx, channelID, userID, messageID, readAt); err != nil {
-// 			return err
-// 		}
+	// 1. Authorization Guard: Ensure the requesting user belongs to the channel
+	ok, err := s.repo.IsMember(ctx, channelID.UUID(), actorID.UUID())
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+	}
 
-// 		// 4. Side Effects: Publish to outbox for Gateway/WebSocket worker consumption
-// 		_, err = s.outbox.Publish(txCtx, EventChannelReadUpdated, ChannelReadUpdatedPayload{
-// 			ChannelID:         channelID,
-// 			UserID:            userID,
-// 			LastReadMessageID: messageID,
-// 			LastReadAt:        readAt,
-// 		})
-// 		return err
-// 	})
-// }
+	// 2. Fetch paginated member roster projection
+	members, err := s.repo.MemberListItemsByChannel(
+		ctx,
+		channelID.UUID(),
+		cursorCreatedAt,
+		cursorUserID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Add presence
+
+	return members, nil
+}
+
+// UpdateMemberRead updates the user's read marker for a channel and emits an outbox event.
+func (s *Service) UpdateMemberRead(
+	ctx context.Context,
+	rawChannelID, rawActorID uuid.UUID,
+	messageID *uuid.UUID,
+	readAt time.Time,
+) error {
+	channelID, err := NewID(rawChannelID)
+	if err != nil {
+		return errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
+
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
+
+	if readAt.IsZero() {
+		readAt = time.Now()
+	}
+	readAt = readAt.UTC()
+
+	// Wrap in transaction so DB update and outbox payload commit atomically
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// 1. Authorization Guard: Check channel membership
+		isMember, err := s.repo.IsMember(txCtx, channelID.UUID(), actorID.UUID())
+		if err != nil {
+			return err
+		}
+		if !isMember {
+			return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+		}
+
+		// 2. Persist via Repository (Monotonicity handled via SQL GREATEST/CASE)
+		if err := s.repo.MemberUpdateRead(txCtx, channelID.UUID(), actorID.UUID(), messageID, readAt); err != nil {
+			return err
+		}
+
+		// 3. Side Effects: Publish to outbox for Gateway fanout
+		_, err = s.outbox.Publish(txCtx, EventChannelReadUpdated, ChannelReadUpdatedPayload{
+			ChannelID:         channelID.UUID(),
+			UserID:            actorID.UUID(),
+			LastReadMessageID: messageID,
+			LastReadAt:        readAt,
+		})
+		return err
+	})
+}
 
 var (
 	ErrCannotModifyDM       = errors.New("cannot modify properties of a direct message channel")

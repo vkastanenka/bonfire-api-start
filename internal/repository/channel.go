@@ -316,8 +316,14 @@ func (r *Channel) MemberResetMentionCount(ctx context.Context, channelID, userID
 	return nil
 }
 
-func (r *Channel) MemberUpdateLastRead(ctx context.Context, channelID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error {
-	err := r.store.ChannelMemberUpdateLastRead(ctx, db.ChannelMemberUpdateLastReadParams{
+func (r *Channel) MemberUpdateRead(
+	ctx context.Context,
+	channelID uuid.UUID,
+	userID uuid.UUID,
+	messageID *uuid.UUID,
+	lastReadAt time.Time,
+) error {
+	err := r.store.ChannelMemberUpdateRead(ctx, db.ChannelMemberUpdateReadParams{
 		ChannelID:         db.UUID(channelID),
 		UserID:            db.UUID(userID),
 		LastReadMessageID: db.UUIDPtr(messageID),

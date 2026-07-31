@@ -572,7 +572,7 @@ func (q *Queries) ChannelMemberResetMentionCount(ctx context.Context, arg Channe
 	return err
 }
 
-const channelMemberUpdateLastRead = `-- name: ChannelMemberUpdateLastRead :exec
+const channelMemberUpdateRead = `-- name: ChannelMemberUpdateRead :exec
 UPDATE
     channel_members
 SET
@@ -588,15 +588,15 @@ WHERE
     AND user_id = $4::uuid
 `
 
-type ChannelMemberUpdateLastReadParams struct {
+type ChannelMemberUpdateReadParams struct {
 	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
 	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error {
-	_, err := q.db.Exec(ctx, channelMemberUpdateLastRead,
+func (q *Queries) ChannelMemberUpdateRead(ctx context.Context, arg ChannelMemberUpdateReadParams) error {
+	_, err := q.db.Exec(ctx, channelMemberUpdateRead,
 		arg.LastReadAt,
 		arg.LastReadMessageID,
 		arg.ChannelID,

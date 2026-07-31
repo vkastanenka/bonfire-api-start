@@ -462,7 +462,7 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
 
--- name: ChannelMemberUpdateLastRead :exec
+-- name: ChannelMemberUpdateRead :exec
 UPDATE
     channel_members
 SET
