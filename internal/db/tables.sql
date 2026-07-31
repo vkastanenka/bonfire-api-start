@@ -16,7 +16,14 @@ CREATE OR REPLACE FUNCTION check_channel_member_limit()
 DECLARE
     member_count integer;
 BEGIN
-    -- Count existing members for this channel
+    -- Lock parent channel row to serialize concurrent member additions
+    PERFORM
+        1
+    FROM
+        channels
+    WHERE
+        id = NEW.channel_id
+    FOR UPDATE;
     SELECT
         COUNT(*)
     INTO
@@ -25,7 +32,6 @@ BEGIN
         channel_members
     WHERE
         channel_id = NEW.channel_id;
-    -- If count is already 10 or more, reject the insert
     IF member_count >= 10 THEN
         RAISE EXCEPTION 'channel member limit reached (max 10)'
             USING ERRCODE = 'check_violation';
@@ -160,8 +166,10 @@ CREATE TABLE messages(
     CONSTRAINT content_validity CHECK (content IS NULL OR length(trim(content)) BETWEEN 1 AND 4000)
 );
 
-CREATE INDEX idx_messages_channel_created_id ON messages(channel_id, created_at DESC, id DESC);
+-- Index for fetching recently active channels
+CREATE INDEX idx_channels_updated_at ON channels(updated_at DESC);
 
+CREATE INDEX idx_messages_channel_created_id ON messages(channel_id, created_at DESC, id DESC);
 
 CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id, created_at ASC, id ASC)
 WHERE
@@ -197,30 +205,21 @@ CREATE TABLE channel_members(
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     pinned_at timestamptz DEFAULT NULL,
+    muted_until timestamptz DEFAULT NULL,
     mention_count integer NOT NULL DEFAULT 0,
-    dm_visibility smallint NOT NULL DEFAULT 1,
+    is_visible boolean NOT NULL DEFAULT TRUE,
     PRIMARY KEY (channel_id, user_id),
-    CONSTRAINT mention_count_positive CHECK (mention_count >= 0),
-    CONSTRAINT valid_dm_visibility CHECK (dm_visibility IN (0, 1))
+    CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
 );
 
-CREATE INDEX idx_channel_members_user ON channel_members(user_id);
+-- 1. Secondary Index: Reverse lookup for User Sidebar & Gateway Boot Sync
+-- Primary Key covers (channel_id, user_id). You need this index for queries filtering by user_id:
+-- e.g., "Get all channels for User X"
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, channel_id) INCLUDE (last_read_message_id, mention_count, is_visible, muted_until);
 
-CREATE INDEX idx_channel_members_last_read ON channel_members(last_read_message_id)
-WHERE
-    last_read_message_id IS NOT NULL;
-
--- 1. Ultra-lean index for rendering the user's active sidebar list.
--- Filter out hidden DMs at index time so the B-Tree only contains active channels.
-CREATE INDEX idx_channel_members_active_sidebar ON channel_members(user_id, pinned_at DESC, channel_id)
-WHERE
-    dm_visibility = 1;
-
--- 2. Index to instantly target hidden channels when a message is sent
--- Allows the incoming message handler to auto-unhide closed DMs without full scans.
-CREATE INDEX idx_channel_members_unhide ON channel_members(channel_id)
-WHERE
-    dm_visibility = 0;
+-- 2. Channel Member Roster / Sidebar Order
+-- For listing members in a channel ordered by when they joined:
+CREATE INDEX idx_channel_members_channel_roster ON channel_members(channel_id, created_at ASC, user_id);
 
 CREATE TRIGGER enforce_channel_member_limit
     BEFORE INSERT ON channel_members

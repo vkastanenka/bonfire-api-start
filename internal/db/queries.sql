@@ -522,6 +522,15 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
 
+-- count number of messages in a channel that came after a message id
+-- SELECT
+--     COUNT(*)::int
+-- FROM
+--     messages
+-- WHERE
+--     channel_id = $1
+--     AND id > $2; -- last_read_message_id
+
 -- ============================================================================
 -- MESSAGES
 -- ============================================================================
