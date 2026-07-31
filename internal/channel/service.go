@@ -60,7 +60,7 @@ type Repository interface {
 	MessageListAggregateAfter(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
 	MessageListAggregateAround(ctx context.Context, channelID uuid.UUID, targetID uuid.UUID, userID *uuid.UUID, olderLimit int32, newerLimit int32) ([]*MessageAggregate, error)
 	MessageListAggregateBefore(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
-	MessageListPinnedAggregate(ctx context.Context, channelID uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
+	MessageListPinnedAggregate(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorID *uuid.UUID, userID *uuid.UUID, limit int32) ([]*MessageAggregate, error)
 	MessageTogglePinned(ctx context.Context, msg *Message) (*Message, error)
 	MessageUpdateContent(ctx context.Context, msg *Message) (*Message, error)
 	ReactionAdd(ctx context.Context, messageID uuid.UUID, userID uuid.UUID, emoji string) (*Reaction, error)
@@ -690,6 +690,321 @@ func (s *Service) EditMessageContent(ctx context.Context, rawMsgID, rawAuthorID 
 	return updated, nil
 }
 
+// PaginationDirection defines the direction for fetching channel message history.
+type PaginationDirection string
+
+const (
+	DirectionBefore PaginationDirection = "before"
+	DirectionAfter  PaginationDirection = "after"
+	DirectionAround PaginationDirection = "around"
+)
+
+type ListInitialMessagesResult struct {
+	Messages      []*MessageAggregate `json:"messages"`
+	FirstUnreadID *uuid.UUID          `json:"first_unread_id,omitempty"`
+	HasMoreBefore bool                `json:"has_more_before"`
+	HasMoreAfter  bool                `json:"has_more_after"`
+}
+
+type ListMessagesParams struct {
+	ChannelID uuid.UUID
+	UserID    uuid.UUID
+	Direction PaginationDirection
+	TargetID  *uuid.UUID
+	Limit     int32
+}
+
+type ListMessagesResult struct {
+	Messages      []*MessageAggregate `json:"messages"`
+	HasMoreBefore bool                `json:"has_more_before"`
+	HasMoreAfter  bool                `json:"has_more_after"`
+}
+
+// ListInitialMessages orchestrates cold channel loads and unread positioning.
+func (s *Service) ListInitialMessages(ctx context.Context, channelID, userID uuid.UUID, limit int32) (*ListInitialMessagesResult, error) {
+	if channelID == uuid.Nil || userID == uuid.Nil {
+		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
+	}
+
+	// 1. Check for first unread message
+	firstUnread, err := s.repo.MessageGetFirstUnread(ctx, channelID, userID)
+	if err != nil && !errs.IsNotFound(err) {
+		return nil, err
+	}
+
+	var (
+		listRes  *ListMessagesResult
+		unreadID *uuid.UUID
+	)
+
+	// 2. Branching strategy
+	if firstUnread != nil {
+		id := firstUnread.ID().UUID()
+		unreadID = &id
+
+		// Jump to first unread message using DirectionAround
+		listRes, err = s.ListMessages(ctx, ListMessagesParams{
+			ChannelID: channelID,
+			UserID:    userID,
+			Direction: DirectionAround,
+			TargetID:  unreadID,
+			Limit:     limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// User is fully caught up or channel is empty; fetch latest messages going backward
+		listRes, err = s.ListMessages(ctx, ListMessagesParams{
+			ChannelID: channelID,
+			UserID:    userID,
+			Direction: DirectionBefore,
+			TargetID:  nil,
+			Limit:     limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &ListInitialMessagesResult{
+		Messages:      listRes.Messages,
+		FirstUnreadID: unreadID,
+		HasMoreBefore: listRes.HasMoreBefore,
+		HasMoreAfter:  listRes.HasMoreAfter,
+	}, nil
+}
+
+func (s *Service) ListMessages(ctx context.Context, params ListMessagesParams) (*ListMessagesResult, error) {
+	if params.ChannelID == uuid.Nil || params.UserID == uuid.Nil {
+		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
+	}
+
+	if params.Limit <= 0 {
+		params.Limit = 50
+	} else if params.Limit > 100 {
+		params.Limit = 100
+	}
+
+	// 1. Authorization check
+	ok, err := s.repo.IsMember(ctx, params.ChannelID, params.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+	}
+
+	var cursorMsg *Message
+	if params.TargetID != nil && *params.TargetID != uuid.Nil {
+		var err error
+		cursorMsg, err = s.repo.MessageGet(ctx, *params.TargetID)
+		if err != nil {
+			return nil, err
+		}
+		if cursorMsg.ChannelID().UUID() != params.ChannelID {
+			return nil, errs.InvalidArgument("target message does not belong to specified channel")
+		}
+	}
+
+	result := &ListMessagesResult{
+		Messages: make([]*MessageAggregate, 0),
+	}
+
+	switch params.Direction {
+	case DirectionBefore:
+		var (
+			cursorCreatedAt = cursorMsg.CreatedAtPtr()
+			cursorID        = cursorMsg.IDPtr()
+		)
+
+		// Request limit + 1 to check for older overflow
+		msgs, err := s.repo.MessageListAggregateBefore(
+			ctx,
+			params.ChannelID,
+			cursorCreatedAt,
+			cursorID,
+			&params.UserID,
+			params.Limit+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if int32(len(msgs)) > params.Limit {
+			result.HasMoreBefore = true
+			// Trim overflow (MessageListAggregateBefore already reverses to chronological ASC)
+			msgs = msgs[1:]
+		}
+
+		result.Messages = msgs
+
+		// Evaluate HasMoreAfter boundary if cursor was supplied
+		if cursorCreatedAt != nil && cursorID != nil {
+			hasAfter, err := s.repo.HasMessagesAfter(ctx, params.ChannelID, *cursorCreatedAt, *cursorID)
+			if err != nil {
+				return nil, err
+			}
+			result.HasMoreAfter = hasAfter
+		}
+
+	case DirectionAfter:
+		var (
+			cursorCreatedAt = cursorMsg.CreatedAtPtr()
+			cursorID        = cursorMsg.IDPtr()
+		)
+
+		// Request limit + 1 to check for newer overflow
+		msgs, err := s.repo.MessageListAggregateAfter(
+			ctx,
+			params.ChannelID,
+			cursorCreatedAt,
+			cursorID,
+			&params.UserID,
+			params.Limit+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if int32(len(msgs)) > params.Limit {
+			result.HasMoreAfter = true
+			msgs = msgs[:params.Limit]
+		}
+
+		result.Messages = msgs
+
+		// Evaluate HasMoreBefore boundary if cursor was supplied
+		if cursorCreatedAt != nil && cursorID != nil {
+			hasBefore, err := s.repo.HasMessagesBefore(ctx, params.ChannelID, *cursorCreatedAt, *cursorID)
+			if err != nil {
+				return nil, err
+			}
+			result.HasMoreBefore = hasBefore
+		}
+
+	case DirectionAround:
+		if cursorMsg == nil {
+			return nil, errs.InvalidArgument("target message ID is required for DirectionAround")
+		}
+
+		halfLimit := params.Limit / 2
+
+		// Fetch halfLimit + 1 on both sides to determine overflow
+		msgs, err := s.repo.MessageListAggregateAround(
+			ctx,
+			params.ChannelID,
+			cursorMsg.ID().UUID(),
+			&params.UserID,
+			halfLimit+1,
+			halfLimit+1,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		result.Messages, result.HasMoreBefore, result.HasMoreAfter = processAroundResults(
+			msgs,
+			cursorMsg.ID().UUID(),
+			halfLimit,
+		)
+
+	default:
+		return nil, errs.InvalidArgument(fmt.Sprintf("unsupported list direction: %s", params.Direction))
+	}
+
+	return result, nil
+}
+
+type ListPinnedMessagesParams struct {
+	ChannelID uuid.UUID
+	UserID    uuid.UUID
+	BeforeID  *uuid.UUID
+	Limit     int32
+}
+
+type ListPinnedMessagesResult struct {
+	Messages []*MessageAggregate `json:"messages"`
+	HasMore  bool                `json:"has_more"`
+}
+
+// ListPinnedMessages retrieves pinned messages for a channel ordered by newest first.
+// If BeforeID is supplied, it fetches pins created prior to that message's timestamp.
+func (s *Service) ListPinnedMessages(ctx context.Context, params ListPinnedMessagesParams) (*ListPinnedMessagesResult, error) {
+	// 1. Input validation
+	if params.ChannelID == uuid.Nil || params.UserID == uuid.Nil {
+		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
+	}
+
+	// Clamp pagination limit
+	if params.Limit <= 0 {
+		params.Limit = 50
+	} else if params.Limit > 100 {
+		params.Limit = 100
+	}
+
+	// 2. Authorization check
+	ok, err := s.repo.IsMember(ctx, params.ChannelID, params.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
+	}
+
+	// 3. Resolve cursor message details if BeforeID is provided
+	var cursorMsg *Message
+	if params.BeforeID != nil && *params.BeforeID != uuid.Nil {
+		var err error
+		cursorMsg, err = s.repo.MessageGet(ctx, *params.BeforeID)
+		if err != nil {
+			return nil, err
+		}
+		if cursorMsg.ChannelID().UUID() != params.ChannelID {
+			return nil, errs.InvalidArgument("target cursor message does not belong to specified channel")
+		}
+	}
+
+	var (
+		cursorCreatedAt *time.Time
+		cursorID        *uuid.UUID
+	)
+	if cursorMsg != nil {
+		cursorCreatedAt = cursorMsg.CreatedAtPtr()
+		cursorID = cursorMsg.IDPtr()
+	}
+
+	// 4. Request Limit + 1 to evaluate the HasMore overflow flag
+	msgs, err := s.repo.MessageListPinnedAggregate(
+		ctx,
+		params.ChannelID,
+		cursorCreatedAt,
+		cursorID,
+		&params.UserID,
+		params.Limit+1,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ListPinnedMessagesResult{
+		Messages: make([]*MessageAggregate, 0),
+		HasMore:  false,
+	}
+
+	// 5. Trim overflow item and set HasMore flag
+	if int32(len(msgs)) > params.Limit {
+		result.HasMore = true
+		msgs = msgs[:params.Limit]
+	}
+
+	if msgs != nil {
+		result.Messages = msgs
+	}
+
+	return result, nil
+}
+
 // SendMessage validates domain invariants, persists the message, updates channel metadata, and publishes outbox events.
 func (s *Service) SendMessage(ctx context.Context, rawChannelID, rawAuthorID uuid.UUID, rawContent *string, replyToID *uuid.UUID) (*Message, error) {
 	channelID, err := NewID(rawChannelID)
@@ -891,314 +1206,46 @@ func (s *Service) RemoveReaction(ctx context.Context, messageID, userID uuid.UUI
 	})
 }
 
-// // TODO: aggregate reactions into message
+// processAroundResults slices the returned window around targetID and flags overflow flags.
+func processAroundResults(
+	msgs []*MessageAggregate,
+	targetID uuid.UUID,
+	halfLimit int32,
+) ([]*MessageAggregate, bool, bool) {
+	if len(msgs) == 0 {
+		return msgs, false, false
+	}
 
-// // PaginationDirection defines the direction for fetching channel message history.
-// type PaginationDirection string
+	targetIdx := -1
+	for i, m := range msgs {
+		if m.Message() != nil && m.Message().ID().UUID() == targetID {
+			targetIdx = i
+			break
+		}
+	}
 
-// const (
-// 	DirectionBefore PaginationDirection = "before"
-// 	DirectionAfter  PaginationDirection = "after"
-// 	DirectionAround PaginationDirection = "around"
-// )
+	if targetIdx == -1 {
+		return msgs, false, false
+	}
 
-// type ListMessagesParams struct {
-// 	ChannelID uuid.UUID
-// 	UserID    uuid.UUID
-// 	Direction PaginationDirection
-// 	TargetID  *uuid.UUID // Required for BEFORE/AFTER when paging; optional/omitted for top of feed
-// 	Limit     int32      // Requested limit (e.g., 50)
-// }
+	olderCount := int32(targetIdx)
+	hasMoreBefore := olderCount > halfLimit
 
-// type ListMessagesResult struct {
-// 	Messages      []Message `json:"messages"`
-// 	HasMoreBefore bool      `json:"has_more_before"`
-// 	HasMoreAfter  bool      `json:"has_more_after"`
-// }
+	newerCount := int32(len(msgs) - 1 - targetIdx)
+	hasMoreAfter := newerCount > halfLimit
 
-// type InitialMessagesResult struct {
-// 	Messages      []Message  `json:"messages"`
-// 	FirstUnreadID *uuid.UUID `json:"first_unread_id,omitempty"`
-// 	HasMoreBefore bool       `json:"has_more_before"`
-// 	HasMoreAfter  bool       `json:"has_more_after"`
-// }
+	startIdx := 0
+	if hasMoreBefore {
+		startIdx = int(olderCount - halfLimit)
+	}
 
-// // GetInitialChannelMessages orchestrates cold channel loads and unread positioning.
-// func (s *Service) GetInitialChannelMessages(ctx context.Context, channelID, userID uuid.UUID, limit int32) (*InitialMessagesResult, error) {
-// 	if channelID == uuid.Nil || userID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
-// 	}
+	endIdx := len(msgs)
+	if hasMoreAfter {
+		endIdx = targetIdx + 1 + int(halfLimit)
+	}
 
-// 	// 1. Check for first unread message
-// 	firstUnread, err := s.repo.MessageGetFirstUnread(ctx, channelID, userID)
-// 	if err != nil && !errs.IsNotFound(err) {
-// 		return nil, err
-// 	}
-
-// 	var (
-// 		listRes  *ListMessagesResult
-// 		unreadID *uuid.UUID
-// 	)
-
-// 	// 2. Branching strategy
-// 	if firstUnread != nil {
-// 		id := firstUnread.ID()
-// 		unreadID = &id
-
-// 		// Jump to first unread message using DirectionAround
-// 		listRes, err = s.ListMessages(ctx, ListMessagesParams{
-// 			ChannelID: channelID,
-// 			UserID:    userID,
-// 			Direction: DirectionAround,
-// 			TargetID:  unreadID,
-// 			Limit:     limit,
-// 		})
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	} else {
-// 		// User is fully caught up or channel is empty; fetch latest messages going backward
-// 		listRes, err = s.ListMessages(ctx, ListMessagesParams{
-// 			ChannelID: channelID,
-// 			UserID:    userID,
-// 			Direction: DirectionBefore,
-// 			TargetID:  nil,
-// 			Limit:     limit,
-// 		})
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	}
-
-// 	return &InitialMessagesResult{
-// 		Messages:      listRes.Messages,
-// 		FirstUnreadID: unreadID,
-// 		HasMoreBefore: listRes.HasMoreBefore,
-// 		HasMoreAfter:  listRes.HasMoreAfter,
-// 	}, nil
-// }
-
-// func (s *Service) ListMessages(ctx context.Context, params ListMessagesParams) (*ListMessagesResult, error) {
-// 	if params.ChannelID == uuid.Nil || params.UserID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
-// 	}
-
-// 	if params.Limit <= 0 {
-// 		params.Limit = 50
-// 	} else if params.Limit > 100 {
-// 		params.Limit = 100
-// 	}
-
-// 	// 1. Authorization check
-// 	ok, err := s.repo.IsMember(ctx, params.ChannelID, params.UserID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if !ok {
-// 		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
-
-// 	var (
-// 		cursorCreatedAt *time.Time
-// 		cursorID        *uuid.UUID
-// 	)
-
-// 	// 2. Resolve cursor message if TargetID is provided
-// 	if params.TargetID != nil && *params.TargetID != uuid.Nil {
-// 		targetMsg, err := s.repo.MessageGet(ctx, *params.TargetID)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		if targetMsg.ChannelID() != params.ChannelID {
-// 			return nil, errs.InvalidArgument("target message does not belong to specified channel")
-// 		}
-// 		createdAt := targetMsg.CreatedAt()
-// 		cursorCreatedAt = &createdAt
-// 		cursorID = params.TargetID
-// 	}
-
-// 	result := &ListMessagesResult{
-// 		Messages: make([]Message, 0),
-// 	}
-
-// 	switch params.Direction {
-// 	case DirectionBefore:
-// 		// Request limit + 1 to check for older messages
-// 		msgs, err := s.repo.MessageListByChannelBefore(ctx, params.ChannelID, cursorCreatedAt, cursorID, params.Limit+1)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		if int32(len(msgs)) > params.Limit {
-// 			result.HasMoreBefore = true
-// 			msgs = msgs[:params.Limit] // Trim the extra overflow item
-// 		}
-
-// 		// Edge Case D Fix: ListMessagesBefore fetches DESC (newest to oldest).
-// 		// Reverse in-place so returned slice is strictly ASC (chronological).
-// 		reverseMessages(msgs)
-// 		result.Messages = msgs
-
-// 		// Edge Case C Fix: Avoid false positive for HasMoreAfter when cursor is already at boundary.
-// 		if cursorCreatedAt != nil && cursorID != nil {
-// 			hasAfter, err := s.repo.HasMessagesAfter(ctx, params.ChannelID, *cursorCreatedAt, *cursorID)
-// 			if err != nil {
-// 				return nil, err
-// 			}
-// 			result.HasMoreAfter = hasAfter
-// 		} else {
-// 			result.HasMoreAfter = false
-// 		}
-
-// 	case DirectionAfter:
-// 		// Request limit + 1 to check for newer messages
-// 		msgs, err := s.repo.MessageListByChannelAfter(ctx, params.ChannelID, cursorCreatedAt, cursorID, params.Limit+1)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		if int32(len(msgs)) > params.Limit {
-// 			result.HasMoreAfter = true
-// 			msgs = msgs[:params.Limit] // Trim the extra overflow item
-// 		}
-
-// 		// ListMessagesAfter query returns ASC (chronological), so order is preserved as-is.
-// 		result.Messages = msgs
-
-// 		// Edge Case C Fix: Avoid false positive for HasMoreBefore when cursor is already at boundary.
-// 		if cursorCreatedAt != nil && cursorID != nil {
-// 			hasBefore, err := s.repo.HasMessagesBefore(ctx, params.ChannelID, *cursorCreatedAt, *cursorID)
-// 			if err != nil {
-// 				return nil, err
-// 			}
-// 			result.HasMoreBefore = hasBefore
-// 		} else {
-// 			result.HasMoreBefore = false
-// 		}
-
-// 	case DirectionAround:
-// 		if cursorCreatedAt == nil || cursorID == nil {
-// 			return nil, errs.InvalidArgument("target message ID is required for DirectionAround")
-// 		}
-
-// 		halfLimit := params.Limit / 2
-
-// 		// Fetch older + target + newer using halfLimit
-// 		msgs, err := s.repo.MessageListByChannelAround(ctx, params.ChannelID, *cursorCreatedAt, *cursorID, halfLimit)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		// Process and slice window boundaries around target message
-// 		result.Messages, result.HasMoreBefore, result.HasMoreAfter = processAroundResults(msgs, *cursorID, halfLimit)
-
-// 	default:
-// 		return nil, errs.InvalidArgument(fmt.Sprintf("unsupported list direction: %s", params.Direction))
-// 	}
-
-// 	return result, nil
-// }
-
-// // processAroundResults ensures chronological ordering, locates the target message, and evaluates overflow boundaries.
-// func processAroundResults(msgs []Message, targetID uuid.UUID, halfLimit int32) ([]Message, bool, bool) {
-// 	if len(msgs) == 0 {
-// 		return msgs, false, false
-// 	}
-
-// 	// Edge Case D Guard: Guarantee chronological order (oldest -> newest) before slicing indexes
-// 	if len(msgs) > 1 && msgs[0].CreatedAt().After(msgs[len(msgs)-1].CreatedAt()) {
-// 		reverseMessages(msgs)
-// 	} else {
-// 		// Fallback stable sort if timestamp order is mixed or non-deterministic
-// 		sort.SliceStable(msgs, func(i, j int) bool {
-// 			if msgs[i].CreatedAt().Equal(msgs[j].CreatedAt()) {
-// 				return msgs[i].ID().String() < msgs[j].ID().String()
-// 			}
-// 			return msgs[i].CreatedAt().Before(msgs[j].CreatedAt())
-// 		})
-// 	}
-
-// 	targetIdx := -1
-// 	for i, m := range msgs {
-// 		if m.ID() == targetID {
-// 			targetIdx = i
-// 			break
-// 		}
-// 	}
-
-// 	if targetIdx == -1 {
-// 		return msgs, false, false
-// 	}
-
-// 	// Count elements older than target (before targetIdx)
-// 	olderCount := int32(targetIdx)
-// 	hasMoreBefore := olderCount > halfLimit
-
-// 	// Count elements newer than target (after targetIdx)
-// 	newerCount := int32(len(msgs) - 1 - targetIdx)
-// 	hasMoreAfter := newerCount > halfLimit
-
-// 	startIdx := 0
-// 	if hasMoreBefore {
-// 		startIdx = int(olderCount - halfLimit)
-// 	}
-
-// 	endIdx := len(msgs)
-// 	if hasMoreAfter {
-// 		endIdx = targetIdx + 1 + int(halfLimit)
-// 	}
-
-// 	return msgs[startIdx:endIdx], hasMoreBefore, hasMoreAfter
-// }
-
-// // reverseMessages inverts a slice of Message entities in place.
-// func reverseMessages(msgs []Message) {
-// 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-// 		msgs[i], msgs[j] = msgs[j], msgs[i]
-// 	}
-// }
-
-// // GetFirstUnreadMessage retrieves the first unread message for a user in a channel.
-// func (s *Service) GetFirstUnreadMessage(ctx context.Context, channelID, userID uuid.UUID) (*Message, error) {
-// 	if channelID == uuid.Nil || userID == uuid.Nil {
-// 		return nil, errs.InvalidArgument("channel ID and user ID cannot be nil")
-// 	}
-
-// 	ok, err := s.repo.IsMember(ctx, channelID, userID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if !ok {
-// 		return nil, errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
-
-// 	msg, err := s.repo.MessageGetFirstUnread(ctx, channelID, userID)
-// 	if err != nil {
-// 		if errs.IsNotFound(err) {
-// 			return nil, nil // No unread messages
-// 		}
-// 		return nil, err
-// 	}
-
-// 	return msg, nil
-// }
-
-// // SendTypingSignal records an active typing state in Redis.
-// func (s *Service) SendTypingSignal(ctx context.Context, channelID, userID uuid.UUID) error {
-// 	ok, err := s.repo.IsMember(ctx, channelID, userID)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if !ok {
-// 		return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
-// 	}
-
-// 	if err := s.typingStore.SetTyping(ctx, channelID, userID); err != nil {
-// 		return errs.Internal("failed to set typing indicator").Wrap(err)
-// 	}
-
-// 	return nil
-// }
+	return msgs[startIdx:endIdx], hasMoreBefore, hasMoreAfter
+}
 
 func sortUUIDs(a, b uuid.UUID) (uuid.UUID, uuid.UUID) {
 	if a.String() < b.String() {

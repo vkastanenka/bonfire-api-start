@@ -88,7 +88,6 @@ type Querier interface {
 	MessageListAggregateAround(ctx context.Context, arg MessageListAggregateAroundParams) ([]MessageListAggregateAroundRow, error)
 	// Fetches older messages strictly before the cursor tuple (Reverse DESC order for indexing)
 	MessageListAggregateBefore(ctx context.Context, arg MessageListAggregateBeforeParams) ([]MessageListAggregateBeforeRow, error)
-	// Fetches pinned aggregate messages for a channel ordered by newest first
 	MessageListPinnedAggregate(ctx context.Context, arg MessageListPinnedAggregateParams) ([]MessageListPinnedAggregateRow, error)
 	MessageTogglePinned(ctx context.Context, arg MessageTogglePinnedParams) (Message, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)

@@ -775,7 +775,6 @@ WITH hydrated_messages AS (
     LIMIT @limit_val::int;
 
 -- name: MessageListPinnedAggregate :many
--- Fetches pinned aggregate messages for a channel ordered by newest first
 WITH hydrated_pinned_messages AS (
     SELECT
         mb.id,
@@ -813,7 +812,11 @@ WITH hydrated_pinned_messages AS (
         WHERE
             mb.channel_id = @channel_id::uuid
             AND mb.is_pinned = TRUE
-)
+            -- Keyset comparison for "older than cursor":
+            AND (@cursor_created_at::timestamptz IS NULL
+                OR (mb.created_at,
+                    mb.id) <(@cursor_created_at::timestamptz,
+                    @cursor_id::uuid)))
     SELECT
         hm.*
     FROM

@@ -44,6 +44,22 @@ func (m *Message) CreatedAt() time.Time         { return m.createdAt }
 func (m *Message) UpdatedAt() time.Time         { return m.updatedAt }
 func (m *Message) EditedAt() *time.Time         { return m.editedAt }
 
+func (m *Message) CreatedAtPtr() *time.Time {
+	if m == nil {
+		return nil
+	}
+	t := m.CreatedAt()
+	return &t
+}
+
+func (m *Message) IDPtr() *uuid.UUID {
+	if m == nil {
+		return nil
+	}
+	u := m.ID().UUID()
+	return &u
+}
+
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods
 // -----------------------------------------------------------------------------

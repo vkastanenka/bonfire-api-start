@@ -510,12 +510,16 @@ func (r *Channel) MessageListAggregateBefore(
 func (r *Channel) MessageListPinnedAggregate(
 	ctx context.Context,
 	channelID uuid.UUID,
+	cursorCreatedAt *time.Time,
+	cursorID *uuid.UUID,
 	userID *uuid.UUID,
 	limit int32,
 ) ([]*channel.MessageAggregate, error) {
 	rows, err := r.store.MessageListPinnedAggregate(ctx, db.MessageListPinnedAggregateParams{
-		ChannelID: db.UUID(channelID),
-		LimitVal:  limit,
+		ChannelID:       db.UUID(channelID),
+		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:        db.UUIDPtr(cursorID),
+		LimitVal:        limit,
 	})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)

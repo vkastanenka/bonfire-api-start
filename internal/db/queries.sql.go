@@ -1392,7 +1392,11 @@ WITH hydrated_pinned_messages AS (
         WHERE
             mb.channel_id = $2::uuid
             AND mb.is_pinned = TRUE
-)
+            -- Keyset comparison for "older than cursor":
+            AND ($3::timestamptz IS NULL
+                OR (mb.created_at,
+                    mb.id) <($3::timestamptz,
+                    $4::uuid)))
     SELECT
         hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
     FROM
@@ -1404,8 +1408,10 @@ WITH hydrated_pinned_messages AS (
 `
 
 type MessageListPinnedAggregateParams struct {
-	LimitVal  int32       `json:"limit_val"`
-	ChannelID pgtype.UUID `json:"channel_id"`
+	LimitVal        int32              `json:"limit_val"`
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.UUID        `json:"cursor_id"`
 }
 
 type MessageListPinnedAggregateRow struct {
@@ -1425,9 +1431,13 @@ type MessageListPinnedAggregateRow struct {
 	Reactions         []byte             `json:"reactions"`
 }
 
-// Fetches pinned aggregate messages for a channel ordered by newest first
 func (q *Queries) MessageListPinnedAggregate(ctx context.Context, arg MessageListPinnedAggregateParams) ([]MessageListPinnedAggregateRow, error) {
-	rows, err := q.db.Query(ctx, messageListPinnedAggregate, arg.LimitVal, arg.ChannelID)
+	rows, err := q.db.Query(ctx, messageListPinnedAggregate,
+		arg.LimitVal,
+		arg.ChannelID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+	)
 	if err != nil {
 		return nil, err
 	}
