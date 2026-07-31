@@ -74,44 +74,117 @@ CREATE TABLE users(
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     verified_at timestamp with time zone DEFAULT NULL,
+    disabled_at timestamptz DEFAULT NULL,
+    delete_scheduled_at timestamptz DEFAULT NULL,
+    preferred_presence_until timestamptz DEFAULT NULL,
+    -- 0: ALL_GOOD / ACTIVE
+    -- 1: SUSPENDED / BANNED
+    standing smallint NOT NULL DEFAULT 0,
     preferred_presence smallint DEFAULT NULL,
     email CITEXT NOT NULL UNIQUE,
     username CITEXT NOT NULL UNIQUE,
+    phone text DEFAULT NULL UNIQUE,
     password_hash text NOT NULL,
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 3 AND 255),
-    CONSTRAINT preferred_presence_values CHECK (preferred_presence IN (4, 5, 6))
+    CONSTRAINT preferred_presence_values CHECK (preferred_presence IN (4, 5, 6)),
+    CONSTRAINT valid_standing CHECK (standing IN (0, 1)),
+    CONSTRAINT valid_e164_phone CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
 );
 
 CREATE TABLE user_profiles(
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    display_name CITEXT NOT NULL,
-    avatar_url text,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    display_name citext NOT NULL,
+    avatar_url text DEFAULT NULL,
+    banner_color text DEFAULT NULL,
     CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 3 AND 32),
-    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 2048)
+    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 2048),
+    CONSTRAINT valid_hex_banner_color CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
 );
+
+-- 1. Main MFA State & Secret Storage
+CREATE TABLE user_mfa(
+    -- 16-byte fixed alignment (UUIDs)
+    user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    -- 8-byte fixed alignment (Timestamps)
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    enabled_at timestamptz DEFAULT NULL, -- NULL = setup initiated but not confirmed
+    -- Variable length text / encrypted binary
+    -- The base32 TOTP secret string (e.g., "JBSWY3DPEHPK3PXP")
+    -- CRITICAL: Store this ENCRYPTED at the application layer using AES-GCM
+    secret text NOT NULL
+);
+
+-- 2. Single-use Backup / Recovery Codes
+CREATE TABLE user_mfa_backup_codes(
+    -- 16-byte fixed alignment (UUIDs)
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- 8-byte fixed alignment (Timestamps)
+    used_at timestamptz DEFAULT NULL, -- NULL = active/unused, timestamp = burned code
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Hash of the 8-to-10 character backup code (e.g. Argon2id or bcrypt hash)
+    code_hash text NOT NULL,
+    -- Constraints
+    CONSTRAINT code_hash_length CHECK (length(code_hash) BETWEEN 10 AND 255)
+);
+
+-- Index for retrieving valid backup codes during emergency login
+CREATE INDEX idx_user_mfa_backup_codes_user ON user_mfa_backup_codes(user_id)
+WHERE
+    used_at IS NULL;
+
+CREATE TABLE user_webauthn_credentials(
+    -- 16-byte fixed alignment (UUIDs)
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- 8-byte fixed alignment (Timestamps & Counters)
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at timestamptz DEFAULT NULL,
+    sign_count bigint NOT NULL DEFAULT 0,
+    -- Fixed / Binary WebAuthn Data
+    -- WebAuthn Credential IDs can be up to 1023 bytes (typically ~64-128 bytes)
+    credential_id bytea NOT NULL UNIQUE,
+    public_key bytea NOT NULL,
+    aaguid uuid DEFAULT NULL, -- Authenticator Attestation GUID (identifies device model)
+    -- Variable length text
+    name text NOT NULL,
+    -- Constraints
+    CONSTRAINT credential_id_length CHECK (octet_length(credential_id) BETWEEN 16 AND 1024),
+    CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100)
+);
+
+-- Index for fetching all registered security keys for a user during login challenge
+CREATE INDEX idx_user_webauthn_credentials_user ON user_webauthn_credentials(user_id);
 
 CREATE OR REPLACE VIEW user_aggregates AS
 SELECT
     u.id,
     u.email,
     u.username,
+    u.phone,
     u.password_hash,
+    u.standing,
     u.preferred_presence,
     u.verified_at,
+(m.enabled_at IS NOT NULL) AS mfa_enabled,
     p.display_name,
     p.avatar_url,
+    p.banner_color,
     u.created_at,
     u.updated_at,
     p.created_at AS profile_created_at,
     p.updated_at AS profile_updated_at
 FROM
     users u
-    INNER JOIN user_profiles p ON u.id = p.user_id;
+    INNER JOIN user_profiles p ON u.id = p.user_id
+    LEFT JOIN user_mfa m ON u.id = m.user_id;
 
 CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -125,11 +198,11 @@ CREATE TABLE sessions(
     refresh_token_hash bytea NOT NULL UNIQUE,
     user_agent text NOT NULL,
     os text NOT NULL DEFAULT 'Unknown',
-    browser text NOT NULL DEFAULT 'Unknown',
+    client text NOT NULL DEFAULT 'Unknown',
     CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
     CONSTRAINT user_agent_length CHECK (length(user_agent) BETWEEN 1 AND 1000),
     CONSTRAINT os_length CHECK (length(os) BETWEEN 1 AND 100),
-    CONSTRAINT browser_length CHECK (length(browser) BETWEEN 1 AND 100)
+    CONSTRAINT client_length CHECK (length(client) BETWEEN 1 AND 100)
 );
 
 CREATE INDEX idx_sessions_user_active ON sessions(user_id)
@@ -140,15 +213,17 @@ CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 -- Enums for Channel Types: 0: DM, 1: GROUP_DM
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
+    last_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_message_at timestamptz DEFAULT NULL,
     type smallint NOT NULL,
-    last_message_id uuid DEFAULT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
     CONSTRAINT channel_rules CHECK ((type = 0 AND name IS NULL AND icon_url IS NULL) OR (type = 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR length(icon_url) BETWEEN 3 AND 2048)))
 );
 
+-- Index for filtering/sorting active channels
 CREATE INDEX idx_channels_last_message_id ON channels(last_message_id DESC)
 WHERE
     last_message_id IS NOT NULL;
@@ -158,24 +233,38 @@ CREATE TABLE messages(
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     reply_to_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    forwarded_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+    forwarded_channel_id uuid REFERENCES channels(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at timestamptz DEFAULT NULL,
     pinned_at timestamptz DEFAULT NULL,
+    -- 0: DEFAULT (Standard chat message)
+    -- 1: RECIPIENT_ADD (User added to group)
+    -- 2: RECIPIENT_REMOVE / MEMBER_LEAVE (User left or kicked)
+    -- 3: CHANNEL_NAME_CHANGE (Group renamed)
+    -- 4: CHANNEL_ICON_CHANGE (Group avatar updated)
+    type smallint NOT NULL DEFAULT 0,
     content text,
-    CONSTRAINT content_validity CHECK (content IS NULL OR length(trim(content)) BETWEEN 1 AND 4000)
+    system_metadata jsonb DEFAULT NULL,
+    CONSTRAINT content_validity CHECK (type != 0 OR (content IS NULL OR length(trim(content)) BETWEEN 1 AND 4000)),
+    CONSTRAINT valid_forward CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
 );
 
--- Index for fetching recently active channels
-CREATE INDEX idx_channels_updated_at ON channels(updated_at DESC);
+-- 1. Main Cursor Pagination Index (Channel timeline loading: WHERE channel_id = $1 AND id < $2 ORDER BY id DESC)
+CREATE INDEX idx_messages_channel_cursor ON messages(channel_id, id DESC);
 
-CREATE INDEX idx_messages_channel_created_id ON messages(channel_id, created_at DESC, id DESC);
+-- 2. Partial Index for Pinned Messages (Avoids indexing unpinned messages)
+CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
+WHERE
+    pinned_at IS NOT NULL;
 
-CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id, created_at ASC, id ASC)
+-- 3. Reply Lookups (For fetching parent context when jumping to a reply)
+CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id)
 WHERE
     reply_to_message_id IS NOT NULL;
 
-CREATE OR REPLACE VIEW message_base_aggregates AS
+CREATE OR REPLACE VIEW message_user_aggregates AS
 SELECT
     m.id,
     m.channel_id,
@@ -184,6 +273,7 @@ SELECT
     ua.username AS author_username,
     ua.display_name AS author_display_name,
     ua.avatar_url AS author_avatar_url,
+    ua.banner_color AS author_banner_color,
     m.created_at,
     m.updated_at,
     m.edited_at,
@@ -225,6 +315,21 @@ CREATE TRIGGER enforce_channel_member_limit
     BEFORE INSERT ON channel_members
     FOR EACH ROW
     EXECUTE FUNCTION check_channel_member_limit();
+
+CREATE TABLE channel_invites(
+    channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    inviter_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at timestamptz DEFAULT NULL, -- NULL = Never expires
+    max_uses integer NOT NULL DEFAULT 0, -- 0 = Infinite uses
+    uses integer NOT NULL DEFAULT 0,
+    code varchar(16) PRIMARY KEY,
+    CONSTRAINT positive_uses CHECK (uses >= 0),
+    CONSTRAINT valid_max_uses CHECK (max_uses >= 0)
+);
+
+-- Index for listing all active invites for a given channel's settings UI
+CREATE INDEX idx_channel_invites_channel_id ON channel_invites(channel_id);
 
 CREATE TABLE message_attachments(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
