@@ -77,9 +77,6 @@ CREATE TABLE users(
     disabled_at timestamptz DEFAULT NULL,
     delete_scheduled_at timestamptz DEFAULT NULL,
     preferred_presence_until timestamptz DEFAULT NULL,
-    -- 0: ALL_GOOD / ACTIVE
-    -- 1: SUSPENDED / BANNED
-    standing smallint NOT NULL DEFAULT 0,
     preferred_presence smallint DEFAULT NULL,
     email CITEXT NOT NULL UNIQUE,
     username CITEXT NOT NULL UNIQUE,
@@ -139,30 +136,6 @@ CREATE INDEX idx_user_mfa_backup_codes_user ON user_mfa_backup_codes(user_id)
 WHERE
     used_at IS NULL;
 
-CREATE TABLE user_webauthn_credentials(
-    -- 16-byte fixed alignment (UUIDs)
-    id uuid PRIMARY KEY DEFAULT uuidv7(),
-    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    -- 8-byte fixed alignment (Timestamps & Counters)
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_used_at timestamptz DEFAULT NULL,
-    sign_count bigint NOT NULL DEFAULT 0,
-    -- Fixed / Binary WebAuthn Data
-    -- WebAuthn Credential IDs can be up to 1023 bytes (typically ~64-128 bytes)
-    credential_id bytea NOT NULL UNIQUE,
-    public_key bytea NOT NULL,
-    aaguid uuid DEFAULT NULL, -- Authenticator Attestation GUID (identifies device model)
-    -- Variable length text
-    name text NOT NULL,
-    -- Constraints
-    CONSTRAINT credential_id_length CHECK (octet_length(credential_id) BETWEEN 16 AND 1024),
-    CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100)
-);
-
--- Index for fetching all registered security keys for a user during login challenge
-CREATE INDEX idx_user_webauthn_credentials_user ON user_webauthn_credentials(user_id);
-
 CREATE OR REPLACE VIEW user_aggregates AS
 SELECT
     u.id,
@@ -170,7 +143,6 @@ SELECT
     u.username,
     u.phone,
     u.password_hash,
-    u.standing,
     u.preferred_presence,
     u.verified_at,
 (m.enabled_at IS NOT NULL) AS mfa_enabled,
