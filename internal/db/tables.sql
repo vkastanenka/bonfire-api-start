@@ -10,6 +10,31 @@ END;
 $$
 LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION check_channel_member_limit()
+    RETURNS TRIGGER
+    AS $$
+DECLARE
+    member_count integer;
+BEGIN
+    -- Count existing members for this channel
+    SELECT
+        COUNT(*)
+    INTO
+        member_count
+    FROM
+        channel_members
+    WHERE
+        channel_id = NEW.channel_id;
+    -- If count is already 10 or more, reject the insert
+    IF member_count >= 10 THEN
+        RAISE EXCEPTION 'channel member limit reached (max 10)'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
+
 CREATE TABLE outbox_events(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     locked_by uuid DEFAULT NULL,
@@ -173,6 +198,7 @@ CREATE TABLE channel_members(
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     mention_count integer NOT NULL DEFAULT 0,
+    -- visibility_preference: open vs closed
     last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     PRIMARY KEY (channel_id, user_id),
     CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
@@ -183,6 +209,11 @@ CREATE INDEX idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX idx_channel_members_last_read ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
+
+CREATE TRIGGER enforce_channel_member_limit
+    BEFORE INSERT ON channel_members
+    FOR EACH ROW
+    EXECUTE FUNCTION check_channel_member_limit();
 
 CREATE TABLE message_attachments(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -213,7 +244,7 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 
-CREATE TABLE relationships (
+CREATE TABLE relationships(
     user1_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user2_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     actor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

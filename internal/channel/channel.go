@@ -173,3 +173,34 @@ func (c *Channel) SetLastMessage(messageID MessageID) error {
 func (c *Channel) touch() {
 	c.updatedAt = time.Now().UTC()
 }
+
+// UpdateMeta attempts to update name and/or icon URL, returning true if any state changed.
+func (c *Channel) UpdateMeta(rawName, rawIconURL *string) (bool, error) {
+	var updated bool
+
+	if rawName != nil {
+		nameVO, err := NewName(rawName)
+		if err != nil {
+			return false, err
+		}
+		err = c.SetName(nameVO)
+		if err != nil {
+			return false, err
+		}
+		updated = true
+	}
+
+	if rawIconURL != nil {
+		iconVO, err := NewIconURL(rawIconURL)
+		if err != nil {
+			return false, err
+		}
+		err = c.SetIcon(iconVO)
+		if err != nil {
+			return false, err
+		}
+		updated = true
+	}
+
+	return updated, nil
+}

@@ -71,6 +71,18 @@ func (r *Channel) GetForMember(ctx context.Context, channelID, memberID uuid.UUI
 	return channelFromRow(row)
 }
 
+func (r *Channel) GetForMemberUpdate(ctx context.Context, channelID, memberID uuid.UUID) (*channel.Channel, error) {
+	row, err := r.store.ChannelGetForMemberUpdate(ctx, db.ChannelGetForMemberUpdateParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(memberID),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannel)
+	}
+
+	return channelFromRow(row)
+}
+
 func (r *Channel) HasMessagesAfter(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error) {
 	exists, err := r.store.ChannelHasMessagesAfter(ctx, db.ChannelHasMessagesAfterParams{
 		ChannelID: db.UUID(channelID),
@@ -179,6 +191,15 @@ func (r *Channel) MemberAddBatch(ctx context.Context, members []*channel.Member)
 	return nil
 }
 
+func (r *Channel) MemberCount(ctx context.Context, channelID uuid.UUID) (int32, error) {
+	count, err := r.store.ChannelMemberCount(ctx, db.UUID(channelID))
+	if err != nil {
+		return 0, db.NewError(err, db.EntityChannelMember)
+	}
+
+	return count, nil
+}
+
 func (r *Channel) MemberGet(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
 		ChannelID: db.UUID(channelID),
@@ -222,6 +243,24 @@ func (r *Channel) MemberIncrementMentionCountBatch(ctx context.Context, channelI
 	}
 
 	return nil
+}
+
+func (r *Channel) MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.Member, error) {
+	rows, err := r.store.ChannelMemberListByChannel(ctx, db.UUID(channelID))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannelMember)
+	}
+
+	members := make([]*channel.Member, 0, len(rows))
+	for _, row := range rows {
+		member, err := memberFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+
+	return members, nil
 }
 
 // func (r *Channel) MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID) ([]*channel.MemberListItem, error) {
@@ -545,7 +584,7 @@ func memberListItemFromRow(row db.ChannelMemberListItemsByChannelRow) (*channel.
 		row.Username,
 		row.DisplayName,
 		db.StringPtr(row.AvatarUrl),
-		row.CreatedAt.Time.UTC(),
+		row.UserCreatedAt.Time.UTC(),
 	)
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannelMember)

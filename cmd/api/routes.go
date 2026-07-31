@@ -63,6 +63,7 @@ func (app *Application) routes() http.Handler {
 			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.RemoveRelationship))
 
 			auth.Post("/channels", httpio.ToHTTPErr(app.Handlers.Channel.Create))
+			// auth.Get("/channels/{channelId}", httpio.ToHTTPErr(app.Handlers.Channel.Get))
 			auth.Get("/channels/{channelId}/messages", httpio.ToHTTPErr(app.Handlers.Channel.ListMessages))
 			auth.Post("/channels/{channelId}/messages", httpio.ToHTTPErr(app.Handlers.Channel.PostMessage))
 			auth.Patch("/channels/{channelId}/messages/{messageId}", httpio.ToHTTPErr(app.Handlers.Channel.EditMessage))

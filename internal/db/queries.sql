@@ -241,6 +241,18 @@ WHERE
     c.id = @channel_id::uuid
     AND cm.user_id = @user_id::uuid;
 
+-- name: ChannelGetForMemberUpdate :one
+SELECT
+    c.*
+FROM
+    channels c
+    INNER JOIN channel_members cm ON cm.channel_id = c.id
+WHERE
+    c.id = @channel_id::uuid
+    AND cm.user_id = @user_id::uuid
+FOR UPDATE
+    OF c;
+
 -- name: ChannelHasMessagesAfter :one
 SELECT
     EXISTS (
@@ -356,6 +368,14 @@ ON CONFLICT (channel_id,
         mention_count = EXCLUDED.mention_count,
         last_read_message_id = EXCLUDED.last_read_message_id;
 
+-- name: ChannelMemberCount :one
+SELECT
+    COUNT(*)::int AS count
+FROM
+    channel_members
+WHERE
+    channel_id = @channel_id::uuid;
+
 -- name: ChannelMemberGet :one
 SELECT
     *
@@ -386,22 +406,46 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = ANY (@user_ids::uuid[]);
 
+-- name: ChannelMemberListByChannel :many
+SELECT
+    channel_id,
+    user_id,
+    created_at,
+    updated_at,
+    last_read_at,
+    mention_count,
+    last_read_message_id
+FROM
+    channel_members
+WHERE
+    channel_id = @channel_id::uuid
+ORDER BY
+    created_at ASC,
+    user_id ASC;
+
 -- name: ChannelMemberListItemsByChannel :many
 SELECT
     cm.channel_id,
     cm.user_id,
+    cm.created_at AS member_since,
+    cm.last_read_at,
     ua.username,
     ua.display_name,
     ua.avatar_url,
-    ua.created_at
+    ua.created_at AS user_created_at
 FROM
     channel_members cm
     JOIN user_aggregates ua ON ua.id = cm.user_id
 WHERE
     cm.channel_id = @channel_id::uuid
+    AND (@cursor_created_at::timestamptz IS NULL
+        OR (cm.created_at,
+            cm.user_id) >(@cursor_created_at::timestamptz,
+            @cursor_user_id::uuid))
 ORDER BY
     cm.created_at ASC,
-    cm.user_id ASC;
+    cm.user_id ASC
+LIMIT @limit_val::int;
 
 -- name: ChannelMemberRemove :exec
 DELETE FROM channel_members
@@ -434,7 +478,7 @@ WHERE
     AND user_id = @user_id::uuid;
 
 -- ============================================================================
--- MESSAGES:
+-- MESSAGES
 -- ============================================================================
 -- name: MessageCreate :one
 INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)

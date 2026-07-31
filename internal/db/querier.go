@@ -23,16 +23,19 @@ type Querier interface {
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
 	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (Channel, error)
+	ChannelGetForMemberUpdate(ctx context.Context, arg ChannelGetForMemberUpdateParams) (Channel, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
 	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
+	ChannelMemberCount(ctx context.Context, channelID pgtype.UUID) (int32, error)
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberListItemsByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListItemsByChannelRow, error)
+	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMember, error)
+	ChannelMemberListItemsByChannel(ctx context.Context, arg ChannelMemberListItemsByChannelParams) ([]ChannelMemberListItemsByChannelRow, error)
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
 	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
 	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
@@ -70,7 +73,7 @@ type Querier interface {
 	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
 	// ============================================================================
-	// MESSAGES:
+	// MESSAGES
 	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
