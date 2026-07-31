@@ -155,16 +155,13 @@ CREATE TABLE messages(
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     edited_at timestamptz DEFAULT NULL,
-    is_pinned boolean NOT NULL DEFAULT FALSE,
+    pinned_at timestamptz DEFAULT NULL,
     content text,
     CONSTRAINT content_validity CHECK (content IS NULL OR length(trim(content)) BETWEEN 1 AND 4000)
 );
 
 CREATE INDEX idx_messages_channel_created_id ON messages(channel_id, created_at DESC, id DESC);
 
-CREATE INDEX idx_messages_pinned ON messages(channel_id, created_at DESC)
-WHERE
-    is_pinned = TRUE;
 
 CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id, created_at ASC, id ASC)
 WHERE
@@ -182,7 +179,7 @@ SELECT
     m.created_at,
     m.updated_at,
     m.edited_at,
-    m.is_pinned,
+    m.pinned_at,
     m.content
 FROM
     messages m
@@ -191,17 +188,20 @@ FROM
 ALTER TABLE channels
     ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
 
+-- DM Visibility States: 0: HIDDEN, 1: VISIBLE
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    pinned_at timestamptz DEFAULT NULL,
     mention_count integer NOT NULL DEFAULT 0,
-    -- visibility_preference: open vs closed
-    last_read_message_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+    dm_visibility smallint NOT NULL DEFAULT 1,
     PRIMARY KEY (channel_id, user_id),
-    CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
+    CONSTRAINT mention_count_positive CHECK (mention_count >= 0),
+    CONSTRAINT valid_dm_visibility CHECK (dm_visibility IN (0, 1))
 );
 
 CREATE INDEX idx_channel_members_user ON channel_members(user_id);
@@ -209,6 +209,18 @@ CREATE INDEX idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX idx_channel_members_last_read ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
+
+-- 1. Ultra-lean index for rendering the user's active sidebar list.
+-- Filter out hidden DMs at index time so the B-Tree only contains active channels.
+CREATE INDEX idx_channel_members_active_sidebar ON channel_members(user_id, pinned_at DESC, channel_id)
+WHERE
+    dm_visibility = 1;
+
+-- 2. Index to instantly target hidden channels when a message is sent
+-- Allows the incoming message handler to auto-unhide closed DMs without full scans.
+CREATE INDEX idx_channel_members_unhide ON channel_members(channel_id)
+WHERE
+    dm_visibility = 0;
 
 CREATE TRIGGER enforce_channel_member_limit
     BEFORE INSERT ON channel_members

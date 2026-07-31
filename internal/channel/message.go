@@ -24,7 +24,7 @@ type Message struct {
 	authorID         *UserID
 	replyToMessageID *MessageID
 	content          *Content
-	isPinned         bool
+	pinnedAt         *time.Time
 	createdAt        time.Time
 	updatedAt        time.Time
 	editedAt         *time.Time
@@ -39,7 +39,8 @@ func (m *Message) ChannelID() ID                { return m.channelID }
 func (m *Message) AuthorID() *UserID            { return m.authorID }
 func (m *Message) ReplyToMessageID() *MessageID { return m.replyToMessageID }
 func (m *Message) Content() *Content            { return m.content }
-func (m *Message) IsPinned() bool               { return m.isPinned }
+func (m *Message) PinnedAt() *time.Time         { return m.pinnedAt }
+func (m *Message) IsPinned() bool               { return m.pinnedAt != nil }
 func (m *Message) CreatedAt() time.Time         { return m.createdAt }
 func (m *Message) UpdatedAt() time.Time         { return m.updatedAt }
 func (m *Message) EditedAt() *time.Time         { return m.editedAt }
@@ -87,6 +88,9 @@ func NewMessage(
 	}
 
 	content, err := NewContentPtr(rawContent)
+	if err != nil {
+		return nil, err
+	}
 
 	rawID := uuid.Must(uuid.NewV7())
 	msgID, err := NewMessageID(rawID)
@@ -102,7 +106,7 @@ func NewMessage(
 		authorID:         authorID,
 		replyToMessageID: replyToID,
 		content:          content,
-		isPinned:         false,
+		pinnedAt:         nil,
 		createdAt:        now,
 		updatedAt:        now,
 		editedAt:         nil,
@@ -114,7 +118,7 @@ func ReconstituteMessage(
 	rawID, rawChannelID uuid.UUID,
 	rawAuthorID, rawReplyToMessageID *uuid.UUID,
 	rawContent *string,
-	isPinned bool,
+	rawPinnedAt *time.Time,
 	createdAt, updatedAt time.Time,
 	rawEditedAt *time.Time,
 ) (*Message, error) {
@@ -143,6 +147,12 @@ func ReconstituteMessage(
 		return nil, err
 	}
 
+	var pinnedAt *time.Time
+	if rawPinnedAt != nil {
+		t := rawPinnedAt.UTC()
+		pinnedAt = &t
+	}
+
 	var editedAt *time.Time
 	if rawEditedAt != nil {
 		t := rawEditedAt.UTC()
@@ -155,7 +165,7 @@ func ReconstituteMessage(
 		authorID:         authorID,
 		replyToMessageID: replyToID,
 		content:          content,
-		isPinned:         isPinned,
+		pinnedAt:         pinnedAt,
 		createdAt:        createdAt.UTC(),
 		updatedAt:        updatedAt.UTC(),
 		editedAt:         editedAt,
@@ -178,13 +188,24 @@ func (m *Message) EditContent(newContent *Content) {
 	m.touchWith(now)
 }
 
-// SetPinned updates the pinned status of the message.
+// SetPinned sets or unsets the pinned status and timestamp of the message.
 func (m *Message) SetPinned(pinned bool) {
-	if m.isPinned == pinned {
+	if (m.pinnedAt != nil) == pinned {
 		return
 	}
-	m.isPinned = pinned
-	m.touch()
+
+	now := time.Now().UTC()
+	if pinned {
+		m.pinnedAt = &now
+	} else {
+		m.pinnedAt = nil
+	}
+	m.touchWith(now)
+}
+
+// TogglePinned flips the message's pinned status.
+func (m *Message) TogglePinned() {
+	m.SetPinned(m.pinnedAt == nil)
 }
 
 func (m *Message) touch() {
@@ -196,11 +217,7 @@ func (m *Message) touchWith(t time.Time) {
 }
 
 // -----------------------------------------------------------------------------
-// Aggregate
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// Domain Errors
+// Aggregate & Author Summary
 // -----------------------------------------------------------------------------
 
 var (

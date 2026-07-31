@@ -26,50 +26,26 @@ type Querier interface {
 	ChannelGetForMemberUpdate(ctx context.Context, arg ChannelGetForMemberUpdateParams) (Channel, error)
 	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
 	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
+	// Used for populating the user's sidebar with channel info & peer profiles for DMs
+	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelListByUserRow, error)
 	// ============================================================================
 	// CHANNEL MEMBERS
 	// ============================================================================
 	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
+	// Hides or closes the DM channel for a specific member
+	ChannelMemberCloseDM(ctx context.Context, arg ChannelMemberCloseDMParams) error
 	ChannelMemberCount(ctx context.Context, channelID pgtype.UUID) (int32, error)
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
 	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMember, error)
+	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
 	ChannelMemberListItemsByChannel(ctx context.Context, arg ChannelMemberListItemsByChannelParams) ([]ChannelMemberListItemsByChannelRow, error)
+	// Unhides/reopens the DM channel
+	ChannelMemberOpenDM(ctx context.Context, arg ChannelMemberOpenDMParams) error
 	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
 	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
+	ChannelMemberTogglePinned(ctx context.Context, arg ChannelMemberTogglePinnedParams) error
 	ChannelMemberUpdateRead(ctx context.Context, arg ChannelMemberUpdateReadParams) error
-	// -- name: ChannelListByUser :many
-	// -- Used for populating the user's sidebar with channel info & peer profiles for DMs
-	// SELECT
-	//     -- 1. Primary Identifiers & References
-	//     cm.channel_id,
-	//     cm.user_id,
-	//     rp.peer_id AS peer_user_id,
-	//     c.type AS channel_type,
-	//     -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
-	//     COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
-	//     COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
-	//     -- 3. Read State, Activity & Metrics
-	//     c.last_message_id AS channel_last_message_id,
-	//     cm.last_read_message_id,
-	//     cm.mention_count,
-	//     -- 4. Timestamps
-	//     cm.created_at,
-	//     cm.last_read_at,
-	//     c.updated_at AS channel_updated_at
-	// FROM
-	//     channel_members cm
-	//     JOIN channels c ON cm.channel_id = c.id
-	//     -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
-	//     LEFT JOIN relationship_perspectives rp ON c.type = 0
-	//         AND rp.user_id = cm.user_id
-	//         AND rp.channel_id = c.id
-	// WHERE
-	//     cm.user_id = @user_id::uuid
-	// ORDER BY
-	//     c.updated_at DESC,
-	//     c.id ASC;
 	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
 	// ============================================================================

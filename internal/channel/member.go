@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,15 +16,52 @@ var (
 	ErrMemberChannelIDRequired = errors.New("channel id is required")
 	ErrMemberUserIDRequired    = errors.New("user id is required")
 	ErrMentionCountNegative    = errors.New("mention count cannot be negative")
+	ErrInvalidDMVisibility     = errors.New("invalid dm visibility value")
 )
 
-// Member represents a user's membership and read state within a channel.
+// -----------------------------------------------------------------------------
+// Value Objects
+// -----------------------------------------------------------------------------
+
+// DMVisibility defines visibility states for DM/Group DM channels.
+type DMVisibility smallint
+
+type smallint = int16
+
+const (
+	DMVisibilityHidden  DMVisibility = 0
+	DMVisibilityVisible DMVisibility = 1
+)
+
+func NewDMVisibility(val int16) (DMVisibility, error) {
+	v := DMVisibility(val)
+	if !v.IsValid() {
+		return 0, fmt.Errorf("%w: %d", ErrInvalidDMVisibility, val)
+	}
+	return v, nil
+}
+
+func (v DMVisibility) IsValid() bool {
+	return v == DMVisibilityHidden || v == DMVisibilityVisible
+}
+
+func (v DMVisibility) Raw() int16 {
+	return int16(v)
+}
+
+// -----------------------------------------------------------------------------
+// Domain Entities
+// -----------------------------------------------------------------------------
+
+// Member represents a user's membership, visibility, and read state within a channel.
 type Member struct {
 	channelID         ID
 	userID            UserID
 	lastReadMessageID *MessageID
 	mentionCount      int32
 	lastReadAt        time.Time
+	pinnedAt          *time.Time
+	dmVisibility      DMVisibility
 	createdAt         time.Time
 	updatedAt         time.Time
 }
@@ -37,6 +75,8 @@ func (m *Member) UserID() UserID                { return m.userID }
 func (m *Member) LastReadMessageID() *MessageID { return m.lastReadMessageID }
 func (m *Member) MentionCount() int32           { return m.mentionCount }
 func (m *Member) LastReadAt() time.Time         { return m.lastReadAt }
+func (m *Member) PinnedAt() *time.Time          { return m.pinnedAt }
+func (m *Member) DMVisibility() DMVisibility    { return m.dmVisibility }
 func (m *Member) CreatedAt() time.Time          { return m.createdAt }
 func (m *Member) UpdatedAt() time.Time          { return m.updatedAt }
 
@@ -44,7 +84,7 @@ func (m *Member) UpdatedAt() time.Time          { return m.updatedAt }
 // Constructors / Factory Methods
 // -----------------------------------------------------------------------------
 
-// NewMember creates a fresh Member domain entity.
+// NewMember creates a fresh Member domain entity defaults to DMVisibilityVisible.
 func NewMember(rawChannelID, rawUserID uuid.UUID) (*Member, error) {
 	chID, err := NewID(rawChannelID)
 	if err != nil {
@@ -63,6 +103,8 @@ func NewMember(rawChannelID, rawUserID uuid.UUID) (*Member, error) {
 		userID:       uID,
 		mentionCount: 0,
 		lastReadAt:   now,
+		pinnedAt:     nil,
+		dmVisibility: DMVisibilityVisible,
 		createdAt:    now,
 		updatedAt:    now,
 	}, nil
@@ -73,7 +115,10 @@ func ReconstituteMember(
 	rawChannelID, rawUserID uuid.UUID,
 	rawLastReadMessageID *uuid.UUID,
 	mentionCount int32,
-	lastReadAt, createdAt, updatedAt time.Time,
+	lastReadAt time.Time,
+	rawPinnedAt *time.Time,
+	rawDMVisibility int16,
+	createdAt, updatedAt time.Time,
 ) (*Member, error) {
 	chID, err := NewID(rawChannelID)
 	if err != nil {
@@ -94,12 +139,25 @@ func ReconstituteMember(
 		return nil, ErrMentionCountNegative
 	}
 
+	visibility, err := NewDMVisibility(rawDMVisibility)
+	if err != nil {
+		return nil, err
+	}
+
+	var pinnedAt *time.Time
+	if rawPinnedAt != nil {
+		t := rawPinnedAt.UTC()
+		pinnedAt = &t
+	}
+
 	return &Member{
 		channelID:         chID,
 		userID:            uID,
 		lastReadMessageID: msgID,
 		mentionCount:      mentionCount,
 		lastReadAt:        lastReadAt.UTC(),
+		pinnedAt:          pinnedAt,
+		dmVisibility:      visibility,
 		createdAt:         createdAt.UTC(),
 		updatedAt:         updatedAt.UTC(),
 	}, nil
@@ -115,7 +173,6 @@ func (m *Member) SetLastRead(messageID MessageID) error {
 		return ErrIDNil
 	}
 
-	// No-op check: already at this message and mentions cleared
 	if m.lastReadMessageID != nil && m.lastReadMessageID.Equals(messageID) {
 		return nil
 	}
@@ -142,6 +199,35 @@ func (m *Member) ResetMentions() {
 		return
 	}
 	m.mentionCount = 0
+	m.touch()
+}
+
+// TogglePinned flips the member's pinned status for sidebar/channel ordering.
+func (m *Member) TogglePinned() {
+	now := time.Now().UTC()
+	if m.pinnedAt == nil {
+		m.pinnedAt = &now
+	} else {
+		m.pinnedAt = nil
+	}
+	m.touchWith(now)
+}
+
+// CloseDM sets visibility state to DMVisibilityHidden.
+func (m *Member) CloseDM() {
+	if m.dmVisibility == DMVisibilityHidden {
+		return
+	}
+	m.dmVisibility = DMVisibilityHidden
+	m.touch()
+}
+
+// OpenDM sets visibility state to DMVisibilityVisible.
+func (m *Member) OpenDM() {
+	if m.dmVisibility == DMVisibilityVisible {
+		return
+	}
+	m.dmVisibility = DMVisibilityVisible
 	m.touch()
 }
 

@@ -23,11 +23,13 @@ type Channel struct {
 type ChannelMember struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	MentionCount      int32              `json:"mention_count"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	DMVisibility      int16              `json:"dm_visibility"`
 }
 
 type Message struct {
@@ -38,7 +40,7 @@ type Message struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
-	IsPinned         bool               `json:"is_pinned"`
+	PinnedAt         pgtype.Timestamptz `json:"pinned_at"`
 	Content          pgtype.Text        `json:"content"`
 }
 
@@ -65,7 +67,7 @@ type MessageBaseAggregate struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 }
 

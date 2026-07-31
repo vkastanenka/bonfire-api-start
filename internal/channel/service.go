@@ -42,14 +42,17 @@ type Repository interface {
 	HasMessagesBefore(ctx context.Context, channelID uuid.UUID, createdAt time.Time, id uuid.UUID) (bool, error)
 	IsMember(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (bool, error)
 	MemberAddBatch(ctx context.Context, members []*Member) error
+	MemberCloseDM(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error
 	MemberCount(ctx context.Context, channelID uuid.UUID) (int32, error)
 	MemberGet(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*Member, error)
 	MemberGetUnreadCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (int32, error)
 	MemberIncrementMentionCountBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error
 	MemberListByChannel(ctx context.Context, channelID uuid.UUID) ([]*Member, error)
 	MemberListItemsByChannel(ctx context.Context, channelID uuid.UUID, cursorCreatedAt *time.Time, cursorUserID *uuid.UUID, limit int32) ([]*MemberListItem, error)
+	MemberOpenDM(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error
 	MemberRemove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
 	MemberResetMentionCount(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
+	MemberTogglePinned(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, pinnedAt time.Time) error
 	MemberUpdateRead(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, messageID *uuid.UUID, lastReadAt time.Time) error
 	MessageCreate(ctx context.Context, msg *Message) (*Message, error)
 	MessageDelete(ctx context.Context, id uuid.UUID) error
@@ -401,6 +404,55 @@ func (s *Service) AddMembers(ctx context.Context, rawChannelID uuid.UUID, rawAct
 	})
 }
 
+// CloseDM hides/closes a direct message channel for a specific member.
+func (s *Service) CloseDM(ctx context.Context, rawChannelID, rawActorID uuid.UUID) (*Member, error) {
+	chID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
+
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
+
+	var updatedMember *Member
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// 1. Fetch existing member entity
+		mem, err := s.repo.MemberGet(txCtx, chID.UUID(), actorID.UUID())
+		if err != nil {
+			return err
+		}
+
+		// 2. Mutate domain entity
+		now := time.Now().UTC()
+		mem.CloseDM()
+
+		// 3. Persist hidden status
+		if err := s.repo.MemberCloseDM(txCtx, mem.ChannelID().UUID(), mem.UserID().UUID(), now); err != nil {
+			return err
+		}
+
+		// 4. Publish outbox event
+		// _, err = s.outbox.Publish(txCtx, EventDMClosed, DMClosedPayload{
+		// 	ChannelID: mem.ChannelID().UUID(),
+		// 	UserID:    mem.UserID().UUID(),
+		// })
+		// if err != nil {
+		// 	return err
+		// }
+
+		updatedMember = mem
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedMember, nil
+}
+
 // Leave handles a user leaving a channel, performing cleanup if they are the last member.
 func (s *Service) LeaveGroup(ctx context.Context, rawChannelID uuid.UUID, rawActorID uuid.UUID) error {
 	channelID, err := NewID(rawChannelID)
@@ -510,6 +562,56 @@ func (s *Service) ListMembers(
 	// TODO: Add presence
 
 	return members, nil
+}
+
+// ToggleMemberPin toggles the pinned/favorited status of a channel for a specific member.
+func (s *Service) ToggleMemberPin(ctx context.Context, rawChannelID, rawActorID uuid.UUID) (*Member, error) {
+	chID, err := NewID(rawChannelID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid channel ID").Wrap(err)
+	}
+
+	actorID, err := NewID(rawActorID)
+	if err != nil {
+		return nil, errs.InvalidArgument("invalid actor ID").Wrap(err)
+	}
+
+	var updatedMember *Member
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// 1. Fetch current member state
+		mem, err := s.repo.MemberGet(txCtx, chID.UUID(), actorID.UUID())
+		if err != nil {
+			return err
+		}
+
+		// 2. Mutate domain entity
+		now := time.Now().UTC()
+		mem.TogglePinned()
+
+		// 3. Persist toggle state
+		if err := s.repo.MemberTogglePinned(txCtx, mem.ChannelID().UUID(), mem.UserID().UUID(), now); err != nil {
+			return err
+		}
+
+		// 4. Publish outbox event
+		// _, err = s.outbox.Publish(txCtx, EventChannelMemberPinned, ChannelMemberPinnedPayload{
+		// 	ChannelID: mem.ChannelID().UUID(),
+		// 	UserID:    mem.UserID().UUID(),
+		// 	IsPinned:  mem.PinnedAt() != nil,
+		// })
+		// if err != nil {
+		// 	return err
+		// }
+
+		updatedMember = mem
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedMember, nil
 }
 
 // UpdateMemberRead updates the user's read marker for a channel and emits an outbox event.
@@ -1114,7 +1216,7 @@ func (s *Service) ToggleMessagePin(ctx context.Context, rawMsgID, rawActorID uui
 			return errs.PermissionDenied("you are not a member of this channel").Wrap(ErrNotParticipant)
 		}
 
-		// 2. Mutate state & persist
+		// 2. Mutate domain state & persist
 		msg.SetPinned(!msg.IsPinned())
 
 		msg1, err := s.repo.MessageTogglePinned(txCtx, msg)
@@ -1132,7 +1234,7 @@ func (s *Service) ToggleMessagePin(ctx context.Context, rawMsgID, rawActorID uui
 			return err
 		}
 
-		updated = msg
+		updated = msg1
 		return nil
 	})
 	if err != nil {

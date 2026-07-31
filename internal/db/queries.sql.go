@@ -263,8 +263,91 @@ func (q *Queries) ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMe
 	return exists, err
 }
 
+const channelListByUser = `-- name: ChannelListByUser :many
+SELECT
+    cm.channel_id,
+    cm.user_id,
+    rp.peer_id AS peer_user_id,
+    c.type AS channel_type,
+    COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+    COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+    c.last_message_id AS channel_last_message_id,
+    cm.last_read_message_id,
+    cm.mention_count,
+    cm.created_at,
+    cm.last_read_at,
+    cm.pinned_at AS member_pinned_at,
+    cm.dm_visibility,
+    c.updated_at AS channel_updated_at
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+    LEFT JOIN relationship_perspectives rp ON c.type = 0
+        AND rp.user_id = cm.user_id
+        AND rp.channel_id = c.id
+WHERE
+    cm.user_id = $1::uuid
+    AND cm.dm_visibility = 1 -- 1: VISIBLE
+ORDER BY
+    c.updated_at DESC,
+    c.id ASC
+`
+
+type ChannelListByUserRow struct {
+	ChannelID            pgtype.UUID        `json:"channel_id"`
+	UserID               pgtype.UUID        `json:"user_id"`
+	PeerUserID           pgtype.UUID        `json:"peer_user_id"`
+	ChannelType          int16              `json:"channel_type"`
+	ChannelName          string             `json:"channel_name"`
+	ChannelIconUrl       pgtype.Text        `json:"channel_icon_url"`
+	ChannelLastMessageID pgtype.UUID        `json:"channel_last_message_id"`
+	LastReadMessageID    pgtype.UUID        `json:"last_read_message_id"`
+	MentionCount         int32              `json:"mention_count"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	LastReadAt           pgtype.Timestamptz `json:"last_read_at"`
+	MemberPinnedAt       pgtype.Timestamptz `json:"member_pinned_at"`
+	DMVisibility         int16              `json:"dm_visibility"`
+	ChannelUpdatedAt     pgtype.Timestamptz `json:"channel_updated_at"`
+}
+
+// Used for populating the user's sidebar with channel info & peer profiles for DMs
+func (q *Queries) ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelListByUserRow, error) {
+	rows, err := q.db.Query(ctx, channelListByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelListByUserRow
+	for rows.Next() {
+		var i ChannelListByUserRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.PeerUserID,
+			&i.ChannelType,
+			&i.ChannelName,
+			&i.ChannelIconUrl,
+			&i.ChannelLastMessageID,
+			&i.LastReadMessageID,
+			&i.MentionCount,
+			&i.CreatedAt,
+			&i.LastReadAt,
+			&i.MemberPinnedAt,
+			&i.DMVisibility,
+			&i.ChannelUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
-INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id)
+INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, dm_visibility, pinned_at)
 SELECT
     $1::uuid,
     u.user_id,
@@ -272,7 +355,9 @@ SELECT
     u.updated_at,
     u.last_read_at,
     u.mention_count,
-    u.last_read_message_id
+    u.last_read_message_id,
+    u.dm_visibility,
+    u.pinned_at
 FROM
     ROWS
 FROM (unnest($2::uuid[]),
@@ -280,19 +365,25 @@ FROM (unnest($2::uuid[]),
     unnest($4::timestamptz[]),
     unnest($5::timestamptz[]),
     unnest($6::int[]),
-    unnest($7::uuid[])) AS u(user_id,
+    unnest($7::uuid[]),
+    unnest($8::smallint[]),
+    unnest($9::timestamptz[])) AS u(user_id,
         created_at,
         updated_at,
         last_read_at,
         mention_count,
-        last_read_message_id)
+        last_read_message_id,
+        dm_visibility,
+        pinned_at)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
         updated_at = EXCLUDED.updated_at,
         last_read_at = EXCLUDED.last_read_at,
         mention_count = EXCLUDED.mention_count,
-        last_read_message_id = EXCLUDED.last_read_message_id
+        last_read_message_id = EXCLUDED.last_read_message_id,
+        dm_visibility = EXCLUDED.dm_visibility,
+        pinned_at = EXCLUDED.pinned_at
 `
 
 type ChannelMemberAddBatchParams struct {
@@ -303,6 +394,8 @@ type ChannelMemberAddBatchParams struct {
 	LastReadAts        []pgtype.Timestamptz `json:"last_read_ats"`
 	MentionCounts      []int32              `json:"mention_counts"`
 	LastReadMessageIds []pgtype.UUID        `json:"last_read_message_ids"`
+	DMVisibilities     []int16              `json:"dm_visibilities"`
+	PinnedAts          []pgtype.Timestamptz `json:"pinned_ats"`
 }
 
 // ============================================================================
@@ -317,7 +410,32 @@ func (q *Queries) ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAd
 		arg.LastReadAts,
 		arg.MentionCounts,
 		arg.LastReadMessageIds,
+		arg.DMVisibilities,
+		arg.PinnedAts,
 	)
+	return err
+}
+
+const channelMemberCloseDM = `-- name: ChannelMemberCloseDM :exec
+UPDATE
+    channel_members
+SET
+    dm_visibility = 0, -- 0: HIDDEN
+    updated_at = $1::timestamptz
+WHERE
+    channel_id = $2::uuid
+    AND user_id = $3::uuid
+`
+
+type ChannelMemberCloseDMParams struct {
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+// Hides or closes the DM channel for a specific member
+func (q *Queries) ChannelMemberCloseDM(ctx context.Context, arg ChannelMemberCloseDMParams) error {
+	_, err := q.db.Exec(ctx, channelMemberCloseDM, arg.UpdatedAt, arg.ChannelID, arg.UserID)
 	return err
 }
 
@@ -339,7 +457,7 @@ func (q *Queries) ChannelMemberCount(ctx context.Context, channelID pgtype.UUID)
 
 const channelMemberGet = `-- name: ChannelMemberGet :one
 SELECT
-    channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id
+    channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_at, pinned_at, mention_count, dm_visibility
 FROM
     channel_members
 WHERE
@@ -358,11 +476,13 @@ func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetPara
 	err := row.Scan(
 		&i.ChannelID,
 		&i.UserID,
+		&i.LastReadMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadAt,
+		&i.PinnedAt,
 		&i.MentionCount,
-		&i.LastReadMessageID,
+		&i.DMVisibility,
 	)
 	return i, err
 }
@@ -420,7 +540,9 @@ SELECT
     updated_at,
     last_read_at,
     mention_count,
-    last_read_message_id
+    last_read_message_id,
+    pinned_at,
+    dm_visibility
 FROM
     channel_members
 WHERE
@@ -430,15 +552,27 @@ ORDER BY
     user_id ASC
 `
 
-func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMember, error) {
+type ChannelMemberListByChannelRow struct {
+	ChannelID         pgtype.UUID        `json:"channel_id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+	MentionCount      int32              `json:"mention_count"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
+	DMVisibility      int16              `json:"dm_visibility"`
+}
+
+func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error) {
 	rows, err := q.db.Query(ctx, channelMemberListByChannel, channelID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ChannelMember
+	var items []ChannelMemberListByChannelRow
 	for rows.Next() {
-		var i ChannelMember
+		var i ChannelMemberListByChannelRow
 		if err := rows.Scan(
 			&i.ChannelID,
 			&i.UserID,
@@ -447,6 +581,8 @@ func (q *Queries) ChannelMemberListByChannel(ctx context.Context, channelID pgty
 			&i.LastReadAt,
 			&i.MentionCount,
 			&i.LastReadMessageID,
+			&i.PinnedAt,
+			&i.DMVisibility,
 		); err != nil {
 			return nil, err
 		}
@@ -535,6 +671,29 @@ func (q *Queries) ChannelMemberListItemsByChannel(ctx context.Context, arg Chann
 	return items, nil
 }
 
+const channelMemberOpenDM = `-- name: ChannelMemberOpenDM :exec
+UPDATE
+    channel_members
+SET
+    dm_visibility = 1, -- 1: VISIBLE
+    updated_at = $1::timestamptz
+WHERE
+    channel_id = $2::uuid
+    AND user_id = $3::uuid
+`
+
+type ChannelMemberOpenDMParams struct {
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+// Unhides/reopens the DM channel
+func (q *Queries) ChannelMemberOpenDM(ctx context.Context, arg ChannelMemberOpenDMParams) error {
+	_, err := q.db.Exec(ctx, channelMemberOpenDM, arg.UpdatedAt, arg.ChannelID, arg.UserID)
+	return err
+}
+
 const channelMemberRemove = `-- name: ChannelMemberRemove :exec
 DELETE FROM channel_members
 WHERE channel_id = $1::uuid
@@ -569,6 +728,32 @@ type ChannelMemberResetMentionCountParams struct {
 
 func (q *Queries) ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error {
 	_, err := q.db.Exec(ctx, channelMemberResetMentionCount, arg.ChannelID, arg.UserID)
+	return err
+}
+
+const channelMemberTogglePinned = `-- name: ChannelMemberTogglePinned :exec
+UPDATE
+    channel_members
+SET
+    pinned_at = CASE WHEN pinned_at IS NULL THEN
+        $1::timestamptz
+    ELSE
+        NULL
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = $2::uuid
+    AND user_id = $3::uuid
+`
+
+type ChannelMemberTogglePinnedParams struct {
+	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberTogglePinned(ctx context.Context, arg ChannelMemberTogglePinnedParams) error {
+	_, err := q.db.Exec(ctx, channelMemberTogglePinned, arg.PinnedAt, arg.ChannelID, arg.UserID)
 	return err
 }
 
@@ -625,44 +810,6 @@ type ChannelUpdateParams struct {
 	ID        pgtype.UUID        `json:"id"`
 }
 
-// -- name: ChannelListByUser :many
-// -- Used for populating the user's sidebar with channel info & peer profiles for DMs
-// SELECT
-//
-//	-- 1. Primary Identifiers & References
-//	cm.channel_id,
-//	cm.user_id,
-//	rp.peer_id AS peer_user_id,
-//	c.type AS channel_type,
-//	-- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
-//	COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
-//	COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
-//	-- 3. Read State, Activity & Metrics
-//	c.last_message_id AS channel_last_message_id,
-//	cm.last_read_message_id,
-//	cm.mention_count,
-//	-- 4. Timestamps
-//	cm.created_at,
-//	cm.last_read_at,
-//	c.updated_at AS channel_updated_at
-//
-// FROM
-//
-//	channel_members cm
-//	JOIN channels c ON cm.channel_id = c.id
-//	-- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
-//	LEFT JOIN relationship_perspectives rp ON c.type = 0
-//	    AND rp.user_id = cm.user_id
-//	    AND rp.channel_id = c.id
-//
-// WHERE
-//
-//	cm.user_id = @user_id::uuid
-//
-// ORDER BY
-//
-//	c.updated_at DESC,
-//	c.id ASC;
 func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelUpdate,
 		arg.Name,
@@ -718,10 +865,10 @@ func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdat
 }
 
 const messageCreate = `-- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)
-    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::boolean, $9::text)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9::text)
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content
 `
 
 type MessageCreateParams struct {
@@ -732,7 +879,7 @@ type MessageCreateParams struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	EditedAt         pgtype.Timestamptz `json:"edited_at"`
-	IsPinned         bool               `json:"is_pinned"`
+	PinnedAt         pgtype.Timestamptz `json:"pinned_at"`
 	Content          pgtype.Text        `json:"content"`
 }
 
@@ -748,7 +895,7 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.EditedAt,
-		arg.IsPinned,
+		arg.PinnedAt,
 		arg.Content,
 	)
 	var i Message
@@ -760,7 +907,7 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err
@@ -785,7 +932,7 @@ SELECT
     created_at,
     updated_at,
     edited_at,
-    is_pinned,
+    pinned_at,
     content
 FROM
     messages
@@ -804,7 +951,7 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err
@@ -822,7 +969,7 @@ SELECT
     mb.created_at,
     mb.updated_at,
     mb.edited_at,
-    mb.is_pinned,
+    mb.pinned_at,
     mb.content,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -859,7 +1006,7 @@ type MessageGetAggregateRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 	Attachments       []byte             `json:"attachments"`
 	Reactions         []byte             `json:"reactions"`
@@ -879,7 +1026,7 @@ func (q *Queries) MessageGetAggregate(ctx context.Context, id pgtype.UUID) (Mess
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 		&i.Attachments,
 		&i.Reactions,
@@ -889,7 +1036,7 @@ func (q *Queries) MessageGetAggregate(ctx context.Context, id pgtype.UUID) (Mess
 
 const messageGetFirstUnread = `-- name: MessageGetFirstUnread :one
 SELECT
-    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.updated_at, m.edited_at, m.is_pinned, m.content
+    m.id, m.channel_id, m.reply_to_message_id, m.author_id, m.created_at, m.updated_at, m.edited_at, m.pinned_at, m.content
 FROM
     messages m
     JOIN channel_members cm ON cm.channel_id = m.channel_id
@@ -920,7 +1067,7 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err
@@ -928,7 +1075,7 @@ func (q *Queries) MessageGetFirstUnread(ctx context.Context, arg MessageGetFirst
 
 const messageGetLatest = `-- name: MessageGetLatest :one
 SELECT
-    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content
 FROM
     messages
 WHERE
@@ -950,7 +1097,7 @@ func (q *Queries) MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err
@@ -969,7 +1116,7 @@ WITH hydrated_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -995,7 +1142,7 @@ WITH hydrated_messages AS (
             mb.channel_id = $1::uuid
 )
     SELECT
-        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.pinned_at, hm.content, hm.attachments, hm.reactions
     FROM
         hydrated_messages hm
     WHERE
@@ -1028,7 +1175,7 @@ type MessageListAggregateAfterRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 	Attachments       []byte             `json:"attachments"`
 	Reactions         []byte             `json:"reactions"`
@@ -1060,7 +1207,7 @@ func (q *Queries) MessageListAggregateAfter(ctx context.Context, arg MessageList
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
-			&i.IsPinned,
+			&i.PinnedAt,
 			&i.Content,
 			&i.Attachments,
 			&i.Reactions,
@@ -1142,7 +1289,7 @@ SELECT
     mb.created_at,
     mb.updated_at,
     mb.edited_at,
-    mb.is_pinned,
+    mb.pinned_at,
     mb.content,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -1188,7 +1335,7 @@ type MessageListAggregateAroundRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 	Attachments       []byte             `json:"attachments"`
 	Reactions         []byte             `json:"reactions"`
@@ -1220,7 +1367,7 @@ func (q *Queries) MessageListAggregateAround(ctx context.Context, arg MessageLis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
-			&i.IsPinned,
+			&i.PinnedAt,
 			&i.Content,
 			&i.Attachments,
 			&i.Reactions,
@@ -1248,7 +1395,7 @@ WITH hydrated_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -1274,7 +1421,7 @@ WITH hydrated_messages AS (
             mb.channel_id = $1::uuid
 )
     SELECT
-        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.pinned_at, hm.content, hm.attachments, hm.reactions
     FROM
         hydrated_messages hm
     WHERE
@@ -1307,7 +1454,7 @@ type MessageListAggregateBeforeRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 	Attachments       []byte             `json:"attachments"`
 	Reactions         []byte             `json:"reactions"`
@@ -1339,7 +1486,7 @@ func (q *Queries) MessageListAggregateBefore(ctx context.Context, arg MessageLis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
-			&i.IsPinned,
+			&i.PinnedAt,
 			&i.Content,
 			&i.Attachments,
 			&i.Reactions,
@@ -1367,7 +1514,7 @@ WITH hydrated_pinned_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -1391,27 +1538,27 @@ WITH hydrated_pinned_messages AS (
                 r.message_id = mb.id) rec ON TRUE
         WHERE
             mb.channel_id = $2::uuid
-            AND mb.is_pinned = TRUE
-            -- Keyset comparison for "older than cursor":
+            AND mb.pinned_at IS NOT NULL
+            -- Keyset comparison using pinned_at:
             AND ($3::timestamptz IS NULL
-                OR (mb.created_at,
+                OR (mb.pinned_at,
                     mb.id) <($3::timestamptz,
                     $4::uuid)))
     SELECT
-        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.is_pinned, hm.content, hm.attachments, hm.reactions
+        hm.id, hm.channel_id, hm.reply_to_message_id, hm.author_id, hm.author_username, hm.author_display_name, hm.author_avatar_url, hm.created_at, hm.updated_at, hm.edited_at, hm.pinned_at, hm.content, hm.attachments, hm.reactions
     FROM
         hydrated_pinned_messages hm
     ORDER BY
-        hm.created_at DESC,
+        hm.pinned_at DESC,
         hm.id DESC
     LIMIT $1::int
 `
 
 type MessageListPinnedAggregateParams struct {
-	LimitVal        int32              `json:"limit_val"`
-	ChannelID       pgtype.UUID        `json:"channel_id"`
-	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
-	CursorID        pgtype.UUID        `json:"cursor_id"`
+	LimitVal       int32              `json:"limit_val"`
+	ChannelID      pgtype.UUID        `json:"channel_id"`
+	CursorPinnedAt pgtype.Timestamptz `json:"cursor_pinned_at"`
+	CursorID       pgtype.UUID        `json:"cursor_id"`
 }
 
 type MessageListPinnedAggregateRow struct {
@@ -1425,7 +1572,7 @@ type MessageListPinnedAggregateRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	IsPinned          bool               `json:"is_pinned"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	Content           pgtype.Text        `json:"content"`
 	Attachments       []byte             `json:"attachments"`
 	Reactions         []byte             `json:"reactions"`
@@ -1435,7 +1582,7 @@ func (q *Queries) MessageListPinnedAggregate(ctx context.Context, arg MessageLis
 	rows, err := q.db.Query(ctx, messageListPinnedAggregate,
 		arg.LimitVal,
 		arg.ChannelID,
-		arg.CursorCreatedAt,
+		arg.CursorPinnedAt,
 		arg.CursorID,
 	)
 	if err != nil {
@@ -1456,7 +1603,7 @@ func (q *Queries) MessageListPinnedAggregate(ctx context.Context, arg MessageLis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
-			&i.IsPinned,
+			&i.PinnedAt,
 			&i.Content,
 			&i.Attachments,
 			&i.Reactions,
@@ -1475,21 +1622,26 @@ const messageTogglePinned = `-- name: MessageTogglePinned :one
 UPDATE
     messages
 SET
-    is_pinned = NOT is_pinned,
-    updated_at = $1::timestamptz
+    pinned_at = CASE WHEN pinned_at IS NULL THEN
+        $1::timestamptz
+    ELSE
+        NULL
+    END,
+    updated_at = $2::timestamptz
 WHERE
-    id = $2::uuid
+    id = $3::uuid
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content
 `
 
 type MessageTogglePinnedParams struct {
+	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 }
 
 func (q *Queries) MessageTogglePinned(ctx context.Context, arg MessageTogglePinnedParams) (Message, error) {
-	row := q.db.QueryRow(ctx, messageTogglePinned, arg.UpdatedAt, arg.ID)
+	row := q.db.QueryRow(ctx, messageTogglePinned, arg.PinnedAt, arg.UpdatedAt, arg.ID)
 	var i Message
 	err := row.Scan(
 		&i.ID,
@@ -1499,7 +1651,7 @@ func (q *Queries) MessageTogglePinned(ctx context.Context, arg MessageTogglePinn
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err
@@ -1515,7 +1667,7 @@ SET
 WHERE
     id = $4::uuid
 RETURNING
-    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content
+    id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content
 `
 
 type MessageUpdateContentParams struct {
@@ -1541,7 +1693,7 @@ func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateCon
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
-		&i.IsPinned,
+		&i.PinnedAt,
 		&i.Content,
 	)
 	return i, err

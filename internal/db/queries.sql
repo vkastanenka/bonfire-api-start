@@ -279,37 +279,36 @@ SELECT
                 OR (created_at = @created_at::timestamptz
                     AND id < @message_id::uuid)));
 
--- -- name: ChannelListByUser :many
--- -- Used for populating the user's sidebar with channel info & peer profiles for DMs
--- SELECT
---     -- 1. Primary Identifiers & References
---     cm.channel_id,
---     cm.user_id,
---     rp.peer_id AS peer_user_id,
---     c.type AS channel_type,
---     -- 2. Display & Metadata (Resolved for 1:1 DMs or Group DMs)
---     COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
---     COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
---     -- 3. Read State, Activity & Metrics
---     c.last_message_id AS channel_last_message_id,
---     cm.last_read_message_id,
---     cm.mention_count,
---     -- 4. Timestamps
---     cm.created_at,
---     cm.last_read_at,
---     c.updated_at AS channel_updated_at
--- FROM
---     channel_members cm
---     JOIN channels c ON cm.channel_id = c.id
---     -- Join relationship_perspectives ONLY for 1:1 DMs to resolve peer profile
---     LEFT JOIN relationship_perspectives rp ON c.type = 0
---         AND rp.user_id = cm.user_id
---         AND rp.channel_id = c.id
--- WHERE
---     cm.user_id = @user_id::uuid
--- ORDER BY
---     c.updated_at DESC,
---     c.id ASC;
+-- name: ChannelListByUser :many
+-- Used for populating the user's sidebar with channel info & peer profiles for DMs
+SELECT
+    cm.channel_id,
+    cm.user_id,
+    rp.peer_id AS peer_user_id,
+    c.type AS channel_type,
+    COALESCE(c.name, rp.display_name, rp.username) AS channel_name,
+    COALESCE(c.icon_url, rp.avatar_url) AS channel_icon_url,
+    c.last_message_id AS channel_last_message_id,
+    cm.last_read_message_id,
+    cm.mention_count,
+    cm.created_at,
+    cm.last_read_at,
+    cm.pinned_at AS member_pinned_at,
+    cm.dm_visibility,
+    c.updated_at AS channel_updated_at
+FROM
+    channel_members cm
+    JOIN channels c ON cm.channel_id = c.id
+    LEFT JOIN relationship_perspectives rp ON c.type = 0
+        AND rp.user_id = cm.user_id
+        AND rp.channel_id = c.id
+WHERE
+    cm.user_id = @user_id::uuid
+    AND cm.dm_visibility = 1 -- 1: VISIBLE
+ORDER BY
+    c.updated_at DESC,
+    c.id ASC;
+
 -- name: ChannelUpdate :one
 UPDATE
     channels
@@ -338,7 +337,7 @@ RETURNING
 -- CHANNEL MEMBERS
 -- ============================================================================
 -- name: ChannelMemberAddBatch :exec
-INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id)
+INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, dm_visibility, pinned_at)
 SELECT
     @channel_id::uuid,
     u.user_id,
@@ -346,7 +345,9 @@ SELECT
     u.updated_at,
     u.last_read_at,
     u.mention_count,
-    u.last_read_message_id
+    u.last_read_message_id,
+    u.dm_visibility,
+    u.pinned_at
 FROM
     ROWS
 FROM (unnest(@user_ids::uuid[]),
@@ -354,19 +355,25 @@ FROM (unnest(@user_ids::uuid[]),
     unnest(@updated_ats::timestamptz[]),
     unnest(@last_read_ats::timestamptz[]),
     unnest(@mention_counts::int[]),
-    unnest(@last_read_message_ids::uuid[])) AS u(user_id,
+    unnest(@last_read_message_ids::uuid[]),
+    unnest(@dm_visibilities::smallint[]),
+    unnest(@pinned_ats::timestamptz[])) AS u(user_id,
         created_at,
         updated_at,
         last_read_at,
         mention_count,
-        last_read_message_id)
+        last_read_message_id,
+        dm_visibility,
+        pinned_at)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
         updated_at = EXCLUDED.updated_at,
         last_read_at = EXCLUDED.last_read_at,
         mention_count = EXCLUDED.mention_count,
-        last_read_message_id = EXCLUDED.last_read_message_id;
+        last_read_message_id = EXCLUDED.last_read_message_id,
+        dm_visibility = EXCLUDED.dm_visibility,
+        pinned_at = EXCLUDED.pinned_at;
 
 -- name: ChannelMemberCount :one
 SELECT
@@ -414,7 +421,9 @@ SELECT
     updated_at,
     last_read_at,
     mention_count,
-    last_read_message_id
+    last_read_message_id,
+    pinned_at,
+    dm_visibility
 FROM
     channel_members
 WHERE
@@ -462,6 +471,20 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
 
+-- name: ChannelMemberTogglePinned :exec
+UPDATE
+    channel_members
+SET
+    pinned_at = CASE WHEN pinned_at IS NULL THEN
+        @pinned_at::timestamptz
+    ELSE
+        NULL
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
 -- name: ChannelMemberUpdateRead :exec
 UPDATE
     channel_members
@@ -477,12 +500,34 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
 
+-- name: ChannelMemberCloseDM :exec
+-- Hides or closes the DM channel for a specific member
+UPDATE
+    channel_members
+SET
+    dm_visibility = 0, -- 0: HIDDEN
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
+-- name: ChannelMemberOpenDM :exec
+-- Unhides/reopens the DM channel
+UPDATE
+    channel_members
+SET
+    dm_visibility = 1, -- 1: VISIBLE
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
 -- ============================================================================
 -- MESSAGES
 -- ============================================================================
 -- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, is_pinned, content)
-    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, @is_pinned::boolean, sqlc.narg('content')::text)
+INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content)
+    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, sqlc.narg('pinned_at')::timestamptz, sqlc.narg('content')::text)
 RETURNING
     *;
 
@@ -499,7 +544,7 @@ SELECT
     created_at,
     updated_at,
     edited_at,
-    is_pinned,
+    pinned_at,
     content
 FROM
     messages
@@ -518,7 +563,7 @@ SELECT
     mb.created_at,
     mb.updated_at,
     mb.edited_at,
-    mb.is_pinned,
+    mb.pinned_at,
     mb.content,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -585,7 +630,7 @@ WITH hydrated_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -693,7 +738,7 @@ SELECT
     mb.created_at,
     mb.updated_at,
     mb.edited_at,
-    mb.is_pinned,
+    mb.pinned_at,
     mb.content,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -734,7 +779,7 @@ WITH hydrated_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -787,7 +832,7 @@ WITH hydrated_pinned_messages AS (
         mb.created_at,
         mb.updated_at,
         mb.edited_at,
-        mb.is_pinned,
+        mb.pinned_at,
         mb.content,
         COALESCE(att.attachments, '[]'::json) AS attachments,
         COALESCE(rec.reactions, '[]'::json) AS reactions
@@ -811,18 +856,18 @@ WITH hydrated_pinned_messages AS (
                 r.message_id = mb.id) rec ON TRUE
         WHERE
             mb.channel_id = @channel_id::uuid
-            AND mb.is_pinned = TRUE
-            -- Keyset comparison for "older than cursor":
-            AND (@cursor_created_at::timestamptz IS NULL
-                OR (mb.created_at,
-                    mb.id) <(@cursor_created_at::timestamptz,
+            AND mb.pinned_at IS NOT NULL
+            -- Keyset comparison using pinned_at:
+            AND (@cursor_pinned_at::timestamptz IS NULL
+                OR (mb.pinned_at,
+                    mb.id) <(@cursor_pinned_at::timestamptz,
                     @cursor_id::uuid)))
     SELECT
         hm.*
     FROM
         hydrated_pinned_messages hm
     ORDER BY
-        hm.created_at DESC,
+        hm.pinned_at DESC,
         hm.id DESC
     LIMIT @limit_val::int;
 
@@ -830,7 +875,11 @@ WITH hydrated_pinned_messages AS (
 UPDATE
     messages
 SET
-    is_pinned = NOT is_pinned,
+    pinned_at = CASE WHEN pinned_at IS NULL THEN
+        @pinned_at::timestamptz
+    ELSE
+        NULL
+    END,
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid

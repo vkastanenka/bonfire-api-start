@@ -191,6 +191,32 @@ func (r *Channel) MemberAddBatch(ctx context.Context, members []*channel.Member)
 	return nil
 }
 
+func (r *Channel) MemberCloseDM(ctx context.Context, channelID, userID uuid.UUID, updatedAt time.Time) error {
+	err := r.store.ChannelMemberCloseDM(ctx, db.ChannelMemberCloseDMParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+		UpdatedAt: db.Timestamptz(updatedAt),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannelMember)
+	}
+
+	return nil
+}
+
+func (r *Channel) MemberOpenDM(ctx context.Context, channelID, userID uuid.UUID, updatedAt time.Time) error {
+	err := r.store.ChannelMemberOpenDM(ctx, db.ChannelMemberOpenDMParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+		UpdatedAt: db.Timestamptz(updatedAt),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannelMember)
+	}
+
+	return nil
+}
+
 func (r *Channel) MemberCount(ctx context.Context, channelID uuid.UUID) (int32, error) {
 	count, err := r.store.ChannelMemberCount(ctx, db.UUID(channelID))
 	if err != nil {
@@ -253,7 +279,7 @@ func (r *Channel) MemberListByChannel(ctx context.Context, channelID uuid.UUID) 
 
 	members := make([]*channel.Member, 0, len(rows))
 	for _, row := range rows {
-		member, err := memberFromRow(row)
+		member, err := memberFromListRow(row)
 		if err != nil {
 			return nil, err
 		}
@@ -308,6 +334,19 @@ func (r *Channel) MemberResetMentionCount(ctx context.Context, channelID, userID
 	err := r.store.ChannelMemberResetMentionCount(ctx, db.ChannelMemberResetMentionCountParams{
 		ChannelID: db.UUID(channelID),
 		UserID:    db.UUID(userID),
+	})
+	if err != nil {
+		return db.NewError(err, db.EntityChannelMember)
+	}
+
+	return nil
+}
+
+func (r *Channel) MemberTogglePinned(ctx context.Context, channelID, userID uuid.UUID, pinnedAt time.Time) error {
+	err := r.store.ChannelMemberTogglePinned(ctx, db.ChannelMemberTogglePinnedParams{
+		ChannelID: db.UUID(channelID),
+		UserID:    db.UUID(userID),
+		PinnedAt:  db.Timestamptz(pinnedAt),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityChannelMember)
@@ -373,7 +412,7 @@ func (r *Channel) MessageCreate(ctx context.Context, msg *channel.Message) (*cha
 		AuthorID:         db.UUIDPtr(authorID),
 		ReplyToMessageID: db.UUIDPtr(replyToMsgID),
 		Content:          db.Text(msg.Content().String()),
-		IsPinned:         msg.IsPinned(),
+		PinnedAt:         db.TimestamptzPtr(msg.PinnedAt()),
 		CreatedAt:        db.Timestamptz(msg.CreatedAt()),
 		UpdatedAt:        db.Timestamptz(msg.UpdatedAt()),
 	})
@@ -516,10 +555,10 @@ func (r *Channel) MessageListPinnedAggregate(
 	limit int32,
 ) ([]*channel.MessageAggregate, error) {
 	rows, err := r.store.MessageListPinnedAggregate(ctx, db.MessageListPinnedAggregateParams{
-		ChannelID:       db.UUID(channelID),
-		CursorCreatedAt: db.TimestamptzPtr(cursorCreatedAt),
-		CursorID:        db.UUIDPtr(cursorID),
-		LimitVal:        limit,
+		ChannelID:      db.UUID(channelID),
+		CursorPinnedAt: db.TimestamptzPtr(cursorCreatedAt),
+		CursorID:       db.UUIDPtr(cursorID),
+		LimitVal:       limit,
 	})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityMessage)
@@ -531,6 +570,7 @@ func (r *Channel) MessageListPinnedAggregate(
 func (r *Channel) MessageTogglePinned(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	row, err := r.store.MessageTogglePinned(ctx, db.MessageTogglePinnedParams{
 		ID:        db.UUID(msg.ID().UUID()),
+		PinnedAt:  db.TimestamptzPtr(msg.PinnedAt()),
 		UpdatedAt: db.Timestamptz(msg.UpdatedAt()),
 	})
 	if err != nil {
@@ -611,6 +651,27 @@ func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
 		db.UUIDPtrFromDB(row.LastReadMessageID),
 		row.MentionCount,
 		row.LastReadAt.Time.UTC(),
+		db.TimePtr(row.PinnedAt),
+		row.DMVisibility,
+		row.CreatedAt.Time.UTC(),
+		row.UpdatedAt.Time.UTC(),
+	)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannelMember)
+	}
+
+	return mem, nil
+}
+
+func memberFromListRow(row db.ChannelMemberListByChannelRow) (*channel.Member, error) {
+	mem, err := channel.ReconstituteMember(
+		row.ChannelID.Bytes,
+		row.UserID.Bytes,
+		db.UUIDPtrFromDB(row.LastReadMessageID),
+		row.MentionCount,
+		row.LastReadAt.Time.UTC(),
+		db.TimePtr(row.PinnedAt),
+		row.DMVisibility,
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
 	)
@@ -646,7 +707,7 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		db.UUIDPtrFromDB(row.AuthorID),
 		db.UUIDPtrFromDB(row.ReplyToMessageID),
 		db.StringPtr(row.Content),
-		row.IsPinned,
+		db.TimePtr(row.PinnedAt),
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
 		db.TimePtr(row.EditedAt),
@@ -666,7 +727,7 @@ func messageAggregateFromRow(row db.MessageGetAggregateRow, currentUserID *uuid.
 		db.UUIDPtrFromDB(row.AuthorID),
 		db.UUIDPtrFromDB(row.ReplyToMessageID),
 		db.StringPtr(row.Content),
-		row.IsPinned,
+		db.TimePtr(row.PinnedAt),
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
 		db.TimePtr(row.EditedAt),
