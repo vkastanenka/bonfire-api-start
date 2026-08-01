@@ -71,37 +71,68 @@ WHERE
 
 CREATE TABLE users(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    verified_at timestamp with time zone DEFAULT NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    verified_at timestamptz DEFAULT NULL,
     disabled_at timestamptz DEFAULT NULL,
     delete_scheduled_at timestamptz DEFAULT NULL,
     preferred_presence_until timestamptz DEFAULT NULL,
     preferred_presence smallint DEFAULT NULL,
-    email CITEXT NOT NULL UNIQUE,
-    username CITEXT NOT NULL UNIQUE,
+    email citext NOT NULL UNIQUE,
+    username citext NOT NULL UNIQUE,
     phone text DEFAULT NULL UNIQUE,
     password_hash text NOT NULL,
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
-    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 3 AND 255),
-    CONSTRAINT preferred_presence_values CHECK (preferred_presence IN (4, 5, 6)),
-    CONSTRAINT valid_standing CHECK (standing IN (0, 1)),
+    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 10 AND 255),
+    CONSTRAINT preferred_presence_values CHECK (preferred_presence IS NULL OR preferred_presence IN (4, 5, 6)),
     CONSTRAINT valid_e164_phone CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
 );
+
+CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at)
+WHERE
+    delete_scheduled_at IS NOT NULL;
 
 CREATE TABLE user_profiles(
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     display_name citext NOT NULL,
+    bio text DEFAULT NULL,
     avatar_url text DEFAULT NULL,
     banner_color text DEFAULT NULL,
-    CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 3 AND 32),
+    CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
+    CONSTRAINT bio_length CHECK (bio IS NULL OR char_length(bio) <= 190),
     CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 3 AND 2048),
     CONSTRAINT valid_hex_banner_color CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
 );
+
+CREATE INDEX idx_user_profiles_display_name ON user_profiles(display_name);
+
+CREATE OR REPLACE VIEW user_aggregates AS
+SELECT
+    u.id,
+    u.email,
+    u.username,
+    u.phone,
+    u.password_hash,
+    u.preferred_presence,
+    u.preferred_presence_until,
+    u.verified_at,
+    u.disabled_at,
+    u.delete_scheduled_at,
+    p.display_name,
+    p.bio,
+    p.avatar_url,
+    p.banner_color,
+    u.created_at,
+    u.updated_at,
+    p.created_at AS profile_created_at,
+    p.updated_at AS profile_updated_at
+FROM
+    users u
+    INNER JOIN user_profiles p ON u.id = p.user_id;
 
 -- 1. Main MFA State & Secret Storage
 CREATE TABLE user_mfa(
@@ -135,28 +166,6 @@ CREATE TABLE user_mfa_backup_codes(
 CREATE INDEX idx_user_mfa_backup_codes_user ON user_mfa_backup_codes(user_id)
 WHERE
     used_at IS NULL;
-
-CREATE OR REPLACE VIEW user_aggregates AS
-SELECT
-    u.id,
-    u.email,
-    u.username,
-    u.phone,
-    u.password_hash,
-    u.preferred_presence,
-    u.verified_at,
-(m.enabled_at IS NOT NULL) AS mfa_enabled,
-    p.display_name,
-    p.avatar_url,
-    p.banner_color,
-    u.created_at,
-    u.updated_at,
-    p.created_at AS profile_created_at,
-    p.updated_at AS profile_updated_at
-FROM
-    users u
-    INNER JOIN user_profiles p ON u.id = p.user_id
-    LEFT JOIN user_mfa m ON u.id = m.user_id;
 
 CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
