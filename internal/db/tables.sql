@@ -84,10 +84,10 @@ CREATE TABLE users(
     password_hash text NOT NULL,
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
-    CONSTRAINT username_reserved CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
+    CONSTRAINT username_valid CHECK (lower(username) NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 10 AND 255),
-    CONSTRAINT preferred_presence_values CHECK (preferred_presence IS NULL OR preferred_presence IN (4, 5, 6)),
-    CONSTRAINT valid_e164_phone CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
+    CONSTRAINT preferred_presence_valid CHECK (preferred_presence IS NULL OR preferred_presence IN (4, 5, 6)),
+    CONSTRAINT e164_phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
 );
 
 CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at)
@@ -127,71 +127,63 @@ SELECT
     p.avatar_url,
     p.banner_color,
     u.created_at,
-    u.updated_at,
-    p.created_at AS profile_created_at,
-    p.updated_at AS profile_updated_at
+    u.updated_at
 FROM
     users u
     INNER JOIN user_profiles p ON u.id = p.user_id;
 
--- 1. Main MFA State & Secret Storage
 CREATE TABLE user_mfa(
-    -- 16-byte fixed alignment (UUIDs)
     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    -- 8-byte fixed alignment (Timestamps)
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    enabled_at timestamptz DEFAULT NULL, -- NULL = setup initiated but not confirmed
-    -- Variable length text / encrypted binary
+    enabled_at timestamptz DEFAULT NULL,
+    last_used_step bigint NOT NULL DEFAULT 0,
     -- The base32 TOTP secret string (e.g., "JBSWY3DPEHPK3PXP")
     -- CRITICAL: Store this ENCRYPTED at the application layer using AES-GCM
     secret text NOT NULL
 );
 
--- 2. Single-use Backup / Recovery Codes
 CREATE TABLE user_mfa_backup_codes(
-    -- 16-byte fixed alignment (UUIDs)
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    -- 8-byte fixed alignment (Timestamps)
-    used_at timestamptz DEFAULT NULL, -- NULL = active/unused, timestamp = burned code
+    used_at timestamptz DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Hash of the 8-to-10 character backup code (e.g. Argon2id or bcrypt hash)
     code_hash text NOT NULL,
-    -- Constraints
     CONSTRAINT code_hash_length CHECK (length(code_hash) BETWEEN 10 AND 255)
 );
 
--- Index for retrieving valid backup codes during emergency login
-CREATE INDEX idx_user_mfa_backup_codes_user ON user_mfa_backup_codes(user_id)
+CREATE INDEX idx_user_mfa_backup_codes_active ON user_mfa_backup_codes(user_id)
 WHERE
     used_at IS NULL;
 
 CREATE TABLE sessions(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     last_seen_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     expires_at timestamp with time zone NOT NULL,
     revoked_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    client_ip inet NOT NULL,
     refresh_token_hash bytea NOT NULL UNIQUE,
+    client_ip inet NOT NULL,
     user_agent text NOT NULL,
     os text NOT NULL DEFAULT 'Unknown',
     client text NOT NULL DEFAULT 'Unknown',
     CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
-    CONSTRAINT user_agent_length CHECK (length(user_agent) BETWEEN 1 AND 1000),
-    CONSTRAINT os_length CHECK (length(os) BETWEEN 1 AND 100),
-    CONSTRAINT client_length CHECK (length(client) BETWEEN 1 AND 100)
+    CONSTRAINT user_agent_length CHECK (char_length(user_agent) BETWEEN 1 AND 1000),
+    CONSTRAINT os_length CHECK (char_length(os) BETWEEN 1 AND 100),
+    CONSTRAINT client_length CHECK (char_length(client) BETWEEN 1 AND 100)
 );
 
-CREATE INDEX idx_sessions_user_active ON sessions(user_id)
-WHERE (revoked_at IS NULL);
+CREATE INDEX idx_sessions_user_active ON sessions(user_id, expires_at DESC)
+WHERE
+    revoked_at IS NULL;
 
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX idx_sessions_cleanup ON sessions(expires_at)
+WHERE
+    revoked_at IS NULL;
 
--- Enums for Channel Types: 0: DM, 1: GROUP_DM
 CREATE TABLE channels(
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     last_message_id uuid DEFAULT NULL,
@@ -201,11 +193,13 @@ CREATE TABLE channels(
     type smallint NOT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
+    CONSTRAINT valid_channel_type CHECK (type IN (0, 1)),
     CONSTRAINT channel_rules CHECK ((type = 0 AND name IS NULL AND icon_url IS NULL) OR (type = 1 AND (name IS NULL OR length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR length(icon_url) BETWEEN 3 AND 2048)))
 );
 
--- Index for filtering/sorting active channels
-CREATE INDEX idx_channels_last_message_id ON channels(last_message_id DESC)
+CREATE INDEX idx_channels_last_message_at ON channels(last_message_at DESC NULLS LAST);
+
+CREATE INDEX idx_channels_last_message_id ON channels(last_message_id)
 WHERE
     last_message_id IS NOT NULL;
 
