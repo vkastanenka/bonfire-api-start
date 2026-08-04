@@ -65,11 +65,7 @@ CREATE UNIQUE INDEX idx_users_unique_active_email ON users(email)
 WHERE
     delete_scheduled_at IS NULL AND disabled_at IS NULL;
 
-CREATE UNIQUE INDEX idx_users_unique_active_username ON users(username)
-WHERE
-    delete_scheduled_at IS NULL AND disabled_at IS NULL;
-
-CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at)
+CREATE INDEX users_delete_scheduled_idx ON users(delete_scheduled_at ASC, id ASC)
 WHERE
     delete_scheduled_at IS NOT NULL;
 
