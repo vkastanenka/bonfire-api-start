@@ -1,8 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS citext;
 
--- ==========================================
--- OUTBOX PATTERN
--- ==========================================
 CREATE TABLE outbox_events(
     id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -41,9 +38,6 @@ CREATE INDEX idx_outbox_events_cleanup ON outbox_events(processed_at ASC)
 WHERE
     processed_at IS NOT NULL;
 
--- ==========================================
--- USERS & PROFILES
--- ==========================================
 CREATE TABLE users(
     id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -97,30 +91,6 @@ CREATE TABLE user_profiles(
 
 CREATE INDEX idx_user_profiles_display_name ON user_profiles(display_name);
 
-CREATE OR REPLACE VIEW user_aggregates AS
-SELECT
-    u.id,
-    u.username,
-    u.email,
-    u.phone,
-    p.display_name,
-    p.bio,
-    p.avatar_url,
-    p.banner_color,
-    u.preferred_presence,
-    u.preferred_presence_until,
-    u.verified_at,
-    u.disabled_at,
-    u.delete_scheduled_at,
-    u.created_at,
-    u.updated_at
-FROM
-    users u
-    INNER JOIN user_profiles p ON u.id = p.user_id;
-
--- ==========================================
--- AUTH & SESSIONS
--- ==========================================
 CREATE TABLE user_mfa(
     user_id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -181,9 +151,6 @@ WHERE
 
 CREATE INDEX idx_sessions_expiration_cleanup ON sessions(expires_at);
 
--- ==========================================
--- CHANNELS & MESSAGES
--- ==========================================
 CREATE TABLE channels(
     id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -235,9 +202,6 @@ CREATE INDEX idx_messages_forwarded_msg ON messages(forwarded_message_id)
 WHERE
     forwarded_message_id IS NOT NULL;
 
--- ==========================================
--- MEMBERSHIPS & INVITES
--- ==========================================
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
     user_id uuid NOT NULL,
@@ -284,9 +248,6 @@ CREATE TABLE channel_invites(
 
 CREATE INDEX idx_channel_invites_channel_id ON channel_invites(channel_id);
 
--- ==========================================
--- ATTACHMENTS & REACTIONS
--- ==========================================
 CREATE TABLE message_attachments(
     id uuid NOT NULL,
     message_id uuid NOT NULL,
@@ -320,9 +281,6 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id, created_at ASC);
 
--- ==========================================
--- RELATIONSHIPS
--- ==========================================
 CREATE TABLE relationships(
     user1_id uuid NOT NULL,
     user2_id uuid NOT NULL,
@@ -346,4 +304,25 @@ CREATE TABLE relationships(
 CREATE INDEX idx_relationships_user1 ON relationships(user1_id, variant);
 
 CREATE INDEX idx_relationships_user2 ON relationships(user2_id, variant);
+
+CREATE OR REPLACE VIEW user_aggregates AS
+SELECT
+    u.id,
+    u.username,
+    u.email,
+    u.phone,
+    p.display_name,
+    p.bio,
+    p.avatar_url,
+    p.banner_color,
+    u.preferred_presence,
+    u.preferred_presence_until,
+    u.verified_at,
+    u.disabled_at,
+    u.delete_scheduled_at,
+    u.created_at,
+    u.updated_at
+FROM
+    users u
+    INNER JOIN user_profiles p ON u.id = p.user_id;
 
