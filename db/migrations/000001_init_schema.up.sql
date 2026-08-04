@@ -52,6 +52,8 @@ CREATE TABLE users(
     password_hash text NOT NULL,
     phone text DEFAULT NULL,
     CONSTRAINT users_pkey PRIMARY KEY (id),
+    CONSTRAINT users_email_key UNIQUE (email),
+    CONSTRAINT users_username_key UNIQUE (username),
     CONSTRAINT users_phone_key UNIQUE (phone),
     CONSTRAINT preferred_presence_valid CHECK (preferred_presence IN (4, 5, 6)),
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
@@ -61,11 +63,7 @@ CREATE TABLE users(
     CONSTRAINT phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
 );
 
-CREATE UNIQUE INDEX idx_users_unique_active_email ON users(email)
-WHERE
-    delete_scheduled_at IS NULL AND disabled_at IS NULL;
-
-CREATE INDEX users_delete_scheduled_idx ON users(delete_scheduled_at ASC, id ASC)
+CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC, id ASC)
 WHERE
     delete_scheduled_at IS NOT NULL;
 

@@ -46,22 +46,39 @@ LIMIT 1;
 -- name: UserAggregateUpdateBatch :exec
 WITH unnested_data AS (
     SELECT
-        unnest(@ids::uuid[]) AS id,
-        unnest(@emails::citext[]) AS email,
-        unnest(@usernames::citext[]) AS username,
-        unnest(@password_hashes::text[]) AS password_hash,
-        unnest(@phones::text[]) AS phone,
-        unnest(@preferred_presences::smallint[]) AS preferred_presence,
-        unnest(@preferred_presence_untils::timestamptz[]) AS preferred_presence_until,
-        unnest(@verified_ats::timestamptz[]) AS verified_at,
-        unnest(@disabled_ats::timestamptz[]) AS disabled_at,
-        unnest(@delete_scheduled_ats::timestamptz[]) AS delete_scheduled_at,
-        unnest(@updated_ats::timestamptz[]) AS updated_at,
-        unnest(@display_names::citext[]) AS display_name,
-        unnest(@bios::text[]) AS bio,
-        unnest(@avatar_urls::text[]) AS avatar_url,
-        unnest(@banner_colors::text[]) AS banner_color,
-        unnest(@profile_updated_ats::timestamptz[]) AS profile_updated_at
+        u.id,
+        u.email,
+        u.username,
+        u.password_hash,
+        u.phone,
+        u.preferred_presence,
+        u.preferred_presence_until,
+        u.verified_at,
+        u.disabled_at,
+        u.delete_scheduled_at,
+        u.updated_at,
+        u.display_name,
+        u.bio,
+        u.avatar_url,
+        u.banner_color,
+        u.profile_updated_at
+    FROM
+        unnest(@ids::uuid[], @emails::citext[], @usernames::citext[], @password_hashes::text[], @phones::text[], @preferred_presences::smallint[], @preferred_presence_untils::timestamptz[], @verified_ats::timestamptz[], @disabled_ats::timestamptz[], @delete_scheduled_ats::timestamptz[], @updated_ats::timestamptz[], @display_names::citext[], @bios::text[], @avatar_urls::text[], @banner_colors::text[], @profile_updated_ats::timestamptz[]) AS u(id,
+            email,
+            username,
+            password_hash,
+            phone,
+            preferred_presence,
+            preferred_presence_until,
+            verified_at,
+            disabled_at,
+            delete_scheduled_at,
+            updated_at,
+            display_name,
+            bio,
+            avatar_url,
+            banner_color,
+            profile_updated_at)
 ),
 updated_users AS (
     UPDATE
@@ -97,13 +114,11 @@ updated_profiles AS (
         unnested_data d
     WHERE
         p.user_id = d.id
-        AND p.user_id IN (
-            SELECT
-                id
-            FROM
-                updated_users)
-        RETURNING
-            p.user_id);
+    RETURNING
+        p.user_id
+)
+SELECT
+    1;
 
 -- name: UserAvailability :one
 SELECT
@@ -113,14 +128,14 @@ SELECT
         FROM
             users
         WHERE
-            users.email = $1)::boolean AS email_available,
+            email = @email::citext)::boolean AS email_available,
     NOT EXISTS (
         SELECT
             1
         FROM
             users
         WHERE
-            users.username = $2)::boolean AS username_available;
+            username = @username::citext)::boolean AS username_available;
 
 -- name: UserGet :one
 SELECT
@@ -176,24 +191,25 @@ ORDER BY
     id ASC
 LIMIT @batch_limit::int;
 
--- name: UserProfileUpsert :one
-INSERT INTO user_profiles(user_id, created_at, updated_at, display_name, bio, avatar_url, banner_color)
-    VALUES (@user_id::uuid, @created_at::timestamptz, @updated_at::timestamptz, @display_name::citext, sqlc.narg('bio')::text, sqlc.narg('avatar_url')::text, sqlc.narg('banner_color')::text)
-ON CONFLICT (user_id)
-    DO UPDATE SET
-        display_name = EXCLUDED.display_name,
-        bio = EXCLUDED.bio,
-        avatar_url = EXCLUDED.avatar_url,
-        banner_color = EXCLUDED.banner_color,
-        updated_at = EXCLUDED.updated_at
-    RETURNING
-        user_id,
-        created_at,
-        updated_at,
-        display_name,
-        bio,
-        avatar_url,
-        banner_color;
+-- name: UserProfileUpdate :one
+UPDATE
+    user_profiles
+SET
+    display_name = @display_name::citext,
+    bio = sqlc.narg('bio')::text,
+    avatar_url = sqlc.narg('avatar_url')::text,
+    banner_color = sqlc.narg('banner_color')::text,
+    updated_at = @updated_at::timestamptz
+WHERE
+    user_id = @user_id::uuid
+RETURNING
+    user_id,
+    created_at,
+    updated_at,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color;
 
 -- name: UserUpdate :one
 UPDATE
