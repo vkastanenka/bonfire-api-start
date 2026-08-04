@@ -530,7 +530,6 @@ WHERE
 -- WHERE
 --     channel_id = $1
 --     AND id > $2; -- last_read_message_id
-
 -- ============================================================================
 -- MESSAGES
 -- ============================================================================
@@ -626,58 +625,71 @@ ORDER BY
 LIMIT 1;
 
 -- name: MessageListAggregateAfter :many
--- Fetches newer messages strictly after the cursor tuple (Chronological ASC)
-WITH hydrated_messages AS (
+WITH target_ids AS (
     SELECT
-        mb.id,
-        mb.channel_id,
-        mb.reply_to_message_id,
-        mb.author_id,
-        mb.author_username,
-        mb.author_display_name,
-        mb.author_avatar_url,
-        mb.created_at,
-        mb.updated_at,
-        mb.edited_at,
-        mb.pinned_at,
-        mb.content,
-        COALESCE(att.attachments, '[]'::json) AS attachments,
-        COALESCE(rec.reactions, '[]'::json) AS reactions
+        id,
+        created_at
     FROM
-        message_base_aggregates mb
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
-                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
-            FROM
-                message_attachments a
-            WHERE
-                a.message_id = mb.id) att ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
-                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
-            FROM
-                message_reactions r
-            WHERE
-                r.message_id = mb.id) rec ON TRUE
-        WHERE
-            mb.channel_id = @channel_id::uuid
-)
-    SELECT
-        hm.*
-    FROM
-        hydrated_messages hm
+        messages
     WHERE
-        hm.channel_id = @channel_id::uuid
+        channel_id = @channel_id::uuid
         AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-            OR (hm.created_at,
-                hm.id) >(sqlc.narg('cursor_created_at')::timestamptz,
+            OR (created_at,
+                id) >(sqlc.narg('cursor_created_at')::timestamptz,
                 sqlc.narg('cursor_id')::uuid))
     ORDER BY
-        hm.created_at ASC,
-        hm.id ASC
-    LIMIT @limit_val::int;
+        created_at ASC,
+        id ASC
+    LIMIT @limit_val::int
+)
+SELECT
+    mb.id,
+    mb.channel_id,
+    mb.type,
+    mb.content,
+    mb.system_metadata,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.author_banner_color,
+    mb.author_disabled_at,
+    mb.reply_to_message_id,
+    mb.reply_to_author_id,
+    mb.reply_to_author_display_name,
+    mb.reply_to_author_avatar_url,
+    mb.reply_to_content,
+    mb.forwarded_message_id,
+    mb.forwarded_channel_id,
+    mb.forwarded_channel_name,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.pinned_at,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
+FROM
+    target_ids ti
+    JOIN message_base_aggregates mb ON mb.id = ti.id
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM
+            message_attachments a
+        WHERE
+            a.message_id = ti.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = ti.id) rec ON TRUE
+ORDER BY
+    ti.created_at ASC,
+    ti.id ASC;
 
 -- name: MessageListAggregateAround :many
 -- Fetches older/target messages and newer messages relative to target, returned ASC
@@ -775,58 +787,77 @@ ORDER BY
     ai.id ASC;
 
 -- name: MessageListAggregateBefore :many
--- Fetches older messages strictly before the cursor tuple (Reverse DESC order for indexing)
-WITH hydrated_messages AS (
-    SELECT
-        mb.id,
-        mb.channel_id,
-        mb.reply_to_message_id,
-        mb.author_id,
-        mb.author_username,
-        mb.author_display_name,
-        mb.author_avatar_url,
-        mb.created_at,
-        mb.updated_at,
-        mb.edited_at,
-        mb.pinned_at,
-        mb.content,
-        COALESCE(att.attachments, '[]'::json) AS attachments,
-        COALESCE(rec.reactions, '[]'::json) AS reactions
-    FROM
-        message_base_aggregates mb
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
-                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
-            FROM
-                message_attachments a
-            WHERE
-                a.message_id = mb.id) att ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
-                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
-            FROM
-                message_reactions r
-            WHERE
-                r.message_id = mb.id) rec ON TRUE
-        WHERE
-            mb.channel_id = @channel_id::uuid
+WITH target_ids AS (
+    SELECT id, created_at
+    FROM messages
+    WHERE channel_id = @channel_id::uuid
+      AND (
+          sqlc.narg('cursor_created_at')::timestamptz IS NULL
+          OR (created_at, id) < (sqlc.narg('cursor_created_at')::timestamptz, sqlc.narg('cursor_id')::uuid)
+      )
+    ORDER BY created_at DESC, id DESC
+    LIMIT @limit_val::int
 )
-    SELECT
-        hm.*
-    FROM
-        hydrated_messages hm
-    WHERE
-        hm.channel_id = @channel_id::uuid
-        AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-            OR (hm.created_at,
-                hm.id) <(sqlc.narg('cursor_created_at')::timestamptz,
-                sqlc.narg('cursor_id')::uuid))
-    ORDER BY
-        hm.created_at DESC,
-        hm.id DESC
-    LIMIT @limit_val::int;
+SELECT
+    mb.id,
+    mb.channel_id,
+    mb.type,
+    mb.content,
+    mb.system_metadata,
+    mb.author_id,
+    mb.author_username,
+    mb.author_display_name,
+    mb.author_avatar_url,
+    mb.author_banner_color,
+    mb.author_disabled_at,
+    mb.reply_to_message_id,
+    mb.reply_to_author_id,
+    mb.reply_to_author_display_name,
+    mb.reply_to_author_avatar_url,
+    mb.reply_to_content,
+    mb.forwarded_message_id,
+    mb.forwarded_channel_id,
+    mb.forwarded_channel_name,
+    mb.created_at,
+    mb.updated_at,
+    mb.edited_at,
+    mb.pinned_at,
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
+FROM
+    target_ids ti
+    JOIN message_base_aggregates mb ON mb.id = ti.id
+    LEFT JOIN LATERAL (
+        SELECT json_agg(
+            json_build_object(
+                'id', a.id,
+                'file_name', a.file_name,
+                'file_size', a.file_size,
+                'content_type', a.content_type,
+                'url', a.url,
+                'width', a.width,
+                'height', a.height,
+                'created_at', a.created_at
+            ) ORDER BY a.created_at ASC
+        ) FILTER (WHERE a.id IS NOT NULL) AS attachments
+        FROM message_attachments a
+        WHERE a.message_id = ti.id
+    ) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT json_agg(
+            json_build_object(
+                'message_id', r.message_id,
+                'user_id', r.user_id,
+                'emoji', r.emoji,
+                'created_at', r.created_at
+            ) ORDER BY r.created_at ASC
+        ) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM message_reactions r
+        WHERE r.message_id = ti.id
+    ) rec ON TRUE
+ORDER BY
+    ti.created_at DESC,
+    ti.id DESC;
 
 -- name: MessageListPinnedAggregate :many
 WITH hydrated_pinned_messages AS (
