@@ -83,8 +83,6 @@ CREATE TABLE user_profiles(
     CONSTRAINT valid_hex_banner_color CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
 );
 
-CREATE INDEX idx_user_profiles_display_name ON user_profiles(display_name);
-
 CREATE TABLE user_mfa(
     user_id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -114,6 +112,10 @@ CREATE TABLE user_mfa_backup_codes(
 );
 
 CREATE INDEX idx_user_mfa_backup_codes_active ON user_mfa_backup_codes(user_id)
+WHERE
+    used_at IS NULL;
+
+CREATE INDEX idx_user_mfa_backup_codes_user_hash ON user_mfa_backup_codes(user_id, code_hash)
 WHERE
     used_at IS NULL;
 
