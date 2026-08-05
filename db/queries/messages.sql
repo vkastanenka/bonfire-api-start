@@ -1,7 +1,48 @@
 -- name: MessageAuthorDelete :execrows
-DELETE FROM messages
-WHERE id = @message_id::uuid
-    AND author_id = @user_id::uuid;
+DELETE FROM messages m
+WHERE m.id = @message_id::uuid
+    AND m.author_id = @author_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @author_id::uuid);
+
+-- name: MessageAuthorUpdateContent :one
+UPDATE
+    messages m
+SET
+    content = sqlc.narg('content')::text,
+    updated_at = @updated_at::timestamptz,
+    edited_at = @edited_at::timestamptz
+WHERE
+    m.id = @id::uuid
+    AND m.author_id = @author_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @author_id::uuid)
+RETURNING
+    m.id,
+    m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at;
 
 -- name: MessageCreate :one
 INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata)
@@ -29,7 +70,102 @@ FROM
 WHERE
     id = @id::uuid;
 
--- name: MessageListAggregateAfter :many
+-- name: MessageMemberGet :one
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    messages m
+WHERE
+    m.id = @message_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @user_id::uuid);
+
+-- name: MessageMemberGetFirstUnread :one
+WITH user_member AS (
+    SELECT
+        COALESCE(last_read_at, to_timestamp(0)) AS last_read_at
+    FROM
+        channel_members
+    WHERE
+        channel_id = @channel_id::uuid
+        AND user_id = @user_id::uuid
+)
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    messages m
+    CROSS JOIN user_member um
+WHERE
+    m.channel_id = @channel_id::uuid
+    AND m.created_at > um.last_read_at
+ORDER BY
+    m.created_at ASC,
+    m.id ASC
+LIMIT 1;
+
+-- name: MessageMemberGetLatest :one
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    messages m
+WHERE
+    m.channel_id = @channel_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @user_id::uuid)
+ORDER BY
+    m.created_at DESC,
+    m.id DESC
+LIMIT 1;
+
+-- name: MessageMemberListAggregateAfter :many
 WITH user_access AS (
     SELECT
         1
@@ -96,7 +232,7 @@ ORDER BY
     ti.created_at ASC,
     ti.id ASC;
 
--- name: MessageListAggregateAround :many
+-- name: MessageMemberListAggregateAround :many
 WITH user_access AS (
     SELECT
         1
@@ -121,8 +257,8 @@ older_window AS (
         m.id,
         m.created_at
     FROM
-        messages m,
-        target t
+        messages m
+        INNER JOIN target t ON TRUE
     WHERE
         m.channel_id = @channel_id::uuid
         AND (m.created_at,
@@ -138,8 +274,8 @@ newer_window AS (
         m.id,
         m.created_at
     FROM
-        messages m,
-        target t
+        messages m
+        INNER JOIN target t ON TRUE
     WHERE
         m.channel_id = @channel_id::uuid
         AND (m.created_at,
@@ -202,7 +338,7 @@ ORDER BY
     ai.created_at ASC,
     ai.id ASC;
 
--- name: MessageListAggregateBefore :many
+-- name: MessageMemberListAggregateBefore :many
 WITH user_access AS (
     SELECT
         1
@@ -269,62 +405,41 @@ ORDER BY
     ti.created_at DESC,
     ti.id DESC;
 
--- name: MessageListPinnedAggregate :many
-WITH hydrated_pinned_messages AS (
+-- name: MessageMemberListPinnedAggregate :many
+WITH user_access AS (
     SELECT
-        mb.id,
-        mb.channel_id,
-        mb.reply_to_message_id,
-        mb.author_id,
-        mb.author_username,
-        mb.author_display_name,
-        mb.author_avatar_url,
-        mb.created_at,
-        mb.updated_at,
-        mb.edited_at,
-        mb.pinned_at,
-        mb.content,
-        COALESCE(att.attachments, '[]'::json) AS attachments,
-        COALESCE(rec.reactions, '[]'::json) AS reactions
+        1
     FROM
-        message_base_aggregates mb
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
-                ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
-            FROM
-                message_attachments a
-            WHERE
-                a.message_id = mb.id) att ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT
-                json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
-                ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
-            FROM
-                message_reactions r
-            WHERE
-                r.message_id = mb.id) rec ON TRUE
-        WHERE
-            mb.channel_id = @channel_id::uuid
-            AND mb.pinned_at IS NOT NULL
-            -- Keyset comparison using pinned_at:
-            AND (@cursor_pinned_at::timestamptz IS NULL
-                OR (mb.pinned_at,
-                    mb.id) <(@cursor_pinned_at::timestamptz,
-                    @cursor_id::uuid)))
+        channel_members
+    WHERE
+        channel_id = @channel_id::uuid
+        AND user_id = @user_id::uuid
+),
+target_ids AS (
     SELECT
-        hm.*
+        m.id,
+        m.pinned_at
     FROM
-        hydrated_pinned_messages hm
+        messages m
+        CROSS JOIN user_access
+    WHERE
+        m.channel_id = @channel_id::uuid
+        AND m.pinned_at IS NOT NULL
+        AND (sqlc.narg('cursor_pinned_at')::timestamptz IS NULL
+            OR (m.pinned_at,
+                m.id) <(sqlc.narg('cursor_pinned_at')::timestamptz,
+                sqlc.narg('cursor_id')::uuid))
     ORDER BY
-        hm.pinned_at DESC,
-        hm.id DESC
-    LIMIT @limit_val::int;
-
--- name: MessageMemberGet :one
+        m.pinned_at DESC,
+        m.id DESC
+    LIMIT @limit_val::int
+)
 SELECT
     m.id,
     m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
     m.author_id,
     m.reply_to_message_id,
     m.forwarded_message_id,
@@ -333,68 +448,43 @@ SELECT
     m.updated_at,
     m.edited_at,
     m.pinned_at,
-    m.type,
-    m.content,
-    m.system_metadata
+    COALESCE(att.attachments, '[]'::json) AS attachments,
+    COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
-    messages m
-WHERE
-    m.id = @message_id::uuid
-    AND EXISTS (
+    target_ids ti
+    JOIN messages m ON m.id = ti.id
+    LEFT JOIN LATERAL (
         SELECT
-            1
+            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
+            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
         FROM
-            channel_members cm
+            message_attachments a
         WHERE
-            cm.channel_id = m.channel_id
-            AND cm.user_id = @user_id::uuid);
-
--- name: MessageMemberGetFirstUnread :one
-SELECT
-    m.id,
-    m.channel_id,
-    m.author_id,
-    m.reply_to_message_id,
-    m.forwarded_message_id,
-    m.forwarded_channel_id,
-    m.created_at,
-    m.updated_at,
-    m.edited_at,
-    m.pinned_at,
-    m.type,
-    m.content,
-    m.system_metadata
-FROM
-    channel_members cm
-    JOIN messages m ON m.channel_id = cm.channel_id
-        AND m.created_at > COALESCE(cm.last_read_at, to_timestamp(0))
-WHERE
-    cm.channel_id = @channel_id::uuid
-    AND cm.user_id = @user_id::uuid
+            a.message_id = ti.id) att ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT
+            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
+            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
+        FROM
+            message_reactions r
+        WHERE
+            r.message_id = ti.id) rec ON TRUE
 ORDER BY
-    m.created_at ASC,
-    m.id ASC
-LIMIT 1;
+    ti.pinned_at DESC,
+    ti.id DESC;
 
--- name: MessageMemberGetLatest :one
-SELECT
-    m.id,
-    m.channel_id,
-    m.author_id,
-    m.reply_to_message_id,
-    m.forwarded_message_id,
-    m.forwarded_channel_id,
-    m.created_at,
-    m.updated_at,
-    m.edited_at,
-    m.pinned_at,
-    m.type,
-    m.content,
-    m.system_metadata
-FROM
+-- name: MessageMemberTogglePinned :one
+UPDATE
     messages m
+SET
+    pinned_at = CASE WHEN m.pinned_at IS NULL THEN
+        @pinned_at::timestamptz
+    ELSE
+        NULL
+    END,
+    updated_at = @updated_at::timestamptz
 WHERE
-    m.channel_id = @channel_id::uuid
+    m.id = @id::uuid
     AND EXISTS (
         SELECT
             1
@@ -403,35 +493,18 @@ WHERE
         WHERE
             cm.channel_id = m.channel_id
             AND cm.user_id = @user_id::uuid)
-ORDER BY
-    m.created_at DESC,
-    m.id DESC
-LIMIT 1;
-
--- name: MessageTogglePinned :one
-UPDATE
-    messages
-SET
-    pinned_at = CASE WHEN pinned_at IS NULL THEN
-        @pinned_at::timestamptz
-    ELSE
-        NULL
-    END,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
 RETURNING
-    *;
-
--- name: MessageUpdateContent :one
-UPDATE
-    messages
-SET
-    content = sqlc.narg('content')::text,
-    updated_at = @updated_at::timestamptz,
-    edited_at = @edited_at::timestamptz
-WHERE
-    id = @id::uuid
-RETURNING
-    *;
+    m.id,
+    m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at;
 

@@ -197,7 +197,9 @@ CREATE TABLE messages(
 ALTER TABLE channels
     ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
-CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at DESC, id DESC);
+CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at ASC, id ASC);
+
+CREATE INDEX idx_messages_id_author ON messages(id, author_id);
 
 CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
 WHERE
@@ -235,6 +237,8 @@ CREATE TABLE channel_members(
 );
 
 CREATE INDEX idx_channel_members_channel_roster ON channel_members(channel_id, created_at ASC);
+
+CREATE INDEX idx_channel_members_composite ON channel_members(channel_id, user_id);
 
 CREATE INDEX idx_channel_members_last_read_msg ON channel_members(last_read_message_id)
 WHERE
