@@ -238,8 +238,6 @@ CREATE TABLE channel_members(
 
 CREATE INDEX idx_channel_members_channel_roster ON channel_members(channel_id, created_at ASC);
 
-CREATE INDEX idx_channel_members_composite ON channel_members(channel_id, user_id);
-
 CREATE INDEX idx_channel_members_last_read_msg ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
