@@ -117,8 +117,7 @@ updated_profiles AS (
     WHERE
         p.user_id = d.id
     RETURNING
-        p.user_id
-);
+        p.user_id);
 
 -- name: UserAvailability :one
 SELECT
