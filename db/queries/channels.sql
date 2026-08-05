@@ -122,71 +122,70 @@ WITH user_channels AS (
         cm.mention_count,
         cm.created_at AS member_created_at,
         cm.last_read_at,
+        cm.last_activity_at,
         cm.pinned_at AS member_pinned_at,
-        cm.is_visible,
-        c.type AS channel_type,
-        c.name AS channel_name,
-        c.icon_url AS channel_icon_url,
-        c.last_message_id AS channel_last_message_id,
-        c.last_message_at AS channel_last_message_at,
-        c.peer_id AS peer_user_id,
-        c.updated_at AS channel_updated_at
+        cm.is_visible
     FROM
         channel_members cm
-        JOIN channels c ON c.id = cm.channel_id
     WHERE
         cm.user_id = @user_id::uuid
         AND cm.is_visible = TRUE
         AND (@cursor_channel_id::uuid IS NULL
-            OR ((cm.pinned_at IS NOT NULL
-                    AND @cursor_pinned_at::timestamptz IS NOT NULL
-                    AND (cm.pinned_at,
-                        c.updated_at,
-                        c.id) <(@cursor_pinned_at::timestamptz,
-                        @cursor_updated_at::timestamptz,
-                        @cursor_channel_id::uuid))
-                OR (cm.pinned_at IS NULL
-                    AND @cursor_pinned_at::timestamptz IS NOT NULL)
-                OR (cm.pinned_at IS NULL
-                    AND @cursor_pinned_at::timestamptz IS NULL
-                    AND (c.updated_at,
-                        c.id) <(@cursor_updated_at::timestamptz,
-                        @cursor_channel_id::uuid))))
+            OR (
+                -- 1. Currently in Pinned section, fetching next Pinned item
+                @cursor_pinned_at::timestamptz IS NOT NULL
+                AND cm.pinned_at IS NOT NULL
+                AND (cm.pinned_at < @cursor_pinned_at::timestamptz
+                    OR (cm.pinned_at = @cursor_pinned_at::timestamptz
+                        AND (cm.last_activity_at,
+                            cm.channel_id) <(@cursor_last_activity_at::timestamptz,
+                            @cursor_channel_id::uuid)))
+                -- 2. Currently in Pinned section, but no more pinned items exist -> drop into Unpinned section
+                OR (@cursor_pinned_at::timestamptz IS NOT NULL
+                    AND cm.pinned_at IS NULL)
+                -- 3. Currently in Unpinned section, fetching next Unpinned item
+                OR (@cursor_pinned_at::timestamptz IS NULL
+                    AND cm.pinned_at IS NULL
+                    AND ((cm.last_activity_at,
+                            cm.channel_id) <(@cursor_last_activity_at::timestamptz,
+                            @cursor_channel_id::uuid)))))
     ORDER BY
         cm.pinned_at DESC NULLS LAST,
-        c.updated_at DESC,
-        c.id DESC
+        cm.last_activity_at DESC,
+        cm.channel_id DESC
     LIMIT @limit_val::int
 )
 SELECT
     uc.channel_id,
     uc.user_id,
-    uc.channel_type,
-    uc.channel_name,
-    uc.channel_icon_url,
-    uc.peer_user_id,
-    uc.channel_last_message_id,
-    uc.channel_last_message_at,
+    c.type AS channel_type,
+    c.name AS channel_name,
+    c.icon_url AS channel_icon_url,
+    c.peer_id AS peer_user_id,
+    c.last_message_id AS channel_last_message_id,
+    c.last_message_at AS channel_last_message_at,
     uc.last_read_message_id,
     uc.mention_count,
     uc.member_created_at,
     uc.last_read_at,
     uc.member_pinned_at,
     uc.is_visible,
-    uc.channel_updated_at
+    uc.last_activity_at,
+    c.updated_at AS channel_updated_at
 FROM
     user_channels uc
+    JOIN channels c ON c.id = uc.channel_id
 ORDER BY
     uc.member_pinned_at DESC NULLS LAST,
-    uc.channel_updated_at DESC,
+    uc.last_activity_at DESC,
     uc.channel_id DESC;
 
 -- name: ChannelUpdate :one
 UPDATE
     channels
 SET
-    name = sqlc.narg('name')::text,
-    icon_url = sqlc.narg('icon_url')::text,
+    name = COALESCE(sqlc.narg('name')::text, name),
+    icon_url = COALESCE(sqlc.narg('icon_url')::text, icon_url),
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid

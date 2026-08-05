@@ -161,14 +161,15 @@ CREATE TABLE channels(
     CONSTRAINT valid_channel_type CHECK (type IN (1, 2))
 );
 
-CREATE INDEX idx_channels_last_message_id ON channels(last_message_id)
-WHERE
-    last_message_id IS NOT NULL;
-
 CREATE INDEX idx_channels_peer_id ON channels(peer_id)
 WHERE
     peer_id IS NOT NULL;
 
+CREATE INDEX idx_channels_last_message ON channels(last_message_id)
+WHERE
+    last_message_id IS NOT NULL;
+
+-- 4. MESSAGES TABLE
 CREATE TABLE messages(
     id uuid NOT NULL,
     channel_id uuid NOT NULL,
@@ -215,12 +216,14 @@ CREATE INDEX idx_messages_forwarded_channel ON messages(forwarded_channel_id)
 WHERE
     forwarded_channel_id IS NOT NULL;
 
+-- 5. CHANNEL MEMBERS TABLE
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
     user_id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_message_id uuid DEFAULT NULL,
     pinned_at timestamptz DEFAULT NULL,
     muted_until timestamptz DEFAULT NULL,
@@ -239,7 +242,9 @@ CREATE INDEX idx_channel_members_last_read_msg ON channel_members(last_read_mess
 WHERE
     last_read_message_id IS NOT NULL;
 
-CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, updated_at DESC, channel_id);
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, pinned_at DESC NULLS LAST, last_activity_at DESC, channel_id DESC)
+WHERE
+    is_visible = TRUE;
 
 CREATE TABLE channel_invites(
     code varchar(16) NOT NULL,
