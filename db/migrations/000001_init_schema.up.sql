@@ -143,7 +143,9 @@ CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC)
 WHERE
     revoked_at IS NULL;
 
-CREATE INDEX idx_sessions_expiration_cleanup ON sessions(expires_at);
+CREATE INDEX idx_sessions_cleanup ON sessions(expires_at ASC);
+
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 
 CREATE TABLE channels(
     id uuid NOT NULL,

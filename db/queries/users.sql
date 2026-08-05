@@ -79,6 +79,8 @@ WITH unnested_data AS (
             avatar_url,
             banner_color,
             profile_updated_at)
+    ORDER BY
+        u.id
 ),
 updated_users AS (
     UPDATE
@@ -116,9 +118,7 @@ updated_profiles AS (
         p.user_id = d.id
     RETURNING
         p.user_id
-)
-SELECT
-    1;
+);
 
 -- name: UserAvailability :one
 SELECT
