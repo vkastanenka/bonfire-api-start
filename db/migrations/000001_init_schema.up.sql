@@ -121,7 +121,7 @@ CREATE TABLE channels(
     CONSTRAINT channels_pkey PRIMARY KEY (id),
     CONSTRAINT type_valid CHECK (type IN (1, 2)),
     CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100),
-    CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048),
+    CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048)
 );
 
 CREATE TABLE messages(

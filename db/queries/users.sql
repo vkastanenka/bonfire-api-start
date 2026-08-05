@@ -170,7 +170,17 @@ LIMIT 1;
 -- name: UserListDeleteScheduled :many
 SELECT
     id,
-    delete_scheduled_at
+    email,
+    username,
+    password_hash,
+    phone,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
 FROM
     users
 WHERE

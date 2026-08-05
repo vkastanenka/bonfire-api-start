@@ -1,8 +1,8 @@
 -- name: ChannelCreate :one
-INSERT INTO channels(id, created_at, updated_at, type, name, icon_url, peer_id)
-    VALUES (@id::uuid, @created_at::timestamptz, @updated_at::timestamptz, @type::smallint, sqlc.narg('name')::text, sqlc.narg('icon_url')::text, sqlc.narg('peer_id')::uuid)
+INSERT INTO channels(id, created_at, updated_at, type, name, icon_url)
+    VALUES (@id::uuid, @created_at::timestamptz, @updated_at::timestamptz, @type::smallint, sqlc.narg('name')::text, sqlc.narg('icon_url')::text)
 RETURNING
-    id, created_at, updated_at, type, name, icon_url, peer_id;
+    id, created_at, updated_at, type, name, icon_url;
 
 -- name: ChannelDelete :exec
 DELETE FROM channels
@@ -15,8 +15,7 @@ SELECT
     updated_at,
     type,
     name,
-    icon_url,
-    peer_id,
+    icon_url
 FROM
     channels
 WHERE
@@ -37,6 +36,5 @@ RETURNING
     updated_at,
     type,
     name,
-    icon_url,
-    peer_id;
+    icon_url;
 
