@@ -139,17 +139,17 @@ CREATE TABLE messages(
     content text DEFAULT NULL,
     system_metadata jsonb DEFAULT NULL,
     CONSTRAINT messages_pkey PRIMARY KEY (id),
-    CONSTRAINT fk_messages_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT fk_messages_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_messages_reply_to FOREIGN KEY (reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL,
+    CONSTRAINT fk_messages_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT fk_messages_forwarded_message FOREIGN KEY (forwarded_message_id) REFERENCES messages(id) ON DELETE SET NULL,
     CONSTRAINT fk_messages_forwarded_channel FOREIGN KEY (forwarded_channel_id) REFERENCES channels(id) ON DELETE SET NULL,
-    CONSTRAINT valid_message_type CHECK (type IN (1, 2, 3, 4, 5)),
+    CONSTRAINT type_valid CHECK (type IN (1, 2, 3, 4, 5)),
     CONSTRAINT content_length CHECK (content IS NULL OR char_length(trim(content)) BETWEEN 1 AND 4000),
-    CONSTRAINT valid_forward CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
+    CONSTRAINT forward_valid CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
 );
 
-CREATE INDEX idx_messages_channel_latest ON messages(channel_id, created_at DESC, id DESC);
+CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at DESC, id DESC);
 
 CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
 WHERE
