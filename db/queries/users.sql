@@ -18,9 +18,13 @@ INSERT INTO user_profiles(user_id, created_at, updated_at, display_name, bio, av
                 sqlc.narg('avatar_url')::text,
                 sqlc.narg('banner_color')::text)
         RETURNING
-            user_id);
+            user_id
+)
+SELECT
+    1;
 
 -- name: UserAggregateGet :one
+-- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,
@@ -46,22 +50,7 @@ LIMIT 1;
 -- name: UserAggregateUpdateBatch :exec
 WITH unnested_data AS (
     SELECT
-        u.id,
-        u.email,
-        u.username,
-        u.password_hash,
-        u.phone,
-        u.preferred_presence,
-        u.preferred_presence_until,
-        u.verified_at,
-        u.disabled_at,
-        u.delete_scheduled_at,
-        u.updated_at,
-        u.display_name,
-        u.bio,
-        u.avatar_url,
-        u.banner_color,
-        u.profile_updated_at
+        *
     FROM
         unnest(@ids::uuid[], @emails::citext[], @usernames::citext[], @password_hashes::text[], @phones::text[], @preferred_presences::smallint[], @preferred_presence_untils::timestamptz[], @verified_ats::timestamptz[], @disabled_ats::timestamptz[], @delete_scheduled_ats::timestamptz[], @updated_ats::timestamptz[], @display_names::citext[], @bios::text[], @avatar_urls::text[], @banner_colors::text[], @profile_updated_ats::timestamptz[]) AS u(id,
             email,
@@ -80,7 +69,7 @@ WITH unnested_data AS (
             banner_color,
             profile_updated_at)
     ORDER BY
-        u.id
+        u.id ASC
 ),
 updated_users AS (
     UPDATE
@@ -117,7 +106,10 @@ updated_profiles AS (
     WHERE
         p.user_id = d.id
     RETURNING
-        p.user_id);
+        p.user_id
+)
+SELECT
+    1;
 
 -- name: UserAvailability :one
 SELECT
@@ -137,6 +129,7 @@ SELECT
             username = @username::citext)::boolean AS username_available;
 
 -- name: UserGet :one
+-- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,
@@ -157,6 +150,7 @@ WHERE
 LIMIT 1;
 
 -- name: UserGetByEmail :one
+-- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,
