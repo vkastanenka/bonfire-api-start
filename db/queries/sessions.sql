@@ -13,7 +13,8 @@ WITH targets AS (
     WHERE
         expires_at <= @current_time::timestamptz
     ORDER BY
-        expires_at ASC
+        expires_at ASC,
+        id ASC
     LIMIT @batch_limit::int
     FOR UPDATE
         SKIP LOCKED)
@@ -60,7 +61,46 @@ WHERE
     refresh_token_hash = @refresh_token_hash::bytea
 LIMIT 1;
 
--- name: SessionListActiveByUser :many
+-- name: SessionRevoke :exec
+UPDATE
+    sessions
+SET
+    revoked_at = @revoked_at::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND revoked_at IS NULL;
+
+-- name: SessionRotateRefreshToken :one
+UPDATE
+    sessions
+SET
+    refresh_token_hash = @new_refresh_token_hash::bytea,
+    expires_at = @expires_at::timestamptz,
+    last_seen_at = @last_seen_at::timestamptz,
+    updated_at = @updated_at::timestamptz,
+    client_ip = @client_ip::inet,
+    user_agent = @user_agent::text
+WHERE
+    id = @id::uuid
+    AND refresh_token_hash = @old_refresh_token_hash::bytea
+    AND revoked_at IS NULL
+    AND expires_at > @current_time::timestamptz
+RETURNING
+    id,
+    user_id,
+    created_at,
+    updated_at,
+    last_seen_at,
+    expires_at,
+    revoked_at,
+    client_ip,
+    refresh_token_hash,
+    os,
+    client,
+    user_agent;
+
+-- name: SessionUserListActive :many
 SELECT
     id,
     user_id,
@@ -78,22 +118,12 @@ FROM
 WHERE
     user_id = @user_id::uuid
     AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
+    AND expires_at > @current_time::timestamptz
 ORDER BY
     last_seen_at DESC
 LIMIT @limit_val::int;
 
--- name: SessionRevoke :exec
-UPDATE
-    sessions
-SET
-    revoked_at = @revoked_at::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
-    AND revoked_at IS NULL;
-
--- name: SessionRevokeAllForUser :exec
+-- name: SessionUserRevokeAll :exec
 UPDATE
     sessions
 SET
@@ -102,48 +132,4 @@ SET
 WHERE
     user_id = @user_id::uuid
     AND revoked_at IS NULL;
-
--- name: SessionRotateRefreshToken :one
-UPDATE
-    sessions
-SET
-    refresh_token_hash = @new_refresh_token_hash::bytea,
-    expires_at = @expires_at::timestamptz,
-    last_seen_at = @last_seen_at::timestamptz,
-    updated_at = @updated_at::timestamptz,
-    client_ip = @client_ip::inet,
-    user_agent = @user_agent::text
-WHERE
-    id = @id::uuid
-    AND refresh_token_hash = @old_refresh_token_hash::bytea
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
-RETURNING
-    id,
-    user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
-    client_ip,
-    refresh_token_hash,
-    os,
-    client,
-    user_agent;
-
--- name: SessionTouch :one
-UPDATE
-    sessions
-SET
-    last_seen_at = @last_seen_at::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
-    AND revoked_at IS NULL
-    AND expires_at > CURRENT_TIMESTAMP
-RETURNING
-    id,
-    last_seen_at,
-    updated_at;
 

@@ -24,7 +24,6 @@ SELECT
     1;
 
 -- name: UserAggregateGet :one
--- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,
@@ -129,7 +128,6 @@ SELECT
             username = @username::citext)::boolean AS username_available;
 
 -- name: UserGet :one
--- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,
@@ -150,7 +148,6 @@ WHERE
 LIMIT 1;
 
 -- name: UserGetByEmail :one
--- hit ONLY on cache misses/cold starts
 SELECT
     id,
     email,

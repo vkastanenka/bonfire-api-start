@@ -59,7 +59,7 @@ CREATE TABLE users(
     CONSTRAINT phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
 );
 
-CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC, id ASC)
+CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC)
 WHERE
     delete_scheduled_at IS NOT NULL;
 
@@ -107,11 +107,9 @@ CREATE TABLE sessions(
 
 CREATE INDEX idx_sessions_cleanup ON sessions(expires_at ASC);
 
-CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC)
+CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC, expires_at)
 WHERE
     revoked_at IS NULL;
-
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 
 CREATE TABLE channels(
     id uuid NOT NULL,
