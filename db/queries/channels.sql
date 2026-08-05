@@ -24,70 +24,33 @@ FROM
 WHERE
     id = @id::uuid;
 
--- name: ChannelMemberGet :one
+-- name: ChannelGetForUpdate :one
 SELECT
-    c.id,
-    c.created_at,
-    c.updated_at,
-    c.type,
-    c.name,
-    c.icon_url,
-    c.peer_id,
-    c.last_message_id,
-    c.last_message_at
+    id,
+    created_at,
+    updated_at,
+    type,
+    name,
+    icon_url,
+    peer_id,
+    last_message_id,
+    last_message_at
 FROM
-    channels c
+    channels
 WHERE
-    c.id = @channel_id::uuid
-    AND EXISTS (
-        SELECT
-            1
-        FROM
-            channel_members cm
-        WHERE
-            cm.channel_id = c.id
-            AND cm.user_id = @user_id::uuid);
-
--- name: ChannelMemberGetForUpdate :one
-SELECT
-    c.id,
-    c.created_at,
-    c.updated_at,
-    c.type,
-    c.name,
-    c.icon_url,
-    c.peer_id,
-    c.last_message_id,
-    c.last_message_at
-FROM
-    channels c
-WHERE
-    c.id = @channel_id::uuid
-    AND EXISTS (
-        SELECT
-            1
-        FROM
-            channel_members cm
-        WHERE
-            cm.channel_id = c.id
-            AND cm.user_id = @user_id::uuid)
-FOR UPDATE
-    OF c;
+    id = @id::uuid
+FOR UPDATE;
 
 -- name: ChannelGetLastMessageId :one
 SELECT
-    id,
-    created_at
+    last_message_id,
+    last_message_at
 FROM
-    messages
+    channels
 WHERE
-    channel_id = @channel_id::uuid
-ORDER BY
-    created_at DESC,
-    id DESC
-LIMIT 1;
+    id = @channel_id::uuid;
 
--- name: ChannelListAggregateByUser :many
+-- name: ChannelUserListAggregate :many
 WITH user_channels AS (
     SELECT
         cm.channel_id,
@@ -105,24 +68,11 @@ WITH user_channels AS (
         cm.user_id = @user_id::uuid
         AND cm.is_visible = TRUE
         AND (@cursor_channel_id::uuid IS NULL
-            OR (
-                -- 1. Currently in Pinned section, fetching next Pinned item
-                @cursor_pinned_at::timestamptz IS NOT NULL
-                AND cm.pinned_at IS NOT NULL
-                AND (cm.pinned_at < @cursor_pinned_at::timestamptz
-                    OR (cm.pinned_at = @cursor_pinned_at::timestamptz
-                        AND (cm.last_activity_at,
-                            cm.channel_id) <(@cursor_last_activity_at::timestamptz,
-                            @cursor_channel_id::uuid)))
-                -- 2. Currently in Pinned section, but no more pinned items exist -> drop into Unpinned section
-                OR (@cursor_pinned_at::timestamptz IS NOT NULL
-                    AND cm.pinned_at IS NULL)
-                -- 3. Currently in Unpinned section, fetching next Unpinned item
-                OR (@cursor_pinned_at::timestamptz IS NULL
-                    AND cm.pinned_at IS NULL
-                    AND ((cm.last_activity_at,
-                            cm.channel_id) <(@cursor_last_activity_at::timestamptz,
-                            @cursor_channel_id::uuid)))))
+            OR (cm.pinned_at,
+                cm.last_activity_at,
+                cm.channel_id) <(@cursor_pinned_at::timestamptz,
+                @cursor_last_activity_at::timestamptz,
+                @cursor_channel_id::uuid))
     ORDER BY
         cm.pinned_at DESC NULLS LAST,
         cm.last_activity_at DESC,
