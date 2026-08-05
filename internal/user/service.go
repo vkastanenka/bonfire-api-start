@@ -9,6 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
+type Cache interface {
+	DeleteAggregate(ctx context.Context, id uuid.UUID) error
+	GetAggregate(ctx context.Context, id uuid.UUID) (*User, error)
+	SetAggregate(ctx context.Context, u *User) error
+}
+
 type Repository interface {
 	Create(ctx context.Context, u *User) error
 	Get(ctx context.Context, id uuid.UUID) (*User, error)
@@ -20,12 +26,14 @@ type Repository interface {
 }
 
 type Service struct {
-	repo Repository
+	cache Cache
+	repo  Repository
 }
 
-func NewService(repo Repository) *Service {
+func NewService(cache Cache, repo Repository) *Service {
 	return &Service{
-		repo: repo,
+		cache: cache,
+		repo:  repo,
 	}
 }
 
@@ -34,15 +42,46 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
-	return s.repo.Get(ctx, id)
+	if s.cache != nil {
+		u, err := s.cache.GetAggregate(ctx, id)
+		if err == nil && u != nil {
+			return u, nil
+		}
+		// Log cache write error without failing the HTTP request
+	}
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if cacheErr := s.cache.SetAggregate(ctx, u); cacheErr != nil {
+			// Log cache write error without failing the HTTP request
+		}
+	}
+
+	return u, nil
 }
 
 func (s *Service) GetByEmail(ctx context.Context, email Email) (*User, error) {
-	return s.repo.GetByEmail(ctx, email)
-}
+	// 0. Validate
 
-func (s *Service) GetByUsername(ctx context.Context, username Username) (*User, error) {
-	return s.repo.GetByUsername(ctx, username)
+	// 1. Query DB directly (B-Tree indexed lookup is ~1ms)
+	u, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Warm the primary User Aggregate cache (user:<id>:aggregate)
+	// This ensures the upcoming GET /users/@me call hits Redis directly!
+	if s.cache != nil {
+		if cacheErr := s.cache.SetAggregate(ctx, u); cacheErr != nil {
+			// Log cache write error without failing login
+		}
+	}
+
+	return u, nil
 }
 
 type UpdateProfileParams struct {
@@ -68,6 +107,13 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
+	// Update cache directly with the mutated aggregate
+	if s.cache != nil {
+		if cacheErr := s.cache.SetAggregate(ctx, u); cacheErr != nil {
+			// Fail open: log cache write failure, don't break the user request
+		}
+	}
+
 	return u, nil
 }
 
@@ -87,6 +133,13 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, presen
 
 	if err := s.repo.Update(ctx, u); err != nil {
 		return nil, errs.Internal("failed to save user presence").Wrap(err)
+	}
+
+	// Sync the updated user aggregate to Redis
+	if s.cache != nil {
+		if cacheErr := s.cache.SetAggregate(ctx, u); cacheErr != nil {
+			// Fail open: log error
+		}
 	}
 
 	return u, nil

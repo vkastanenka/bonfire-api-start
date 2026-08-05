@@ -39,20 +39,20 @@ type UserAggregate struct {
 	VerifiedAt             *int64    `redis:"verified_at"`
 	DisabledAt             *int64    `redis:"disabled_at"`
 	DeleteScheduledAt      *int64    `redis:"delete_scheduled_at"`
-	CreatedAt              int64     `redis:"created_at"` // Unix ms
-	UpdatedAt              int64     `redis:"updated_at"` // Unix ms
+	CreatedAt              int64     `redis:"created_at"`
+	UpdatedAt              int64     `redis:"updated_at"`
 }
 
-// SetUserAggregate populates or refreshes a single user aggregate Hash with sliding TTL.
-func (u *User) SetUserAggregate(ctx context.Context, agg *UserAggregate) error {
+// SetAggregate populates or refreshes a single user aggregate Hash with sliding TTL.
+func (u *User) SetAggregate(ctx context.Context, agg *UserAggregate) error {
 	if agg == nil {
 		return nil
 	}
-	return u.SetUserAggregatesBatch(ctx, []*UserAggregate{agg})
+	return u.SetAggregateBatch(ctx, []*UserAggregate{agg})
 }
 
-// SetUserAggregatesBatch pipelines multiple user aggregates into Redis with sliding TTL.
-func (u *User) SetUserAggregatesBatch(ctx context.Context, aggs []*UserAggregate) error {
+// SetAggregatesBatch pipelines multiple user aggregates into Redis with sliding TTL.
+func (u *User) SetAggregateBatch(ctx context.Context, aggs []*UserAggregate) error {
 	if len(aggs) == 0 {
 		return nil
 	}
@@ -77,9 +77,9 @@ func (u *User) SetUserAggregatesBatch(ctx context.Context, aggs []*UserAggregate
 	return nil
 }
 
-// GetUserAggregate fetches the user aggregate and refreshes its sliding TTL on read.
-func (u *User) GetUserAggregate(ctx context.Context, userID uuid.UUID) (*UserAggregate, error) {
-	found, _, err := u.GetUserAggregatesBatch(ctx, []uuid.UUID{userID})
+// GetAggregate fetches the user aggregate and refreshes its sliding TTL on read.
+func (u *User) GetAggregate(ctx context.Context, userID uuid.UUID) (*UserAggregate, error) {
+	found, _, err := u.GetAggregateBatch(ctx, []uuid.UUID{userID})
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +87,9 @@ func (u *User) GetUserAggregate(ctx context.Context, userID uuid.UUID) (*UserAgg
 	return found[userID], nil
 }
 
-// GetUserAggregatesBatch retrieves multiple user aggregates in a single Redis pipeline call.
+// GetAggregatesBatch retrieves multiple user aggregates in a single Redis pipeline call.
 // Returns a map of found users, and a slice of missing user UUIDs for DB backfill.
-func (u *User) GetUserAggregatesBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*UserAggregate, []uuid.UUID, error) {
+func (u *User) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*UserAggregate, []uuid.UUID, error) {
 	if len(userIDs) == 0 {
 		return make(map[uuid.UUID]*UserAggregate), nil, nil
 	}
