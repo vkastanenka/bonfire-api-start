@@ -1,4 +1,4 @@
-package store
+package cache
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
@@ -50,21 +50,21 @@ func (s *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, erro
 
 	var dto sessionDTO
 	err := s.store.Get(ctx, key, &dto)
-	if cache.IsNotFoundError(err) {
-		return nil, nil // Return nil on cache miss to let caller fall back to DB
+	if redis.IsNotFoundError(err) {
+		return nil, nil // Return nil on redis miss to let caller fall back to DB
 	}
 	if err != nil {
-		return nil, cache.NewError(err, cache.ScopeSession)
+		return nil, redis.NewError(err, redis.ScopeSession)
 	}
 
 	clientIP, err := netip.ParseAddr(dto.ClientIP)
 	if err != nil {
-		return nil, cache.NewError(err, cache.ScopeSession)
+		return nil, redis.NewError(err, redis.ScopeSession)
 	}
 
 	tokenHash, err := session.NewRefreshTokenHash(dto.RefreshTokenHash)
 	if err != nil {
-		return nil, cache.NewError(err, cache.ScopeSession)
+		return nil, redis.NewError(err, redis.ScopeSession)
 	}
 
 	return session.Reconstitute(
@@ -106,7 +106,7 @@ func (s *Session) Set(ctx context.Context, sess *session.Session) error {
 
 	key := sessionKey(sess.ID())
 	if err := s.store.Set(ctx, key, dto, ttl); err != nil {
-		return cache.NewError(err, cache.ScopeSession)
+		return redis.NewError(err, redis.ScopeSession)
 	}
 
 	return nil
@@ -115,8 +115,8 @@ func (s *Session) Set(ctx context.Context, sess *session.Session) error {
 func (s *Session) Delete(ctx context.Context, id uuid.UUID) error {
 	key := sessionKey(id)
 
-	if err := s.store.Delete(ctx, key); err != nil && !cache.IsNotFoundError(err) {
-		return cache.NewError(err, cache.ScopeSession)
+	if err := s.store.Delete(ctx, key); err != nil && !redis.IsNotFoundError(err) {
+		return redis.NewError(err, redis.ScopeSession)
 	}
 
 	return nil

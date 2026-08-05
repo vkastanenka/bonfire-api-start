@@ -1,12 +1,12 @@
-package store
+package cache
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/presence"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 )
@@ -36,7 +36,7 @@ func presenceKey(userID uuid.UUID) string {
 func (s *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
 	key := presenceKey(userID)
 	if err := s.store.Set(ctx, key, p.String(), s.ttl); err != nil {
-		return cache.NewError(err, cache.ScopePresence)
+		return redis.NewError(err, redis.ScopePresence)
 	}
 	return nil
 }
@@ -46,11 +46,11 @@ func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.
 
 	var raw string
 	err := s.store.Get(ctx, key, &raw)
-	if cache.IsNotFoundError(err) {
+	if redis.IsNotFoundError(err) {
 		return presence.PresenceOffline, nil
 	}
 	if err != nil {
-		return presence.PresenceUnknown, cache.NewError(err, cache.ScopePresence)
+		return presence.PresenceUnknown, redis.NewError(err, redis.ScopePresence)
 	}
 
 	p, err := presence.New(raw)
@@ -61,7 +61,7 @@ func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.
 	return p, nil
 }
 
-func (s *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
+func (s *Presence) GetPresenceBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
 	if len(userIDs) == 0 {
 		return make(map[uuid.UUID]presence.Presence), nil
 	}
@@ -73,7 +73,7 @@ func (s *Presence) GetPresenceBulk(ctx context.Context, userIDs []uuid.UUID) (ma
 
 	vals, err := s.store.MGet(ctx, keys...)
 	if err != nil {
-		return nil, cache.NewError(err, cache.ScopePresence)
+		return nil, redis.NewError(err, redis.ScopePresence)
 	}
 
 	result := make(map[uuid.UUID]presence.Presence, len(userIDs))

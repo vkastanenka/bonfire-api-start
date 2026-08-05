@@ -1,11 +1,11 @@
-package store
+package cache
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 )
@@ -31,7 +31,7 @@ func typingKey(channelID, userID uuid.UUID) string {
 func (t *Typing) SetTyping(ctx context.Context, channelID, userID uuid.UUID) error {
 	k := typingKey(channelID, userID)
 	if err := t.store.Set(ctx, k, true, t.ttl); err != nil {
-		return cache.NewError(err, cache.ScopeChannel)
+		return redis.NewError(err, redis.ScopeChannel)
 	}
 	return nil
 }

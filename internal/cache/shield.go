@@ -1,11 +1,11 @@
-package store
+package cache
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 )
 
 type ShieldStore interface {
@@ -45,11 +45,11 @@ func (r *Shield) GetCooldown(ctx context.Context, scope, action, identifier stri
 
 	var dummy bool
 	err := r.store.Get(ctx, k, &dummy)
-	if cache.IsNotFoundError(err) {
+	if redis.IsNotFoundError(err) {
 		return false, nil
 	}
 	if err != nil {
-		return false, cache.NewError(err, cache.ScopeCooldown)
+		return false, redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return true, nil
@@ -59,7 +59,7 @@ func (r *Shield) SetCooldown(ctx context.Context, scope, action, identifier stri
 	k := cooldownKey(scope, action, identifier)
 
 	if err := r.store.Set(ctx, k, true, ttl); err != nil {
-		return cache.NewError(err, cache.ScopeCooldown)
+		return redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return nil
@@ -70,7 +70,7 @@ func (r *Shield) IncrementFailures(ctx context.Context, key string, window time.
 
 	count, err := r.store.Increment(ctx, k, window)
 	if err != nil {
-		return 0, cache.NewError(err, cache.ScopeCooldown)
+		return 0, redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	if count == 1 {
@@ -84,7 +84,7 @@ func (r *Shield) Lockout(ctx context.Context, key string, duration time.Duration
 	k := lockoutKey(key)
 
 	if err := r.store.Set(ctx, k, true, duration); err != nil {
-		return cache.NewError(err, cache.ScopeCooldown)
+		return redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return nil
@@ -95,11 +95,11 @@ func (r *Shield) IsLocked(ctx context.Context, key string) (bool, error) {
 
 	var dummy bool
 	err := r.store.Get(ctx, k, &dummy)
-	if cache.IsNotFoundError(err) {
+	if redis.IsNotFoundError(err) {
 		return false, nil
 	}
 	if err != nil {
-		return false, cache.NewError(err, cache.ScopeCooldown)
+		return false, redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return true, nil
@@ -108,8 +108,8 @@ func (r *Shield) IsLocked(ctx context.Context, key string) (bool, error) {
 func (r *Shield) ResetFailures(ctx context.Context, key string) error {
 	k := failureCountKey(key)
 
-	if err := r.store.Delete(ctx, k); err != nil && !cache.IsNotFoundError(err) {
-		return cache.NewError(err, cache.ScopeCooldown)
+	if err := r.store.Delete(ctx, k); err != nil && !redis.IsNotFoundError(err) {
+		return redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return nil
@@ -120,11 +120,11 @@ func (r *Shield) IsTokenConsumed(ctx context.Context, tokenID string) (bool, err
 
 	var dummy bool
 	err := r.store.Get(ctx, k, &dummy)
-	if cache.IsNotFoundError(err) {
+	if redis.IsNotFoundError(err) {
 		return false, nil
 	}
 	if err != nil {
-		return false, cache.NewError(err, cache.ScopeCooldown)
+		return false, redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return true, nil
@@ -134,7 +134,7 @@ func (r *Shield) MarkTokenConsumed(ctx context.Context, tokenID string, ttl time
 	k := consumedTokenKey(tokenID)
 
 	if err := r.store.Set(ctx, k, true, ttl); err != nil {
-		return cache.NewError(err, cache.ScopeCooldown)
+		return redis.NewError(err, redis.ScopeCooldown)
 	}
 
 	return nil

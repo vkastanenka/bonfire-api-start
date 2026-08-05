@@ -1,7 +1,8 @@
-package cache
+package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -19,16 +20,15 @@ func NewStore(client *redis.Client) *Store {
 	}
 }
 
-func (s *Store) ExecPipeline(ctx context.Context, fn func(Querier) error) error {
+func (s *Store) ExecPipelineFunc(ctx context.Context, fn func(pipe redis.Pipeliner) error) error {
 	pipe := s.client.Pipeline()
-	qpipe := s.WithPipeline(pipe)
 
-	if err := fn(qpipe); err != nil {
+	if err := fn(pipe); err != nil {
 		pipe.Discard()
-		return fmt.Errorf("pipeline queue failed: %w", err)
+		return fmt.Errorf("failed to enqueue pipeline commands: %w", err)
 	}
 
-	if _, err := pipe.Exec(ctx); err != nil {
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return NewError(err, ScopeStore)
 	}
 

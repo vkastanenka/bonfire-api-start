@@ -1,8 +1,10 @@
-package cache
+package redis
 
 import (
 	"context"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type Querier interface {
@@ -28,6 +30,7 @@ type Querier interface {
 	ZRem(ctx context.Context, key string, members ...interface{}) error
 	ZCard(ctx context.Context, key string) (int64, error)
 	ZRangeByScore(ctx context.Context, key string, min, max string, offset, count int64, dest interface{}) error
+	ZRevRangeByScoreWithScores(ctx context.Context, key string, max, min string, offset, count int64) ([]redis.Z, error)
 	ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error
 
 	// Sets

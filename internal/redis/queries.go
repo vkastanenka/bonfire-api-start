@@ -1,4 +1,4 @@
-package cache
+package redis
 
 import (
 	"context"
@@ -313,6 +313,24 @@ func (q *Queries) ZRangeByScore(ctx context.Context, key string, min, max string
 		}
 		return nil
 	}
+}
+
+// ZRevRangeByScoreWithScores fetches members and their scores in descending score order.
+func (q *Queries) ZRevRangeByScoreWithScores(ctx context.Context, key string, max, min string, offset, count int64) ([]redis.Z, error) {
+	zs, err := q.cmd.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   min,
+		Stop:    max,
+		ByScore: true,
+		Rev:     true, // Highest scores (newest) first
+		Offset:  offset,
+		Count:   count,
+	}).Result()
+	if err != nil {
+		return nil, NewError(err, ScopeChannel)
+	}
+
+	return zs, nil
 }
 
 // ZRemRangeByRank removes members within the given rank range (e.g., keeping only top N recent items).

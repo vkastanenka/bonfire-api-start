@@ -1,11 +1,11 @@
-package store
+package cache
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/cache"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 )
@@ -31,7 +31,7 @@ func ticketKey(id uuid.UUID) string {
 func (s *Ticket) SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error {
 	k := ticketKey(ticketID)
 	if err := s.store.Set(ctx, k, userID, ttl); err != nil {
-		return cache.NewError(err, cache.ScopeTicket)
+		return redis.NewError(err, redis.ScopeTicket)
 	}
 	return nil
 }
@@ -41,11 +41,11 @@ func (s *Ticket) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UU
 
 	var userID uuid.UUID
 	err := s.store.Get(ctx, k, &userID)
-	if cache.IsNotFoundError(err) {
-		return uuid.Nil, cache.ErrNotFound
+	if redis.IsNotFoundError(err) {
+		return uuid.Nil, redis.ErrNotFound
 	}
 	if err != nil {
-		return uuid.Nil, cache.NewError(err, cache.ScopeTicket)
+		return uuid.Nil, redis.NewError(err, redis.ScopeTicket)
 	}
 
 	_ = s.store.Delete(ctx, k)

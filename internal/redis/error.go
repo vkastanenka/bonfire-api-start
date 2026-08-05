@@ -1,4 +1,4 @@
-package cache
+package redis
 
 import (
 	"context"
@@ -24,6 +24,8 @@ const (
 	ScopeTicket    Scope = "ticket"
 	ScopeChannel   Scope = "channel"
 	ScopeMessage   Scope = "message"
+	ScopeUser      Scope = "user"
+	ScopeMe        Scope = "me"
 )
 
 func (s Scope) String() string {
