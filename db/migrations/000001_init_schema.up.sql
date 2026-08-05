@@ -153,10 +153,21 @@ CREATE TABLE channels(
     type smallint NOT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
+    last_message_id uuid DEFAULT NULL,
+    last_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    peer_id uuid DEFAULT NULL,
     CONSTRAINT channels_pkey PRIMARY KEY (id),
-    CONSTRAINT valid_channel_type CHECK (type IN (1, 2)),
-    CONSTRAINT channel_rules CHECK ((type = 1 AND name IS NULL AND icon_url IS NULL) OR (type = 2 AND (name IS NULL OR char_length(trim(name)) BETWEEN 1 AND 100) AND (icon_url IS NULL OR char_length(icon_url) BETWEEN 3 AND 2048)))
+    CONSTRAINT fk_channels_recipient_user FOREIGN KEY (peer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT valid_channel_type CHECK (type IN (1, 2))
 );
+
+CREATE INDEX idx_channels_last_message_id ON channels(last_message_id)
+WHERE
+    last_message_id IS NOT NULL;
+
+CREATE INDEX idx_channels_peer_id ON channels(peer_id)
+WHERE
+    peer_id IS NOT NULL;
 
 CREATE TABLE messages(
     id uuid NOT NULL,
@@ -183,7 +194,10 @@ CREATE TABLE messages(
     CONSTRAINT valid_forward CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
 );
 
-CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, id DESC);
+ALTER TABLE channels
+    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at DESC, id DESC);
 
 CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
 WHERE
@@ -196,6 +210,10 @@ WHERE
 CREATE INDEX idx_messages_forwarded_msg ON messages(forwarded_message_id)
 WHERE
     forwarded_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_channel ON messages(forwarded_channel_id)
+WHERE
+    forwarded_channel_id IS NOT NULL;
 
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
@@ -215,15 +233,13 @@ CREATE TABLE channel_members(
     CONSTRAINT mention_count_positive CHECK (mention_count >= 0)
 );
 
-CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, channel_id)
-WHERE
-    is_visible = TRUE;
-
 CREATE INDEX idx_channel_members_channel_roster ON channel_members(channel_id, created_at ASC);
 
 CREATE INDEX idx_channel_members_last_read_msg ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
+
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, updated_at DESC, channel_id);
 
 CREATE TABLE channel_invites(
     code varchar(16) NOT NULL,
