@@ -87,32 +87,6 @@ ORDER BY
     id DESC
 LIMIT 1;
 
--- name: ChannelHasMessagesAfter :one
-SELECT
-    EXISTS (
-        SELECT
-            1
-        FROM
-            messages
-        WHERE
-            channel_id = @channel_id::uuid
-            AND (created_at,
-                id) >(@created_at::timestamptz,
-                @message_id::uuid));
-
--- name: ChannelHasMessagesBefore :one
-SELECT
-    EXISTS (
-        SELECT
-            1
-        FROM
-            messages
-        WHERE
-            channel_id = @channel_id::uuid
-            AND (created_at,
-                id) <(@created_at::timestamptz,
-                @message_id::uuid));
-
 -- name: ChannelListAggregateByUser :many
 WITH user_channels AS (
     SELECT

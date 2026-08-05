@@ -169,7 +169,6 @@ CREATE INDEX idx_channels_last_message ON channels(last_message_id)
 WHERE
     last_message_id IS NOT NULL;
 
--- 4. MESSAGES TABLE
 CREATE TABLE messages(
     id uuid NOT NULL,
     channel_id uuid NOT NULL,
@@ -216,7 +215,6 @@ CREATE INDEX idx_messages_forwarded_channel ON messages(forwarded_channel_id)
 WHERE
     forwarded_channel_id IS NOT NULL;
 
--- 5. CHANNEL MEMBERS TABLE
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
     user_id uuid NOT NULL,
@@ -282,7 +280,7 @@ CREATE TABLE message_attachments(
     CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048)
 );
 
-CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id, created_at ASC);
+CREATE INDEX idx_message_attachments_msg_id ON message_attachments(message_id, created_at ASC);
 
 CREATE TABLE message_reactions(
     message_id uuid NOT NULL,
@@ -295,7 +293,7 @@ CREATE TABLE message_reactions(
     CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64)
 );
 
-CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id, created_at ASC);
+CREATE INDEX idx_message_reactions_msg_id ON message_reactions(message_id, created_at ASC);
 
 CREATE TABLE relationships(
     user1_id uuid NOT NULL,

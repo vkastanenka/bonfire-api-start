@@ -1,141 +1,81 @@
--- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, reply_to_message_id, author_id, created_at, updated_at, edited_at, pinned_at, content)
-    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('author_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, sqlc.narg('pinned_at')::timestamptz, sqlc.narg('content')::text)
-RETURNING
-    *;
-
--- name: MessageDelete :exec
+-- name: MessageAuthorDelete :execrows
 DELETE FROM messages
-WHERE id = @id::uuid;
+WHERE id = @message_id::uuid
+    AND author_id = @user_id::uuid;
+
+-- name: MessageCreate :one
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata)
+    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('author_id')::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('forwarded_message_id')::uuid, sqlc.narg('forwarded_channel_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, sqlc.narg('pinned_at')::timestamptz, @type::smallint, sqlc.narg('content')::text, sqlc.narg('system_metadata')::jsonb)
+RETURNING
+    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata;
 
 -- name: MessageGet :one
 SELECT
     id,
     channel_id,
-    reply_to_message_id,
     author_id,
+    reply_to_message_id,
+    forwarded_message_id,
+    forwarded_channel_id,
     created_at,
     updated_at,
     edited_at,
     pinned_at,
-    content
+    type,
+    content,
+    system_metadata
 FROM
     messages
 WHERE
     id = @id::uuid;
 
--- name: MessageGetAggregate :one
-SELECT
-    mb.id,
-    mb.channel_id,
-    mb.reply_to_message_id,
-    mb.author_id,
-    mb.author_username,
-    mb.author_display_name,
-    mb.author_avatar_url,
-    mb.created_at,
-    mb.updated_at,
-    mb.edited_at,
-    mb.pinned_at,
-    mb.content,
-    COALESCE(att.attachments, '[]'::json) AS attachments,
-    COALESCE(rec.reactions, '[]'::json) AS reactions
-FROM
-    message_base_aggregates mb
-    LEFT JOIN LATERAL (
-        SELECT
-            json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
-            ORDER BY a.created_at ASC) FILTER (WHERE a.id IS NOT NULL) AS attachments
-        FROM
-            message_attachments a
-        WHERE
-            a.message_id = mb.id) att ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT
-            json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
-            ORDER BY r.created_at ASC) FILTER (WHERE r.message_id IS NOT NULL) AS reactions
-        FROM
-            message_reactions r
-        WHERE
-            r.message_id = mb.id) rec ON TRUE
-WHERE
-    mb.id = @id::uuid;
-
--- name: MessageGetFirstUnread :one
--- Fetches the first message created after the user's last_read_at timestamp
-SELECT
-    m.*
-FROM
-    messages m
-    JOIN channel_members cm ON cm.channel_id = m.channel_id
-        AND cm.user_id = @user_id::uuid
-WHERE
-    m.channel_id = @channel_id::uuid
-    AND m.created_at > cm.last_read_at
-ORDER BY
-    m.created_at ASC,
-    m.id ASC
-LIMIT 1;
-
--- name: MessageGetLatest :one
-SELECT
-    *
-FROM
-    messages
-WHERE
-    channel_id = @channel_id::uuid
-ORDER BY
-    created_at DESC,
-    id DESC
-LIMIT 1;
-
 -- name: MessageListAggregateAfter :many
-WITH target_ids AS (
+WITH user_access AS (
     SELECT
-        id,
-        created_at
+        1
     FROM
-        messages
+        channel_members
     WHERE
         channel_id = @channel_id::uuid
+        AND user_id = @user_id::uuid
+),
+target_ids AS (
+    SELECT
+        m.id,
+        m.created_at
+    FROM
+        messages m
+        CROSS JOIN user_access
+    WHERE
+        m.channel_id = @channel_id::uuid
         AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-            OR (created_at,
-                id) >(sqlc.narg('cursor_created_at')::timestamptz,
+            OR (m.created_at,
+                m.id) >(sqlc.narg('cursor_created_at')::timestamptz,
                 sqlc.narg('cursor_id')::uuid))
     ORDER BY
-        created_at ASC,
-        id ASC
+        m.created_at ASC,
+        m.id ASC
     LIMIT @limit_val::int
 )
 SELECT
-    mb.id,
-    mb.channel_id,
-    mb.type,
-    mb.content,
-    mb.system_metadata,
-    mb.author_id,
-    mb.author_username,
-    mb.author_display_name,
-    mb.author_avatar_url,
-    mb.author_banner_color,
-    mb.author_disabled_at,
-    mb.reply_to_message_id,
-    mb.reply_to_author_id,
-    mb.reply_to_author_display_name,
-    mb.reply_to_author_avatar_url,
-    mb.reply_to_content,
-    mb.forwarded_message_id,
-    mb.forwarded_channel_id,
-    mb.forwarded_channel_name,
-    mb.created_at,
-    mb.updated_at,
-    mb.edited_at,
-    mb.pinned_at,
+    m.id,
+    m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
     target_ids ti
-    JOIN message_base_aggregates mb ON mb.id = ti.id
+    JOIN messages m ON m.id = ti.id
     LEFT JOIN LATERAL (
         SELECT
             json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
@@ -157,14 +97,24 @@ ORDER BY
     ti.id ASC;
 
 -- name: MessageListAggregateAround :many
--- Fetches older/target messages and newer messages relative to target, returned ASC
-WITH target AS (
+WITH user_access AS (
     SELECT
-        created_at
+        1
     FROM
-        messages
+        channel_members
     WHERE
-        id = @target_id::uuid
+        channel_id = @channel_id::uuid
+        AND user_id = @user_id::uuid
+),
+target AS (
+    SELECT
+        m.created_at
+    FROM
+        messages m
+        CROSS JOIN user_access
+    WHERE
+        m.id = @target_id::uuid
+        AND m.channel_id = @channel_id::uuid
 ),
 older_window AS (
     SELECT
@@ -214,23 +164,24 @@ around_ids AS (
         newer_window
 )
 SELECT
-    mb.id,
-    mb.channel_id,
-    mb.reply_to_message_id,
-    mb.author_id,
-    mb.author_username,
-    mb.author_display_name,
-    mb.author_avatar_url,
-    mb.created_at,
-    mb.updated_at,
-    mb.edited_at,
-    mb.pinned_at,
-    mb.content,
+    m.id,
+    m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
     around_ids ai
-    JOIN message_base_aggregates mb ON mb.id = ai.id
+    JOIN messages m ON m.id = ai.id
     LEFT JOIN LATERAL (
         SELECT
             json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
@@ -238,7 +189,7 @@ FROM
         FROM
             message_attachments a
         WHERE
-            a.message_id = mb.id) att ON TRUE
+            a.message_id = ai.id) att ON TRUE
     LEFT JOIN LATERAL (
         SELECT
             json_agg(json_build_object('message_id', r.message_id, 'user_id', r.user_id, 'emoji', r.emoji, 'created_at', r.created_at)
@@ -246,58 +197,58 @@ FROM
         FROM
             message_reactions r
         WHERE
-            r.message_id = mb.id) rec ON TRUE
+            r.message_id = ai.id) rec ON TRUE
 ORDER BY
     ai.created_at ASC,
     ai.id ASC;
 
 -- name: MessageListAggregateBefore :many
-WITH target_ids AS (
+WITH user_access AS (
     SELECT
-        id,
-        created_at
+        1
     FROM
-        messages
+        channel_members
     WHERE
         channel_id = @channel_id::uuid
+        AND user_id = @user_id::uuid
+),
+target_ids AS (
+    SELECT
+        m.id,
+        m.created_at
+    FROM
+        messages m
+        CROSS JOIN user_access
+    WHERE
+        m.channel_id = @channel_id::uuid
         AND (sqlc.narg('cursor_created_at')::timestamptz IS NULL
-            OR (created_at,
-                id) <(sqlc.narg('cursor_created_at')::timestamptz,
+            OR (m.created_at,
+                m.id) <(sqlc.narg('cursor_created_at')::timestamptz,
                 sqlc.narg('cursor_id')::uuid))
     ORDER BY
-        created_at DESC,
-        id DESC
+        m.created_at DESC,
+        m.id DESC
     LIMIT @limit_val::int
 )
 SELECT
-    mb.id,
-    mb.channel_id,
-    mb.type,
-    mb.content,
-    mb.system_metadata,
-    mb.author_id,
-    mb.author_username,
-    mb.author_display_name,
-    mb.author_avatar_url,
-    mb.author_banner_color,
-    mb.author_disabled_at,
-    mb.reply_to_message_id,
-    mb.reply_to_author_id,
-    mb.reply_to_author_display_name,
-    mb.reply_to_author_avatar_url,
-    mb.reply_to_content,
-    mb.forwarded_message_id,
-    mb.forwarded_channel_id,
-    mb.forwarded_channel_name,
-    mb.created_at,
-    mb.updated_at,
-    mb.edited_at,
-    mb.pinned_at,
+    m.id,
+    m.channel_id,
+    m.type,
+    m.content,
+    m.system_metadata,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
     COALESCE(att.attachments, '[]'::json) AS attachments,
     COALESCE(rec.reactions, '[]'::json) AS reactions
 FROM
     target_ids ti
-    JOIN message_base_aggregates mb ON mb.id = ti.id
+    JOIN messages m ON m.id = ti.id
     LEFT JOIN LATERAL (
         SELECT
             json_agg(json_build_object('id', a.id, 'file_name', a.file_name, 'file_size', a.file_size, 'content_type', a.content_type, 'url', a.url, 'width', a.width, 'height', a.height, 'created_at', a.created_at)
@@ -369,6 +320,93 @@ WITH hydrated_pinned_messages AS (
         hm.pinned_at DESC,
         hm.id DESC
     LIMIT @limit_val::int;
+
+-- name: MessageMemberGet :one
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    messages m
+WHERE
+    m.id = @message_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @user_id::uuid);
+
+-- name: MessageMemberGetFirstUnread :one
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    channel_members cm
+    JOIN messages m ON m.channel_id = cm.channel_id
+        AND m.created_at > COALESCE(cm.last_read_at, to_timestamp(0))
+WHERE
+    cm.channel_id = @channel_id::uuid
+    AND cm.user_id = @user_id::uuid
+ORDER BY
+    m.created_at ASC,
+    m.id ASC
+LIMIT 1;
+
+-- name: MessageMemberGetLatest :one
+SELECT
+    m.id,
+    m.channel_id,
+    m.author_id,
+    m.reply_to_message_id,
+    m.forwarded_message_id,
+    m.forwarded_channel_id,
+    m.created_at,
+    m.updated_at,
+    m.edited_at,
+    m.pinned_at,
+    m.type,
+    m.content,
+    m.system_metadata
+FROM
+    messages m
+WHERE
+    m.channel_id = @channel_id::uuid
+    AND EXISTS (
+        SELECT
+            1
+        FROM
+            channel_members cm
+        WHERE
+            cm.channel_id = m.channel_id
+            AND cm.user_id = @user_id::uuid)
+ORDER BY
+    m.created_at DESC,
+    m.id DESC
+LIMIT 1;
 
 -- name: MessageTogglePinned :one
 UPDATE
