@@ -24,7 +24,7 @@ FROM
 WHERE
     id = @id::uuid;
 
--- name: ChannelGetForMember :one
+-- name: ChannelMemberGet :one
 SELECT
     c.id,
     c.created_at,
@@ -48,7 +48,7 @@ WHERE
             cm.channel_id = c.id
             AND cm.user_id = @user_id::uuid);
 
--- name: ChannelGetForMemberUpdate :one
+-- name: ChannelMemberGetForUpdate :one
 SELECT
     c.id,
     c.created_at,

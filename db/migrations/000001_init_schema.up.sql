@@ -304,7 +304,7 @@ CREATE TABLE relationships(
     channel_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    variant smallint NOT NULL,
+    type smallint NOT NULL,
     CONSTRAINT relationships_pkey PRIMARY KEY (user1_id, user2_id),
     CONSTRAINT fk_relationships_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_relationships_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -313,13 +313,13 @@ CREATE TABLE relationships(
     CONSTRAINT relationships_channel_key UNIQUE (channel_id),
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
-    CONSTRAINT relationship_values CHECK (variant IN (1, 2, 3)),
-    CONSTRAINT channel_required_for_friends CHECK (variant != 2 OR channel_id IS NOT NULL)
+    CONSTRAINT relationship_values CHECK (type IN (1, 2, 3)),
+    CONSTRAINT channel_required_for_friends CHECK (type != 2 OR channel_id IS NOT NULL)
 );
 
-CREATE INDEX idx_relationships_user1 ON relationships(user1_id, variant);
+CREATE INDEX idx_relationships_user1 ON relationships(user1_id, type);
 
-CREATE INDEX idx_relationships_user2 ON relationships(user2_id, variant);
+CREATE INDEX idx_relationships_user2 ON relationships(user2_id, type);
 
 CREATE OR REPLACE VIEW user_aggregates AS
 SELECT
