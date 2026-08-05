@@ -199,6 +199,8 @@ func (m *Me) GetMeChannelsBatch(ctx context.Context, userID uuid.UUID, cursor in
 				continue
 			}
 			cmdMap[cid] = pipe.HGetAll(ctx, channelKey(cUUID))
+			// Refresh TTL on active channel metadata read
+			pipe.Expire(ctx, channelKey(cUUID), m.ttl)
 		}
 		return nil
 	})
@@ -217,7 +219,7 @@ func (m *Me) GetMeChannelsBatch(ctx context.Context, userID uuid.UUID, cursor in
 	for _, cid := range pagedIDs.ChannelIDs {
 		meta, mErr := cmdMap[cid].Result()
 		if mErr != nil || len(meta) == 0 {
-			// Partial cache miss on underlying channel metadata Hash -> signal caller to backfill
+			// Partial cache miss on underlying channel metadata Hash -> signal caller to backfill DB
 			return nil, ErrMeCacheMiss
 		}
 
@@ -269,6 +271,7 @@ func (m *Me) GetMeChannelsBatch(ctx context.Context, userID uuid.UUID, cursor in
 				}
 				profileCmds[pid] = pipe.HGetAll(ctx, userAggregateKey(pUUID))
 				presenceCmds[pid] = pipe.Get(ctx, presenceKey(pUUID))
+				pipe.Expire(ctx, userAggregateKey(pUUID), m.ttl)
 			}
 			return nil
 		})
@@ -284,23 +287,32 @@ func (m *Me) GetMeChannelsBatch(ctx context.Context, userID uuid.UUID, cursor in
 
 			profMap, _ := profileCmds[pid].Result()
 			pres, _ := presenceCmds[pid].Result()
+
 			if pres == "" {
 				pres = "offline"
 			}
 
+			// If profile hash evicted, provide safe fallbacks instead of empty strings
+			displayName := profMap["display_name"]
+			if displayName == "" {
+				displayName = profMap["username"]
+			}
+
 			peerMap[pid] = MeChannelPeer{
 				ID:          pUUID,
-				DisplayName: profMap["display_name"],
+				DisplayName: displayName,
 				AvatarURL:   profMap["avatar_url"],
 				Presence:    pres,
 			}
 		}
 	}
 
-	// 4. Assemble final channels slice
+	// 4. Assemble final channels slice with initialized peer slice
 	channels := make([]MeChannel, 0, len(parsedChannels))
 	for _, pc := range parsedChannels {
 		ch := pc.channel
+		ch.Peers = make([]MeChannelPeer, 0, len(pc.peerIDs))
+
 		for _, pid := range pc.peerIDs {
 			if peer, exists := peerMap[pid]; exists {
 				ch.Peers = append(ch.Peers, peer)

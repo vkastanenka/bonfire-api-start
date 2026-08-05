@@ -43,14 +43,104 @@ type UserAggregate struct {
 	UpdatedAt              int64     `redis:"updated_at"` // Unix ms
 }
 
-// SetUserAggregate populates or refreshes the user aggregate Hash with sliding TTL.
+// SetUserAggregate populates or refreshes a single user aggregate Hash with sliding TTL.
 func (u *User) SetUserAggregate(ctx context.Context, agg *UserAggregate) error {
 	if agg == nil {
 		return nil
 	}
+	return u.SetUserAggregatesBatch(ctx, []*UserAggregate{agg})
+}
 
-	key := userAggregateKey(agg.ID)
+// SetUserAggregatesBatch pipelines multiple user aggregates into Redis with sliding TTL.
+func (u *User) SetUserAggregatesBatch(ctx context.Context, aggs []*UserAggregate) error {
+	if len(aggs) == 0 {
+		return nil
+	}
 
+	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
+		for _, agg := range aggs {
+			if agg == nil {
+				continue
+			}
+			key := userAggregateKey(agg.ID)
+			fields := buildUserAggregateFields(agg)
+
+			pipe.HSet(ctx, key, fields)
+			pipe.Expire(ctx, key, u.ttl)
+		}
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+
+	return nil
+}
+
+// GetUserAggregate fetches the user aggregate and refreshes its sliding TTL on read.
+func (u *User) GetUserAggregate(ctx context.Context, userID uuid.UUID) (*UserAggregate, error) {
+	found, _, err := u.GetUserAggregatesBatch(ctx, []uuid.UUID{userID})
+	if err != nil {
+		return nil, err
+	}
+
+	return found[userID], nil
+}
+
+// GetUserAggregatesBatch retrieves multiple user aggregates in a single Redis pipeline call.
+// Returns a map of found users, and a slice of missing user UUIDs for DB backfill.
+func (u *User) GetUserAggregatesBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*UserAggregate, []uuid.UUID, error) {
+	if len(userIDs) == 0 {
+		return make(map[uuid.UUID]*UserAggregate), nil, nil
+	}
+
+	// Deduplicate incoming IDs to prevent redundant Redis commands
+	uniqueIDs := make([]uuid.UUID, 0, len(userIDs))
+	seen := make(map[uuid.UUID]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			uniqueIDs = append(uniqueIDs, id)
+		}
+	}
+
+	cmds := make(map[uuid.UUID]*goredis.MapStringStringCmd, len(uniqueIDs))
+	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
+		for _, id := range uniqueIDs {
+			key := userAggregateKey(id)
+			cmds[id] = pipe.HGetAll(ctx, key)
+			pipe.Expire(ctx, key, u.ttl)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, redis.NewError(err, redis.ScopeUser)
+	}
+
+	found := make(map[uuid.UUID]*UserAggregate, len(uniqueIDs))
+	var missing []uuid.UUID
+
+	for id, cmd := range cmds {
+		res, resErr := cmd.Result()
+		if resErr != nil || len(res) == 0 {
+			missing = append(missing, id)
+			continue
+		}
+
+		agg, parseErr := parseUserAggregateDTO(res)
+		if parseErr != nil {
+			missing = append(missing, id)
+			continue
+		}
+
+		found[id] = agg
+	}
+
+	return found, missing, nil
+}
+
+// Helper to convert UserAggregate struct into a Redis HSET map
+func buildUserAggregateFields(agg *UserAggregate) map[string]interface{} {
 	fields := map[string]interface{}{
 		"id":                 agg.ID.String(),
 		"username":           agg.Username,
@@ -76,38 +166,7 @@ func (u *User) SetUserAggregate(ctx context.Context, agg *UserAggregate) error {
 		fields["delete_scheduled_at"] = strconv.FormatInt(*agg.DeleteScheduledAt, 10)
 	}
 
-	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		pipe.HSet(ctx, key, fields)
-		pipe.Expire(ctx, key, u.ttl)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
-}
-
-// GetUserAggregate fetches the user aggregate and refreshes its sliding TTL on read.
-func (u *User) GetUserAggregate(ctx context.Context, userID uuid.UUID) (*UserAggregate, error) {
-	key := userAggregateKey(userID)
-
-	var hGetAllCmd *goredis.MapStringStringCmd
-	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		hGetAllCmd = pipe.HGetAll(ctx, key)
-		pipe.Expire(ctx, key, u.ttl)
-		return nil
-	})
-	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeUser)
-	}
-
-	res, err := hGetAllCmd.Result()
-	if err != nil || len(res) == 0 {
-		return nil, nil // Cache Miss
-	}
-
-	return parseUserAggregateDTO(res)
+	return fields
 }
 
 // Helper to construct UserAggregate from HGETALL map output
