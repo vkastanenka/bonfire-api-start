@@ -17,29 +17,10 @@ SELECT
     name,
     icon_url,
     peer_id,
-    last_message_id,
-    last_message_at
 FROM
     channels
 WHERE
     id = @id::uuid;
-
--- name: ChannelGetForUpdate :one
-SELECT
-    id,
-    created_at,
-    updated_at,
-    type,
-    name,
-    icon_url,
-    peer_id,
-    last_message_id,
-    last_message_at
-FROM
-    channels
-WHERE
-    id = @id::uuid
-FOR UPDATE;
 
 -- name: ChannelUpdate :one
 UPDATE

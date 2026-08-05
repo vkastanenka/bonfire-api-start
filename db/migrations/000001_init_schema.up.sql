@@ -118,15 +118,11 @@ CREATE TABLE channels(
     type smallint NOT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
-    peer_id uuid DEFAULT NULL,
     CONSTRAINT channels_pkey PRIMARY KEY (id),
-    CONSTRAINT fk_channels_recipient_user FOREIGN KEY (peer_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT valid_channel_type CHECK (type IN (1, 2))
+    CONSTRAINT type_valid CHECK (type IN (1, 2)),
+    CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100),
+    CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048),
 );
-
-CREATE INDEX idx_channels_peer_id ON channels(peer_id)
-WHERE
-    peer_id IS NOT NULL;
 
 CREATE TABLE messages(
     id uuid NOT NULL,
