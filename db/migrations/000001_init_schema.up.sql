@@ -51,7 +51,6 @@ CREATE TABLE users(
     CONSTRAINT users_pkey PRIMARY KEY (id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username),
-    CONSTRAINT users_phone_key UNIQUE (phone),
     CONSTRAINT preferred_presence_valid CHECK (preferred_presence IN (4, 5, 6)),
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
@@ -63,6 +62,10 @@ CREATE TABLE users(
 CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC, id ASC)
 WHERE
     delete_scheduled_at IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_users_phone_unique ON users(phone)
+WHERE
+    phone IS NOT NULL;
 
 CREATE TABLE user_profiles(
     user_id uuid NOT NULL,
@@ -77,7 +80,7 @@ CREATE TABLE user_profiles(
     CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
     CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
     CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 1 AND 2048),
-    CONSTRAINT valid_hex_banner_color CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
+    CONSTRAINT banner_color_valid CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
 );
 
 CREATE TABLE sessions(
