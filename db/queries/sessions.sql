@@ -80,7 +80,8 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > CURRENT_TIMESTAMP
 ORDER BY
-    last_seen_at DESC;
+    last_seen_at DESC
+LIMIT @limit_val::int;
 
 -- name: SessionRevoke :exec
 UPDATE
