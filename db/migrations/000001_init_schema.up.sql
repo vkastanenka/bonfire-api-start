@@ -105,7 +105,7 @@ CREATE TABLE sessions(
     CONSTRAINT client_length CHECK (char_length(client) BETWEEN 1 AND 100)
 );
 
-CREATE INDEX idx_sessions_cleanup ON sessions(expires_at ASC);
+CREATE INDEX idx_sessions_expires_at ON sessions(expires_at ASC);
 
 CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC, expires_at)
 WHERE
