@@ -246,24 +246,6 @@ CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, pinned
 WHERE
     is_visible = TRUE;
 
-CREATE TABLE channel_invites(
-    code varchar(16) NOT NULL,
-    channel_id uuid NOT NULL,
-    inviter_id uuid DEFAULT NULL,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at timestamptz DEFAULT NULL,
-    max_uses integer NOT NULL DEFAULT 0,
-    uses integer NOT NULL DEFAULT 0,
-    CONSTRAINT channel_invites_pkey PRIMARY KEY (code),
-    CONSTRAINT fk_channel_invites_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
-    CONSTRAINT fk_channel_invites_inviter FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT positive_uses CHECK (uses >= 0),
-    CONSTRAINT valid_max_uses CHECK (max_uses >= 0),
-    CONSTRAINT uses_within_max CHECK (max_uses = 0 OR uses <= max_uses)
-);
-
-CREATE INDEX idx_channel_invites_channel_id ON channel_invites(channel_id);
-
 CREATE TABLE message_attachments(
     id uuid NOT NULL,
     message_id uuid NOT NULL,
