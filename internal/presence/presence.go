@@ -84,6 +84,23 @@ func (p Presence) String() string {
 	return presenceNames[PresenceUnknown]
 }
 
+// Int16 converts Presence to int16 for SQL smallint / Redis fields.
+func (p Presence) Int16() int16 {
+	return int16(p)
+}
+
+// FromInt16 safely converts a database or cache smallint back into Presence.
+func FromInt16(v int16) (Presence, error) {
+	if v < 0 || v >= int16(presenceMax) {
+		return PresenceUnknown, ErrInvalidPresence
+	}
+	p := Presence(v)
+	if !p.IsValid() {
+		return PresenceUnknown, ErrInvalidPresence
+	}
+	return p, nil
+}
+
 func (p Presence) MarshalText() ([]byte, error) {
 	if p.IsValid() {
 		return presenceBytes[p], nil

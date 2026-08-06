@@ -532,6 +532,24 @@ func NewPreferredPresence(raw *string) (PreferredPresence, error) {
 	}
 }
 
+func NewPreferredPresenceFromInt16(v int16) (PreferredPresence, error) {
+	if v == 0 {
+		return PreferredPresence{value: nil}, nil
+	}
+
+	p, err := presence.FromInt16(v)
+	if err != nil {
+		return PreferredPresence{}, ErrPreferredPresenceInvalid
+	}
+
+	switch p {
+	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
+		return PreferredPresence{value: &p}, nil
+	default:
+		return PreferredPresence{}, ErrPreferredPresenceInvalid
+	}
+}
+
 func ParsePreferredPresence(raw string) (PreferredPresence, error) {
 	return NewPreferredPresence(&raw)
 }
@@ -541,6 +559,10 @@ func (pp PreferredPresence) String() string {
 		return ""
 	}
 	return string(*pp.value)
+}
+
+func (p PreferredPresence) Int16() int16 {
+	return p.value.Int16()
 }
 
 func (pp PreferredPresence) NilPresence() *presence.Presence {

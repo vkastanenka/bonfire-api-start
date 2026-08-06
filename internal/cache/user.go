@@ -1,30 +1,28 @@
 package cache
 
 import (
-	"bonfire-api/internal/redis"
 	"context"
 	"fmt"
 	"strconv"
 	"time"
 
+	"bonfire-api/internal/redis"
+	"bonfire-api/internal/user"
+
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 )
 
-type User struct {
+type UserCache struct {
 	store redis.Store
 	ttl   time.Duration
 }
 
-func NewUser(store redis.Store, ttl time.Duration) *User {
-	return &User{
+func NewUserCache(store redis.Store, ttl time.Duration) *UserCache {
+	return &UserCache{
 		store: store,
 		ttl:   ttl,
 	}
-}
-
-func userAggregateKey(userID uuid.UUID) string {
-	return fmt.Sprintf("user:%s:aggregate", userID.String())
 }
 
 type UserAggregate struct {
@@ -43,27 +41,214 @@ type UserAggregate struct {
 	UpdatedAt              int64     `redis:"updated_at"`
 }
 
-// SetAggregate populates or refreshes a single user aggregate Hash with sliding TTL.
-func (u *User) SetAggregate(ctx context.Context, agg *UserAggregate) error {
+func NewUserAggregate(agg *user.Aggregate) *UserAggregate {
+	if agg == nil || agg.User() == nil || agg.Profile() == nil {
+		return nil
+	}
+
+	u := agg.User()
+	p := agg.Profile()
+
+	var bio string
+	if p.Bio() != nil {
+		bio = p.Bio().String()
+	}
+
+	var avatarURL string
+	if p.AvatarURL() != nil {
+		avatarURL = p.AvatarURL().String()
+	}
+
+	var bannerColor string
+	if p.BannerColor() != nil {
+		bannerColor = p.BannerColor().String()
+	}
+
+	var prefPresence int16
+	if u.PreferredPresence() != nil {
+		prefPresence = u.PreferredPresence().Int16()
+	}
+
+	var prefPresenceUntil *int64
+	if u.PreferredPresenceUntil() != nil {
+		t := u.PreferredPresenceUntil().Unix()
+		prefPresenceUntil = &t
+	}
+
+	var verifiedAt *int64
+	if u.VerifiedAt() != nil {
+		t := u.VerifiedAt().Unix()
+		verifiedAt = &t
+	}
+
+	var disabledAt *int64
+	if u.DisabledAt() != nil {
+		t := u.DisabledAt().Unix()
+		disabledAt = &t
+	}
+
+	var deleteScheduledAt *int64
+	if u.DeleteScheduledAt() != nil {
+		t := u.DeleteScheduledAt().Unix()
+		deleteScheduledAt = &t
+	}
+
+	return &UserAggregate{
+		ID:                     u.ID().UUID(),
+		Username:               u.Username().String(),
+		DisplayName:            p.DisplayName().String(),
+		Bio:                    bio,
+		AvatarURL:              avatarURL,
+		BannerColor:            bannerColor,
+		PreferredPresence:      prefPresence,
+		PreferredPresenceUntil: prefPresenceUntil,
+		VerifiedAt:             verifiedAt,
+		DisabledAt:             disabledAt,
+		DeleteScheduledAt:      deleteScheduledAt,
+		CreatedAt:              u.CreatedAt().Unix(),
+		UpdatedAt:              u.UpdatedAt().Unix(),
+	}
+}
+
+func (dto *UserAggregate) Reconstitute() (*user.Aggregate, error) {
+	if dto == nil {
+		return nil, nil
+	}
+
+	id, err := user.NewID(dto.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	username, err := user.NewUsername(dto.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	displayName, err := user.NewDisplayName(dto.DisplayName)
+	if err != nil {
+		return nil, err
+	}
+
+	var bio *user.Bio
+	if dto.Bio != "" {
+		b, err := user.NewBio(&dto.Bio)
+		if err != nil {
+			return nil, err
+		}
+		bio = &b
+	}
+
+	var avatarURL *user.URL
+	if dto.AvatarURL != "" {
+		u, err := user.NewURL(&dto.AvatarURL)
+		if err != nil {
+			return nil, err
+		}
+		avatarURL = &u
+	}
+
+	var bannerColor *user.BannerColor
+	if dto.BannerColor != "" {
+		bc, err := user.NewBannerColor(&dto.BannerColor)
+		if err != nil {
+			return nil, err
+		}
+		bannerColor = &bc
+	}
+
+	var prefPresence *user.PreferredPresence
+	if dto.PreferredPresence != 0 {
+		pp, err := user.NewPreferredPresenceFromInt16(dto.PreferredPresence)
+		if err != nil {
+			return nil, err
+		}
+		prefPresence = &pp
+	}
+
+	var prefPresenceUntil *time.Time
+	if dto.PreferredPresenceUntil != nil {
+		t := time.Unix(*dto.PreferredPresenceUntil, 0).UTC()
+		prefPresenceUntil = &t
+	}
+
+	var verifiedAt *time.Time
+	if dto.VerifiedAt != nil {
+		t := time.Unix(*dto.VerifiedAt, 0).UTC()
+		verifiedAt = &t
+	}
+
+	var disabledAt *time.Time
+	if dto.DisabledAt != nil {
+		t := time.Unix(*dto.DisabledAt, 0).UTC()
+		disabledAt = &t
+	}
+
+	var deleteScheduledAt *time.Time
+	if dto.DeleteScheduledAt != nil {
+		t := time.Unix(*dto.DeleteScheduledAt, 0).UTC()
+		deleteScheduledAt = &t
+	}
+
+	// Reconstitute domain entities
+	u := user.Reconstitute(
+		id,
+		user.Email{}, // Empty email if omitted from public aggregate cache
+		username,
+		nil, // Phone omitted
+		user.Password{},
+		prefPresence,
+		prefPresenceUntil,
+		verifiedAt,
+		disabledAt,
+		deleteScheduledAt,
+		time.Unix(dto.CreatedAt, 0).UTC(),
+		time.Unix(dto.UpdatedAt, 0).UTC(),
+	)
+
+	p := user.ReconstituteProfile(
+		id,
+		displayName,
+		bio,
+		avatarURL,
+		bannerColor,
+		time.Unix(dto.UpdatedAt, 0).UTC(),
+	)
+
+	return user.NewAggregate(u, p), nil
+}
+
+func userAggregateKey(userID uuid.UUID) string {
+	return fmt.Sprintf("user:%s:aggregate", userID.String())
+}
+
+func (u *UserCache) SetAggregate(ctx context.Context, agg *user.Aggregate) error {
 	if agg == nil {
 		return nil
 	}
-	return u.SetAggregateBatch(ctx, []*UserAggregate{agg})
+	return u.SetAggregateBatch(ctx, []*user.Aggregate{agg})
 }
 
-// SetAggregatesBatch pipelines multiple user aggregates into Redis with sliding TTL.
-func (u *User) SetAggregateBatch(ctx context.Context, aggs []*UserAggregate) error {
+func (u *UserCache) SetAggregateBatch(ctx context.Context, aggs []*user.Aggregate) error {
 	if len(aggs) == 0 {
 		return nil
 	}
 
+	dtos := make([]*UserAggregate, 0, len(aggs))
+	for _, agg := range aggs {
+		if dto := NewUserAggregate(agg); dto != nil {
+			dtos = append(dtos, dto)
+		}
+	}
+
+	if len(dtos) == 0 {
+		return nil
+	}
+
 	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		for _, agg := range aggs {
-			if agg == nil {
-				continue
-			}
-			key := userAggregateKey(agg.ID)
-			fields := buildUserAggregateFields(agg)
+		for _, dto := range dtos {
+			key := userAggregateKey(dto.ID)
+			fields := buildUserAggregateFields(dto)
 
 			pipe.HSet(ctx, key, fields)
 			pipe.Expire(ctx, key, u.ttl)
@@ -77,8 +262,7 @@ func (u *User) SetAggregateBatch(ctx context.Context, aggs []*UserAggregate) err
 	return nil
 }
 
-// GetAggregate fetches the user aggregate and refreshes its sliding TTL on read.
-func (u *User) GetAggregate(ctx context.Context, userID uuid.UUID) (*UserAggregate, error) {
+func (u *UserCache) GetAggregate(ctx context.Context, userID uuid.UUID) (*user.Aggregate, error) {
 	found, _, err := u.GetAggregateBatch(ctx, []uuid.UUID{userID})
 	if err != nil {
 		return nil, err
@@ -87,14 +271,11 @@ func (u *User) GetAggregate(ctx context.Context, userID uuid.UUID) (*UserAggrega
 	return found[userID], nil
 }
 
-// GetAggregatesBatch retrieves multiple user aggregates in a single Redis pipeline call.
-// Returns a map of found users, and a slice of missing user UUIDs for DB backfill.
-func (u *User) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*UserAggregate, []uuid.UUID, error) {
+func (u *UserCache) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.Aggregate, []uuid.UUID, error) {
 	if len(userIDs) == 0 {
-		return make(map[uuid.UUID]*UserAggregate), nil, nil
+		return make(map[uuid.UUID]*user.Aggregate), nil, nil
 	}
 
-	// Deduplicate incoming IDs to prevent redundant Redis commands
 	uniqueIDs := make([]uuid.UUID, 0, len(userIDs))
 	seen := make(map[uuid.UUID]struct{}, len(userIDs))
 	for _, id := range userIDs {
@@ -109,7 +290,6 @@ func (u *User) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[
 		for _, id := range uniqueIDs {
 			key := userAggregateKey(id)
 			cmds[id] = pipe.HGetAll(ctx, key)
-			pipe.Expire(ctx, key, u.ttl)
 		}
 		return nil
 	})
@@ -117,7 +297,7 @@ func (u *User) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[
 		return nil, nil, redis.NewError(err, redis.ScopeUser)
 	}
 
-	found := make(map[uuid.UUID]*UserAggregate, len(uniqueIDs))
+	found := make(map[uuid.UUID]*user.Aggregate, len(uniqueIDs))
 	var missing []uuid.UUID
 
 	for id, cmd := range cmds {
@@ -127,19 +307,24 @@ func (u *User) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[
 			continue
 		}
 
-		agg, parseErr := parseUserAggregateDTO(res)
+		dto, parseErr := parseUserAggregateDTO(res)
 		if parseErr != nil {
 			missing = append(missing, id)
 			continue
 		}
 
-		found[id] = agg
+		domainAgg, domainErr := dto.Reconstitute()
+		if domainErr != nil || domainAgg == nil {
+			missing = append(missing, id)
+			continue
+		}
+
+		found[id] = domainAgg
 	}
 
 	return found, missing, nil
 }
 
-// Helper to convert UserAggregate struct into a Redis HSET map
 func buildUserAggregateFields(agg *UserAggregate) map[string]interface{} {
 	fields := map[string]interface{}{
 		"id":                 agg.ID.String(),
@@ -169,7 +354,6 @@ func buildUserAggregateFields(agg *UserAggregate) map[string]interface{} {
 	return fields
 }
 
-// Helper to construct UserAggregate from HGETALL map output
 func parseUserAggregateDTO(m map[string]string) (*UserAggregate, error) {
 	id, err := uuid.Parse(m["id"])
 	if err != nil {
