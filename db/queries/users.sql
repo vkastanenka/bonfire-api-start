@@ -110,6 +110,159 @@ updated_profiles AS (
 SELECT
     1;
 
+-- name: UserAggregateUpdateEmail :one
+WITH updated_user AS (
+    UPDATE
+        users
+    SET
+        email = @email::citext,
+        updated_at = @updated_at::timestamptz
+    WHERE
+        id = @id::uuid
+    RETURNING
+        id
+)
+SELECT
+    id,
+    email,
+    username,
+    phone,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    user_aggregates
+WHERE
+    id =(
+        SELECT
+            id
+        FROM
+            updated_user)
+LIMIT 1;
+
+-- name: UserAggregateUpdatePhone :one
+WITH updated_user AS (
+    UPDATE
+        users
+    SET
+        phone = sqlc.narg('phone')::text,
+        updated_at = @updated_at::timestamptz
+    WHERE
+        id = @id::uuid
+    RETURNING
+        id
+)
+SELECT
+    id,
+    email,
+    username,
+    phone,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    user_aggregates
+WHERE
+    id =(
+        SELECT
+            id
+        FROM
+            updated_user)
+LIMIT 1;
+
+-- name: UserAggregateUpdatePreferredPresence :one
+WITH updated_user AS (
+    UPDATE
+        users
+    SET
+        preferred_presence = sqlc.narg('preferred_presence')::smallint,
+        preferred_presence_until = sqlc.narg('preferred_presence_until')::timestamptz,
+        updated_at = @updated_at::timestamptz
+    WHERE
+        id = @id::uuid
+    RETURNING
+        id
+)
+SELECT
+    id,
+    email,
+    username,
+    phone,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    user_aggregates
+WHERE
+    id =(
+        SELECT
+            id
+        FROM
+            updated_user)
+LIMIT 1;
+
+-- name: UserAggregateUpdateUsername :one
+WITH updated_user AS (
+    UPDATE
+        users
+    SET
+        username = @username::citext,
+        updated_at = @updated_at::timestamptz
+    WHERE
+        id = @id::uuid
+    RETURNING
+        id
+)
+SELECT
+    id,
+    email,
+    username,
+    phone,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    user_aggregates
+WHERE
+    id =(
+        SELECT
+            id
+        FROM
+            updated_user)
+LIMIT 1;
+
 -- name: UserAvailability :one
 SELECT
     NOT EXISTS (
@@ -240,4 +393,49 @@ RETURNING
     delete_scheduled_at,
     created_at,
     updated_at;
+
+-- name: UserUpdatePassword :exec
+UPDATE
+    users
+SET
+    password_hash = @password_hash::text,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid;
+
+-- name: UserDisable :exec
+UPDATE
+    users
+SET
+    disabled_at = @disabled_at::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid;
+
+-- name: UserEnable :exec
+UPDATE
+    users
+SET
+    disabled_at = NULL,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid;
+
+-- name: UserScheduleDelete :exec
+UPDATE
+    users
+SET
+    delete_scheduled_at = @delete_scheduled_at::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid;
+
+-- name: UserCancelDelete :exec
+UPDATE
+    users
+SET
+    delete_scheduled_at = NULL,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid;
 

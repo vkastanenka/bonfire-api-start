@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/sanitize"
@@ -596,6 +597,106 @@ func (pp *PreferredPresence) UnmarshalText(text []byte) error {
 	}
 
 	*pp = parsed
+	return nil
+}
+
+// ============================================================================
+// Timestamp
+// ============================================================================
+
+var (
+	ErrTimestampInvalid = errors.New("timestamp must be a valid RFC 3339 date-time format")
+)
+
+type Timestamp struct {
+	value *time.Time
+}
+
+func NewTimestamp(raw *string) (Timestamp, error) {
+	if raw == nil {
+		return Timestamp{value: nil}, nil
+	}
+
+	s := strings.TrimSpace(*raw)
+	if s == "" {
+		return Timestamp{value: nil}, nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return Timestamp{}, ErrTimestampInvalid
+	}
+
+	utc := parsed.UTC()
+	return Timestamp{value: &utc}, nil
+}
+
+func NewTimestampFromTime(t *time.Time) Timestamp {
+	if t == nil {
+		return Timestamp{value: nil}
+	}
+	utc := t.UTC()
+	return Timestamp{value: &utc}
+}
+
+func ParseTimestamp(raw string) (Timestamp, error) {
+	return NewTimestamp(&raw)
+}
+
+func (t Timestamp) Time() *time.Time {
+	return t.value
+}
+
+func (t Timestamp) Unix() *int64 {
+	if t.value == nil {
+		return nil
+	}
+	unix := t.value.Unix()
+	return &unix
+}
+
+func (t Timestamp) String() string {
+	if t.value == nil {
+		return ""
+	}
+	return t.value.Format(time.RFC3339)
+}
+
+func (t Timestamp) NilString() *string {
+	if t.value == nil {
+		return nil
+	}
+	s := t.value.Format(time.RFC3339)
+	return &s
+}
+
+func (t Timestamp) IsValid() bool {
+	return t.value != nil
+}
+
+func (t Timestamp) Equals(other Timestamp) bool {
+	if t.value == nil && other.value == nil {
+		return true
+	}
+	if t.value == nil || other.value == nil {
+		return false
+	}
+	return t.value.Equal(*other.value)
+}
+
+func (t *Timestamp) UnmarshalText(text []byte) error {
+	if len(text) == 0 {
+		*t = Timestamp{value: nil}
+		return nil
+	}
+
+	raw := string(text)
+	parsed, err := NewTimestamp(&raw)
+	if err != nil {
+		return err
+	}
+
+	*t = parsed
 	return nil
 }
 
