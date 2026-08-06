@@ -5,6 +5,7 @@ import (
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -67,7 +68,7 @@ func (r *User) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	return userFromRow(row)
 }
 
-func (r *User) Get(ctx context.Context, id user.ID) (*user.User, error) {
+func (r *User) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
@@ -85,7 +86,7 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, er
 	return userFromRow(row)
 }
 
-func (r *User) ListDeleteScheduled(ctx context.Context, currentTime user.Timestamp, batchLimit int32) ([]*user.User, error) {
+func (r *User) ListDeleteScheduled(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error) {
 	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
 		Now:        db.ToTimestamptz(currentTime.Time()),
 		BatchLimit: batchLimit,
@@ -152,7 +153,7 @@ func (r *User) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User,
 func userFromRow(row db.User) (*user.User, error) {
 	userID := db.FromUUID[uuid.UUID](row.ID)
 
-	id, err := user.NewID(userID)
+	id, err := fields.NewID(userID)
 	if err != nil {
 		return nil, errs.Internal("failed to parse user id from database").
 			Wrap(err).
@@ -215,7 +216,7 @@ func userFromRow(row db.User) (*user.User, error) {
 			Resource("User", userID.String(), "", "database row mapping")
 	}
 
-	avatarURL, err := user.NewURL(db.FromText[string](row.AvatarUrl))
+	avatarURL, err := fields.NewURL(db.FromText[string](row.AvatarUrl))
 	if err != nil {
 		return nil, errs.Internal("failed to parse avatar url from database").
 			Wrap(err).
@@ -224,7 +225,7 @@ func userFromRow(row db.User) (*user.User, error) {
 			Resource("User", userID.String(), "", "database row mapping")
 	}
 
-	bannerColor, err := user.NewHexColor(db.FromText[string](row.BannerColor))
+	bannerColor, err := fields.NewHexColor(db.FromText[string](row.BannerColor))
 	if err != nil {
 		return nil, errs.Internal("failed to parse banner color from database").
 			Wrap(err).
@@ -243,12 +244,12 @@ func userFromRow(row db.User) (*user.User, error) {
 			Resource("User", userID.String(), "", "database row mapping")
 	}
 
-	preferredPresenceUntil := user.NewTimestampFromTime(db.FromTimestamptz(row.PreferredPresenceUntil))
-	verifiedAt := user.NewTimestampFromTime(db.FromTimestamptz(row.VerifiedAt))
-	disabledAt := user.NewTimestampFromTime(db.FromTimestamptz(row.DisabledAt))
-	deleteScheduledAt := user.NewTimestampFromTime(db.FromTimestamptz(row.DeleteScheduledAt))
-	createdAt := user.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
-	updatedAt := user.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
+	preferredPresenceUntil := fields.NewTimestampFromTime(db.FromTimestamptz(row.PreferredPresenceUntil))
+	verifiedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.VerifiedAt))
+	disabledAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.DisabledAt))
+	deleteScheduledAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.DeleteScheduledAt))
+	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
+	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
 
 	return user.Reconstitute(
 		id,
