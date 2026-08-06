@@ -17,7 +17,7 @@ type Cache interface {
 
 type Repository interface {
 	Create(ctx context.Context, u *User) error
-	Get(ctx context.Context, id uuid.UUID) (*User, error)
+	GetAggregate(ctx context.Context, id uuid.UUID) (*User, error)
 	GetByEmail(ctx context.Context, email Email) (*User, error)
 	GetByUsername(ctx context.Context, username Username) (*User, error)
 	CheckAvailability(ctx context.Context, email Email, username Username) (bool, bool, error)
@@ -50,7 +50,7 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 		// Log cache write error without failing the HTTP request
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.repo.GetAggregate(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
-	u, err := s.repo.Get(ctx, p.UserID)
+	u, err := s.repo.GetAggregate(ctx, p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *Service) SetPreferredPresence(ctx context.Context, id uuid.UUID, presen
 		return nil, errs.InvalidArgument("user ID cannot be empty")
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.repo.GetAggregate(ctx, id)
 	if err != nil {
 		return nil, err
 	}
