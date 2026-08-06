@@ -59,6 +59,15 @@ func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*Aggregate, error) 
 	return u, nil
 }
 
+// UpdateUsername
+// UpdateEmail
+// UpdatePhone
+// UpdatePassword
+// UpdatePreferredPreference
+// Disable
+// ScheduleDelete
+// Anonymize
+
 type UpdateProfileParams struct {
 	UserID      uuid.UUID
 	DisplayName string
