@@ -13,7 +13,7 @@ import (
 
 type UserStore interface {
 	UserAvailability(ctx context.Context, arg db.UserAvailabilityParams) (db.UserAvailabilityRow, error)
-	UserCreate(ctx context.Context, arg db.UserCreateParams) error
+	UserCreate(ctx context.Context, arg db.UserCreateParams) (db.User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (db.User, error)
 	UserGetByEmail(ctx context.Context, email string) (db.User, error)
 	UserListDeleteScheduled(ctx context.Context, arg db.UserListDeleteScheduledParams) ([]db.User, error)
@@ -41,8 +41,8 @@ func (r *User) Availability(ctx context.Context, email user.Email, username user
 	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
 }
 
-func (r *User) Create(ctx context.Context, u *user.User) error {
-	err := r.store.UserCreate(ctx, db.UserCreateParams{
+func (r *User) Create(ctx context.Context, u *user.User) (*user.User, error) {
+	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
 		ID:                     db.ToUUID(u.ID()),
 		Email:                  u.Email().String(),
 		Username:               u.Username().String(),
@@ -61,10 +61,10 @@ func (r *User) Create(ctx context.Context, u *user.User) error {
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt().Time()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityUser)
+		return nil, db.NewError(err, db.EntityUser)
 	}
 
-	return nil
+	return userFromRow(row)
 }
 
 func (r *User) Get(ctx context.Context, id user.ID) (*user.User, error) {
@@ -73,7 +73,7 @@ func (r *User) Get(ctx context.Context, id user.ID) (*user.User, error) {
 		return nil, db.NewError(err, db.EntityUser)
 	}
 
-	return userFromRow(db.User(row))
+	return userFromRow(row)
 }
 
 func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {

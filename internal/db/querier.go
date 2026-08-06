@@ -51,7 +51,7 @@ type Querier interface {
 	SessionUserListActive(ctx context.Context, arg SessionUserListActiveParams) ([]SessionUserListActiveRow, error)
 	SessionUserRevokeAll(ctx context.Context, arg SessionUserRevokeAllParams) error
 	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)
-	UserCreate(ctx context.Context, arg UserCreateParams) error
+	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
 	UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error)

@@ -15,7 +15,7 @@ SELECT
         WHERE
             username = @username::citext)::boolean AS username_available;
 
--- name: UserCreate :exec
+-- name: UserCreate :one
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING

@@ -46,7 +46,7 @@ func (q *Queries) UserAvailability(ctx context.Context, arg UserAvailabilityPara
 	return i, err
 }
 
-const userCreate = `-- name: UserCreate :exec
+const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING
@@ -72,8 +72,8 @@ type UserCreateParams struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) error {
-	_, err := q.db.Exec(ctx, userCreate,
+func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, error) {
+	row := q.db.QueryRow(ctx, userCreate,
 		arg.ID,
 		arg.Email,
 		arg.Username,
@@ -91,7 +91,26 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) error {
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
-	return err
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarUrl,
+		&i.BannerColor,
+	)
+	return i, err
 }
 
 const userGet = `-- name: UserGet :one
