@@ -30,7 +30,6 @@ type User struct {
 	updatedAt              Timestamp
 }
 
-// Getters
 func (u *User) ID() ID                               { return u.id }
 func (u *User) Email() Email                         { return u.email }
 func (u *User) Username() Username                   { return u.username }
@@ -48,29 +47,36 @@ func (u *User) DeleteScheduledAt() Timestamp         { return u.deleteScheduledA
 func (u *User) CreatedAt() Timestamp                 { return u.createdAt }
 func (u *User) UpdatedAt() Timestamp                 { return u.updatedAt }
 
-// Domain State Checks
 func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
 func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
 func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
 
-func (u *User) EffectivePresence() PreferredPresence {
-	if u.preferredPresenceUntil.HasPassed(time.Now().UTC()) {
+func (u *User) EffectivePresence(now time.Time) PreferredPresence {
+	if u.preferredPresenceUntil.HasPassed(now) {
 		return PreferredPresence{}
 	}
 	return u.preferredPresence
 }
 
-// Factory for creating brand-new users
+func (u *User) EnsureActive() error {
+	if u.IsDisabled() {
+		return ErrUserDisabled
+	}
+	if u.IsScheduledForDeletion() {
+		return ErrUserScheduledDeletion
+	}
+	return nil
+}
+
 func New(
 	id ID,
 	email Email,
 	username Username,
 	displayName DisplayName,
 	passwordHash Password,
+	now time.Time,
 ) (*User, error) {
-	now := time.Now().UTC()
 	ts := NewTimestampFromTime(now)
-
 	return &User{
 		id:           id,
 		email:        email,
@@ -82,31 +88,26 @@ func New(
 	}, nil
 }
 
-// Reconstitute hydrates an existing domain model from storage
 func Reconstitute(
 	id ID,
 	email Email,
 	username Username,
-	displayName DisplayName,
 	passwordHash Password,
 	phone Phone,
+	displayName DisplayName,
 	bio Bio,
 	avatarURL URL,
 	bannerColor HexColor,
 	preferredPresence PreferredPresence,
-	preferredPresenceUntil Timestamp,
-	verifiedAt Timestamp,
-	disabledAt Timestamp,
-	deleteScheduledAt Timestamp,
-	createdAt, updatedAt Timestamp,
+	preferredPresenceUntil, verifiedAt, disabledAt, deleteScheduledAt, createdAt, updatedAt Timestamp,
 ) *User {
 	return &User{
 		id:                     id,
 		email:                  email,
 		username:               username,
-		displayName:            displayName,
 		passwordHash:           passwordHash,
 		phone:                  phone,
+		displayName:            displayName,
 		bio:                    bio,
 		avatarURL:              avatarURL,
 		bannerColor:            bannerColor,
@@ -120,149 +121,125 @@ func Reconstitute(
 	}
 }
 
-// Domain Mutations
-
-func (u *User) Verify() {
+func (u *User) Verify(now time.Time) {
 	if !u.verifiedAt.IsValid() {
-		ts := NewTimestampFromTime(time.Now().UTC())
+		ts := NewTimestampFromTime(now)
 		u.verifiedAt = ts
-		u.touchAt(ts)
+		u.touch(ts)
 	}
 }
 
-func (u *User) Disable() {
+func (u *User) Disable(now time.Time) {
 	if !u.disabledAt.IsValid() {
-		ts := NewTimestampFromTime(time.Now().UTC())
+		ts := NewTimestampFromTime(now)
 		u.disabledAt = ts
-		u.touchAt(ts)
+		u.touch(ts)
 	}
 }
 
-func (u *User) Enable() {
+func (u *User) Enable(now time.Time) {
 	if u.disabledAt.IsValid() {
 		u.disabledAt = Timestamp{}
-		u.touch()
+		u.touch(NewTimestampFromTime(now))
 	}
 }
 
-func (u *User) ScheduleDelete(at time.Time) {
-	ts := NewTimestampFromTime(at)
-	u.deleteScheduledAt = ts
-	u.touchAt(ts)
+func (u *User) ScheduleDelete(scheduledAt time.Time, now time.Time) {
+	u.deleteScheduledAt = NewTimestampFromTime(scheduledAt)
+	u.touch(NewTimestampFromTime(now))
 }
 
-func (u *User) CancelDeletion() {
+func (u *User) CancelDeletion(now time.Time) {
 	if u.deleteScheduledAt.IsValid() {
 		u.deleteScheduledAt = Timestamp{}
-		u.touch()
+		u.touch(NewTimestampFromTime(now))
 	}
 }
 
-func (u *User) UpdateEmail(newEmail Email) error {
+func (u *User) UpdateEmail(newEmail Email, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	if !u.email.Equals(newEmail) {
 		u.email = newEmail
-		u.touch()
+		u.touch(NewTimestampFromTime(now))
 	}
 	return nil
 }
 
-func (u *User) UpdateUsername(newUsername Username) error {
+func (u *User) UpdateUsername(newUsername Username, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	if !u.username.Equals(newUsername) {
 		u.username = newUsername
-		u.touch()
+		u.touch(NewTimestampFromTime(now))
 	}
 	return nil
 }
 
-func (u *User) UpdatePhone(newPhone Phone) error {
+func (u *User) UpdatePhone(newPhone Phone, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
-	u.phone = newPhone
-	u.touch()
+	if !u.phone.Equals(newPhone) {
+		u.phone = newPhone
+		u.touch(NewTimestampFromTime(now))
+	}
 	return nil
 }
 
-func (u *User) UpdatePassword(newHash Password) error {
+func (u *User) UpdatePassword(newHash Password, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	u.passwordHash = newHash
-	u.touch()
+	u.touch(NewTimestampFromTime(now))
 	return nil
 }
 
-func (u *User) UpdateProfile(
-	displayName DisplayName,
-	bio Bio,
-	avatarURL URL,
-	bannerColor HexColor,
-) error {
+func (u *User) UpdateProfile(displayName DisplayName, bio Bio, avatarURL URL, bannerColor HexColor, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
-
 	u.displayName = displayName
 	u.bio = bio
 	u.avatarURL = avatarURL
 	u.bannerColor = bannerColor
-	u.touch()
+	u.touch(NewTimestampFromTime(now))
 	return nil
 }
 
-func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp) error {
+func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
-
 	u.preferredPresence = p
 	u.preferredPresenceUntil = until
-	u.touch()
+	u.touch(NewTimestampFromTime(now))
 	return nil
 }
 
-func (u *User) EnsureActive() error {
-	if u.IsDisabled() {
-		return ErrUserDisabled
-	}
-	if u.IsScheduledForDeletion() {
-		return ErrUserScheduledDeletion
-	}
-	return nil
-}
-
-func (u *User) Anonymize() {
+func (u *User) Anonymize(now time.Time) {
 	anonID := u.id.String()
+	ts := NewTimestampFromTime(now)
 
-	// Construct anonymous value types directly using unsafe/internal mechanics or fallback formats
-	u.email, _ = NewEmail(fmt.Sprintf("deleted-%s@deleted.invalid", anonID))
-	u.username, _ = NewUsername(fmt.Sprintf("deleted_%s", anonID[:8]))
-	u.displayName, _ = NewDisplayName("Deleted User")
-	u.passwordHash = Password{}
-	u.phone = Phone{}
+	u.email = Email{value: fmt.Sprintf("deleted-%s@deleted.invalid", anonID)}
+	u.username = Username{value: fmt.Sprintf("deleted_%s", anonID[:8])}
+	u.displayName = DisplayName{value: "Deleted User"}
 	u.bio = Bio{}
 	u.avatarURL = URL{}
 	u.bannerColor = HexColor{}
+	u.passwordHash = Password{}
+	u.phone = Phone{}
 	u.preferredPresence = PreferredPresence{}
 	u.preferredPresenceUntil = Timestamp{}
 	u.verifiedAt = Timestamp{}
 	u.deleteScheduledAt = Timestamp{}
-
-	ts := NewTimestampFromTime(time.Now().UTC())
 	u.disabledAt = ts
-	u.touchAt(ts)
+	u.touch(ts)
 }
 
-func (u *User) touch() {
-	u.updatedAt = NewTimestampFromTime(time.Now().UTC())
-}
-
-func (u *User) touchAt(at Timestamp) {
+func (u *User) touch(at Timestamp) {
 	u.updatedAt = at
 }
