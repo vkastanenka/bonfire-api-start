@@ -685,6 +685,14 @@ func (t Timestamp) Equals(other Timestamp) bool {
 	return t.value.Equal(*other.value)
 }
 
+func (t Timestamp) HasPassed(now time.Time) bool {
+	parsed := t.Time()
+	if parsed == nil {
+		return false
+	}
+	return now.After(*parsed)
+}
+
 func (t *Timestamp) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
 		*t = Timestamp{value: nil}
@@ -864,4 +872,32 @@ func (u *Username) UnmarshalText(text []byte) error {
 
 	*u = parsed
 	return nil
+}
+
+// ============================================================================
+// VerificationCode
+// ============================================================================
+
+var ErrInvalidVerificationCode = errors.New("verification code must be 6 alphanumeric characters")
+
+var rgxVerificationCode = regexp.MustCompile(`^[2-9A-HJ-NP-Z]{6}$`)
+
+type VerificationCode struct {
+	value string
+}
+
+func NewVerificationCode(raw string) (VerificationCode, error) {
+	s := strings.ToUpper(sanitize.Text(raw))
+	if !rgxVerificationCode.MatchString(s) {
+		return VerificationCode{}, ErrInvalidVerificationCode
+	}
+	return VerificationCode{value: s}, nil
+}
+
+func (c VerificationCode) String() string {
+	return c.value
+}
+
+func (c VerificationCode) Equals(other VerificationCode) bool {
+	return c.value == other.value
 }

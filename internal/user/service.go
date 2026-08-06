@@ -3,8 +3,10 @@ package user
 import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
+	"bonfire-api/internal/outbox"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,15 +30,21 @@ type Repository interface {
 	UpdateBatch(ctx context.Context, users []*User) ([]*User, error)
 }
 
-type Service struct {
-	cache Cache
-	repo  Repository
+type OutboxRepository interface {
+	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
 }
 
-func NewService(cache Cache, repo Repository) *Service {
+type Service struct {
+	cache  Cache
+	repo   Repository
+	outbox OutboxRepository
+}
+
+func NewService(cache Cache, repo Repository, outbox OutboxRepository) *Service {
 	return &Service{
-		cache: cache,
-		repo:  repo,
+		cache:  cache,
+		repo:   repo,
+		outbox: outbox,
 	}
 }
 
@@ -382,11 +390,313 @@ func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDelete
 	return nil
 }
 
-func (s *Service) RequestUpdateEmailCode(ctx context.Context) error {
-	// TODO: Outbox verification email
+func (s *Service) RequestUpdateEmailCode(ctx context.Context, rawID uuid.UUID) error {
+	id, err := NewID(rawID)
+	if err != nil {
+		return err
+	}
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err := u.EnsureActive(); err != nil {
+		return err
+	}
+
+	code, err := crypto.GenerateVerificationCode(6)
+	if err != nil {
+		return fmt.Errorf("failed to generate verification code: %w", err)
+	}
+
+	// TODO: Update cache
+	// cacheKey := fmt.Sprintf("email_update_code:%s", u.ID().String())
+	// if err := s.cache.Set(ctx, cacheKey, code, 15*time.Minute); err != nil {
+	// 	return fmt.Errorf("failed to store verification code: %w", err)
+	// }
+
+	_, err = s.outbox.Publish(ctx, EventRequestUpdateEmailCode, RequestUpdateEmailCodePayload{
+		Email: u.Email().String(),
+		Code:  code,
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (s *Service) VerifyUpdateEmailCode(ctx context.Context) error {
+func (s *Service) VerifyUpdateEmailCode(ctx context.Context, rawID uuid.UUID, rawVerificationCode string) error {
+	// id, err := NewID(rawID)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// verificationCode, err := NewVerificationCode(rawVerificationCode)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// cacheKey := fmt.Sprintf("email_update_code:%s", id.String())
+	// cachedCode, err := s.cache.Get(ctx, cacheKey)
+	// if err != nil {
+	// 	if errors.Is(err, cache.ErrNotFound) {
+	// 		return ErrCodeExpiredOrInvalid
+	// 	}
+	// 	return err
+	// }
+
+	// if !verificationCode.Equals(cachedCode) {
+	// 	return ErrCodeMismatch
+	// }
+
+	// // Delete code after single use to prevent replay attacks
+	// _ = s.cache.Delete(ctx, cacheKey)
+
 	return nil
 }
+
+func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	users, err := s.repo.ListDeleteScheduled(ctx, time.Now().UTC(), batchSize)
+	if err != nil {
+		return fmt.Errorf("failed to list scheduled deletions: %w", err)
+	}
+
+	if len(users) == 0 {
+		return nil
+	}
+
+	idsToDelete := make([]ID, len(users))
+	for i, u := range users {
+		u.Anonymize()
+		idsToDelete[i] = u.ID()
+	}
+
+	_, err = s.repo.UpdateBatch(ctx, users)
+	if err != nil {
+		return fmt.Errorf("failed to batch update anonymized users: %w", err)
+	}
+
+	if cacheErr := s.cache.DeleteBatch(ctx, idsToDelete); cacheErr != nil {
+		// Log cache error without failing the core transaction
+	}
+
+	return nil
+}
+
+// // VerifyEmail verifies a user's email address using a signed verification token.
+// func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
+// 	// 1. Guard Input
+// 	if tokenStr == "" {
+// 		return errs.InvalidArgument("Verification token is required.").
+// 			FieldViolation("token", "Verification token is required.", "REQUIRED").
+// 			Wrap(errors.New("verification token is required"))
+// 	}
+
+// 	// 2. Verify Email Token Signature & Claims
+// 	claims, err := s.tokens.VerifyEmailVerify(tokenStr)
+// 	if err != nil {
+// 		return errs.Unauthenticated("Invalid or expired verification token.").
+// 			FieldViolation("token", "Invalid or expired verification token.", "INVALID_TOKEN").
+// 			Wrap(err)
+// 	}
+
+// 	// 3. Single-Use Token Check (Shield Store)
+// 	// Prevents token replay attacks by checking if the token's JTI was already consumed
+// 	consumed, err := s.shield.IsTokenConsumed(ctx, claims.ID)
+// 	if err != nil {
+// 		slog.ErrorContext(ctx, "failed to check token consumed state",
+// 			"error", err,
+// 			"token_id", claims.ID,
+// 			"user_id", claims.UserID,
+// 		)
+// 	} else if consumed {
+// 		return errs.Unauthenticated("Verification token has already been used.").
+// 			FieldViolation("token", "Verification token has already been used.", "TOKEN_ALREADY_USED").
+// 			Wrap(errors.New("verification token already used"))
+// 	}
+
+// 	// 4. Fetch User Aggregate directly from UserRepository
+// 	u, err := s.users.Get(ctx, claims.UserID)
+// 	if err != nil {
+// 		if errs.IsNotFound(err) {
+// 			return errs.Unauthenticated("Invalid or expired verification token.").
+// 				FieldViolation("token", "User associated with this token no longer exists.", "USER_NOT_FOUND").
+// 				Wrap(err)
+// 		}
+// 		return err
+// 	}
+
+// 	// 5. Idempotency Check
+// 	// If already verified, mark token as consumed and exit early successfully
+// 	if u.IsVerified() {
+// 		s.consumeTokenNonBlocking(ctx, claims.ID, claims.ExpiresAt.Time)
+// 		return nil
+// 	}
+
+// 	// 6. Mutate User Domain Aggregate State
+// 	u.Verify(time.Now().UTC())
+
+// 	// 7. TRANSACTION: Atomically persist user verification state
+// 	persistCtx := context.WithoutCancel(ctx)
+
+// 	txErr := s.tx.ExecTx(persistCtx, func(txCtx context.Context) error {
+// 		return s.users.Update(txCtx, u)
+// 	})
+
+// 	if txErr != nil {
+// 		return txErr
+// 	}
+
+// 	// 8. Consume Token non-blockingly for remaining TTL
+// 	s.consumeTokenNonBlocking(persistCtx, claims.ID, claims.ExpiresAt.Time)
+
+// 	return nil
+// }
+
+// // consumeTokenNonBlocking marks a single-use token as consumed until its expiration.
+// func (s *Service) consumeTokenNonBlocking(ctx context.Context, tokenID string, expiresAt time.Time) {
+// 	remainingTTL := time.Until(expiresAt)
+// 	if remainingTTL <= 0 {
+// 		return
+// 	}
+
+// 	if err := s.shield.MarkTokenConsumed(ctx, tokenID, remainingTTL); err != nil {
+// 		slog.WarnContext(ctx, "failed to mark verification token as consumed",
+// 			"error", err,
+// 			"token_id", tokenID,
+// 		)
+// 	}
+// }
+
+// type RequestUpdatePhoneCodeParams struct {
+// 	UserID   uuid.UUID
+// 	Password string
+// 	NewPhone string
+// }
+
+// func (s *Service) RequestUpdatePhoneCode(ctx context.Context, p RequestUpdatePhoneCodeParams) error {
+// 	id, err := NewID(p.UserID)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	newPhone, err := NewPhone(p.NewPhone)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	password, err := NewPassword(p.Password)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	u, err := s.repo.Get(ctx, id)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	if err := u.EnsureActive(); err != nil {
+// 		return err
+// 	}
+
+// 	// 1. Re-authenticate user before allowing phone change request
+// 	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+// 		return errs.Unauthenticated("Invalid password.").
+// 			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+// 			Wrap(err)
+// 	}
+
+// 	// 2. Generate 6-digit SMS verification code
+// 	code, err := crypto.GenerateVerificationCode(6)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to generate phone code: %w", err)
+// 	}
+
+// 	// 3. Cache payload binding the User ID, new Phone number, and generated Code
+// 	// E.g., JSON payload: {"phone": "+15550199", "code": "837192"}
+// 	cacheKey := fmt.Sprintf("phone_update_code:%s", id.String())
+// 	cachePayload := PhoneUpdateCachePayload{
+// 		Phone: newPhone.String(),
+// 		Code:  code,
+// 	}
+// 	if err := s.cache.Set(ctx, cacheKey, cachePayload, 10*time.Minute); err != nil {
+// 		return fmt.Errorf("failed to cache phone code payload: %w", err)
+// 	}
+
+// 	// 4. Publish SMS delivery event
+// 	_, err = s.outbox.Publish(ctx, EventRequestUpdatePhoneCode, RequestUpdatePhoneCodePayload{
+// 		Phone: newPhone.String(),
+// 		Code:  code,
+// 	})
+// 	if err != nil {
+// 		return fmt.Errorf("failed to publish outbox event: %w", err)
+// 	}
+
+// 	return nil
+// }
+
+// type VerifyUpdatePhoneCodeParams struct {
+// 	UserID           uuid.UUID
+// 	VerificationCode string
+// }
+
+// func (s *Service) VerifyUpdatePhoneCode(ctx context.Context, p VerifyUpdatePhoneCodeParams) (*User, error) {
+// 	id, err := NewID(p.UserID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	code, err := NewVerificationCode(p.VerificationCode)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// 1. Fetch cached request payload
+// 	cacheKey := fmt.Sprintf("phone_update_code:%s", id.String())
+// 	cachedData, err := s.cache.GetPhoneUpdatePayload(ctx, cacheKey)
+// 	if err != nil {
+// 		if errors.Is(err, cache.ErrNotFound) {
+// 			return nil, errs.InvalidArgument("Verification code has expired or is invalid.")
+// 		}
+// 		return nil, err
+// 	}
+
+// 	// 2. Validate input code against cached code
+// 	if !code.Equals(cachedData.Code) {
+// 		return nil, errs.InvalidArgument("Invalid verification code.")
+// 	}
+
+// 	// 3. Parse and validate the new phone number from cache payload
+// 	newPhone, err := NewPhone(cachedData.Phone)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// 4. Retrieve domain entity & apply update
+// 	u, err := s.repo.Get(ctx, id)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if err := u.UpdatePhone(newPhone); err != nil {
+// 		return nil, err
+// 	}
+
+// 	// 5. Persist changes to Database
+// 	updatedUser, err := s.repo.Update(ctx, u)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// 6. Cleanup cache
+// 	_ = s.cache.Delete(ctx, cacheKey)          // Clear the verification code
+// 	_ = s.cache.Delete(ctx, updatedUser.ID())  // Invalidate stale user profile cache
+
+// 	return updatedUser, nil
+// }

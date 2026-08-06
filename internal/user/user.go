@@ -50,6 +50,13 @@ func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
 func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
 func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
 
+func (u *User) EffectivePresence() PreferredPresence {
+	if u.preferredPresenceUntil.HasPassed(time.Now().UTC()) {
+		return PreferredPresence{}
+	}
+	return u.preferredPresence
+}
+
 func New(
 	id ID,
 	email Email,
@@ -143,7 +150,7 @@ func (u *User) CancelDeletion() {
 }
 
 func (u *User) UpdateEmail(newEmail Email) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	if !u.email.Equals(newEmail) {
@@ -154,7 +161,7 @@ func (u *User) UpdateEmail(newEmail Email) error {
 }
 
 func (u *User) UpdateUsername(newUsername Username) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	if !u.username.Equals(newUsername) {
@@ -165,7 +172,7 @@ func (u *User) UpdateUsername(newUsername Username) error {
 }
 
 func (u *User) UpdatePhone(newPhone Phone) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	u.phone = newPhone
@@ -174,7 +181,7 @@ func (u *User) UpdatePhone(newPhone Phone) error {
 }
 
 func (u *User) UpdatePassword(newHash Password) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 	u.passwordHash = newHash
@@ -188,7 +195,7 @@ func (u *User) UpdateProfile(
 	avatarURL URL,
 	bannerColor HexColor,
 ) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 
@@ -201,7 +208,7 @@ func (u *User) UpdateProfile(
 }
 
 func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp) error {
-	if err := u.ensureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return err
 	}
 
@@ -211,7 +218,7 @@ func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp) error 
 	return nil
 }
 
-func (u *User) ensureActive() error {
+func (u *User) EnsureActive() error {
 	if u.IsDisabled() {
 		return ErrUserDisabled
 	}
@@ -219,6 +226,23 @@ func (u *User) ensureActive() error {
 		return ErrUserScheduledDeletion
 	}
 	return nil
+}
+
+func (u *User) Anonymize() {
+	// u.email = NewEmail(fmt.Sprintf("deleted-%s@deleted.invalid", u.id.String()))
+	// u.username = NewUsernameUnsafe(fmt.Sprintf("deleted-%s", u.id.String()))
+	// u.displayName = NewDisplayNameUnsafe("Deleted User")
+	// u.passwordHash = Password{}
+	// u.phone = Phone{}
+	// u.bio = Bio{}
+	// u.avatarURL = URL{}
+	// u.bannerColor = HexCode{}
+	// u.preferredPresence = PreferredPresence{}
+	// u.preferredPresenceUntil = Timestamp{}
+	// u.verifiedAt = Timestamp{}
+	// u.disabledAt = NewTimestampFromTime(time.Now())
+	// u.deleteScheduledAt = Timestamp{}
+	u.touch()
 }
 
 func (u *User) touch() {

@@ -1,9 +1,11 @@
 package crypto
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"math/big"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -51,4 +53,23 @@ func ConstantWindow(target time.Duration) func() {
 			time.Sleep(target - elapsed)
 		}
 	}
+}
+
+// Standard alphanumeric set excluding easily confused characters (0, O, 1, I, L)
+const defaultVerificationCodeCharset = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+
+// GenerateVerificationCode creates a cryptographically secure random alphanumeric code of a given length.
+func GenerateVerificationCode(length int) (string, error) {
+	bytes := make([]byte, length)
+	charsetLen := big.NewInt(int64(len(defaultVerificationCodeCharset)))
+
+	for i := 0; i < length; i++ {
+		num, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		bytes[i] = defaultVerificationCodeCharset[num.Int64()]
+	}
+
+	return string(bytes), nil
 }
