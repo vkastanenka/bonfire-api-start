@@ -40,8 +40,7 @@ SELECT
 FROM
     users
 WHERE
-    id = $1
-LIMIT 1;
+    id = $1;
 
 -- name: UserGetByEmail :one
 SELECT
@@ -64,8 +63,7 @@ SELECT
 FROM
     users
 WHERE
-    email = $1
-LIMIT 1;
+    email = $1;
 
 -- name: UserListDeleteScheduled :many
 SELECT
@@ -91,8 +89,7 @@ WHERE
     delete_scheduled_at IS NOT NULL
     AND delete_scheduled_at <= @current_time::timestamptz
 ORDER BY
-    delete_scheduled_at ASC,
-    id ASC
+    delete_scheduled_at ASC
 LIMIT @batch_limit::int;
 
 -- name: UserUpdate :one
@@ -134,28 +131,13 @@ RETURNING
     updated_at;
 
 -- name: UserUpdateBatch :many
-WITH unnested_data AS (
+WITH input_data AS (
     SELECT
         *
     FROM
-        unnest(@ids::uuid[], @emails::citext[], @usernames::citext[], @display_names::citext[], @password_hashes::text[], @phones::text[], @bios::text[], @avatar_urls::text[], @banner_colors::text[], @preferred_presences::smallint[], @preferred_presence_untils::timestamptz[], @verified_ats::timestamptz[], @disabled_ats::timestamptz[], @delete_scheduled_ats::timestamptz[], @created_ats::timestamptz[], @updated_ats::timestamptz[]) AS u(id,
-            email,
-            username,
-            display_name,
-            password_hash,
-            phone,
-            bio,
-            avatar_url,
-            banner_color,
-            preferred_presence,
-            preferred_presence_until,
-            verified_at,
-            disabled_at,
-            delete_scheduled_at,
-            created_at,
-            updated_at)
+        jsonb_populate_recordset(NULL::users, @users_json::jsonb)
     ORDER BY
-        u.id ASC)
+        id ASC)
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
 SELECT
     id,
@@ -175,7 +157,7 @@ SELECT
     created_at,
     updated_at
 FROM
-    unnested_data
+    input_data
 ON CONFLICT (id)
     DO UPDATE SET
         email = EXCLUDED.email,
