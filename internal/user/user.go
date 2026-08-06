@@ -45,16 +45,16 @@ type Profile struct {
 	displayName DisplayName
 	bio         *Bio
 	avatarURL   *URL
-	bannerColor *BannerColor
+	bannerColor *HexCode
 	updatedAt   time.Time
 }
 
-func (p *Profile) UserID() ID                { return p.userID }
-func (p *Profile) DisplayName() DisplayName  { return p.displayName }
-func (p *Profile) Bio() *Bio                 { return p.bio }
-func (p *Profile) AvatarURL() *URL           { return p.avatarURL }
-func (p *Profile) BannerColor() *BannerColor { return p.bannerColor }
-func (p *Profile) UpdatedAt() time.Time      { return p.updatedAt }
+func (p *Profile) UserID() ID               { return p.userID }
+func (p *Profile) DisplayName() DisplayName { return p.displayName }
+func (p *Profile) Bio() *Bio                { return p.bio }
+func (p *Profile) AvatarURL() *URL          { return p.avatarURL }
+func (p *Profile) BannerColor() *HexCode    { return p.bannerColor }
+func (p *Profile) UpdatedAt() time.Time     { return p.updatedAt }
 
 type Aggregate struct {
 	user    *User
@@ -216,7 +216,7 @@ func ReconstituteProfile(
 	displayName DisplayName,
 	bio *Bio,
 	avatarURL *URL,
-	bannerColor *BannerColor,
+	bannerColor *HexCode,
 	updatedAt time.Time,
 ) *Profile {
 	return &Profile{
@@ -229,7 +229,7 @@ func ReconstituteProfile(
 	}
 }
 
-func (p *Profile) Update(displayName DisplayName, bio *Bio, avatarURL *URL, bannerColor *BannerColor) {
+func (p *Profile) Update(displayName DisplayName, bio *Bio, avatarURL *URL, bannerColor *HexCode) {
 	p.displayName = displayName
 	p.bio = bio
 	p.avatarURL = avatarURL

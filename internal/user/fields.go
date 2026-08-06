@@ -12,56 +12,56 @@ import (
 )
 
 // ============================================================================
-// BannerColor
+// Hex
 // ============================================================================
 
 var (
-	ErrBannerColorInvalid = errors.New("banner color must be a valid hex code (e.g., #FF5733)")
-	rgxBannerColor        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
+	ErrHexCodeInvalid = errors.New("banner color must be a valid hex code (e.g., #FF5733)")
+	rgxHexCode        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
 )
 
-type BannerColor struct {
+type HexCode struct {
 	value *string
 }
 
-func NewBannerColor(raw *string) (BannerColor, error) {
+func NewHexCode(raw *string) (HexCode, error) {
 	if raw == nil {
-		return BannerColor{value: nil}, nil
+		return HexCode{value: nil}, nil
 	}
 
 	s := sanitize.Text(*raw)
 	if s == "" {
-		return BannerColor{value: nil}, nil
+		return HexCode{value: nil}, nil
 	}
 
-	if !rgxBannerColor.MatchString(s) {
-		return BannerColor{}, ErrBannerColorInvalid
+	if !rgxHexCode.MatchString(s) {
+		return HexCode{}, ErrHexCodeInvalid
 	}
 
 	upper := strings.ToUpper(s)
-	return BannerColor{value: &upper}, nil
+	return HexCode{value: &upper}, nil
 }
 
-func ParseBannerColor(raw string) (BannerColor, error) {
-	return NewBannerColor(&raw)
+func ParseHexCode(raw string) (HexCode, error) {
+	return NewHexCode(&raw)
 }
 
-func (bc BannerColor) String() string {
+func (bc HexCode) String() string {
 	if bc.value == nil {
 		return ""
 	}
 	return *bc.value
 }
 
-func (bc BannerColor) NilString() *string {
+func (bc HexCode) NilString() *string {
 	return bc.value
 }
 
-func (bc BannerColor) IsValid() bool {
+func (bc HexCode) IsValid() bool {
 	return bc.value != nil && *bc.value != ""
 }
 
-func (bc BannerColor) Equals(other BannerColor) bool {
+func (bc HexCode) Equals(other HexCode) bool {
 	if bc.value == nil && other.value == nil {
 		return true
 	}
@@ -71,14 +71,14 @@ func (bc BannerColor) Equals(other BannerColor) bool {
 	return *bc.value == *other.value
 }
 
-func (bc *BannerColor) UnmarshalText(text []byte) error {
+func (bc *HexCode) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
-		*bc = BannerColor{value: nil}
+		*bc = HexCode{value: nil}
 		return nil
 	}
 
 	raw := string(text)
-	parsed, err := NewBannerColor(&raw)
+	parsed, err := NewHexCode(&raw)
 	if err != nil {
 		return err
 	}
