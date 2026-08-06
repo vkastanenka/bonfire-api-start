@@ -18,7 +18,6 @@ type Repository interface {
 	GetAggregate(ctx context.Context, id uuid.UUID) (*Aggregate, error)
 	GetAggregateBatch(ctx context.Context, ids []uuid.UUID) ([]*Aggregate, error)
 	GetByEmail(ctx context.Context, email Email) (*Aggregate, error)
-	CheckAvailability(ctx context.Context, email Email, username Username) (bool, bool, error)
 	Update(ctx context.Context, u *User) error
 	UpdateProfile(ctx context.Context, userID uuid.UUID, prof *Profile) error
 }
