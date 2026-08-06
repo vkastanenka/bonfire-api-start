@@ -1,23 +1,27 @@
 package user
 
 import (
+	"errors"
 	"time"
 
 	"bonfire-api/internal/pkg/ptr"
-
-	"github.com/google/uuid"
 )
 
-// ============================================================================
-// Entities
-// ============================================================================
+var (
+	ErrUserDisabled          = errors.New("cannot perform action on a disabled user account")
+	ErrUserScheduledDeletion = errors.New("cannot perform action on an account scheduled for deletion")
+)
 
 type User struct {
 	id                     ID
 	email                  Email
 	username               Username
+	displayName            DisplayName
 	passwordHash           Password
 	phone                  *Phone
+	bio                    *Bio
+	avatarURL              *URL
+	bannerColor            *HexCode
 	preferredPresence      *PreferredPresence
 	preferredPresenceUntil *time.Time
 	verifiedAt             *time.Time
@@ -30,8 +34,12 @@ type User struct {
 func (u *User) ID() ID                                { return u.id }
 func (u *User) Email() Email                          { return u.email }
 func (u *User) Username() Username                    { return u.username }
+func (u *User) DisplayName() DisplayName              { return u.displayName }
 func (u *User) PasswordHash() Password                { return u.passwordHash }
 func (u *User) Phone() *Phone                         { return u.phone }
+func (u *User) Bio() *Bio                             { return u.bio }
+func (u *User) AvatarURL() *URL                       { return u.avatarURL }
+func (u *User) BannerColor() *HexCode                 { return u.bannerColor }
 func (u *User) PreferredPresence() *PreferredPresence { return u.preferredPresence }
 func (u *User) PreferredPresenceUntil() *time.Time    { return u.preferredPresenceUntil }
 func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
@@ -40,58 +48,23 @@ func (u *User) DeleteScheduledAt() *time.Time         { return u.deleteScheduled
 func (u *User) CreatedAt() time.Time                  { return u.createdAt }
 func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
 
-type Profile struct {
-	userID      ID
-	displayName DisplayName
-	bio         *Bio
-	avatarURL   *URL
-	bannerColor *HexCode
-	updatedAt   time.Time
-}
+func (u *User) IsVerified() bool             { return u.verifiedAt != nil }
+func (u *User) IsDisabled() bool             { return u.disabledAt != nil }
+func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt != nil }
 
-func (p *Profile) UserID() ID               { return p.userID }
-func (p *Profile) DisplayName() DisplayName { return p.displayName }
-func (p *Profile) Bio() *Bio                { return p.bio }
-func (p *Profile) AvatarURL() *URL          { return p.avatarURL }
-func (p *Profile) BannerColor() *HexCode    { return p.bannerColor }
-func (p *Profile) UpdatedAt() time.Time     { return p.updatedAt }
-
-type Aggregate struct {
-	user    *User
-	profile *Profile
-}
-
-func NewAggregate(u *User, p *Profile) *Aggregate {
-	return &Aggregate{
-		user:    u,
-		profile: p,
-	}
-}
-
-func (ua *Aggregate) User() *User       { return ua.user }
-func (ua *Aggregate) Profile() *Profile { return ua.profile }
-
-// ============================================================================
-// User Methods
-// ============================================================================
-
-func New(email Email, username Username, passwordHash Password) (*User, error) {
+func New(
+	id ID,
+	email Email,
+	username Username,
+	displayName DisplayName,
+	passwordHash Password,
+) (*User, error) {
 	now := time.Now().UTC()
-
-	v7, err := uuid.NewV7()
-	if err != nil {
-		return nil, err
-	}
-
-	id, err := NewID(v7)
-	if err != nil {
-		return nil, err
-	}
-
 	return &User{
 		id:           id,
 		email:        email,
 		username:     username,
+		displayName:  displayName,
 		passwordHash: passwordHash,
 		createdAt:    now,
 		updatedAt:    now,
@@ -102,8 +75,12 @@ func Reconstitute(
 	id ID,
 	email Email,
 	username Username,
-	phone *Phone,
+	displayName DisplayName,
 	passwordHash Password,
+	phone *Phone,
+	bio *Bio,
+	avatarURL *URL,
+	bannerColor *HexCode,
 	preferredPresence *PreferredPresence,
 	preferredPresenceUntil *time.Time,
 	verifiedAt *time.Time,
@@ -115,8 +92,12 @@ func Reconstitute(
 		id:                     id,
 		email:                  email,
 		username:               username,
-		phone:                  phone,
+		displayName:            displayName,
 		passwordHash:           passwordHash,
+		phone:                  phone,
+		bio:                    bio,
+		avatarURL:              avatarURL,
+		bannerColor:            bannerColor,
 		preferredPresence:      preferredPresence,
 		preferredPresenceUntil: ptr.Map(preferredPresenceUntil, time.Time.UTC),
 		verifiedAt:             ptr.Map(verifiedAt, time.Time.UTC),
@@ -160,34 +141,83 @@ func (u *User) CancelDeletion() {
 	}
 }
 
-func (u *User) UpdateEmail(newEmail Email) {
+func (u *User) UpdateEmail(newEmail Email) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
 	if !u.email.Equals(newEmail) {
 		u.email = newEmail
 		u.touch()
 	}
+	return nil
 }
 
-func (u *User) UpdateUsername(newUsername Username) {
+func (u *User) UpdateUsername(newUsername Username) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
 	if !u.username.Equals(newUsername) {
 		u.username = newUsername
 		u.touch()
 	}
+	return nil
 }
 
-func (u *User) UpdatePhone(newPhone *Phone) {
+func (u *User) UpdatePhone(newPhone *Phone) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
 	u.phone = newPhone
 	u.touch()
+	return nil
 }
 
-func (u *User) UpdatePassword(newHash Password) {
+func (u *User) UpdatePassword(newHash Password) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
 	u.passwordHash = newHash
 	u.touch()
+	return nil
 }
 
-func (u *User) SetPreferredPresence(p *PreferredPresence, until *time.Time) {
+func (u *User) UpdateProfile(
+	displayName DisplayName,
+	bio *Bio,
+	avatarURL *URL,
+	bannerColor *HexCode,
+) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
+
+	u.displayName = displayName
+	u.bio = bio
+	u.avatarURL = avatarURL
+	u.bannerColor = bannerColor
+	u.touch()
+	return nil
+}
+
+func (u *User) SetPreferredPresence(p *PreferredPresence, until *time.Time) error {
+	if err := u.ensureActive(); err != nil {
+		return err
+	}
+
 	u.preferredPresence = p
 	u.preferredPresenceUntil = ptr.Map(until, time.Time.UTC)
 	u.touch()
+	return nil
+}
+
+func (u *User) ensureActive() error {
+	if u.IsDisabled() {
+		return ErrUserDisabled
+	}
+	if u.IsScheduledForDeletion() {
+		return ErrUserScheduledDeletion
+	}
+	return nil
 }
 
 func (u *User) touch() {
@@ -196,43 +226,4 @@ func (u *User) touch() {
 
 func (u *User) touchAt(at time.Time) {
 	u.updatedAt = at.UTC()
-}
-
-// ============================================================================
-// Profile Methods
-// ============================================================================
-
-func NewProfile(userID ID, displayName DisplayName) *Profile {
-	now := time.Now().UTC()
-	return &Profile{
-		userID:      userID,
-		displayName: displayName,
-		updatedAt:   now,
-	}
-}
-
-func ReconstituteProfile(
-	userID ID,
-	displayName DisplayName,
-	bio *Bio,
-	avatarURL *URL,
-	bannerColor *HexCode,
-	updatedAt time.Time,
-) *Profile {
-	return &Profile{
-		userID:      userID,
-		displayName: displayName,
-		bio:         bio,
-		avatarURL:   avatarURL,
-		bannerColor: bannerColor,
-		updatedAt:   updatedAt.UTC(),
-	}
-}
-
-func (p *Profile) Update(displayName DisplayName, bio *Bio, avatarURL *URL, bannerColor *HexCode) {
-	p.displayName = displayName
-	p.bio = bio
-	p.avatarURL = avatarURL
-	p.bannerColor = bannerColor
-	p.updatedAt = time.Now().UTC()
 }

@@ -3,24 +3,26 @@ package user
 import (
 	"bonfire-api/internal/token"
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type Cache interface {
-	AggregateGet(ctx context.Context, userID uuid.UUID) (*Aggregate, error)
-	AggregateGetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*Aggregate, []uuid.UUID, error)
-	AggregateSet(ctx context.Context, agg *Aggregate) error
-	AggregateSetBatch(ctx context.Context, aggs []*Aggregate) error
+	Get(ctx context.Context, id ID) (*User, error)
+	GetBatch(ctx context.Context, ids []ID) (map[ID]*User, []ID, error)
+	Set(ctx context.Context, user *User) error
+	SetBatch(ctx context.Context, users []*User) error
 }
 
 type Repository interface {
-	AggregateGet(ctx context.Context, id uuid.UUID) (*Aggregate, error)
-	AggregateGetBatch(ctx context.Context, ids []uuid.UUID) ([]*Aggregate, error)
-	GetByEmail(ctx context.Context, email Email) (*Aggregate, error)
-	Update(ctx context.Context, u *User) error
-	UpdateProfile(ctx context.Context, userID uuid.UUID, prof *Profile) error
+	Create(ctx context.Context, u *User) error
+	Get(ctx context.Context, id ID) (*User, error)
+	GetByEmail(ctx context.Context, email Email) (*User, error)
+	ListDeleteScheduled(ctx context.Context, currentTime time.Time, limit int32) ([]*User, error)
+	Update(ctx context.Context, u *User) (*User, error)
+	UpdateBatch(ctx context.Context, users []*User) ([]*User, error)
 }
 
 type TokenProvider interface {
@@ -46,28 +48,33 @@ func NewService(cache Cache, repo Repository, tokens TokenProvider) *Service {
 	}
 }
 
-func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*Aggregate, error) {
+func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
 	id, err := NewID(rawID)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cache.AggregateGet(ctx, id.UUID())
+	u, err := s.cache.Get(ctx, id)
 	if err == nil && u != nil {
 		return u, nil
 	}
 	if err != nil {
-		// Log cache miss or error
+		// Log cache err
 	}
 
-	u, err = s.repo.AggregateGet(ctx, id.UUID())
+	u, err = s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if cacheErr := s.cache.AggregateSet(ctx, u); cacheErr != nil {
-		// Log cache write error
-	}
+	go func(userToCache *User) {
+		asyncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+
+		if cacheErr := s.cache.Set(asyncCtx, userToCache); cacheErr != nil {
+			// Log cache err
+		}
+	}(u)
 
 	return u, nil
 }
@@ -83,7 +90,7 @@ type UpdateUsernameParams struct {
 	Password string
 }
 
-func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*Aggregate, error) {
+func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
 	id, err := NewID(p.UserID)
 	if err != nil {
 		return nil, err
@@ -96,7 +103,7 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 
 	// TODO: Check password validity
 
-	agg, err := s.repo.AggregateGet(ctx, id.UUID())
+	agg, err := s.repo.UserGet(ctx, id.UUID())
 	if err != nil {
 		return nil, err
 	}
@@ -107,10 +114,11 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return nil, err
 	}
 
-	if s.cache != nil {
-		if cacheErr := s.cache.AggregateSet(ctx, agg); cacheErr != nil {
-			// Log error
-		}
+	if cacheErr := s.cache.Set(ctx, u); cacheErr != nil {
+		slog.WarnContext(ctx, "failed to populate user cache",
+			"user_id", id.String(),
+			"error", cacheErr,
+		)
 	}
 
 	return nil, nil
@@ -145,7 +153,7 @@ type UpdatePreferredPresenceParams struct {
 	ExpiresAt *string
 }
 
-func (s *Service) UpdatePreferredPreference(ctx context.Context, p UpdatePreferredPresenceParams) (*Aggregate, error) {
+func (s *Service) UpdatePreferredPreference(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
 	preferredPresence, err := NewPreferredPresence(p.Presence)
 	if err != nil {
 		return nil, err
@@ -176,7 +184,7 @@ type UpdateProfileParams struct {
 	BannerColor *string
 }
 
-func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Aggregate, error) {
+func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
 	id, err := NewID(p.UserID)
 	if err != nil {
 		return nil, err
@@ -199,7 +207,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Ag
 	}
 
 	// 2. Delegate the update directly to the repository
-	// (Repo executes the UPDATE and returns the fully hydrated *Aggregate)
+	// (Repo executes the UPDATE and returns the fully hydrated *User)
 	agg, err := s.repo.UpdateProfile(ctx, id.UUID(), UpdateProfileRepoParams{
 		DisplayName: displayName,
 		Bio:         bio,
@@ -210,11 +218,11 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Ag
 		return nil, err
 	}
 
-	// 3. Sync the cache immediately with the returned aggregate
-	if s.cache != nil {
-		if cacheErr := s.cache.SetAggregate(ctx, agg); cacheErr != nil {
-			// s.logger.WarnContext(ctx, "failed to update user cache after profile update", "error", cacheErr)
-		}
+	if cacheErr := s.cache.Set(ctx, u); cacheErr != nil {
+		slog.WarnContext(ctx, "failed to populate user cache",
+			"user_id", id.String(),
+			"error", cacheErr,
+		)
 	}
 
 	return agg, nil

@@ -1,309 +1,3 @@
--- name: UserAggregateCreate :exec
-WITH new_user AS (
-INSERT INTO users(id, created_at, updated_at, verified_at, disabled_at, delete_scheduled_at, preferred_presence_until, preferred_presence, email, username, password_hash, phone)
-        VALUES (@id::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('verified_at')::timestamptz, sqlc.narg('disabled_at')::timestamptz, sqlc.narg('delete_scheduled_at')::timestamptz, sqlc.narg('preferred_presence_until')::timestamptz, sqlc.narg('preferred_presence')::smallint, @email::citext, @username::citext, @password_hash::text, sqlc.narg('phone')::text)
-    RETURNING
-        id
-), new_profile AS (
-INSERT INTO user_profiles(user_id, created_at, updated_at, display_name, bio, avatar_url, banner_color)
-        VALUES ((
-                SELECT
-                    id
-                FROM
-                    new_user),
-                @profile_created_at::timestamptz,
-                @profile_updated_at::timestamptz,
-                @display_name::citext,
-                sqlc.narg('bio')::text,
-                sqlc.narg('avatar_url')::text,
-                sqlc.narg('banner_color')::text)
-        RETURNING
-            user_id
-)
-SELECT
-    1;
-
--- name: UserAggregateGet :one
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id = @id::uuid
-LIMIT 1;
-
--- name: UserAggregateUpdateBatch :exec
-WITH unnested_data AS (
-    SELECT
-        *
-    FROM
-        unnest(@ids::uuid[], @emails::citext[], @usernames::citext[], @password_hashes::text[], @phones::text[], @preferred_presences::smallint[], @preferred_presence_untils::timestamptz[], @verified_ats::timestamptz[], @disabled_ats::timestamptz[], @delete_scheduled_ats::timestamptz[], @updated_ats::timestamptz[], @display_names::citext[], @bios::text[], @avatar_urls::text[], @banner_colors::text[], @profile_updated_ats::timestamptz[]) AS u(id,
-            email,
-            username,
-            password_hash,
-            phone,
-            preferred_presence,
-            preferred_presence_until,
-            verified_at,
-            disabled_at,
-            delete_scheduled_at,
-            updated_at,
-            display_name,
-            bio,
-            avatar_url,
-            banner_color,
-            profile_updated_at)
-    ORDER BY
-        u.id ASC
-),
-updated_users AS (
-    UPDATE
-        users u
-    SET
-        email = d.email,
-        username = d.username,
-        password_hash = d.password_hash,
-        phone = d.phone,
-        preferred_presence = d.preferred_presence,
-        preferred_presence_until = d.preferred_presence_until,
-        verified_at = d.verified_at,
-        disabled_at = d.disabled_at,
-        delete_scheduled_at = d.delete_scheduled_at,
-        updated_at = d.updated_at
-    FROM
-        unnested_data d
-    WHERE
-        u.id = d.id
-    RETURNING
-        u.id
-),
-updated_profiles AS (
-    UPDATE
-        user_profiles p
-    SET
-        display_name = d.display_name,
-        bio = d.bio,
-        avatar_url = d.avatar_url,
-        banner_color = d.banner_color,
-        updated_at = d.profile_updated_at
-    FROM
-        unnested_data d
-    WHERE
-        p.user_id = d.id
-    RETURNING
-        p.user_id
-)
-SELECT
-    1;
-
--- name: UserAggregateUpdateEmail :one
-WITH updated_user AS (
-    UPDATE
-        users
-    SET
-        email = @email::citext,
-        updated_at = @updated_at::timestamptz
-    WHERE
-        id = @id::uuid
-    RETURNING
-        id
-)
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id =(
-        SELECT
-            id
-        FROM
-            updated_user)
-LIMIT 1;
-
--- name: UserAggregateUpdatePhone :one
-WITH updated_user AS (
-    UPDATE
-        users
-    SET
-        phone = sqlc.narg('phone')::text,
-        updated_at = @updated_at::timestamptz
-    WHERE
-        id = @id::uuid
-    RETURNING
-        id
-)
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id =(
-        SELECT
-            id
-        FROM
-            updated_user)
-LIMIT 1;
-
--- name: UserAggregateUpdatePreferredPresence :one
-WITH updated_user AS (
-    UPDATE
-        users
-    SET
-        preferred_presence = sqlc.narg('preferred_presence')::smallint,
-        preferred_presence_until = sqlc.narg('preferred_presence_until')::timestamptz,
-        updated_at = @updated_at::timestamptz
-    WHERE
-        id = @id::uuid
-    RETURNING
-        id
-)
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id =(
-        SELECT
-            id
-        FROM
-            updated_user)
-LIMIT 1;
-
--- name: UserAggregateUpdateProfile :one
-WITH updated_profile AS (
-    UPDATE
-        user_profiles
-    SET
-        display_name = @display_name::citext,
-        bio = sqlc.narg('bio')::text,
-        avatar_url = sqlc.narg('avatar_url')::text,
-        banner_color = sqlc.narg('banner_color')::text,
-        updated_at = @updated_at::timestamptz
-    WHERE
-        user_id = @user_id::uuid
-    RETURNING
-        user_id
-)
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id =(
-        SELECT
-            user_id
-        FROM
-            updated_profile)
-LIMIT 1;
-
--- name: UserAggregateUpdateUsername :one
-WITH updated_user AS (
-    UPDATE
-        users
-    SET
-        username = @username::citext,
-        updated_at = @updated_at::timestamptz
-    WHERE
-        id = @id::uuid
-    RETURNING
-        id
-)
-SELECT
-    id,
-    email,
-    username,
-    phone,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    user_aggregates
-WHERE
-    id =(
-        SELECT
-            id
-        FROM
-            updated_user)
-LIMIT 1;
-
 -- name: UserAvailability :one
 SELECT
     NOT EXISTS (
@@ -321,13 +15,21 @@ SELECT
         WHERE
             username = @username::citext)::boolean AS username_available;
 
+-- name: UserCreate :exec
+INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
+
 -- name: UserGet :one
 SELECT
     id,
     email,
     username,
+    display_name,
     password_hash,
     phone,
+    bio,
+    avatar_url,
+    banner_color,
     preferred_presence,
     preferred_presence_until,
     verified_at,
@@ -338,7 +40,7 @@ SELECT
 FROM
     users
 WHERE
-    id = @id::uuid
+    id = $1
 LIMIT 1;
 
 -- name: UserGetByEmail :one
@@ -346,8 +48,12 @@ SELECT
     id,
     email,
     username,
+    display_name,
     password_hash,
     phone,
+    bio,
+    avatar_url,
+    banner_color,
     preferred_presence,
     preferred_presence_until,
     verified_at,
@@ -358,7 +64,7 @@ SELECT
 FROM
     users
 WHERE
-    email = @email::citext
+    email = $1
 LIMIT 1;
 
 -- name: UserListDeleteScheduled :many
@@ -366,8 +72,12 @@ SELECT
     id,
     email,
     username,
+    display_name,
     password_hash,
     phone,
+    bio,
+    avatar_url,
+    banner_color,
     preferred_presence,
     preferred_presence_until,
     verified_at,
@@ -385,48 +95,118 @@ ORDER BY
     id ASC
 LIMIT @batch_limit::int;
 
--- name: UserUpdatePassword :exec
+-- name: UserUpdate :one
 UPDATE
     users
 SET
-    password_hash = @password_hash::text,
-    updated_at = @updated_at::timestamptz
+    email = $2,
+    username = $3,
+    display_name = $4,
+    password_hash = $5,
+    phone = $6,
+    bio = $7,
+    avatar_url = $8,
+    banner_color = $9,
+    preferred_presence = $10,
+    preferred_presence_until = $11,
+    verified_at = $12,
+    disabled_at = $13,
+    delete_scheduled_at = $14,
+    updated_at = $15
 WHERE
-    id = @id::uuid;
+    id = $1
+RETURNING
+    id,
+    email,
+    username,
+    display_name,
+    password_hash,
+    phone,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at;
 
--- name: UserDisable :exec
-UPDATE
-    users
-SET
-    disabled_at = @disabled_at::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid;
-
--- name: UserEnable :exec
-UPDATE
-    users
-SET
-    disabled_at = NULL,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid;
-
--- name: UserScheduleDelete :exec
-UPDATE
-    users
-SET
-    delete_scheduled_at = @delete_scheduled_at::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid;
-
--- name: UserCancelDelete :exec
-UPDATE
-    users
-SET
-    delete_scheduled_at = NULL,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid;
+-- name: UserUpdateBatch :many
+WITH unnested_data AS (
+    SELECT
+        *
+    FROM
+        unnest(@ids::uuid[], @emails::citext[], @usernames::citext[], @display_names::citext[], @password_hashes::text[], @phones::text[], @bios::text[], @avatar_urls::text[], @banner_colors::text[], @preferred_presences::smallint[], @preferred_presence_untils::timestamptz[], @verified_ats::timestamptz[], @disabled_ats::timestamptz[], @delete_scheduled_ats::timestamptz[], @created_ats::timestamptz[], @updated_ats::timestamptz[]) AS u(id,
+            email,
+            username,
+            display_name,
+            password_hash,
+            phone,
+            bio,
+            avatar_url,
+            banner_color,
+            preferred_presence,
+            preferred_presence_until,
+            verified_at,
+            disabled_at,
+            delete_scheduled_at,
+            created_at,
+            updated_at)
+    ORDER BY
+        u.id ASC)
+INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
+SELECT
+    id,
+    email,
+    username,
+    display_name,
+    password_hash,
+    phone,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    unnested_data
+ON CONFLICT (id)
+    DO UPDATE SET
+        email = EXCLUDED.email,
+        username = EXCLUDED.username,
+        display_name = EXCLUDED.display_name,
+        password_hash = EXCLUDED.password_hash,
+        phone = EXCLUDED.phone,
+        bio = EXCLUDED.bio,
+        avatar_url = EXCLUDED.avatar_url,
+        banner_color = EXCLUDED.banner_color,
+        preferred_presence = EXCLUDED.preferred_presence,
+        preferred_presence_until = EXCLUDED.preferred_presence_until,
+        verified_at = EXCLUDED.verified_at,
+        disabled_at = EXCLUDED.disabled_at,
+        delete_scheduled_at = EXCLUDED.delete_scheduled_at,
+        updated_at = EXCLUDED.updated_at
+    RETURNING
+        id,
+        email,
+        username,
+        display_name,
+        password_hash,
+        phone,
+        bio,
+        avatar_url,
+        banner_color,
+        preferred_presence,
+        preferred_presence_until,
+        verified_at,
+        disabled_at,
+        delete_scheduled_at,
+        created_at,
+        updated_at;
 

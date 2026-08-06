@@ -46,8 +46,12 @@ CREATE TABLE users(
     preferred_presence smallint DEFAULT NULL,
     email citext NOT NULL,
     username citext NOT NULL,
+    display_name citext NOT NULL,
     password_hash text NOT NULL,
     phone text DEFAULT NULL,
+    bio text DEFAULT NULL,
+    avatar_url text DEFAULT NULL,
+    banner_color text DEFAULT NULL,
     CONSTRAINT users_pkey PRIMARY KEY (id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username),
@@ -55,8 +59,12 @@ CREATE TABLE users(
     CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
     CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
     CONSTRAINT username_valid CHECK (username NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
+    CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 50 AND 255),
-    CONSTRAINT phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$')
+    CONSTRAINT phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$'),
+    CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
+    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 1 AND 2048),
+    CONSTRAINT banner_color_valid CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
 );
 
 CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC)
@@ -66,22 +74,6 @@ WHERE
 CREATE UNIQUE INDEX idx_users_phone_unique ON users(phone)
 WHERE
     phone IS NOT NULL;
-
-CREATE TABLE user_profiles(
-    user_id uuid NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    display_name citext NOT NULL,
-    bio text DEFAULT NULL,
-    avatar_url text DEFAULT NULL,
-    banner_color text DEFAULT NULL,
-    CONSTRAINT user_profiles_pkey PRIMARY KEY (user_id),
-    CONSTRAINT fk_user_profiles_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
-    CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
-    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 1 AND 2048),
-    CONSTRAINT banner_color_valid CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
-);
 
 CREATE TABLE sessions(
     id uuid NOT NULL,

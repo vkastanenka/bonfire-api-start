@@ -13,14 +13,15 @@ import (
 )
 
 // ============================================================================
-// Hex
+// HexCode
 // ============================================================================
 
 var (
-	ErrHexCodeInvalid = errors.New("banner color must be a valid hex code (e.g., #FF5733)")
+	ErrHexCodeInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
 	rgxHexCode        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
 )
 
+// HexCode is a color formatted as (?i)^#[0-9a-f]{6}$
 type HexCode struct {
 	value *string
 }
