@@ -52,11 +52,17 @@ var presenceBytes = [...][]byte{
 }
 
 func New(raw string) (Presence, error) {
-	if strings.TrimSpace(raw) == "" {
+	s := strings.TrimSpace(raw)
+	if s == "" {
 		return PresenceUnknown, ErrInvalidPresence
 	}
-	b := unsafe.Slice(unsafe.StringData(raw), len(raw))
-	return ParseBytes(b)
+	b := unsafe.Slice(unsafe.StringData(s), len(s))
+	for i := 1; i < int(presenceMax); i++ {
+		if bytes.EqualFold(presenceBytes[i], b) {
+			return Presence(i), nil
+		}
+	}
+	return PresenceUnknown, ErrInvalidPresence
 }
 
 func ParseBytes(b []byte) (Presence, error) {
@@ -64,7 +70,6 @@ func ParseBytes(b []byte) (Presence, error) {
 	if len(b) == 0 {
 		return PresenceUnknown, ErrInvalidPresence
 	}
-
 	for i := 1; i < int(presenceMax); i++ {
 		if bytes.EqualFold(presenceBytes[i], b) {
 			return Presence(i), nil
@@ -84,18 +89,16 @@ func (p Presence) String() string {
 	return presenceNames[PresenceUnknown]
 }
 
-// Int16 converts Presence to int16 for SQL smallint / Redis fields.
 func (p Presence) Int16() int16 {
 	return int16(p)
 }
 
-// FromInt16 safely converts a database or cache smallint back into Presence.
 func FromInt16(v int16) (Presence, error) {
 	if v < 0 || v >= int16(presenceMax) {
 		return PresenceUnknown, ErrInvalidPresence
 	}
 	p := Presence(v)
-	if !p.IsValid() {
+	if p == PresenceUnknown {
 		return PresenceUnknown, ErrInvalidPresence
 	}
 	return p, nil
@@ -113,7 +116,6 @@ func (p *Presence) UnmarshalText(text []byte) error {
 		*p = PresenceUnknown
 		return nil
 	}
-
 	parsed, err := ParseBytes(text)
 	if err != nil {
 		return err
