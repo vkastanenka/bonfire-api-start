@@ -61,10 +61,10 @@ CREATE TABLE users(
     CONSTRAINT username_valid CHECK (username NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
     CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
     CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 50 AND 255),
-    CONSTRAINT phone_valid CHECK (phone IS NULL OR phone ~ '^\+[1-9]\d{1,14}$'),
+    CONSTRAINT phone_valid CHECK (phone ~ '^\+[1-9]\d{1,14}$'),
+    CONSTRAINT banner_color_valid CHECK (banner_color ~* '^#[0-9a-f]{6}$'),
     CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
-    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) BETWEEN 1 AND 2048),
-    CONSTRAINT banner_color_valid CHECK (banner_color IS NULL OR banner_color ~* '^#[0-9a-f]{6}$')
+    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) <= 2048)
 );
 
 CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC)
