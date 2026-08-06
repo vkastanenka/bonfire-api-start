@@ -13,57 +13,57 @@ import (
 )
 
 // ============================================================================
-// HexCode
+// HexColor
 // ============================================================================
 
 var (
-	ErrHexCodeInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
-	rgxHexCode        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
+	ErrHexColorInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
+	rgxHexColor        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
 )
 
-// HexCode is a color formatted as (?i)^#[0-9a-f]{6}$
-type HexCode struct {
+// HexColor is a color formatted as (?i)^#[0-9a-f]{6}$
+type HexColor struct {
 	value *string
 }
 
-func NewHexCode(raw *string) (HexCode, error) {
+func NewHexColor(raw *string) (HexColor, error) {
 	if raw == nil {
-		return HexCode{value: nil}, nil
+		return HexColor{value: nil}, nil
 	}
 
 	s := sanitize.Text(*raw)
 	if s == "" {
-		return HexCode{value: nil}, nil
+		return HexColor{value: nil}, nil
 	}
 
-	if !rgxHexCode.MatchString(s) {
-		return HexCode{}, ErrHexCodeInvalid
+	if !rgxHexColor.MatchString(s) {
+		return HexColor{}, ErrHexColorInvalid
 	}
 
 	upper := strings.ToUpper(s)
-	return HexCode{value: &upper}, nil
+	return HexColor{value: &upper}, nil
 }
 
-func ParseHexCode(raw string) (HexCode, error) {
-	return NewHexCode(&raw)
+func ParseHexColor(raw string) (HexColor, error) {
+	return NewHexColor(&raw)
 }
 
-func (bc HexCode) String() string {
+func (bc HexColor) String() string {
 	if bc.value == nil {
 		return ""
 	}
 	return *bc.value
 }
 
-func (bc HexCode) NilString() *string {
+func (bc HexColor) NilString() *string {
 	return bc.value
 }
 
-func (bc HexCode) IsValid() bool {
+func (bc HexColor) IsValid() bool {
 	return bc.value != nil && *bc.value != ""
 }
 
-func (bc HexCode) Equals(other HexCode) bool {
+func (bc HexColor) Equals(other HexColor) bool {
 	if bc.value == nil && other.value == nil {
 		return true
 	}
@@ -73,14 +73,14 @@ func (bc HexCode) Equals(other HexCode) bool {
 	return *bc.value == *other.value
 }
 
-func (bc *HexCode) UnmarshalText(text []byte) error {
+func (bc *HexColor) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
-		*bc = HexCode{value: nil}
+		*bc = HexColor{value: nil}
 		return nil
 	}
 
 	raw := string(text)
-	parsed, err := NewHexCode(&raw)
+	parsed, err := NewHexColor(&raw)
 	if err != nil {
 		return err
 	}

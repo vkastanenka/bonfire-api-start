@@ -3,8 +3,6 @@ package user
 import (
 	"errors"
 	"time"
-
-	"bonfire-api/internal/pkg/ptr"
 )
 
 var (
@@ -18,39 +16,39 @@ type User struct {
 	username               Username
 	displayName            DisplayName
 	passwordHash           Password
-	phone                  *Phone
-	bio                    *Bio
-	avatarURL              *URL
-	bannerColor            *HexCode
-	preferredPresence      *PreferredPresence
-	preferredPresenceUntil *time.Time
-	verifiedAt             *time.Time
-	disabledAt             *time.Time
-	deleteScheduledAt      *time.Time
-	createdAt              time.Time
-	updatedAt              time.Time
+	phone                  Phone
+	bio                    Bio
+	avatarURL              URL
+	bannerColor            HexColor
+	preferredPresence      PreferredPresence
+	preferredPresenceUntil Timestamp
+	verifiedAt             Timestamp
+	disabledAt             Timestamp
+	deleteScheduledAt      Timestamp
+	createdAt              Timestamp
+	updatedAt              Timestamp
 }
 
-func (u *User) ID() ID                                { return u.id }
-func (u *User) Email() Email                          { return u.email }
-func (u *User) Username() Username                    { return u.username }
-func (u *User) DisplayName() DisplayName              { return u.displayName }
-func (u *User) PasswordHash() Password                { return u.passwordHash }
-func (u *User) Phone() *Phone                         { return u.phone }
-func (u *User) Bio() *Bio                             { return u.bio }
-func (u *User) AvatarURL() *URL                       { return u.avatarURL }
-func (u *User) BannerColor() *HexCode                 { return u.bannerColor }
-func (u *User) PreferredPresence() *PreferredPresence { return u.preferredPresence }
-func (u *User) PreferredPresenceUntil() *time.Time    { return u.preferredPresenceUntil }
-func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
-func (u *User) DisabledAt() *time.Time                { return u.disabledAt }
-func (u *User) DeleteScheduledAt() *time.Time         { return u.deleteScheduledAt }
-func (u *User) CreatedAt() time.Time                  { return u.createdAt }
-func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
+func (u *User) ID() ID                               { return u.id }
+func (u *User) Email() Email                         { return u.email }
+func (u *User) Username() Username                   { return u.username }
+func (u *User) DisplayName() DisplayName             { return u.displayName }
+func (u *User) PasswordHash() Password               { return u.passwordHash }
+func (u *User) Phone() Phone                         { return u.phone }
+func (u *User) Bio() Bio                             { return u.bio }
+func (u *User) AvatarURL() URL                       { return u.avatarURL }
+func (u *User) BannerColor() HexColor                { return u.bannerColor }
+func (u *User) PreferredPresence() PreferredPresence { return u.preferredPresence }
+func (u *User) PreferredPresenceUntil() Timestamp    { return u.preferredPresenceUntil }
+func (u *User) VerifiedAt() Timestamp                { return u.verifiedAt }
+func (u *User) DisabledAt() Timestamp                { return u.disabledAt }
+func (u *User) DeleteScheduledAt() Timestamp         { return u.deleteScheduledAt }
+func (u *User) CreatedAt() Timestamp                 { return u.createdAt }
+func (u *User) UpdatedAt() Timestamp                 { return u.updatedAt }
 
-func (u *User) IsVerified() bool             { return u.verifiedAt != nil }
-func (u *User) IsDisabled() bool             { return u.disabledAt != nil }
-func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt != nil }
+func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
+func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
+func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
 
 func New(
 	id ID,
@@ -60,14 +58,15 @@ func New(
 	passwordHash Password,
 ) (*User, error) {
 	now := time.Now().UTC()
+	timestamp := NewTimestampFromTime(&now)
 	return &User{
 		id:           id,
 		email:        email,
 		username:     username,
 		displayName:  displayName,
 		passwordHash: passwordHash,
-		createdAt:    now,
-		updatedAt:    now,
+		createdAt:    timestamp,
+		updatedAt:    timestamp,
 	}, nil
 }
 
@@ -77,16 +76,16 @@ func Reconstitute(
 	username Username,
 	displayName DisplayName,
 	passwordHash Password,
-	phone *Phone,
-	bio *Bio,
-	avatarURL *URL,
-	bannerColor *HexCode,
-	preferredPresence *PreferredPresence,
-	preferredPresenceUntil *time.Time,
-	verifiedAt *time.Time,
-	disabledAt *time.Time,
-	deleteScheduledAt *time.Time,
-	createdAt, updatedAt time.Time,
+	phone Phone,
+	bio Bio,
+	avatarURL URL,
+	bannerColor HexColor,
+	preferredPresence PreferredPresence,
+	preferredPresenceUntil Timestamp,
+	verifiedAt Timestamp,
+	disabledAt Timestamp,
+	deleteScheduledAt Timestamp,
+	createdAt, updatedAt Timestamp,
 ) *User {
 	return &User{
 		id:                     id,
@@ -99,44 +98,46 @@ func Reconstitute(
 		avatarURL:              avatarURL,
 		bannerColor:            bannerColor,
 		preferredPresence:      preferredPresence,
-		preferredPresenceUntil: ptr.Map(preferredPresenceUntil, time.Time.UTC),
-		verifiedAt:             ptr.Map(verifiedAt, time.Time.UTC),
-		disabledAt:             ptr.Map(disabledAt, time.Time.UTC),
-		deleteScheduledAt:      ptr.Map(deleteScheduledAt, time.Time.UTC),
-		createdAt:              createdAt.UTC(),
-		updatedAt:              updatedAt.UTC(),
+		preferredPresenceUntil: preferredPresenceUntil,
+		verifiedAt:             verifiedAt,
+		disabledAt:             disabledAt,
+		deleteScheduledAt:      deleteScheduledAt,
+		createdAt:              createdAt,
+		updatedAt:              updatedAt,
 	}
 }
 
-func (u *User) Verify(at time.Time) {
-	if u.verifiedAt == nil {
-		u.verifiedAt = ptr.To(at.UTC())
-		u.touchAt(at)
+func (u *User) Verify() {
+	if !u.verifiedAt.IsValid() {
+		now := time.Now().UTC()
+		u.verifiedAt = NewTimestampFromTime(&now)
+		u.touchAt(NewTimestampFromTime(&now))
 	}
 }
 
-func (u *User) Disable(at time.Time) {
-	if u.disabledAt == nil {
-		u.disabledAt = ptr.To(at.UTC())
-		u.touchAt(at)
+func (u *User) Disable() {
+	if !u.disabledAt.IsValid() {
+		now := time.Now().UTC()
+		u.disabledAt = NewTimestampFromTime(&now)
+		u.touchAt(NewTimestampFromTime(&now))
 	}
 }
 
 func (u *User) Enable() {
-	if u.disabledAt != nil {
-		u.disabledAt = nil
+	if u.disabledAt.IsValid() {
+		u.disabledAt = Timestamp{}
 		u.touch()
 	}
 }
 
-func (u *User) ScheduleDeletion(at time.Time) {
-	u.deleteScheduledAt = ptr.To(at.UTC())
-	u.touchAt(at)
+func (u *User) ScheduleDelete(at time.Time) {
+	u.deleteScheduledAt = NewTimestampFromTime(&at)
+	u.touchAt(NewTimestampFromTime(&at))
 }
 
 func (u *User) CancelDeletion() {
-	if u.deleteScheduledAt != nil {
-		u.deleteScheduledAt = nil
+	if u.deleteScheduledAt.IsValid() {
+		u.deleteScheduledAt = Timestamp{}
 		u.touch()
 	}
 }
@@ -163,7 +164,7 @@ func (u *User) UpdateUsername(newUsername Username) error {
 	return nil
 }
 
-func (u *User) UpdatePhone(newPhone *Phone) error {
+func (u *User) UpdatePhone(newPhone Phone) error {
 	if err := u.ensureActive(); err != nil {
 		return err
 	}
@@ -183,9 +184,9 @@ func (u *User) UpdatePassword(newHash Password) error {
 
 func (u *User) UpdateProfile(
 	displayName DisplayName,
-	bio *Bio,
-	avatarURL *URL,
-	bannerColor *HexCode,
+	bio Bio,
+	avatarURL URL,
+	bannerColor HexColor,
 ) error {
 	if err := u.ensureActive(); err != nil {
 		return err
@@ -199,13 +200,13 @@ func (u *User) UpdateProfile(
 	return nil
 }
 
-func (u *User) SetPreferredPresence(p *PreferredPresence, until *time.Time) error {
+func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp) error {
 	if err := u.ensureActive(); err != nil {
 		return err
 	}
 
 	u.preferredPresence = p
-	u.preferredPresenceUntil = ptr.Map(until, time.Time.UTC)
+	u.preferredPresenceUntil = NewTimestampFromTime(until.value)
 	u.touch()
 	return nil
 }
@@ -221,9 +222,10 @@ func (u *User) ensureActive() error {
 }
 
 func (u *User) touch() {
-	u.updatedAt = time.Now().UTC()
+	now := time.Now()
+	u.updatedAt = NewTimestampFromTime(&now)
 }
 
-func (u *User) touchAt(at time.Time) {
-	u.updatedAt = at.UTC()
+func (u *User) touchAt(at Timestamp) {
+	u.updatedAt = NewTimestampFromTime(at.value)
 }

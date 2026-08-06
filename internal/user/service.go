@@ -1,15 +1,18 @@
 package user
 
 import (
-	"bonfire-api/internal/token"
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"context"
-	"log/slog"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type Cache interface {
+	Delete(ctx context.Context, id ID) error
+	DeleteBatch(ctx context.Context, ids []ID) error
 	Get(ctx context.Context, id ID) (*User, error)
 	GetBatch(ctx context.Context, ids []ID) (map[ID]*User, []ID, error)
 	Set(ctx context.Context, user *User) error
@@ -25,26 +28,15 @@ type Repository interface {
 	UpdateBatch(ctx context.Context, users []*User) ([]*User, error)
 }
 
-type TokenProvider interface {
-	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
-	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
-	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
-	VerifyPasswordReset(tokenStr string) (*token.Claims, error)
-	VerifyEmailVerify(tokenStr string) (*token.Claims, error)
-	VerifyRefresh(tokenStr string) (*token.Claims, error)
-}
-
 type Service struct {
-	cache  Cache
-	repo   Repository
-	tokens TokenProvider
+	cache Cache
+	repo  Repository
 }
 
-func NewService(cache Cache, repo Repository, tokens TokenProvider) *Service {
+func NewService(cache Cache, repo Repository) *Service {
 	return &Service{
-		cache:  cache,
-		repo:   repo,
-		tokens: tokens,
+		cache: cache,
+		repo:  repo,
 	}
 }
 
@@ -79,15 +71,10 @@ func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
 	return u, nil
 }
 
-func (s *Service) RequestUpdateEmail(ctx context.Context) error {
-	// TODO: Outbox verification email
-	return nil
-}
-
 type UpdateUsernameParams struct {
-	UserID   uuid.UUID
-	Username string
-	Password string
+	UserID      uuid.UUID
+	NewUsername string
+	Password    string
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
@@ -96,41 +83,152 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return nil, err
 	}
 
-	username, err := NewUsername(p.Username)
+	newUsername, err := NewUsername(p.NewUsername)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: Check password validity
-
-	agg, err := s.repo.UserGet(ctx, id.UUID())
+	password, err := NewPassword(p.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	agg.User().UpdateUsername(username)
-
-	if err := s.repo.Update(ctx, agg.User()); err != nil {
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 
-	if cacheErr := s.cache.Set(ctx, u); cacheErr != nil {
-		slog.WarnContext(ctx, "failed to populate user cache",
-			"user_id", id.String(),
-			"error", cacheErr,
-		)
+	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return nil, errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
 	}
 
-	return nil, nil
+	u.UpdateUsername(newUsername)
+
+	uu, err := s.repo.Update(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return uu, nil
 }
 
 type UpdateEmailParams struct {
 	UserID   uuid.UUID
-	Email    string
+	NewEmail string
 	Password string
 }
 
-func (s *Service) UpdateEmail(ctx context.Context) error {
+func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
+	id, err := NewID(p.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	newEmail, err := NewEmail(p.NewEmail)
+	if err != nil {
+		return nil, err
+	}
+
+	password, err := NewPassword(p.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return nil, errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
+	}
+
+	u.UpdateEmail(newEmail)
+
+	uu, err := s.repo.Update(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return uu, nil
+}
+
+type UpdatePasswordParams struct {
+	UserID             uuid.UUID
+	CurrentPassword    string
+	NewPassword        string
+	NewPasswordConfirm string
+}
+
+func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
+	id, err := NewID(p.UserID)
+	if err != nil {
+		return err
+	}
+
+	currentPassword, err := NewPassword(p.CurrentPassword)
+	if err != nil {
+		return err
+	}
+
+	newPassword, err := NewPassword(p.NewPassword)
+	if err != nil {
+		return err
+	}
+
+	newPasswordConfirm, err := NewPassword(p.NewPasswordConfirm)
+	if err != nil {
+		return err
+	}
+
+	if !newPassword.Equals(newPasswordConfirm) {
+		return errs.InvalidArgument("Passwords must match.")
+	}
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err = crypto.ComparePassword(u.PasswordHash().String(), currentPassword.String()); err != nil {
+		return errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
+	}
+
+	passwordHash, err := crypto.HashPassword(newPassword.String())
+	if err != nil {
+		return errs.Internal("failed to hash password").Wrap(err)
+	}
+
+	newPasswordHash, err := NewPassword(passwordHash)
+	if err != nil {
+		return err
+	}
+
+	u.UpdatePassword(newPasswordHash)
+
+	_, err = s.repo.Update(ctx, u)
+	if err != nil {
+		return err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
 	return nil
 }
 
@@ -138,43 +236,46 @@ func (s *Service) UpdatePhone(ctx context.Context) error {
 	return nil
 }
 
-type UpdatePasswordParams struct {
-	CurrentPassword    string
-	NewPassword        string
-	NewPasswordConfirm string
-}
-
-func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	return nil
-}
-
 type UpdatePreferredPresenceParams struct {
-	Presence  *string
-	ExpiresAt *string
+	UserID   uuid.UUID
+	Presence *string
+	Until    *string
 }
 
 func (s *Service) UpdatePreferredPreference(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
+	id, err := NewID(p.UserID)
+	if err != nil {
+		return nil, err
+	}
+
 	preferredPresence, err := NewPreferredPresence(p.Presence)
 	if err != nil {
 		return nil, err
 	}
 
-	expiresAt, err := NewTimestamp(p.ExpiresAt)
+	until, err := NewTimestamp(p.Until)
 	if err != nil {
 		return nil, err
 	}
 
-	agg, err := s.repo.Update(ctx, id.UUID())
+	u, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	u.SetPreferredPresence(preferredPresence, until)
+
+	uu, err := s.repo.Update(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return uu, nil
 }
-
-// Disable
-// ScheduleDelete
-// AnonymizeBatch
 
 type UpdateProfileParams struct {
 	UserID      uuid.UUID
@@ -189,41 +290,103 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	if err != nil {
 		return nil, err
 	}
+
 	displayName, err := NewDisplayName(p.DisplayName)
 	if err != nil {
 		return nil, err
 	}
+
 	bio, err := NewBio(p.Bio)
 	if err != nil {
 		return nil, err
 	}
+
 	avatarURL, err := NewURL(p.AvatarURL)
 	if err != nil {
 		return nil, err
 	}
-	bannerColor, err := NewHexCode(p.BannerColor)
+
+	bannerColor, err := NewHexColor(p.BannerColor)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Delegate the update directly to the repository
-	// (Repo executes the UPDATE and returns the fully hydrated *User)
-	agg, err := s.repo.UpdateProfile(ctx, id.UUID(), UpdateProfileRepoParams{
-		DisplayName: displayName,
-		Bio:         bio,
-		AvatarURL:   avatarURL,
-		BannerColor: bannerColor,
-	})
+	u, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if cacheErr := s.cache.Set(ctx, u); cacheErr != nil {
-		slog.WarnContext(ctx, "failed to populate user cache",
-			"user_id", id.String(),
-			"error", cacheErr,
-		)
+	u.UpdateProfile(displayName, bio, avatarURL, bannerColor)
+
+	uu, err := s.repo.Update(ctx, u)
+	if err != nil {
+		return nil, err
 	}
 
-	return agg, nil
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return uu, nil
+}
+
+func (s *Service) Disable(ctx context.Context, rawID uuid.UUID) error {
+	id, err := NewID(rawID)
+	if err != nil {
+		return err
+	}
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	u.Disable()
+
+	_, err = s.repo.Update(ctx, u)
+	if err != nil {
+		return err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return nil
+}
+
+func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDeleteAt time.Time) error {
+	id, err := NewID(rawID)
+	if err != nil {
+		return err
+	}
+
+	deleteAt := NewTimestampFromTime(&rawDeleteAt)
+
+	u, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	u.ScheduleDelete(*deleteAt.Time())
+
+	_, err = s.repo.Update(ctx, u)
+	if err != nil {
+		return err
+	}
+
+	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
+		// Log err
+	}
+
+	return nil
+}
+
+func (s *Service) RequestUpdateEmailCode(ctx context.Context) error {
+	// TODO: Outbox verification email
+	return nil
+}
+
+func (s *Service) VerifyUpdateEmailCode(ctx context.Context) error {
+	return nil
 }
