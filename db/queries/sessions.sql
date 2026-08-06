@@ -11,7 +11,7 @@ WITH targets AS (
     FROM
         sessions
     WHERE
-        expires_at <= @current_time::timestamptz
+        expires_at <= @now::timestamptz
     ORDER BY
         expires_at ASC,
         id ASC
@@ -85,7 +85,7 @@ WHERE
     id = @id::uuid
     AND refresh_token_hash = @old_refresh_token_hash::bytea
     AND revoked_at IS NULL
-    AND expires_at > @current_time::timestamptz
+    AND expires_at > @now::timestamptz
 RETURNING
     id,
     user_id,
@@ -118,7 +118,7 @@ FROM
 WHERE
     user_id = @user_id::uuid
     AND revoked_at IS NULL
-    AND expires_at > @current_time::timestamptz
+    AND expires_at > @now::timestamptz
 ORDER BY
     last_seen_at DESC
 LIMIT @limit_val::int;

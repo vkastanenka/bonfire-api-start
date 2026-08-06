@@ -87,7 +87,7 @@ FROM
     users
 WHERE
     delete_scheduled_at IS NOT NULL
-    AND delete_scheduled_at <= @current_time::timestamptz
+    AND delete_scheduled_at <= @now::timestamptz
 ORDER BY
     delete_scheduled_at ASC
 LIMIT @batch_limit::int;
@@ -135,9 +135,7 @@ WITH input_data AS (
     SELECT
         *
     FROM
-        jsonb_populate_recordset(NULL::users, @users_json::jsonb)
-    ORDER BY
-        id ASC)
+        jsonb_populate_recordset(NULL::users, @users_json::jsonb))
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
 SELECT
     id,
@@ -158,6 +156,8 @@ SELECT
     updated_at
 FROM
     input_data
+ORDER BY
+    id ASC
 ON CONFLICT (id)
     DO UPDATE SET
         email = EXCLUDED.email,

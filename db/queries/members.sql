@@ -1,27 +1,22 @@
 -- name: ChannelMemberAddBatch :exec
-INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, is_visible, pinned_at)
-SELECT
-    @channel_id::uuid,
-    u.user_id,
-    u.created_at,
-    u.updated_at,
-    u.last_read_at,
-    u.mention_count,
-    u.last_read_message_id,
-    u.is_visible,
-    u.pinned_at
-FROM (
+WITH input_data AS (
     SELECT
         *
     FROM
-        unnest(@user_ids::uuid[], @created_ats::timestamptz[], @updated_ats::timestamptz[], @last_read_ats::timestamptz[], @mention_counts::int[], @last_read_message_ids::uuid[], @is_visibles::boolean[], @pinned_ats::timestamptz[]) AS u(user_id,
-            created_at,
-            updated_at,
-            last_read_at,
-            mention_count,
-            last_read_message_id,
-            is_visible,
-            pinned_at)) AS u
+        jsonb_populate_recordset(NULL::channel_members, @members_json::jsonb))
+INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, is_visible, pinned_at)
+SELECT
+    channel_id,
+    user_id,
+    created_at,
+    updated_at,
+    last_read_at,
+    mention_count,
+    last_read_message_id,
+    is_visible,
+    pinned_at
+FROM
+    input_data
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET

@@ -220,25 +220,3 @@ CREATE INDEX idx_relationships_user1 ON relationships(user1_id, type);
 
 CREATE INDEX idx_relationships_user2 ON relationships(user2_id, type);
 
-CREATE OR REPLACE VIEW user_aggregates AS
-SELECT
-    u.id,
-    u.username,
-    u.email,
-    u.phone,
-    p.display_name,
-    p.bio,
-    p.avatar_url,
-    p.banner_color,
-    u.preferred_presence,
-    u.preferred_presence_until,
-    u.verified_at,
-    u.disabled_at,
-    u.delete_scheduled_at,
-    u.created_at,
-    u.updated_at,
-    p.updated_at AS profile_updated_at
-FROM
-    users u
-    INNER JOIN user_profiles p ON u.id = p.user_id;
-
