@@ -149,7 +149,7 @@ func (u *User) ScheduleDelete(scheduledAt time.Time, now time.Time) {
 	u.touch(NewTimestampFromTime(now))
 }
 
-func (u *User) CancelDeletion(now time.Time) {
+func (u *User) CancelDelete(now time.Time) {
 	if u.deleteScheduledAt.IsValid() {
 		u.deleteScheduledAt = Timestamp{}
 		u.touch(NewTimestampFromTime(now))
@@ -210,7 +210,7 @@ func (u *User) UpdateProfile(displayName DisplayName, bio Bio, avatarURL URL, ba
 	return nil
 }
 
-func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp, now time.Time) error {
+func (u *User) UpdatePreferredPresence(p PreferredPresence, until Timestamp, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
