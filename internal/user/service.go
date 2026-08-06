@@ -24,7 +24,6 @@ type Cache interface {
 type Repository interface {
 	Create(ctx context.Context, u *User) error
 	Get(ctx context.Context, id ID) (*User, error)
-	GetByEmail(ctx context.Context, email Email) (*User, error)
 	ListDeleteScheduled(ctx context.Context, currentTime time.Time, limit int32) ([]*User, error)
 	Update(ctx context.Context, u *User) (*User, error)
 	UpdateBatch(ctx context.Context, users []*User) ([]*User, error)
