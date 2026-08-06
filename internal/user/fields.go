@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -11,69 +12,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-// Internal helper to eliminate boilerplate across UnmarshalText implementations
-func unmarshalText[T any](text []byte, parser func(string) (T, error)) (T, error) {
-	if len(text) == 0 {
-		var zero T
-		return zero, nil
-	}
-	return parser(string(text))
-}
-
-// ============================================================================
-// HexColor
-// ============================================================================
-
-var (
-	ErrHexColorInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
-	rgxHexColor        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
-)
-
-type HexColor struct {
-	value string
-}
-
-func NewHexColor(raw string) (HexColor, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return HexColor{}, nil
-	}
-
-	if !rgxHexColor.MatchString(s) {
-		return HexColor{}, ErrHexColorInvalid
-	}
-
-	return HexColor{value: strings.ToUpper(s)}, nil
-}
-
-func ParseHexColor(raw string) (HexColor, error) {
-	return NewHexColor(raw)
-}
-
-func (hc HexColor) String() string {
-	return hc.value
-}
-
-func (hc HexColor) StringPtr() *string {
-	if hc.value == "" {
-		return nil
-	}
-	return &hc.value
-}
-
-func (hc HexColor) IsValid() bool {
-	return hc.value != ""
-}
-
-func (hc HexColor) Equals(other HexColor) bool {
-	return hc.value == other.value
-}
-
-func (hc *HexColor) UnmarshalText(text []byte) (err error) {
-	*hc, err = unmarshalText(text, NewHexColor)
-	return err
-}
 
 // ============================================================================
 // Bio
@@ -90,16 +28,10 @@ func NewBio(raw string) (Bio, error) {
 	if s == "" {
 		return Bio{}, nil
 	}
-
 	if len([]rune(s)) > 190 {
 		return Bio{}, ErrBioTooLong
 	}
-
 	return Bio{value: s}, nil
-}
-
-func ParseBio(raw string) (Bio, error) {
-	return NewBio(raw)
 }
 
 func (b Bio) String() string {
@@ -147,12 +79,7 @@ func NewDisplayName(raw string) (DisplayName, error) {
 	if len([]rune(s)) > 32 {
 		return DisplayName{}, ErrDisplayNameTooLong
 	}
-
 	return DisplayName{value: s}, nil
-}
-
-func ParseDisplayName(raw string) (DisplayName, error) {
-	return NewDisplayName(raw)
 }
 
 func (d DisplayName) String() string {
@@ -201,23 +128,16 @@ func NewEmail(raw string) (Email, error) {
 	if len(s) > 255 {
 		return Email{}, ErrEmailTooLong
 	}
-
 	at := strings.IndexByte(s, '@')
 	if at <= 0 || at == len(s)-1 {
 		return Email{}, ErrEmailInvalid
 	}
-
 	domain := s[at+1:]
 	dot := strings.IndexByte(domain, '.')
 	if dot <= 0 || dot == len(domain)-1 {
 		return Email{}, ErrEmailInvalid
 	}
-
 	return Email{value: s}, nil
-}
-
-func ParseEmail(raw string) (Email, error) {
-	return NewEmail(raw)
 }
 
 func (e Email) String() string {
@@ -245,6 +165,54 @@ func (e *Email) UnmarshalText(text []byte) (err error) {
 }
 
 // ============================================================================
+// HexColor
+// ============================================================================
+
+var (
+	ErrHexColorInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
+	rgxHexColor        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
+)
+
+type HexColor struct {
+	value string
+}
+
+func NewHexColor(raw string) (HexColor, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return HexColor{}, nil
+	}
+	if !rgxHexColor.MatchString(s) {
+		return HexColor{}, ErrHexColorInvalid
+	}
+	return HexColor{value: strings.ToUpper(s)}, nil
+}
+
+func (hc HexColor) String() string {
+	return hc.value
+}
+
+func (hc HexColor) StringPtr() *string {
+	if hc.value == "" {
+		return nil
+	}
+	return &hc.value
+}
+
+func (hc HexColor) IsValid() bool {
+	return hc.value != ""
+}
+
+func (hc HexColor) Equals(other HexColor) bool {
+	return hc.value == other.value
+}
+
+func (hc *HexColor) UnmarshalText(text []byte) (err error) {
+	*hc, err = unmarshalText(text, NewHexColor)
+	return err
+}
+
+// ============================================================================
 // ID
 // ============================================================================
 
@@ -263,7 +231,7 @@ func NewID(raw uuid.UUID) (ID, error) {
 }
 
 func ParseID(raw string) (ID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	parsed, err := uuid.Parse(sanitize.Text(raw))
 	if err != nil {
 		return ID{}, ErrIDInvalid
 	}
@@ -276,6 +244,14 @@ func (id ID) UUID() uuid.UUID {
 
 func (id ID) String() string {
 	return uuid.UUID(id).String()
+}
+
+func (id ID) StringPtr() *string {
+	if !id.IsValid() {
+		return nil
+	}
+	s := uuid.UUID(id).String()
+	return &s
 }
 
 func (id ID) IsValid() bool {
@@ -315,12 +291,7 @@ func NewPassword(raw string) (Password, error) {
 	if len(raw) > 255 {
 		return Password{}, ErrPasswordTooLong
 	}
-
 	return Password{value: raw}, nil
-}
-
-func ParsePassword(raw string) (Password, error) {
-	return NewPassword(raw)
 }
 
 func (p Password) String() string {
@@ -361,20 +332,14 @@ type Phone struct {
 }
 
 func NewPhone(raw string) (Phone, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.Phone(raw)
 	if s == "" {
 		return Phone{}, nil
 	}
-
 	if !rgxPhone.MatchString(s) {
 		return Phone{}, ErrPhoneInvalid
 	}
-
 	return Phone{value: s}, nil
-}
-
-func ParsePhone(raw string) (Phone, error) {
-	return NewPhone(raw)
 }
 
 func (p Phone) String() string {
@@ -412,7 +377,7 @@ type PreferredPresence struct {
 }
 
 func NewPreferredPresence(raw string) (PreferredPresence, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.Text(raw)
 	if s == "" {
 		return PreferredPresence{}, nil
 	}
@@ -422,24 +387,24 @@ func NewPreferredPresence(raw string) (PreferredPresence, error) {
 		return PreferredPresence{}, ErrPreferredPresenceInvalid
 	}
 
-	switch p {
-	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
-		return PreferredPresence{value: p}, nil
-	default:
-		return PreferredPresence{}, ErrPreferredPresenceInvalid
-	}
+	return PreferredPresenceFromPresence(p)
 }
 
-func ParsePreferredPresence(v int16) (PreferredPresence, error) {
+func PreferredPresenceFromInt16(v int16) (PreferredPresence, error) {
 	if v == 0 {
 		return PreferredPresence{}, nil
 	}
-
 	p, err := presence.FromInt16(v)
 	if err != nil {
 		return PreferredPresence{}, ErrPreferredPresenceInvalid
 	}
+	return PreferredPresenceFromPresence(p)
+}
 
+func PreferredPresenceFromPresence(p presence.Presence) (PreferredPresence, error) {
+	if p == presence.PresenceUnknown {
+		return PreferredPresence{}, nil
+	}
 	switch p {
 	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
 		return PreferredPresence{value: p}, nil
@@ -448,27 +413,48 @@ func ParsePreferredPresence(v int16) (PreferredPresence, error) {
 	}
 }
 
+func (pp PreferredPresence) Presence() presence.Presence {
+	return pp.value
+}
+
 func (pp PreferredPresence) String() string {
-	return string(pp.value)
+	if !pp.IsSet() {
+		return ""
+	}
+	return pp.value.String()
+}
+
+func (pp PreferredPresence) StringPtr() *string {
+	if !pp.IsSet() {
+		return nil
+	}
+	s := pp.String()
+	return &s
 }
 
 func (pp PreferredPresence) Int16() int16 {
 	return pp.value.Int16()
 }
 
-// func (pp PreferredPresence) NilPresence() *presence.Presence {
-// 	if pp.value == "" {
-// 		return nil
-// 	}
-// 	return &pp.value
-// }
+func (pp PreferredPresence) IsValid() bool {
+	return pp.value == presence.PresenceUnknown || pp.IsSet()
+}
 
-// func (pp PreferredPresence) IsValid() bool {
-// 	return pp.value != ""
-// }
+func (pp PreferredPresence) IsSet() bool {
+	return pp.value == presence.PresenceIdle ||
+		pp.value == presence.PresenceBusy ||
+		pp.value == presence.PresenceDND
+}
 
 func (pp PreferredPresence) Equals(other PreferredPresence) bool {
 	return pp.value == other.value
+}
+
+func (pp PreferredPresence) MarshalText() ([]byte, error) {
+	if !pp.IsSet() {
+		return nil, nil
+	}
+	return pp.value.MarshalText()
 }
 
 func (pp *PreferredPresence) UnmarshalText(text []byte) (err error) {
@@ -487,17 +473,15 @@ type Timestamp struct {
 }
 
 func NewTimestamp(raw string) (Timestamp, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.Text(raw)
 	if s == "" {
 		return Timestamp{}, nil
 	}
-
-	parsed, err := time.Parse(time.RFC3339, s)
+	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return Timestamp{}, ErrTimestampInvalid
 	}
-
-	return Timestamp{value: parsed.UTC()}, nil
+	return NewTimestampFromTime(parsed), nil
 }
 
 func NewTimestampFromTime(t time.Time) Timestamp {
@@ -507,43 +491,38 @@ func NewTimestampFromTime(t time.Time) Timestamp {
 	return Timestamp{value: t.UTC()}
 }
 
-func ParseTimestamp(raw string) (Timestamp, error) {
-	return NewTimestamp(raw)
-}
-
 func (t Timestamp) Time() time.Time {
 	return t.value
 }
 
 func (t Timestamp) TimePtr() *time.Time {
-	if t.value.IsZero() {
+	if !t.IsValid() {
 		return nil
 	}
-	utc := t.value.UTC()
+	utc := t.value
 	return &utc
 }
 
-func (t Timestamp) Unix() *int64 {
-	if t.value.IsZero() {
-		return nil
-	}
-	unix := t.value.Unix()
-	return &unix
-}
-
 func (t Timestamp) String() string {
-	if t.value.IsZero() {
+	if !t.IsValid() {
 		return ""
 	}
 	return t.value.Format(time.RFC3339)
 }
 
 func (t Timestamp) StringPtr() *string {
-	if t.value.IsZero() {
+	if !t.IsValid() {
 		return nil
 	}
-	s := t.value.Format(time.RFC3339)
+	s := t.String()
 	return &s
+}
+
+func (t Timestamp) Unix() int64 {
+	if !t.IsValid() {
+		return 0
+	}
+	return t.value.Unix()
 }
 
 func (t Timestamp) IsValid() bool {
@@ -555,7 +534,7 @@ func (t Timestamp) Equals(other Timestamp) bool {
 }
 
 func (t Timestamp) HasPassed(now time.Time) bool {
-	if t.value.IsZero() {
+	if !t.IsValid() || now.IsZero() {
 		return false
 	}
 	return now.After(t.value)
@@ -580,24 +559,21 @@ type URL struct {
 }
 
 func NewURL(raw string) (URL, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.URL(raw)
 	if s == "" {
 		return URL{}, nil
 	}
-
 	if len(s) > 2048 {
 		return URL{}, ErrURLTooLong
 	}
-
 	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
 		return URL{}, ErrURLInvalid
 	}
-
-	return URL{value: s}, nil
-}
-
-func ParseURL(raw string) (URL, error) {
-	return NewURL(raw)
+	parsed, err := url.ParseRequestURI(s)
+	if err != nil || parsed.Host == "" {
+		return URL{}, ErrURLInvalid
+	}
+	return URL{value: parsed.String()}, nil
 }
 
 func (u URL) String() string {
@@ -635,7 +611,7 @@ var (
 	ErrUsernameInvalidFmt = errors.New("username must start and end with a letter/number and use only letters, numbers, and non-consecutive dots or underscores")
 	ErrUsernameReserved   = errors.New("this username is reserved and cannot be used")
 
-	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.]?[a-zA-Z0-9])+$`)
+	rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]+(?:[._][a-zA-Z0-9]+)*$`)
 
 	reservedUsernames = map[string]bool{
 		"admin":     true,
@@ -652,14 +628,16 @@ type Username struct {
 }
 
 func NewUsername(raw string) (Username, error) {
-	s := strings.TrimSpace(raw)
+	s := sanitize.Text(raw)
 	if s == "" {
 		return Username{}, ErrUsernameEmpty
 	}
-	if len(s) < 3 {
+
+	runeLen := len([]rune(s))
+	if runeLen < 3 {
 		return Username{}, ErrUsernameTooShort
 	}
-	if len(s) > 32 {
+	if runeLen > 32 {
 		return Username{}, ErrUsernameTooLong
 	}
 	if !rgxUsername.MatchString(s) {
@@ -668,12 +646,7 @@ func NewUsername(raw string) (Username, error) {
 	if reservedUsernames[strings.ToLower(s)] {
 		return Username{}, ErrUsernameReserved
 	}
-
 	return Username{value: s}, nil
-}
-
-func ParseUsername(raw string) (Username, error) {
-	return NewUsername(raw)
 }
 
 func (u Username) String() string {
@@ -692,7 +665,7 @@ func (u Username) IsValid() bool {
 }
 
 func (u Username) Equals(other Username) bool {
-	return u.value == other.value
+	return strings.EqualFold(u.value, other.value)
 }
 
 func (u *Username) UnmarshalText(text []byte) (err error) {
@@ -726,4 +699,17 @@ func (c VerificationCode) String() string {
 
 func (c VerificationCode) Equals(other VerificationCode) bool {
 	return c.value == other.value
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+// Internal helper to eliminate boilerplate across UnmarshalText implementations
+func unmarshalText[T any](text []byte, parser func(string) (T, error)) (T, error) {
+	if len(text) == 0 {
+		var zero T
+		return zero, nil
+	}
+	return parser(string(text))
 }

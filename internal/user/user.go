@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -29,6 +30,7 @@ type User struct {
 	updatedAt              Timestamp
 }
 
+// Getters
 func (u *User) ID() ID                               { return u.id }
 func (u *User) Email() Email                         { return u.email }
 func (u *User) Username() Username                   { return u.username }
@@ -46,6 +48,7 @@ func (u *User) DeleteScheduledAt() Timestamp         { return u.deleteScheduledA
 func (u *User) CreatedAt() Timestamp                 { return u.createdAt }
 func (u *User) UpdatedAt() Timestamp                 { return u.updatedAt }
 
+// Domain State Checks
 func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
 func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
 func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
@@ -57,6 +60,7 @@ func (u *User) EffectivePresence() PreferredPresence {
 	return u.preferredPresence
 }
 
+// Factory for creating brand-new users
 func New(
 	id ID,
 	email Email,
@@ -65,18 +69,20 @@ func New(
 	passwordHash Password,
 ) (*User, error) {
 	now := time.Now().UTC()
-	timestamp := NewTimestampFromTime(&now)
+	ts := NewTimestampFromTime(now)
+
 	return &User{
 		id:           id,
 		email:        email,
 		username:     username,
 		displayName:  displayName,
 		passwordHash: passwordHash,
-		createdAt:    timestamp,
-		updatedAt:    timestamp,
+		createdAt:    ts,
+		updatedAt:    ts,
 	}, nil
 }
 
+// Reconstitute hydrates an existing domain model from storage
 func Reconstitute(
 	id ID,
 	email Email,
@@ -114,19 +120,21 @@ func Reconstitute(
 	}
 }
 
+// Domain Mutations
+
 func (u *User) Verify() {
 	if !u.verifiedAt.IsValid() {
-		now := time.Now().UTC()
-		u.verifiedAt = NewTimestampFromTime(&now)
-		u.touchAt(NewTimestampFromTime(&now))
+		ts := NewTimestampFromTime(time.Now().UTC())
+		u.verifiedAt = ts
+		u.touchAt(ts)
 	}
 }
 
 func (u *User) Disable() {
 	if !u.disabledAt.IsValid() {
-		now := time.Now().UTC()
-		u.disabledAt = NewTimestampFromTime(&now)
-		u.touchAt(NewTimestampFromTime(&now))
+		ts := NewTimestampFromTime(time.Now().UTC())
+		u.disabledAt = ts
+		u.touchAt(ts)
 	}
 }
 
@@ -138,8 +146,9 @@ func (u *User) Enable() {
 }
 
 func (u *User) ScheduleDelete(at time.Time) {
-	u.deleteScheduledAt = NewTimestampFromTime(&at)
-	u.touchAt(NewTimestampFromTime(&at))
+	ts := NewTimestampFromTime(at)
+	u.deleteScheduledAt = ts
+	u.touchAt(ts)
 }
 
 func (u *User) CancelDeletion() {
@@ -213,7 +222,7 @@ func (u *User) SetPreferredPresence(p PreferredPresence, until Timestamp) error 
 	}
 
 	u.preferredPresence = p
-	u.preferredPresenceUntil = NewTimestampFromTime(until.value)
+	u.preferredPresenceUntil = until
 	u.touch()
 	return nil
 }
@@ -229,27 +238,31 @@ func (u *User) EnsureActive() error {
 }
 
 func (u *User) Anonymize() {
-	// u.email = NewEmail(fmt.Sprintf("deleted-%s@deleted.invalid", u.id.String()))
-	// u.username = NewUsernameUnsafe(fmt.Sprintf("deleted-%s", u.id.String()))
-	// u.displayName = NewDisplayNameUnsafe("Deleted User")
-	// u.passwordHash = Password{}
-	// u.phone = Phone{}
-	// u.bio = Bio{}
-	// u.avatarURL = URL{}
-	// u.bannerColor = HexCode{}
-	// u.preferredPresence = PreferredPresence{}
-	// u.preferredPresenceUntil = Timestamp{}
-	// u.verifiedAt = Timestamp{}
-	// u.disabledAt = NewTimestampFromTime(time.Now())
-	// u.deleteScheduledAt = Timestamp{}
-	u.touch()
+	anonID := u.id.String()
+
+	// Construct anonymous value types directly using unsafe/internal mechanics or fallback formats
+	u.email, _ = NewEmail(fmt.Sprintf("deleted-%s@deleted.invalid", anonID))
+	u.username, _ = NewUsername(fmt.Sprintf("deleted_%s", anonID[:8]))
+	u.displayName, _ = NewDisplayName("Deleted User")
+	u.passwordHash = Password{}
+	u.phone = Phone{}
+	u.bio = Bio{}
+	u.avatarURL = URL{}
+	u.bannerColor = HexColor{}
+	u.preferredPresence = PreferredPresence{}
+	u.preferredPresenceUntil = Timestamp{}
+	u.verifiedAt = Timestamp{}
+	u.deleteScheduledAt = Timestamp{}
+
+	ts := NewTimestampFromTime(time.Now().UTC())
+	u.disabledAt = ts
+	u.touchAt(ts)
 }
 
 func (u *User) touch() {
-	now := time.Now()
-	u.updatedAt = NewTimestampFromTime(&now)
+	u.updatedAt = NewTimestampFromTime(time.Now().UTC())
 }
 
 func (u *User) touchAt(at Timestamp) {
-	u.updatedAt = NewTimestampFromTime(at.value)
+	u.updatedAt = at
 }

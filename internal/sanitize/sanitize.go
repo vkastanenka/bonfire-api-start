@@ -92,3 +92,60 @@ func Text(input string) string {
 
 	return sb.String()
 }
+
+func Phone(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(input))
+
+	hasLeadingPlus := strings.HasPrefix(input, "+")
+
+	for _, runeValue := range input {
+		if unicode.IsDigit(runeValue) {
+			sb.WriteRune(runeValue)
+		}
+	}
+
+	if sb.Len() == 0 {
+		return ""
+	}
+
+	if hasLeadingPlus {
+		return "+" + sb.String()
+	}
+
+	return sb.String()
+}
+
+func URL(input string) string {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return ""
+	}
+
+	// Remove non-printable control characters (Cc) and format characters (Cf)
+	// to prevent CRLF injection or hidden character bypasses
+	var sb strings.Builder
+	sb.Grow(len(s))
+
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		sb.WriteRune(r)
+	}
+
+	cleaned := sb.String()
+
+	// Normalize scheme to lowercase for consistent checking/comparison
+	if idx := strings.Index(cleaned, "://"); idx != -1 {
+		scheme := strings.ToLower(cleaned[:idx])
+		cleaned = scheme + cleaned[idx:]
+	}
+
+	return cleaned
+}
