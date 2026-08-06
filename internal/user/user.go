@@ -1,155 +1,91 @@
 package user
 
 import (
-	"errors"
 	"time"
 
-	"bonfire-api/internal/presence"
+	"bonfire-api/internal/pkg/ptr"
 
 	"github.com/google/uuid"
 )
+
+// ============================================================================
+// Entities
+// ============================================================================
 
 type User struct {
 	id                     ID
 	email                  Email
 	username               Username
-	phone                  Phone
-	passwordHash           string
-	preferredPresence      *presence.Presence
+	passwordHash           Password
+	phone                  *Phone
+	preferredPresence      *PreferredPresence
 	preferredPresenceUntil *time.Time
 	verifiedAt             *time.Time
 	disabledAt             *time.Time
 	deleteScheduledAt      *time.Time
 	createdAt              time.Time
 	updatedAt              time.Time
-
-	profile Profile
 }
 
 func (u *User) ID() ID                                { return u.id }
 func (u *User) Email() Email                          { return u.email }
 func (u *User) Username() Username                    { return u.username }
-func (u *User) Phone() Phone                          { return u.phone }
-func (u *User) PasswordHash() string                  { return u.passwordHash }
-func (u *User) PreferredPresence() *presence.Presence { return u.preferredPresence }
+func (u *User) PasswordHash() Password                { return u.passwordHash }
+func (u *User) Phone() *Phone                         { return u.phone }
+func (u *User) PreferredPresence() *PreferredPresence { return u.preferredPresence }
 func (u *User) PreferredPresenceUntil() *time.Time    { return u.preferredPresenceUntil }
 func (u *User) VerifiedAt() *time.Time                { return u.verifiedAt }
 func (u *User) DisabledAt() *time.Time                { return u.disabledAt }
 func (u *User) DeleteScheduledAt() *time.Time         { return u.deleteScheduledAt }
 func (u *User) CreatedAt() time.Time                  { return u.createdAt }
 func (u *User) UpdatedAt() time.Time                  { return u.updatedAt }
-func (u *User) Profile() Profile                      { return u.profile }
-
-// --- Profile Value Object ---
 
 type Profile struct {
-	displayName ProfileDisplayName
-	bio         Bio
-	avatarURL   URL
-	bannerColor BannerColor
+	userID      ID
+	displayName DisplayName
+	bio         *Bio
+	avatarURL   *URL
+	bannerColor *BannerColor
 	createdAt   time.Time
 	updatedAt   time.Time
 }
 
-func (p Profile) DisplayName() ProfileDisplayName { return p.displayName }
-func (p Profile) Bio() Bio                        { return p.bio }
-func (p Profile) AvatarURL() URL                  { return p.avatarURL }
-func (p Profile) BannerColor() BannerColor        { return p.bannerColor }
-func (p Profile) CreatedAt() time.Time            { return p.createdAt }
-func (p Profile) UpdatedAt() time.Time            { return p.updatedAt }
+func (p *Profile) UserID() ID                { return p.userID }
+func (p *Profile) DisplayName() DisplayName  { return p.displayName }
+func (p *Profile) Bio() *Bio                 { return p.bio }
+func (p *Profile) AvatarURL() *URL           { return p.avatarURL }
+func (p *Profile) BannerColor() *BannerColor { return p.bannerColor }
+func (p *Profile) CreatedAt() time.Time      { return p.createdAt }
+func (p *Profile) UpdatedAt() time.Time      { return p.updatedAt }
 
-// --- Redis Cache DTO ---
-
-type CachedUser struct {
-	ID                     uuid.UUID `redis:"id"`
-	Email                  string    `redis:"email"`
-	Username               string    `redis:"username"`
-	Phone                  *string   `redis:"phone"`
-	DisplayName            string    `redis:"display_name"`
-	Bio                    *string   `redis:"bio"`
-	AvatarURL              *string   `redis:"avatar_url"`
-	BannerColor            *string   `redis:"banner_color"`
-	PreferredPresence      int16     `redis:"preferred_presence"`
-	PreferredPresenceUntil *int64    `redis:"preferred_presence_until"`
-	VerifiedAt             *int64    `redis:"verified_at"`
-	DisabledAt             *int64    `redis:"disabled_at"`
-	DeleteScheduledAt      *int64    `redis:"delete_scheduled_at"`
-	CreatedAt              int64     `redis:"created_at"`
-	UpdatedAt              int64     `redis:"updated_at"`
+type Aggregate struct {
+	user    User
+	profile Profile
 }
 
-// --- Domain Mutators & Behavior ---
+func NewAggregate(u User, p Profile) Aggregate {
+	return Aggregate{
+		user:    u,
+		profile: p,
+	}
+}
 
-func (u *User) UpdateProfile(displayName ProfileDisplayName, bio Bio, avatarURL URL, bannerColor BannerColor) {
+func (ua *Aggregate) User() User       { return ua.user }
+func (ua *Aggregate) Profile() Profile { return ua.profile }
+
+// ============================================================================
+// User Methods
+// ============================================================================
+
+func New(email Email, username Username, passwordHash Password) (*User, error) {
 	now := time.Now().UTC()
-	u.profile.displayName = displayName
-	u.profile.bio = bio
-	u.profile.avatarURL = avatarURL
-	u.profile.bannerColor = bannerColor
-	u.profile.updatedAt = now
-	u.updatedAt = now
-}
 
-func (u *User) Verify(at time.Time) {
-	if u.verifiedAt == nil {
-		t := at.UTC()
-		u.verifiedAt = &t
-		u.updatedAt = t
-	}
-}
-
-func (u *User) UpdateEmail(newEmail Email) {
-	if u.email != newEmail {
-		u.email = newEmail
-		u.updatedAt = time.Now().UTC()
-	}
-}
-
-func (u *User) UpdatePhone(newPhone Phone) {
-	u.phone = newPhone
-	u.updatedAt = time.Now().UTC()
-}
-
-func (u *User) UpdatePassword(newHash string) error {
-	if newHash == "" {
-		return errors.New("password hash cannot be empty")
-	}
-	u.passwordHash = newHash
-	u.updatedAt = time.Now().UTC()
-	return nil
-}
-
-func (u *User) UpdateUsername(newUsername Username) {
-	if u.username != newUsername {
-		u.username = newUsername
-		u.updatedAt = time.Now().UTC()
-	}
-}
-
-func (u *User) SetPreferredPresence(p *presence.Presence, until *time.Time) error {
-	if p != nil && !p.IsValid() {
-		return presence.ErrInvalidPresence
-	}
-	u.preferredPresence = p
-	if until != nil {
-		t := until.UTC()
-		u.preferredPresenceUntil = &t
-	} else {
-		u.preferredPresenceUntil = nil
-	}
-	u.updatedAt = time.Now().UTC()
-	return nil
-}
-
-// --- Constructors & Reconstitution ---
-
-func New(email Email, username Username, passwordHash string, displayName ProfileDisplayName) (*User, error) {
-	if passwordHash == "" {
-		return nil, errors.New("password hash cannot be empty")
+	v7, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
 	}
 
-	now := time.Now().UTC()
-	id, err := NewID(uuid.Must(uuid.NewV7()))
+	id, err := NewID(v7)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +97,6 @@ func New(email Email, username Username, passwordHash string, displayName Profil
 		passwordHash: passwordHash,
 		createdAt:    now,
 		updatedAt:    now,
-		profile: Profile{
-			displayName: displayName,
-			createdAt:   now,
-			updatedAt:   now,
-		},
 	}, nil
 }
 
@@ -173,15 +104,14 @@ func Reconstitute(
 	id ID,
 	email Email,
 	username Username,
-	phone Phone,
-	passwordHash string,
-	preferredPresence *presence.Presence,
+	phone *Phone,
+	passwordHash Password,
+	preferredPresence *PreferredPresence,
 	preferredPresenceUntil *time.Time,
 	verifiedAt *time.Time,
 	disabledAt *time.Time,
 	deleteScheduledAt *time.Time,
 	createdAt, updatedAt time.Time,
-	profile Profile,
 ) *User {
 	return &User{
 		id:                     id,
@@ -190,39 +120,183 @@ func Reconstitute(
 		phone:                  phone,
 		passwordHash:           passwordHash,
 		preferredPresence:      preferredPresence,
-		preferredPresenceUntil: preferredPresenceUntil,
-		verifiedAt:             verifiedAt,
-		disabledAt:             disabledAt,
-		deleteScheduledAt:      deleteScheduledAt,
-		createdAt:              createdAt,
-		updatedAt:              updatedAt,
-		profile:                profile,
+		preferredPresenceUntil: ptr.Map(preferredPresenceUntil, time.Time.UTC),
+		verifiedAt:             ptr.Map(verifiedAt, time.Time.UTC),
+		disabledAt:             ptr.Map(disabledAt, time.Time.UTC),
+		deleteScheduledAt:      ptr.Map(deleteScheduledAt, time.Time.UTC),
+		createdAt:              createdAt.UTC(),
+		updatedAt:              updatedAt.UTC(),
+	}
+}
+
+func (u *User) Verify(at time.Time) {
+	if u.verifiedAt == nil {
+		u.verifiedAt = ptr.To(at.UTC())
+		u.touchAt(at)
+	}
+}
+
+func (u *User) Disable(at time.Time) {
+	if u.disabledAt == nil {
+		u.disabledAt = ptr.To(at.UTC())
+		u.touchAt(at)
+	}
+}
+
+func (u *User) Enable() {
+	if u.disabledAt != nil {
+		u.disabledAt = nil
+		u.touch()
+	}
+}
+
+func (u *User) ScheduleDeletion(at time.Time) {
+	u.deleteScheduledAt = ptr.To(at.UTC())
+	u.touchAt(at)
+}
+
+func (u *User) CancelDeletion() {
+	if u.deleteScheduledAt != nil {
+		u.deleteScheduledAt = nil
+		u.touch()
+	}
+}
+
+func (u *User) UpdateEmail(newEmail Email) {
+	if !u.email.Equals(newEmail) {
+		u.email = newEmail
+		u.touch()
+	}
+}
+
+func (u *User) UpdateUsername(newUsername Username) {
+	if !u.username.Equals(newUsername) {
+		u.username = newUsername
+		u.touch()
+	}
+}
+
+func (u *User) UpdatePhone(newPhone *Phone) {
+	u.phone = newPhone
+	u.touch()
+}
+
+func (u *User) UpdatePassword(newHash Password) {
+	u.passwordHash = newHash
+	u.touch()
+}
+
+func (u *User) SetPreferredPresence(p *PreferredPresence, until *time.Time) {
+	u.preferredPresence = p
+	u.preferredPresenceUntil = ptr.Map(until, time.Time.UTC)
+	u.touch()
+}
+
+func (u *User) touch() {
+	u.updatedAt = time.Now().UTC()
+}
+
+func (u *User) touchAt(at time.Time) {
+	u.updatedAt = at.UTC()
+}
+
+// ============================================================================
+// Profile Methods
+// ============================================================================
+
+func NewProfile(userID ID, displayName DisplayName) Profile {
+	now := time.Now().UTC()
+	return Profile{
+		userID:      userID,
+		displayName: displayName,
+		createdAt:   now,
+		updatedAt:   now,
 	}
 }
 
 func ReconstituteProfile(
-	displayName ProfileDisplayName,
-	bio Bio,
-	avatarURL URL,
-	bannerColor BannerColor,
+	userID ID,
+	displayName DisplayName,
+	bio *Bio,
+	avatarURL *URL,
+	bannerColor *BannerColor,
 	createdAt, updatedAt time.Time,
 ) Profile {
 	return Profile{
+		userID:      userID,
 		displayName: displayName,
 		bio:         bio,
 		avatarURL:   avatarURL,
 		bannerColor: bannerColor,
-		createdAt:   createdAt,
-		updatedAt:   updatedAt,
+		createdAt:   createdAt.UTC(),
+		updatedAt:   updatedAt.UTC(),
 	}
 }
 
-// --- Mapping Methods ---
+func (p *Profile) Update(displayName DisplayName, bio *Bio, avatarURL *URL, bannerColor *BannerColor) {
+	p.displayName = displayName
+	p.bio = bio
+	p.avatarURL = avatarURL
+	p.bannerColor = bannerColor
+	p.updatedAt = time.Now().UTC()
+}
 
-func (u *User) ToCachedUser() *CachedUser {
-	var prefPresence int16
+// ============================================================================
+// Cache Mapping
+// ============================================================================
+
+type CachedAggregate struct {
+	ID                     uuid.UUID `redis:"id"`
+	Email                  string    `redis:"email"`
+	Username               string    `redis:"username"`
+	Phone                  *string   `redis:"phone"`
+	DisplayName            string    `redis:"display_name"`
+	Bio                    *string   `redis:"bio"`
+	AvatarURL              *string   `redis:"avatar_url"`
+	BannerColor            *string   `redis:"banner_color"`
+	PreferredPresence      *string   `redis:"preferred_presence"`
+	PreferredPresenceUntil *int64    `redis:"preferred_presence_until"`
+	VerifiedAt             *int64    `redis:"verified_at"`
+	DisabledAt             *int64    `redis:"disabled_at"`
+	DeleteScheduledAt      *int64    `redis:"delete_scheduled_at"`
+	CreatedAt              int64     `redis:"created_at"`
+	UpdatedAt              int64     `redis:"updated_at"`
+	ProfileCreatedAt       int64     `redis:"profile_created_at"`
+	ProfileUpdatedAt       int64     `redis:"profile_updated_at"`
+}
+
+func (ua Aggregate) ToCachedAggregate() *CachedAggregate {
+	u := ua.user
+	p := ua.profile
+
+	var phone *string
+	if u.phone != nil {
+		s := u.phone.String()
+		phone = &s
+	}
+
+	var bio *string
+	if p.bio != nil {
+		s := p.bio.String()
+		bio = &s
+	}
+
+	var avatarURL *string
+	if p.avatarURL != nil {
+		s := p.avatarURL.String()
+		avatarURL = &s
+	}
+
+	var bannerColor *string
+	if p.bannerColor != nil {
+		s := p.bannerColor.String()
+		bannerColor = &s
+	}
+
+	var prefPresence *string
 	if u.preferredPresence != nil {
-		prefPresence = int16(*u.preferredPresence)
+		s := u.preferredPresence.String()
+		prefPresence = &s
 	}
 
 	var prefPresenceUntil *int64
@@ -249,15 +323,15 @@ func (u *User) ToCachedUser() *CachedUser {
 		deleteScheduledAt = &t
 	}
 
-	return &CachedUser{
+	return &CachedAggregate{
 		ID:                     u.id.UUID(),
 		Email:                  u.email.String(),
 		Username:               u.username.String(),
-		Phone:                  u.phone.String(),
-		DisplayName:            u.profile.displayName.String(),
-		Bio:                    u.profile.bio.NilString(),
-		AvatarURL:              u.profile.avatarURL.String(),
-		BannerColor:            u.profile.bannerColor.String(),
+		Phone:                  phone,
+		DisplayName:            p.displayName.String(),
+		Bio:                    bio,
+		AvatarURL:              avatarURL,
+		BannerColor:            bannerColor,
 		PreferredPresence:      prefPresence,
 		PreferredPresenceUntil: prefPresenceUntil,
 		VerifiedAt:             verifiedAt,
@@ -265,10 +339,12 @@ func (u *User) ToCachedUser() *CachedUser {
 		DeleteScheduledAt:      deleteScheduledAt,
 		CreatedAt:              u.createdAt.Unix(),
 		UpdatedAt:              u.updatedAt.Unix(),
+		ProfileCreatedAt:       p.createdAt.Unix(),
+		ProfileUpdatedAt:       p.updatedAt.Unix(),
 	}
 }
 
-func FromCachedUser(c *CachedUser) (*User, error) {
+func FromCachedAggregate(c *CachedAggregate) (*Aggregate, error) {
 	if c == nil {
 		return nil, nil
 	}
@@ -288,39 +364,54 @@ func FromCachedUser(c *CachedUser) (*User, error) {
 		return nil, err
 	}
 
-	phone, err := NewPhone(c.Phone)
-	if err != nil {
-		return nil, err
-	}
-
-	displayName, err := NewProfileDisplayName(c.DisplayName)
-	if err != nil {
-		return nil, err
-	}
-
-	var bio Bio
-	if c.Bio != nil {
-		b, err := NewBio(*c.Bio)
+	var phone *Phone
+	if c.Phone != nil {
+		p, err := NewPhone(c.Phone)
 		if err != nil {
 			return nil, err
 		}
-		bio = b
+		phone = &p
 	}
 
-	avatarURL, err := NewURL(c.AvatarURL)
+	displayName, err := NewDisplayName(c.DisplayName)
 	if err != nil {
 		return nil, err
 	}
 
-	bannerColor, err := NewBannerColor(c.BannerColor)
-	if err != nil {
-		return nil, err
+	var bio *Bio
+	if c.Bio != nil {
+		b, err := NewBio(c.Bio)
+		if err != nil {
+			return nil, err
+		}
+		bio = &b
 	}
 
-	var prefPresence *presence.Presence
-	if c.PreferredPresence != 0 {
-		p := presence.Presence(c.PreferredPresence)
-		prefPresence = &p
+	var avatarURL *URL
+	if c.AvatarURL != nil {
+		u, err := NewURL(c.AvatarURL)
+		if err != nil {
+			return nil, err
+		}
+		avatarURL = &u
+	}
+
+	var bannerColor *BannerColor
+	if c.BannerColor != nil {
+		bc, err := NewBannerColor(c.BannerColor)
+		if err != nil {
+			return nil, err
+		}
+		bannerColor = &bc
+	}
+
+	var prefPresence *PreferredPresence
+	if c.PreferredPresence != nil {
+		pp, err := NewPreferredPresence(c.PreferredPresence)
+		if err != nil {
+			return nil, err
+		}
+		prefPresence = &pp
 	}
 
 	var prefPresenceUntil *time.Time
@@ -347,21 +438,12 @@ func FromCachedUser(c *CachedUser) (*User, error) {
 		deleteScheduledAt = &t
 	}
 
-	prof := ReconstituteProfile(
-		displayName,
-		bio,
-		avatarURL,
-		bannerColor,
-		time.Unix(c.CreatedAt, 0).UTC(),
-		time.Unix(c.UpdatedAt, 0).UTC(),
-	)
-
-	return Reconstitute(
+	u := Reconstitute(
 		id,
 		email,
 		username,
 		phone,
-		"", // PasswordHash is intentionally excluded from the cache layer
+		Password{}, // Hash intentionally omitted from Redis cache
 		prefPresence,
 		prefPresenceUntil,
 		verifiedAt,
@@ -369,6 +451,18 @@ func FromCachedUser(c *CachedUser) (*User, error) {
 		deleteScheduledAt,
 		time.Unix(c.CreatedAt, 0).UTC(),
 		time.Unix(c.UpdatedAt, 0).UTC(),
-		prof,
-	), nil
+	)
+
+	p := ReconstituteProfile(
+		id,
+		displayName,
+		bio,
+		avatarURL,
+		bannerColor,
+		time.Unix(c.ProfileCreatedAt, 0).UTC(),
+		time.Unix(c.ProfileUpdatedAt, 0).UTC(),
+	)
+
+	agg := NewAggregate(*u, p)
+	return &agg, nil
 }
