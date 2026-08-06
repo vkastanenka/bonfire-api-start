@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
@@ -13,13 +14,13 @@ import (
 )
 
 type UserStore interface {
-	UserCreateAggregate(ctx context.Context, arg db.UserCreateAggregateParams) error
-	UserGet(ctx context.Context, id pgtype.UUID) (db.UserAggregate, error)
-	UserGetByEmail(ctx context.Context, email string) (db.UserAggregate, error)
-	UserGetByUsername(ctx context.Context, username string) (db.UserAggregate, error)
-	UserCheckAvailability(ctx context.Context, arg db.UserCheckAvailabilityParams) (db.UserCheckAvailabilityRow, error)
+	UserAvailability(ctx context.Context, arg db.UserAvailabilityParams) (db.UserAvailabilityRow, error)
+	UserCreate(ctx context.Context, arg db.UserCreateParams) error
+	UserGet(ctx context.Context, id pgtype.UUID) (db.User, error)
+	UserGetByEmail(ctx context.Context, email string) (db.User, error)
+	UserListDeleteScheduled(ctx context.Context, arg db.UserListDeleteScheduledParams) ([]db.User, error)
 	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.User, error)
-	UserProfileUpsert(ctx context.Context, arg db.UserProfileUpsertParams) (db.UserProfile, error)
+	UserUpdateBatch(ctx context.Context, arg db.UserUpdateBatchParams) ([]db.User, error)
 }
 
 type User struct {
@@ -33,19 +34,23 @@ func NewUser(store UserStore) *User {
 func (r *User) Create(ctx context.Context, u *user.User) error {
 	prof := u.Profile()
 
-	err := r.store.UserCreateAggregate(ctx, db.UserCreateAggregateParams{
-		UserID:            db.UUID(u.ID()),
-		Email:             u.Email().String(),
-		Username:          u.Username().String(),
-		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: db.Int2Ptr(u.PreferredPresence()),
-		VerifiedAt:        db.TimestamptzPtr(u.VerifiedAt()),
-		UserCreatedAt:     db.Timestamptz(u.CreatedAt()),
-		UserUpdatedAt:     db.Timestamptz(u.UpdatedAt()),
-		DisplayName:       prof.DisplayName().String(),
-		AvatarUrl:         db.TextPtr(prof.AvatarURL()),
-		ProfileCreatedAt:  db.Timestamptz(prof.CreatedAt()),
-		ProfileUpdatedAt:  db.Timestamptz(prof.UpdatedAt()),
+	err := r.store.UserCreate(ctx, db.CreateParams{
+		ID:                     db.UUID(u.ID()),
+		Email:                  u.Email().String(),
+		Username:               u.Username().String(),
+		DisplayName:            prof.DisplayName().String(),
+		PasswordHash:           u.PasswordHash(),
+		Phone:                  db.TextPtr(u.Phone()),
+		Bio:                    db.TextPtr(prof.Bio()),
+		AvatarUrl:              db.TextPtr(prof.AvatarURL()),
+		BannerColor:            db.TextPtr(prof.BannerColor()),
+		PreferredPresence:      db.Int2Ptr(u.PreferredPresence()),
+		PreferredPresenceUntil: db.TimestamptzPtr(u.PreferredPresenceUntil()),
+		VerifiedAt:             db.TimestamptzPtr(u.VerifiedAt()),
+		DisabledAt:             db.TimestamptzPtr(u.DisabledAt()),
+		DeleteScheduledAt:      db.TimestamptzPtr(u.DeleteScheduledAt()),
+		CreatedAt:              db.Timestamptz(u.CreatedAt()),
+		UpdatedAt:              db.Timestamptz(u.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
@@ -70,16 +75,8 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, er
 	return userFromRow(row)
 }
 
-func (r *User) GetByUsername(ctx context.Context, username user.Username) (*user.User, error) {
-	row, err := r.store.UserGetByUsername(ctx, username.String())
-	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
-	}
-	return userFromRow(row)
-}
-
 func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
-	row, err := r.store.UserCheckAvailability(ctx, db.UserCheckAvailabilityParams{
+	row, err := r.store.UserAvailability(ctx, db.UserAvailabilityParams{
 		Email:    email.String(),
 		Username: username.String(),
 	})
@@ -87,18 +84,49 @@ func (r *User) CheckAvailability(ctx context.Context, email user.Email, username
 		return false, false, db.NewError(err, db.EntityUser)
 	}
 
-	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
+	return row.EmailAvailable, row.UsernameAvailable, nil
+}
+
+func (r *User) ListDeleteScheduled(ctx context.Context, currentTime time.Time, batchLimit int32) ([]*user.User, error) {
+	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
+		CurrentTime: db.Timestamptz(currentTime),
+		BatchLimit:  batchLimit,
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+
+	users := make([]*user.User, 0, len(rows))
+	for _, row := range rows {
+		u, err := userFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+
+	return users, nil
 }
 
 func (r *User) Update(ctx context.Context, u *user.User) error {
+	prof := u.Profile()
+
 	_, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
-		ID:                db.UUID(u.ID()),
-		Email:             u.Email().String(),
-		Username:          u.Username().String(),
-		PasswordHash:      u.PasswordHash(),
-		PreferredPresence: db.Int2Ptr(u.PreferredPresence()),
-		VerifiedAt:        db.TimestamptzPtr(u.VerifiedAt()),
-		UpdatedAt:         db.Timestamptz(u.UpdatedAt()),
+		ID:                     db.UUID(u.ID()),
+		Email:                  u.Email().String(),
+		Username:               u.Username().String(),
+		DisplayName:            prof.DisplayName().String(),
+		PasswordHash:           u.PasswordHash(),
+		Phone:                  db.TextPtr(u.Phone()),
+		Bio:                    db.TextPtr(prof.Bio()),
+		AvatarUrl:              db.TextPtr(prof.AvatarURL()),
+		BannerColor:            db.TextPtr(prof.BannerColor()),
+		PreferredPresence:      db.Int2Ptr(u.PreferredPresence()),
+		PreferredPresenceUntil: db.TimestamptzPtr(u.PreferredPresenceUntil()),
+		VerifiedAt:             db.TimestamptzPtr(u.VerifiedAt()),
+		DisabledAt:             db.TimestamptzPtr(u.DisabledAt()),
+		DeleteScheduledAt:      db.TimestamptzPtr(u.DeleteScheduledAt()),
+		UpdatedAt:              db.Timestamptz(u.UpdatedAt()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
@@ -107,21 +135,27 @@ func (r *User) Update(ctx context.Context, u *user.User) error {
 	return nil
 }
 
-func (r *User) UpsertProfile(ctx context.Context, userID uuid.UUID, prof *user.Profile) error {
-	_, err := r.store.UserProfileUpsert(ctx, db.UserProfileUpsertParams{
-		UserID:      db.UUID(userID),
-		CreatedAt:   db.Timestamptz(prof.CreatedAt()),
-		UpdatedAt:   db.Timestamptz(prof.UpdatedAt()),
-		DisplayName: prof.DisplayName().String(),
-		AvatarUrl:   db.TextPtr(prof.AvatarURL()),
+func (r *User) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
+	rows, err := r.store.UserUpdateBatch(ctx, db.UserUpdateBatchParams{
+		UsersJson: usersJson,
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityUserProfile)
+		return nil, db.NewError(err, db.EntityUser)
 	}
-	return nil
+
+	updatedUsers := make([]*user.User, 0, len(rows))
+	for _, row := range rows {
+		u, err := userFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		updatedUsers = append(updatedUsers, u)
+	}
+
+	return updatedUsers, nil
 }
 
-func userFromRow(row db.UserAggregate) (*user.User, error) {
+func userFromRow(row db.User) (*user.User, error) {
 	userID := uuid.UUID(row.ID.Bytes).String()
 
 	email, err := user.NewEmail(row.Email)
@@ -130,7 +164,7 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 			Wrap(err).
 			Reason("CORRUPT_DATABASE_RECORD").
 			Meta("email", row.Email).
-			Resource("User", userID, "", "database aggregate row mapping")
+			Resource("User", userID, "", "database row mapping")
 	}
 
 	username, err := user.NewUsername(row.Username)
@@ -139,23 +173,23 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 			Wrap(err).
 			Reason("CORRUPT_DATABASE_RECORD").
 			Meta("username", row.Username).
-			Resource("User", userID, "", "database aggregate row mapping")
+			Resource("User", userID, "", "database row mapping")
 	}
 
 	displayName, err := user.NewProfileDisplayName(row.DisplayName)
 	if err != nil {
-		return nil, errs.Internal("failed to parse profile display name from database").
+		return nil, errs.Internal("failed to parse display name from database").
 			Wrap(err).
 			Reason("CORRUPT_DATABASE_RECORD").
 			Meta("display_name", row.DisplayName).
-			Resource("UserProfile", userID, "", "database aggregate row mapping")
+			Resource("User", userID, "", "database row mapping")
 	}
 
 	profile := user.ReconstituteProfile(
 		displayName,
+		db.StringPtr(row.Bio),
 		db.StringPtr(row.AvatarUrl),
-		row.ProfileCreatedAt.Time.UTC(),
-		row.ProfileUpdatedAt.Time.UTC(),
+		db.StringPtr(row.BannerColor),
 	)
 
 	return user.Reconstitute(
@@ -163,8 +197,12 @@ func userFromRow(row db.UserAggregate) (*user.User, error) {
 		email,
 		username,
 		row.PasswordHash,
+		db.StringPtr(row.Phone),
 		db.Int16Ptr[presence.Presence](row.PreferredPresence),
+		db.TimePtr(row.PreferredPresenceUntil),
 		db.TimePtr(row.VerifiedAt),
+		db.TimePtr(row.DisabledAt),
+		db.TimePtr(row.DeleteScheduledAt),
 		row.CreatedAt.Time.UTC(),
 		row.UpdatedAt.Time.UTC(),
 		profile,
