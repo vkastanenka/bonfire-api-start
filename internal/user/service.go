@@ -1,7 +1,9 @@
 package user
 
 import (
+	"bonfire-api/internal/token"
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,15 +23,26 @@ type Repository interface {
 	UpdateProfile(ctx context.Context, userID uuid.UUID, prof *Profile) error
 }
 
-type Service struct {
-	cache Cache
-	repo  Repository
+type TokenProvider interface {
+	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
+	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
+	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
+	VerifyPasswordReset(tokenStr string) (*token.Claims, error)
+	VerifyEmailVerify(tokenStr string) (*token.Claims, error)
+	VerifyRefresh(tokenStr string) (*token.Claims, error)
 }
 
-func NewService(cache Cache, repo Repository) *Service {
+type Service struct {
+	cache  Cache
+	repo   Repository
+	tokens TokenProvider
+}
+
+func NewService(cache Cache, repo Repository, tokens TokenProvider) *Service {
 	return &Service{
-		cache: cache,
-		repo:  repo,
+		cache:  cache,
+		repo:   repo,
+		tokens: tokens,
 	}
 }
 
@@ -95,7 +108,7 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	}
 
 	if s.cache != nil {
-		if cacheErr := s.cache.SetAggregate(ctx, agg); cacheErr != nil {
+		if cacheErr := s.cache.AggregateSet(ctx, agg); cacheErr != nil {
 			// Log error
 		}
 	}
@@ -164,7 +177,6 @@ type UpdateProfileParams struct {
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Aggregate, error) {
-	// 1. Validate inputs via value objects first (keeps bad data out of the db)
 	id, err := NewID(p.UserID)
 	if err != nil {
 		return nil, err

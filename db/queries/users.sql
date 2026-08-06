@@ -225,6 +225,47 @@ WHERE
             updated_user)
 LIMIT 1;
 
+-- name: UserAggregateUpdateProfile :one
+WITH updated_profile AS (
+    UPDATE
+        user_profiles
+    SET
+        display_name = @display_name::citext,
+        bio = sqlc.narg('bio')::text,
+        avatar_url = sqlc.narg('avatar_url')::text,
+        banner_color = sqlc.narg('banner_color')::text,
+        updated_at = @updated_at::timestamptz
+    WHERE
+        user_id = @user_id::uuid
+    RETURNING
+        user_id
+)
+SELECT
+    id,
+    email,
+    username,
+    phone,
+    display_name,
+    bio,
+    avatar_url,
+    banner_color,
+    preferred_presence,
+    preferred_presence_until,
+    verified_at,
+    disabled_at,
+    delete_scheduled_at,
+    created_at,
+    updated_at
+FROM
+    user_aggregates
+WHERE
+    id =(
+        SELECT
+            user_id
+        FROM
+            updated_profile)
+LIMIT 1;
+
 -- name: UserAggregateUpdateUsername :one
 WITH updated_user AS (
     UPDATE
@@ -343,56 +384,6 @@ ORDER BY
     delete_scheduled_at ASC,
     id ASC
 LIMIT @batch_limit::int;
-
--- name: UserProfileUpdate :one
-UPDATE
-    user_profiles
-SET
-    display_name = @display_name::citext,
-    bio = sqlc.narg('bio')::text,
-    avatar_url = sqlc.narg('avatar_url')::text,
-    banner_color = sqlc.narg('banner_color')::text,
-    updated_at = @updated_at::timestamptz
-WHERE
-    user_id = @user_id::uuid
-RETURNING
-    user_id,
-    created_at,
-    updated_at,
-    display_name,
-    bio,
-    avatar_url,
-    banner_color;
-
--- name: UserUpdate :one
-UPDATE
-    users
-SET
-    email = @email::citext,
-    username = @username::citext,
-    password_hash = @password_hash::text,
-    phone = sqlc.narg('phone')::text,
-    preferred_presence = sqlc.narg('preferred_presence')::smallint,
-    preferred_presence_until = sqlc.narg('preferred_presence_until')::timestamptz,
-    verified_at = sqlc.narg('verified_at')::timestamptz,
-    disabled_at = sqlc.narg('disabled_at')::timestamptz,
-    delete_scheduled_at = sqlc.narg('delete_scheduled_at')::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
-RETURNING
-    id,
-    email,
-    username,
-    password_hash,
-    phone,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at;
 
 -- name: UserUpdatePassword :exec
 UPDATE
