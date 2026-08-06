@@ -48,3 +48,10 @@ func (c *ctxDB) QueryRow(ctx context.Context, sql string, arguments ...any) pgx.
 	}
 	return c.pool.QueryRow(ctx, sql, arguments...)
 }
+
+func (c *ctxDB) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error) {
+	if tx, ok := ExtractTx(ctx); ok {
+		return tx.CopyFrom(ctx, tableName, columnNames, rowSrc)
+	}
+	return c.pool.CopyFrom(ctx, tableName, columnNames, rowSrc)
+}

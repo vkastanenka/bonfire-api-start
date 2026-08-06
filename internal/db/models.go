@@ -11,64 +11,52 @@ import (
 )
 
 type Channel struct {
-	ID            pgtype.UUID        `json:"id"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	Type          int16              `json:"type"`
-	LastMessageID pgtype.UUID        `json:"last_message_id"`
-	Name          pgtype.Text        `json:"name"`
-	IconUrl       pgtype.Text        `json:"icon_url"`
+	ID        pgtype.UUID        `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
 }
 
 type ChannelMember struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
-	MentionCount      int32              `json:"mention_count"`
-	DMVisibility      int16              `json:"dm_visibility"`
+	MutedUntil        pgtype.Timestamptz `json:"muted_until"`
+	IsVisible         bool               `json:"is_visible"`
 }
 
 type Message struct {
-	ID               pgtype.UUID        `json:"id"`
-	ChannelID        pgtype.UUID        `json:"channel_id"`
-	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
-	AuthorID         pgtype.UUID        `json:"author_id"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	EditedAt         pgtype.Timestamptz `json:"edited_at"`
-	PinnedAt         pgtype.Timestamptz `json:"pinned_at"`
-	Content          pgtype.Text        `json:"content"`
+	ID                 pgtype.UUID        `json:"id"`
+	ChannelID          pgtype.UUID        `json:"channel_id"`
+	AuthorID           pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID   pgtype.UUID        `json:"reply_to_message_id"`
+	ForwardedMessageID pgtype.UUID        `json:"forwarded_message_id"`
+	ForwardedChannelID pgtype.UUID        `json:"forwarded_channel_id"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	EditedAt           pgtype.Timestamptz `json:"edited_at"`
+	PinnedAt           pgtype.Timestamptz `json:"pinned_at"`
+	Type               int16              `json:"type"`
+	Content            pgtype.Text        `json:"content"`
+	SystemMetadata     []byte             `json:"system_metadata"`
 }
 
 type MessageAttachment struct {
 	ID          pgtype.UUID        `json:"id"`
 	MessageID   pgtype.UUID        `json:"message_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	FileSize    int32              `json:"file_size"`
+	FileSize    int64              `json:"file_size"`
 	Width       pgtype.Int4        `json:"width"`
 	Height      pgtype.Int4        `json:"height"`
 	FileName    string             `json:"file_name"`
 	ContentType string             `json:"content_type"`
 	Url         string             `json:"url"`
-}
-
-type MessageBaseAggregate struct {
-	ID                pgtype.UUID        `json:"id"`
-	ChannelID         pgtype.UUID        `json:"channel_id"`
-	ReplyToMessageID  pgtype.UUID        `json:"reply_to_message_id"`
-	AuthorID          pgtype.UUID        `json:"author_id"`
-	AuthorUsername    pgtype.Text        `json:"author_username"`
-	AuthorDisplayName pgtype.Text        `json:"author_display_name"`
-	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	EditedAt          pgtype.Timestamptz `json:"edited_at"`
-	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
-	Content           pgtype.Text        `json:"content"`
 }
 
 type MessageReaction struct {
@@ -80,15 +68,18 @@ type MessageReaction struct {
 
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
-	LockedBy       pgtype.UUID        `json:"locked_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
 	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
 	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
+	LockedBy       pgtype.UUID        `json:"locked_by"`
+	AggregateID    pgtype.UUID        `json:"aggregate_id"`
 	Attempts       int32              `json:"attempts"`
 	MaxAttempts    int32              `json:"max_attempts"`
 	EventType      string             `json:"event_type"`
+	AggregateType  pgtype.Text        `json:"aggregate_type"`
+	TraceID        pgtype.Text        `json:"trace_id"`
 	Payload        []byte             `json:"payload"`
 	LastError      pgtype.Text        `json:"last_error"`
 }
@@ -100,68 +91,39 @@ type Relationship struct {
 	ChannelID pgtype.UUID        `json:"channel_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Variant   int16              `json:"variant"`
-}
-
-type RelationshipPerspective struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	PeerID      pgtype.UUID        `json:"peer_id"`
-	Variant     int16              `json:"variant"`
-	ActorID     pgtype.UUID        `json:"actor_id"`
-	IsInitiator bool               `json:"is_initiator"`
-	ChannelID   pgtype.UUID        `json:"channel_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Username    string             `json:"username"`
-	DisplayName pgtype.Text        `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	Type      int16              `json:"type"`
 }
 
 type Session struct {
 	ID               pgtype.UUID        `json:"id"`
 	UserID           pgtype.UUID        `json:"user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	ClientIP         netip.Addr         `json:"client_ip"`
 	RefreshTokenHash []byte             `json:"refresh_token_hash"`
-	UserAgent        string             `json:"user_agent"`
 	OS               string             `json:"os"`
-	Browser          string             `json:"browser"`
+	Client           string             `json:"client"`
+	UserAgent        string             `json:"user_agent"`
 }
 
 type User struct {
-	ID                pgtype.UUID        `json:"id"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
-	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
-	Email             string             `json:"email"`
-	Username          string             `json:"username"`
-	PasswordHash      string             `json:"password_hash"`
-}
-
-type UserAggregate struct {
-	ID                pgtype.UUID        `json:"id"`
-	Email             string             `json:"email"`
-	Username          string             `json:"username"`
-	PasswordHash      string             `json:"password_hash"`
-	PreferredPresence pgtype.Int2        `json:"preferred_presence"`
-	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
-	DisplayName       string             `json:"display_name"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ProfileCreatedAt  pgtype.Timestamptz `json:"profile_created_at"`
-	ProfileUpdatedAt  pgtype.Timestamptz `json:"profile_updated_at"`
-}
-
-type UserProfile struct {
-	UserID      pgtype.UUID        `json:"user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DisplayName string             `json:"display_name"`
-	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	ID                     pgtype.UUID        `json:"id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
+	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
+	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
+	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
+	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
+	Email                  string             `json:"email"`
+	Username               string             `json:"username"`
+	DisplayName            string             `json:"display_name"`
+	PasswordHash           string             `json:"password_hash"`
+	Phone                  pgtype.Text        `json:"phone"`
+	Bio                    pgtype.Text        `json:"bio"`
+	AvatarUrl              pgtype.Text        `json:"avatar_url"`
+	BannerColor            pgtype.Text        `json:"banner_color"`
 }

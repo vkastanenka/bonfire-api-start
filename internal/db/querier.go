@@ -11,112 +11,52 @@ import (
 )
 
 type Querier interface {
-	// ============================================================================
-	// MESSAGE ATTACHMENTS
-	// ============================================================================
 	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
-	AttachmentDeleteByMessage(ctx context.Context, messageID pgtype.UUID) error
-	// ============================================================================
-	// CHANNELS
-	// ============================================================================
+	AttachmentDelete(ctx context.Context, attachmentID pgtype.UUID) error
 	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
-	ChannelGetForMember(ctx context.Context, arg ChannelGetForMemberParams) (Channel, error)
-	ChannelGetForMemberUpdate(ctx context.Context, arg ChannelGetForMemberUpdateParams) (Channel, error)
-	ChannelHasMessagesAfter(ctx context.Context, arg ChannelHasMessagesAfterParams) (bool, error)
-	ChannelHasMessagesBefore(ctx context.Context, arg ChannelHasMessagesBeforeParams) (bool, error)
-	// Used for populating the user's sidebar with channel info & peer profiles for DMs
-	ChannelListByUser(ctx context.Context, userID pgtype.UUID) ([]ChannelListByUserRow, error)
-	// ============================================================================
-	// CHANNEL MEMBERS
-	// ============================================================================
-	ChannelMemberAddBatch(ctx context.Context, arg ChannelMemberAddBatchParams) error
-	// Hides or closes the DM channel for a specific member
+	ChannelMemberAddBatch(ctx context.Context, membersJson []byte) error
 	ChannelMemberCloseDM(ctx context.Context, arg ChannelMemberCloseDMParams) error
-	ChannelMemberCount(ctx context.Context, channelID pgtype.UUID) (int32, error)
-	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
-	ChannelMemberGetUnreadCount(ctx context.Context, arg ChannelMemberGetUnreadCountParams) (int32, error)
-	ChannelMemberIncrementMentionCountBatch(ctx context.Context, arg ChannelMemberIncrementMentionCountBatchParams) error
-	ChannelMemberListByChannel(ctx context.Context, channelID pgtype.UUID) ([]ChannelMemberListByChannelRow, error)
-	ChannelMemberListItemsByChannel(ctx context.Context, arg ChannelMemberListItemsByChannelParams) ([]ChannelMemberListItemsByChannelRow, error)
-	// Unhides/reopens the DM channel
 	ChannelMemberOpenDM(ctx context.Context, arg ChannelMemberOpenDMParams) error
-	ChannelMemberRemove(ctx context.Context, arg ChannelMemberRemoveParams) error
-	ChannelMemberResetMentionCount(ctx context.Context, arg ChannelMemberResetMentionCountParams) error
 	ChannelMemberTogglePinned(ctx context.Context, arg ChannelMemberTogglePinnedParams) error
-	ChannelMemberUpdateRead(ctx context.Context, arg ChannelMemberUpdateReadParams) error
+	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
 	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
-	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
-	// ============================================================================
-	// MESSAGES
-	// ============================================================================
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
-	MessageGetAggregate(ctx context.Context, id pgtype.UUID) (MessageGetAggregateRow, error)
-	// Fetches the first message created after the user's last_read_at timestamp
-	MessageGetFirstUnread(ctx context.Context, arg MessageGetFirstUnreadParams) (Message, error)
-	MessageGetLatest(ctx context.Context, channelID pgtype.UUID) (Message, error)
-	// Fetches newer messages strictly after the cursor tuple (Chronological ASC)
-	MessageListAggregateAfter(ctx context.Context, arg MessageListAggregateAfterParams) ([]MessageListAggregateAfterRow, error)
-	// Fetches older/target messages and newer messages relative to target, returned ASC
-	MessageListAggregateAround(ctx context.Context, arg MessageListAggregateAroundParams) ([]MessageListAggregateAroundRow, error)
-	// Fetches older messages strictly before the cursor tuple (Reverse DESC order for indexing)
-	MessageListAggregateBefore(ctx context.Context, arg MessageListAggregateBeforeParams) ([]MessageListAggregateBeforeRow, error)
-	MessageListPinnedAggregate(ctx context.Context, arg MessageListPinnedAggregateParams) ([]MessageListPinnedAggregateRow, error)
-	MessageTogglePinned(ctx context.Context, arg MessageTogglePinnedParams) (Message, error)
+	MessageListByChannel(ctx context.Context, arg MessageListByChannelParams) ([]Message, error)
+	MessageListPinned(ctx context.Context, channelID pgtype.UUID) ([]Message, error)
+	MessageReactionAdd(ctx context.Context, arg MessageReactionAddParams) error
+	MessageReactionRemove(ctx context.Context, arg MessageReactionRemoveParams) error
+	MessageTogglePin(ctx context.Context, arg MessageTogglePinParams) (MessageTogglePinRow, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
-	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEvent, error)
-	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEvent, error)
-	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
-	OutboxEventGet(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
-	OutboxEventList(ctx context.Context, arg OutboxEventListParams) ([]OutboxEvent, error)
-	OutboxEventPurgeProcessed(ctx context.Context, retentionDays int32) error
+	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEventAcquireBatchRow, error)
+	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEventCreateRow, error)
+	OutboxEventCreateBatch(ctx context.Context, arg []OutboxEventCreateBatchParams) (int64, error)
+	OutboxEventListDeadLetter(ctx context.Context, arg OutboxEventListDeadLetterParams) ([]OutboxEventListDeadLetterRow, error)
+	OutboxEventMarkFailed(ctx context.Context, arg OutboxEventMarkFailedParams) (OutboxEventMarkFailedRow, error)
+	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) (OutboxEventMarkProcessedRow, error)
+	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
-	OutboxEventUpdate(ctx context.Context, arg OutboxEventUpdateParams) (OutboxEvent, error)
-	// ============================================================================
-	// MESSAGE REACTIONS
-	// ============================================================================
-	ReactionAdd(ctx context.Context, arg ReactionAddParams) (MessageReaction, error)
-	ReactionRemove(ctx context.Context, arg ReactionRemoveParams) error
-	// ============================================================================
-	// RELATIONSHIPS
-	// ============================================================================
-	RelationshipDelete(ctx context.Context, arg RelationshipDeleteParams) error
 	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
-	RelationshipGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relationship, error)
-	RelationshipGetForUpdate(ctx context.Context, arg RelationshipGetForUpdateParams) (Relationship, error)
-	RelationshipHasBlockBetweenUserAndPeers(ctx context.Context, arg RelationshipHasBlockBetweenUserAndPeersParams) (bool, error)
-	RelationshipPerspectiveGet(ctx context.Context, arg RelationshipPerspectiveGetParams) (RelationshipPerspective, error)
-	RelationshipPerspectiveGetByChannelID(ctx context.Context, arg RelationshipPerspectiveGetByChannelIDParams) (RelationshipPerspective, error)
-	// -- name: RelationshipPerspectivesList :many
-	// SELECT
-	//     *
-	// FROM
-	//     relationship_perspectives
-	// WHERE
-	//     user_id = @user_id::uuid
-	//     AND (sqlc.narg('filter_variant')::smallint IS NULL
-	//         OR variant = sqlc.narg('filter_variant'))
-	// ORDER BY
-	//     updated_at DESC;
 	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
-	SessionDelete(ctx context.Context, id pgtype.UUID) error
-	SessionDeleteAllByUserID(ctx context.Context, userID pgtype.UUID) error
-	SessionDeleteAllExcept(ctx context.Context, arg SessionDeleteAllExceptParams) error
-	SessionDeleteAllExpired(ctx context.Context) error
+	SessionDeleteExpiredBatch(ctx context.Context, arg SessionDeleteExpiredBatchParams) error
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
-	SessionSave(ctx context.Context, arg SessionSaveParams) (Session, error)
-	UserCheckAvailability(ctx context.Context, arg UserCheckAvailabilityParams) (UserCheckAvailabilityRow, error)
-	UserCreateAggregate(ctx context.Context, arg UserCreateAggregateParams) error
-	UserGet(ctx context.Context, id pgtype.UUID) (UserAggregate, error)
-	UserGetByEmail(ctx context.Context, email string) (UserAggregate, error)
-	UserGetByUsername(ctx context.Context, username string) (UserAggregate, error)
-	UserProfileUpsert(ctx context.Context, arg UserProfileUpsertParams) (UserProfile, error)
-	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)
+	SessionGetByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (Session, error)
+	SessionRevoke(ctx context.Context, arg SessionRevokeParams) error
+	SessionRotateRefreshToken(ctx context.Context, arg SessionRotateRefreshTokenParams) (Session, error)
+	SessionUserListActive(ctx context.Context, arg SessionUserListActiveParams) ([]SessionUserListActiveRow, error)
+	SessionUserRevokeAll(ctx context.Context, arg SessionUserRevokeAllParams) error
+	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)
+	UserCreate(ctx context.Context, arg UserCreateParams) error
+	UserGet(ctx context.Context, id pgtype.UUID) (UserGetRow, error)
+	UserGetByEmail(ctx context.Context, email string) (UserGetByEmailRow, error)
+	UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]UserListDeleteScheduledRow, error)
+	UserUpdate(ctx context.Context, arg UserUpdateParams) (UserUpdateRow, error)
+	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]UserUpdateBatchRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

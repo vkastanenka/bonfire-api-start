@@ -89,8 +89,8 @@ func (r *User) CheckAvailability(ctx context.Context, email user.Email, username
 
 func (r *User) ListDeleteScheduled(ctx context.Context, currentTime time.Time, batchLimit int32) ([]*user.User, error) {
 	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
-		CurrentTime: db.Timestamptz(currentTime),
-		BatchLimit:  batchLimit,
+		Now:        db.Timestamptz(currentTime),
+		BatchLimit: batchLimit,
 	})
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
