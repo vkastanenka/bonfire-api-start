@@ -4,26 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
-
-// 	   ID                     pgtype.UUID        `json:"id"`
-//     Email                  string             `json:"email"`
-//     Username               string             `json:"username"`
-//     DisplayName            string             `json:"display_name"`
-//     PasswordHash           string             `json:"password_hash"`
-//     Phone                  pgtype.Text        `json:"phone"`
-//     Bio                    pgtype.Text        `json:"bio"`
-//     AvatarUrl              pgtype.Text        `json:"avatar_url"`
-//     BannerColor            pgtype.Text        `json:"banner_color"`
-//     PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-//     PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-//     VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-//     DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-//     DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-//     CreatedAt              pgtype.Timestamptz `json:"created_at"`
-//     UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 
 // Integer is a constraint that permits any integer type (signed or unsigned).
 type Integer interface {
@@ -37,11 +19,11 @@ type Stringer interface {
 }
 
 // -----------------------------------------------------------------------------
-// Domain -> DB Helpers
+// Domain -> DB
 // -----------------------------------------------------------------------------
 
 // Int2 converts any integer value (including custom enums) into pgtype.Int2.
-func Int2[T Integer](v T) pgtype.Int2 {
+func ToInt2[T Integer](v T) pgtype.Int2 {
 	return pgtype.Int2{
 		Int16: int16(v),
 		Valid: true,
@@ -49,7 +31,7 @@ func Int2[T Integer](v T) pgtype.Int2 {
 }
 
 // Int2Ptr converts a pointer to any integer type into pgtype.Int2.
-func Int2Ptr[T Integer](v *T) pgtype.Int2 {
+func ToInt2Ptr[T Integer](v *T) pgtype.Int2 {
 	if v == nil {
 		return pgtype.Int2{Valid: false}
 	}
@@ -60,12 +42,12 @@ func Int2Ptr[T Integer](v *T) pgtype.Int2 {
 }
 
 // Text converts a string or fmt.Stringer into pgtype.Text.
-func Text(s string) pgtype.Text {
+func ToText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
 // TextPtr converts a *string into pgtype.Text.
-func TextPtr(s *string) pgtype.Text {
+func ToTextPtr(s *string) pgtype.Text {
 	if s == nil {
 		return pgtype.Text{Valid: false}
 	}
@@ -73,7 +55,7 @@ func TextPtr(s *string) pgtype.Text {
 }
 
 // Timestamptz converts a time.Time into pgtype.Timestamptz in UTC.
-func Timestamptz(t time.Time) pgtype.Timestamptz {
+func ToTimestamptz(t time.Time) pgtype.Timestamptz {
 	if t.IsZero() {
 		return pgtype.Timestamptz{Valid: false}
 	}
@@ -84,7 +66,7 @@ func Timestamptz(t time.Time) pgtype.Timestamptz {
 }
 
 // TimestamptzPtr converts a *time.Time into pgtype.Timestamptz in UTC.
-func TimestamptzPtr(t *time.Time) pgtype.Timestamptz {
+func ToTimestamptzPtr(t *time.Time) pgtype.Timestamptz {
 	if t == nil || t.IsZero() {
 		return pgtype.Timestamptz{Valid: false}
 	}
@@ -95,7 +77,7 @@ func TimestamptzPtr(t *time.Time) pgtype.Timestamptz {
 }
 
 // UUID converts a google/uuid.UUID into pgtype.UUID.
-func UUID[T ~[16]byte](id T) pgtype.UUID {
+func ToUUID[T ~[16]byte](id T) pgtype.UUID {
 	return pgtype.UUID{
 		Bytes: id,
 		Valid: true,
@@ -103,7 +85,7 @@ func UUID[T ~[16]byte](id T) pgtype.UUID {
 }
 
 // UUIDPtr converts a *google/uuid.UUID into pgtype.UUID.
-func UUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
+func ToUUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
 	if id == nil {
 		return pgtype.UUID{Valid: false}
 	}
@@ -115,7 +97,7 @@ func UUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
 
 // StringerPtr converts a pointer to any type whose pointer receiver implements fmt.Stringer into pgtype.Text.
 // Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
-func StringerPtr[T any, PT interface {
+func ToStringerPtr[T any, PT interface {
 	*T
 	fmt.Stringer
 }](v *T) pgtype.Text {
@@ -126,51 +108,76 @@ func StringerPtr[T any, PT interface {
 }
 
 // -----------------------------------------------------------------------------
-// DB -> Domain Helpers
+// DB -> Domain
 // -----------------------------------------------------------------------------
 
-// UUIDPtrFromDB converts pgtype.UUID into a *google/uuid.UUID.
-func UUIDPtrFromDB(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
-		return nil
+// FromInt2 converts pgtype.Int2 into any integer type or custom enum, returning zero if NULL.
+func FromInt2[T Integer](i pgtype.Int2) T {
+	if !i.Valid {
+		var zero T
+		return zero
 	}
-	id := uuid.UUID(u.Bytes)
-	return &id
+	return T(i.Int16)
 }
 
-// StringPtr converts pgtype.Text into a *string.
-func StringPtr(s pgtype.Text) *string {
-	if !s.Valid {
-		return nil
-	}
-	return &s.String
-}
-
-// TimePtr converts pgtype.Timestamptz into a *time.Time.
-func TimePtr(t pgtype.Timestamptz) *time.Time {
-	if !t.Valid {
-		return nil
-	}
-	utcTime := t.Time.UTC()
-	return &utcTime
-}
-
-// Int16Ptr converts pgtype.Int2 into a pointer to a target Integer/Enum type.
-func Int16Ptr[T Integer](i pgtype.Int2) *T {
+// FromInt2Ptr converts pgtype.Int2 into a pointer to any integer type, returning nil if NULL.
+func FromInt2Ptr[T Integer](i pgtype.Int2) *T {
 	if !i.Valid {
 		return nil
 	}
-	val := T(i.Int16)
-	return &val
+	v := T(i.Int16)
+	return &v
 }
 
-func ToStringPtr[T any, PT interface {
-	*T
-	fmt.Stringer
-}](v *T) *string {
-	if v == nil {
+// FromText converts pgtype.Text into a string or custom string type, returning empty string if NULL.
+func FromText[T ~string](t pgtype.Text) T {
+	if !t.Valid {
+		var zero T
+		return zero
+	}
+	return T(t.String)
+}
+
+// FromTextPtr converts pgtype.Text into a *string or *custom string type, returning nil if NULL.
+func FromTextPtr[T ~string](t pgtype.Text) *T {
+	if !t.Valid {
 		return nil
 	}
-	s := PT(v).String()
-	return &s
+	v := T(t.String)
+	return &v
+}
+
+// FromTimestamptz converts pgtype.Timestamptz into time.Time, returning zero time if NULL.
+func FromTimestamptz(t pgtype.Timestamptz) time.Time {
+	if !t.Valid {
+		return time.Time{}
+	}
+	return t.Time
+}
+
+// FromTimestamptzPtr converts pgtype.Timestamptz into *time.Time, returning nil if NULL.
+func FromTimestamptzPtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	v := t.Time
+	return &v
+}
+
+// FromUUID converts pgtype.UUID into a 16-byte array (e.g., uuid.UUID), returning zero value if NULL.
+func FromUUID[T ~[16]byte](id pgtype.UUID) T {
+	if !id.Valid {
+		var zero T
+		return zero
+	}
+	return T(id.Bytes)
+}
+
+// FromUUIDPtr converts pgtype.UUID into a pointer to a 16-byte array, returning nil if NULL.
+func FromUUIDPtr[T ~[16]byte](id pgtype.UUID) *T {
+	if !id.Valid {
+		return nil
+	}
+	v := T(id.Bytes)
+	return &v
 }

@@ -52,11 +52,11 @@ type Querier interface {
 	SessionUserRevokeAll(ctx context.Context, arg SessionUserRevokeAllParams) error
 	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) error
-	UserGet(ctx context.Context, id pgtype.UUID) (UserGetRow, error)
-	UserGetByEmail(ctx context.Context, email string) (UserGetByEmailRow, error)
-	UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]UserListDeleteScheduledRow, error)
-	UserUpdate(ctx context.Context, arg UserUpdateParams) (UserUpdateRow, error)
-	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]UserUpdateBatchRow, error)
+	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
+	UserGetByEmail(ctx context.Context, email string) (User, error)
+	UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error)
+	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)
+	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User, error)
 }
 
 var _ Querier = (*Queries)(nil)

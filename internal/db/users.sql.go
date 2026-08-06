@@ -49,6 +49,8 @@ func (q *Queries) UserAvailability(ctx context.Context, arg UserAvailabilityPara
 const userCreate = `-- name: UserCreate :exec
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 `
 
 type UserCreateParams struct {
@@ -94,52 +96,25 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) error {
 
 const userGet = `-- name: UserGet :one
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 FROM
     users
 WHERE
     id = $1
 `
 
-type UserGetRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
-	Phone                  pgtype.Text        `json:"phone"`
-	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
-	BannerColor            pgtype.Text        `json:"banner_color"`
-	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (UserGetRow, error) {
+func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, userGet, id)
-	var i UserGetRow
+	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.DisplayName,
@@ -148,65 +123,31 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (UserGetRow, erro
 		&i.Bio,
 		&i.AvatarUrl,
 		&i.BannerColor,
-		&i.PreferredPresence,
-		&i.PreferredPresenceUntil,
-		&i.VerifiedAt,
-		&i.DisabledAt,
-		&i.DeleteScheduledAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 FROM
     users
 WHERE
     email = $1
 `
 
-type UserGetByEmailRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
-	Phone                  pgtype.Text        `json:"phone"`
-	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
-	BannerColor            pgtype.Text        `json:"banner_color"`
-	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UserGetByEmail(ctx context.Context, email string) (UserGetByEmailRow, error) {
+func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, userGetByEmail, email)
-	var i UserGetByEmailRow
+	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.DisplayName,
@@ -215,35 +156,13 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (UserGetByEm
 		&i.Bio,
 		&i.AvatarUrl,
 		&i.BannerColor,
-		&i.PreferredPresence,
-		&i.PreferredPresenceUntil,
-		&i.VerifiedAt,
-		&i.DisabledAt,
-		&i.DeleteScheduledAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const userListDeleteScheduled = `-- name: UserListDeleteScheduled :many
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 FROM
     users
 WHERE
@@ -259,36 +178,24 @@ type UserListDeleteScheduledParams struct {
 	BatchLimit int32              `json:"batch_limit"`
 }
 
-type UserListDeleteScheduledRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
-	Phone                  pgtype.Text        `json:"phone"`
-	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
-	BannerColor            pgtype.Text        `json:"banner_color"`
-	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]UserListDeleteScheduledRow, error) {
+func (q *Queries) UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error) {
 	rows, err := q.db.Query(ctx, userListDeleteScheduled, arg.Now, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserListDeleteScheduledRow
+	var items []User
 	for rows.Next() {
-		var i UserListDeleteScheduledRow
+		var i User
 		if err := rows.Scan(
 			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VerifiedAt,
+			&i.DisabledAt,
+			&i.DeleteScheduledAt,
+			&i.PreferredPresenceUntil,
+			&i.PreferredPresence,
 			&i.Email,
 			&i.Username,
 			&i.DisplayName,
@@ -297,13 +204,6 @@ func (q *Queries) UserListDeleteScheduled(ctx context.Context, arg UserListDelet
 			&i.Bio,
 			&i.AvatarUrl,
 			&i.BannerColor,
-			&i.PreferredPresence,
-			&i.PreferredPresenceUntil,
-			&i.VerifiedAt,
-			&i.DisabledAt,
-			&i.DeleteScheduledAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -336,22 +236,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 `
 
 type UserUpdateParams struct {
@@ -372,26 +257,7 @@ type UserUpdateParams struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
-type UserUpdateRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
-	Phone                  pgtype.Text        `json:"phone"`
-	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
-	BannerColor            pgtype.Text        `json:"banner_color"`
-	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (UserUpdateRow, error) {
+func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error) {
 	row := q.db.QueryRow(ctx, userUpdate,
 		arg.ID,
 		arg.Email,
@@ -409,9 +275,16 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (UserUpd
 		arg.DeleteScheduledAt,
 		arg.UpdatedAt,
 	)
-	var i UserUpdateRow
+	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
 		&i.Email,
 		&i.Username,
 		&i.DisplayName,
@@ -420,13 +293,6 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (UserUpd
 		&i.Bio,
 		&i.AvatarUrl,
 		&i.BannerColor,
-		&i.PreferredPresence,
-		&i.PreferredPresenceUntil,
-		&i.VerifiedAt,
-		&i.DisabledAt,
-		&i.DeleteScheduledAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -476,54 +342,27 @@ ON CONFLICT (id)
         delete_scheduled_at = EXCLUDED.delete_scheduled_at,
         updated_at = EXCLUDED.updated_at
     RETURNING
-        id,
-        email,
-        username,
-        display_name,
-        password_hash,
-        phone,
-        bio,
-        avatar_url,
-        banner_color,
-        preferred_presence,
-        preferred_presence_until,
-        verified_at,
-        disabled_at,
-        delete_scheduled_at,
-        created_at,
-        updated_at
+        users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 `
 
-type UserUpdateBatchRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
-	Phone                  pgtype.Text        `json:"phone"`
-	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
-	BannerColor            pgtype.Text        `json:"banner_color"`
-	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
-	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
-	VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]UserUpdateBatchRow, error) {
+func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User, error) {
 	rows, err := q.db.Query(ctx, userUpdateBatch, usersJson)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []UserUpdateBatchRow
+	var items []User
 	for rows.Next() {
-		var i UserUpdateBatchRow
+		var i User
 		if err := rows.Scan(
 			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VerifiedAt,
+			&i.DisabledAt,
+			&i.DeleteScheduledAt,
+			&i.PreferredPresenceUntil,
+			&i.PreferredPresence,
 			&i.Email,
 			&i.Username,
 			&i.DisplayName,
@@ -532,13 +371,6 @@ func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User
 			&i.Bio,
 			&i.AvatarUrl,
 			&i.BannerColor,
-			&i.PreferredPresence,
-			&i.PreferredPresenceUntil,
-			&i.VerifiedAt,
-			&i.DisabledAt,
-			&i.DeleteScheduledAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

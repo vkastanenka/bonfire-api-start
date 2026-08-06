@@ -319,6 +319,57 @@ func (p *Password) UnmarshalText(text []byte) (err error) {
 }
 
 // ============================================================================
+// PasswordHash
+// ============================================================================
+
+var (
+	ErrPasswordHashEmpty    = errors.New("password hash cannot be empty")
+	ErrPasswordHashTooShort = errors.New("password hash must be at least 50 characters")
+	ErrPasswordHashTooLong  = errors.New("password hash cannot exceed 255 characters")
+)
+
+type PasswordHash struct {
+	value string
+}
+
+func NewPasswordHash(raw string) (PasswordHash, error) {
+	if raw == "" {
+		return PasswordHash{}, ErrPasswordHashEmpty
+	}
+	if len(raw) < 50 {
+		return PasswordHash{}, ErrPasswordHashTooShort
+	}
+	if len(raw) > 255 {
+		return PasswordHash{}, ErrPasswordHashTooLong
+	}
+	return PasswordHash{value: raw}, nil
+}
+
+func (p PasswordHash) String() string {
+	return p.value
+}
+
+func (p PasswordHash) StringPtr() *string {
+	if p.value == "" {
+		return nil
+	}
+	return &p.value
+}
+
+func (p PasswordHash) IsValid() bool {
+	return p.value != ""
+}
+
+func (p PasswordHash) Equals(other PasswordHash) bool {
+	return p.value == other.value
+}
+
+func (p *PasswordHash) UnmarshalText(text []byte) (err error) {
+	*p, err = unmarshalText(text, NewPasswordHash)
+	return err
+}
+
+// ============================================================================
 // Phone
 // ============================================================================
 
@@ -434,6 +485,10 @@ func (pp PreferredPresence) StringPtr() *string {
 
 func (pp PreferredPresence) Int16() int16 {
 	return pp.value.Int16()
+}
+
+func (pp PreferredPresence) Int16Ptr() *int16 {
+	return pp.value.Int16Ptr()
 }
 
 func (pp PreferredPresence) IsValid() bool {

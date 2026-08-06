@@ -17,26 +17,13 @@ SELECT
 
 -- name: UserCreate :exec
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING
+    users.*;
 
 -- name: UserGet :one
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.*
 FROM
     users
 WHERE
@@ -44,22 +31,7 @@ WHERE
 
 -- name: UserGetByEmail :one
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.*
 FROM
     users
 WHERE
@@ -67,22 +39,7 @@ WHERE
 
 -- name: UserListDeleteScheduled :many
 SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+    users.*
 FROM
     users
 WHERE
@@ -113,22 +70,7 @@ SET
 WHERE
     id = $1
 RETURNING
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at;
+    users.*;
 
 -- name: UserUpdateBatch :many
 WITH input_data AS (
@@ -175,20 +117,5 @@ ON CONFLICT (id)
         delete_scheduled_at = EXCLUDED.delete_scheduled_at,
         updated_at = EXCLUDED.updated_at
     RETURNING
-        id,
-        email,
-        username,
-        display_name,
-        password_hash,
-        phone,
-        bio,
-        avatar_url,
-        banner_color,
-        preferred_presence,
-        preferred_presence_until,
-        verified_at,
-        disabled_at,
-        delete_scheduled_at,
-        created_at,
-        updated_at;
+        users.*;
 

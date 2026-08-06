@@ -93,6 +93,14 @@ func (p Presence) Int16() int16 {
 	return int16(p)
 }
 
+func (p Presence) Int16Ptr() *int16 {
+	if !p.IsValid() {
+		return nil
+	}
+	v := p.Int16()
+	return &v
+}
+
 func FromInt16(v int16) (Presence, error) {
 	if v < 0 || v >= int16(presenceMax) {
 		return PresenceUnknown, ErrInvalidPresence

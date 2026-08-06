@@ -16,7 +16,7 @@ type User struct {
 	email                  Email
 	username               Username
 	displayName            DisplayName
-	passwordHash           Password
+	passwordHash           PasswordHash
 	phone                  Phone
 	bio                    Bio
 	avatarURL              URL
@@ -34,7 +34,7 @@ func (u *User) ID() ID                               { return u.id }
 func (u *User) Email() Email                         { return u.email }
 func (u *User) Username() Username                   { return u.username }
 func (u *User) DisplayName() DisplayName             { return u.displayName }
-func (u *User) PasswordHash() Password               { return u.passwordHash }
+func (u *User) PasswordHash() PasswordHash           { return u.passwordHash }
 func (u *User) Phone() Phone                         { return u.phone }
 func (u *User) Bio() Bio                             { return u.bio }
 func (u *User) AvatarURL() URL                       { return u.avatarURL }
@@ -73,7 +73,7 @@ func New(
 	email Email,
 	username Username,
 	displayName DisplayName,
-	passwordHash Password,
+	passwordHash PasswordHash,
 	now time.Time,
 ) (*User, error) {
 	ts := NewTimestampFromTime(now)
@@ -92,7 +92,7 @@ func Reconstitute(
 	id ID,
 	email Email,
 	username Username,
-	passwordHash Password,
+	passwordHash PasswordHash,
 	phone Phone,
 	displayName DisplayName,
 	bio Bio,
@@ -189,7 +189,7 @@ func (u *User) UpdatePhone(newPhone Phone, now time.Time) error {
 	return nil
 }
 
-func (u *User) UpdatePassword(newHash Password, now time.Time) error {
+func (u *User) UpdatePasswordHash(newHash PasswordHash, now time.Time) error {
 	if err := u.EnsureActive(); err != nil {
 		return err
 	}
@@ -230,7 +230,7 @@ func (u *User) Anonymize(now time.Time) {
 	u.bio = Bio{}
 	u.avatarURL = URL{}
 	u.bannerColor = HexColor{}
-	u.passwordHash = Password{}
+	u.passwordHash = PasswordHash{}
 	u.phone = Phone{}
 	u.preferredPresence = PreferredPresence{}
 	u.preferredPresenceUntil = Timestamp{}
