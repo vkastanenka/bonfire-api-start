@@ -244,7 +244,8 @@ SELECT
     u.disabled_at,
     u.delete_scheduled_at,
     u.created_at,
-    u.updated_at
+    u.updated_at,
+    p.updated_at AS profile_updated_at
 FROM
     users u
     INNER JOIN user_profiles p ON u.id = p.user_id;

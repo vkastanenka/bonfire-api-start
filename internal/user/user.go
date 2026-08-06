@@ -46,7 +46,6 @@ type Profile struct {
 	bio         *Bio
 	avatarURL   *URL
 	bannerColor *BannerColor
-	createdAt   time.Time
 	updatedAt   time.Time
 }
 
@@ -55,23 +54,22 @@ func (p *Profile) DisplayName() DisplayName  { return p.displayName }
 func (p *Profile) Bio() *Bio                 { return p.bio }
 func (p *Profile) AvatarURL() *URL           { return p.avatarURL }
 func (p *Profile) BannerColor() *BannerColor { return p.bannerColor }
-func (p *Profile) CreatedAt() time.Time      { return p.createdAt }
 func (p *Profile) UpdatedAt() time.Time      { return p.updatedAt }
 
 type Aggregate struct {
-	user    User
-	profile Profile
+	user    *User
+	profile *Profile
 }
 
-func NewAggregate(u User, p Profile) Aggregate {
-	return Aggregate{
+func NewAggregate(u *User, p *Profile) *Aggregate {
+	return &Aggregate{
 		user:    u,
 		profile: p,
 	}
 }
 
-func (ua *Aggregate) User() User       { return ua.user }
-func (ua *Aggregate) Profile() Profile { return ua.profile }
+func (ua *Aggregate) User() *User       { return ua.user }
+func (ua *Aggregate) Profile() *Profile { return ua.profile }
 
 // ============================================================================
 // User Methods
@@ -204,12 +202,11 @@ func (u *User) touchAt(at time.Time) {
 // Profile Methods
 // ============================================================================
 
-func NewProfile(userID ID, displayName DisplayName) Profile {
+func NewProfile(userID ID, displayName DisplayName) *Profile {
 	now := time.Now().UTC()
-	return Profile{
+	return &Profile{
 		userID:      userID,
 		displayName: displayName,
-		createdAt:   now,
 		updatedAt:   now,
 	}
 }
@@ -220,15 +217,14 @@ func ReconstituteProfile(
 	bio *Bio,
 	avatarURL *URL,
 	bannerColor *BannerColor,
-	createdAt, updatedAt time.Time,
-) Profile {
-	return Profile{
+	updatedAt time.Time,
+) *Profile {
+	return &Profile{
 		userID:      userID,
 		displayName: displayName,
 		bio:         bio,
 		avatarURL:   avatarURL,
 		bannerColor: bannerColor,
-		createdAt:   createdAt.UTC(),
 		updatedAt:   updatedAt.UTC(),
 	}
 }
@@ -261,7 +257,6 @@ type CachedAggregate struct {
 	DeleteScheduledAt      *int64    `redis:"delete_scheduled_at"`
 	CreatedAt              int64     `redis:"created_at"`
 	UpdatedAt              int64     `redis:"updated_at"`
-	ProfileCreatedAt       int64     `redis:"profile_created_at"`
 	ProfileUpdatedAt       int64     `redis:"profile_updated_at"`
 }
 
@@ -339,7 +334,6 @@ func (ua Aggregate) ToCachedAggregate() *CachedAggregate {
 		DeleteScheduledAt:      deleteScheduledAt,
 		CreatedAt:              u.createdAt.Unix(),
 		UpdatedAt:              u.updatedAt.Unix(),
-		ProfileCreatedAt:       p.createdAt.Unix(),
 		ProfileUpdatedAt:       p.updatedAt.Unix(),
 	}
 }
@@ -459,7 +453,6 @@ func FromCachedAggregate(c *CachedAggregate) (*Aggregate, error) {
 		bio,
 		avatarURL,
 		bannerColor,
-		time.Unix(c.ProfileCreatedAt, 0).UTC(),
 		time.Unix(c.ProfileUpdatedAt, 0).UTC(),
 	)
 
