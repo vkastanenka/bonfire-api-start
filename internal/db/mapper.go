@@ -8,6 +8,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// 	   ID                     pgtype.UUID        `json:"id"`
+//     Email                  string             `json:"email"`
+//     Username               string             `json:"username"`
+//     DisplayName            string             `json:"display_name"`
+//     PasswordHash           string             `json:"password_hash"`
+//     Phone                  pgtype.Text        `json:"phone"`
+//     Bio                    pgtype.Text        `json:"bio"`
+//     AvatarUrl              pgtype.Text        `json:"avatar_url"`
+//     BannerColor            pgtype.Text        `json:"banner_color"`
+//     PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
+//     PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
+//     VerifiedAt             pgtype.Timestamptz `json:"verified_at"`
+//     DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
+//     DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
+//     CreatedAt              pgtype.Timestamptz `json:"created_at"`
+//     UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+
 // Integer is a constraint that permits any integer type (signed or unsigned).
 type Integer interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
@@ -23,30 +40,21 @@ type Stringer interface {
 // Domain -> DB Helpers
 // -----------------------------------------------------------------------------
 
-// Int2Ptr converts a pointer to any integer type (including custom uint8/int16 enums) into pgtype.Int2.
-func Int2Ptr[T Integer](v *T) pgtype.Int2 {
-	if v == nil {
-		return pgtype.Int2{Valid: false}
-	}
-	return pgtype.Int2{Int16: int16(*v), Valid: true}
-}
-
-// UUID converts a google/uuid.UUID into pgtype.UUID.
-// Note: uuid.Nil (00000000-0000-0000-0000-000000000000) is a valid non-null UUID value in PostgreSQL.
-func UUID(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{
-		Bytes: id,
+// Int2 converts any integer value (including custom enums) into pgtype.Int2.
+func Int2[T Integer](v T) pgtype.Int2 {
+	return pgtype.Int2{
+		Int16: int16(v),
 		Valid: true,
 	}
 }
 
-// UUIDPtr converts a *google/uuid.UUID into pgtype.UUID.
-func UUIDPtr(id *uuid.UUID) pgtype.UUID {
-	if id == nil {
-		return pgtype.UUID{Valid: false}
+// Int2Ptr converts a pointer to any integer type into pgtype.Int2.
+func Int2Ptr[T Integer](v *T) pgtype.Int2 {
+	if v == nil {
+		return pgtype.Int2{Valid: false}
 	}
-	return pgtype.UUID{
-		Bytes: *id,
+	return pgtype.Int2{
+		Int16: int16(*v),
 		Valid: true,
 	}
 }
@@ -62,18 +70,6 @@ func TextPtr(s *string) pgtype.Text {
 		return pgtype.Text{Valid: false}
 	}
 	return pgtype.Text{String: *s, Valid: true}
-}
-
-// StringerPtr converts a pointer to any type whose pointer receiver implements fmt.Stringer into pgtype.Text.
-// Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
-func StringerPtr[T any, PT interface {
-	*T
-	fmt.Stringer
-}](v *T) pgtype.Text {
-	if v == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: PT(v).String(), Valid: true}
 }
 
 // Timestamptz converts a time.Time into pgtype.Timestamptz in UTC.
@@ -96,6 +92,37 @@ func TimestamptzPtr(t *time.Time) pgtype.Timestamptz {
 		Time:  t.UTC(),
 		Valid: true,
 	}
+}
+
+// UUID converts a google/uuid.UUID into pgtype.UUID.
+func UUID[T ~[16]byte](id T) pgtype.UUID {
+	return pgtype.UUID{
+		Bytes: id,
+		Valid: true,
+	}
+}
+
+// UUIDPtr converts a *google/uuid.UUID into pgtype.UUID.
+func UUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{Valid: false}
+	}
+	return pgtype.UUID{
+		Bytes: *id,
+		Valid: true,
+	}
+}
+
+// StringerPtr converts a pointer to any type whose pointer receiver implements fmt.Stringer into pgtype.Text.
+// Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
+func StringerPtr[T any, PT interface {
+	*T
+	fmt.Stringer
+}](v *T) pgtype.Text {
+	if v == nil {
+		return pgtype.Text{Valid: false}
+	}
+	return pgtype.Text{String: PT(v).String(), Valid: true}
 }
 
 // -----------------------------------------------------------------------------

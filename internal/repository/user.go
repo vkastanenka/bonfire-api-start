@@ -16,11 +16,11 @@ import (
 type UserStore interface {
 	UserAvailability(ctx context.Context, arg db.UserAvailabilityParams) (db.UserAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg db.UserCreateParams) error
-	UserGet(ctx context.Context, id pgtype.UUID) (db.User, error)
-	UserGetByEmail(ctx context.Context, email string) (db.User, error)
-	UserListDeleteScheduled(ctx context.Context, arg db.UserListDeleteScheduledParams) ([]db.User, error)
-	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.User, error)
-	UserUpdateBatch(ctx context.Context, arg db.UserUpdateBatchParams) ([]db.User, error)
+	UserGet(ctx context.Context, id pgtype.UUID) (db.UserGetRow, error)
+	UserGetByEmail(ctx context.Context, email string) (db.UserGetByEmailRow, error)
+	UserListDeleteScheduled(ctx context.Context, arg db.UserListDeleteScheduledParams) ([]db.UserListDeleteScheduledRow, error)
+	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.UserUpdateRow, error)
+	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]db.UserUpdateBatchRow, error)
 }
 
 type User struct {
@@ -31,31 +31,39 @@ func NewUser(store UserStore) *User {
 	return &User{store: store}
 }
 
-func (r *User) Create(ctx context.Context, u *user.User) error {
-	prof := u.Profile()
+func (r *User) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
+	row, err := r.store.UserAvailability(ctx, db.UserAvailabilityParams{
+		Email:    email.String(),
+		Username: username.String(),
+	})
+	if err != nil {
+		return false, false, db.NewError(err, db.EntityUser)
+	}
+	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
+}
 
-	err := r.store.UserCreate(ctx, db.CreateParams{
+func (r *User) Create(ctx context.Context, u *user.User) error {
+	err := r.store.UserCreate(ctx, db.UserCreateParams{
 		ID:                     db.UUID(u.ID()),
 		Email:                  u.Email().String(),
 		Username:               u.Username().String(),
-		DisplayName:            prof.DisplayName().String(),
-		PasswordHash:           u.PasswordHash(),
-		Phone:                  db.TextPtr(u.Phone()),
-		Bio:                    db.TextPtr(prof.Bio()),
-		AvatarUrl:              db.TextPtr(prof.AvatarURL()),
-		BannerColor:            db.TextPtr(prof.BannerColor()),
-		PreferredPresence:      db.Int2Ptr(u.PreferredPresence()),
-		PreferredPresenceUntil: db.TimestamptzPtr(u.PreferredPresenceUntil()),
-		VerifiedAt:             db.TimestamptzPtr(u.VerifiedAt()),
-		DisabledAt:             db.TimestamptzPtr(u.DisabledAt()),
-		DeleteScheduledAt:      db.TimestamptzPtr(u.DeleteScheduledAt()),
-		CreatedAt:              db.Timestamptz(u.CreatedAt()),
-		UpdatedAt:              db.Timestamptz(u.UpdatedAt()),
+		DisplayName:            u.DisplayName().String(),
+		PasswordHash:           u.PasswordHash().String(),
+		Phone:                  db.TextPtr(u.Phone().NilString()),
+		Bio:                    db.TextPtr(u.Bio().NilString()),
+		AvatarUrl:              db.TextPtr(u.AvatarURL().NilString()),
+		BannerColor:            db.TextPtr(u.BannerColor().NilString()),
+		PreferredPresence:      db.Int2Ptr(u.PreferredPresence().NilPresence()),
+		PreferredPresenceUntil: db.TimestamptzPtr(u.PreferredPresenceUntil().Time()),
+		VerifiedAt:             db.TimestamptzPtr(u.VerifiedAt().Time()),
+		DisabledAt:             db.TimestamptzPtr(u.DisabledAt().Time()),
+		DeleteScheduledAt:      db.TimestamptzPtr(u.DeleteScheduledAt().Time()),
+		CreatedAt:              db.Timestamptz(*u.CreatedAt().Time()),
+		UpdatedAt:              db.Timestamptz(*u.UpdatedAt().Time()),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityUser)
 	}
-
 	return nil
 }
 
@@ -73,18 +81,6 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, er
 		return nil, db.NewError(err, db.EntityUser)
 	}
 	return userFromRow(row)
-}
-
-func (r *User) CheckAvailability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
-	row, err := r.store.UserAvailability(ctx, db.UserAvailabilityParams{
-		Email:    email.String(),
-		Username: username.String(),
-	})
-	if err != nil {
-		return false, false, db.NewError(err, db.EntityUser)
-	}
-
-	return row.EmailAvailable, row.UsernameAvailable, nil
 }
 
 func (r *User) ListDeleteScheduled(ctx context.Context, currentTime time.Time, batchLimit int32) ([]*user.User, error) {
