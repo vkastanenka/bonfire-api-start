@@ -10,19 +10,15 @@ import (
 )
 
 type CachedUser struct {
-	repo  *User
+	repo  *UserRepository
 	cache cache.UserCache
 }
 
-func NewCachedUser(repo *User, cache cache.UserCache) *CachedUser {
+func NewCachedUser(repo *UserRepository, cache cache.UserCache) *CachedUser {
 	return &CachedUser{
 		repo:  repo,
 		cache: cache,
 	}
-}
-
-func (c *CachedUser) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
-	return c.repo.Availability(ctx, email, username)
 }
 
 func (c *CachedUser) Create(ctx context.Context, u *user.User) (*user.User, error) {
@@ -66,15 +62,6 @@ func (c *CachedUser) Get(ctx context.Context, id fields.ID) (*user.User, error) 
 	return u, nil
 }
 
-func (c *CachedUser) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
-	// Typically lookups by secondary attributes hit the database directly
-	return c.repo.GetByEmail(ctx, email)
-}
-
-func (c *CachedUser) ListDeleteScheduled(ctx context.Context, currentTime user.Timestamp, batchLimit int32) ([]*user.User, error) {
-	return c.repo.ListDeleteScheduled(ctx, currentTime, batchLimit)
-}
-
 func (c *CachedUser) Update(ctx context.Context, u *user.User) (*user.User, error) {
 	updatedUser, err := c.repo.Update(ctx, u)
 	if err != nil {
@@ -96,7 +83,7 @@ func (c *CachedUser) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user
 	}
 
 	// Extract IDs and perform batch invalidation
-	ids := make([]user.ID, len(updatedUsers))
+	ids := make([]fields.ID, len(updatedUsers))
 	for i, u := range updatedUsers {
 		ids[i] = u.ID()
 	}

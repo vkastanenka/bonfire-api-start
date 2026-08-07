@@ -17,20 +17,20 @@ type UserStore interface {
 	UserCreate(ctx context.Context, arg db.UserCreateParams) (db.User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (db.User, error)
 	UserGetByEmail(ctx context.Context, email string) (db.User, error)
-	UserListDeleteScheduled(ctx context.Context, arg db.UserListDeleteScheduledParams) ([]db.User, error)
+	UserGetDeleteScheduledBatch(ctx context.Context, arg db.UserGetDeleteScheduledBatchParams) ([]db.User, error)
 	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.User, error)
 	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]db.User, error)
 }
 
-type User struct {
+type UserRepository struct {
 	store UserStore
 }
 
-func NewUser(store UserStore) *User {
-	return &User{store: store}
+func NewUserRepository(store UserStore) *UserRepository {
+	return &UserRepository{store: store}
 }
 
-func (r *User) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
+func (r *UserRepository) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
 	row, err := r.store.UserAvailability(ctx, db.UserAvailabilityParams{
 		Email:    email.String(),
 		Username: username.String(),
@@ -42,7 +42,7 @@ func (r *User) Availability(ctx context.Context, email user.Email, username user
 	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
 }
 
-func (r *User) Create(ctx context.Context, u *user.User) (*user.User, error) {
+func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
 		ID:                     db.ToUUID(u.ID()),
 		Email:                  u.Email().String(),
@@ -68,7 +68,7 @@ func (r *User) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	return userFromRow(row)
 }
 
-func (r *User) Get(ctx context.Context, id fields.ID) (*user.User, error) {
+func (r *UserRepository) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
@@ -77,7 +77,7 @@ func (r *User) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	return userFromRow(row)
 }
 
-func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
+func (r *UserRepository) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email.String())
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)
@@ -86,8 +86,8 @@ func (r *User) GetByEmail(ctx context.Context, email user.Email) (*user.User, er
 	return userFromRow(row)
 }
 
-func (r *User) ListDeleteScheduled(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error) {
-	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
+func (r *UserRepository) GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error) {
+	rows, err := r.store.UserGetDeleteScheduledBatch(ctx, db.UserGetDeleteScheduledBatchParams{
 		Now:        db.ToTimestamptz(currentTime.Time()),
 		BatchLimit: batchLimit,
 	})
@@ -107,7 +107,7 @@ func (r *User) ListDeleteScheduled(ctx context.Context, currentTime fields.Times
 	return users, nil
 }
 
-func (r *User) Update(ctx context.Context, u *user.User) (*user.User, error) {
+func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, error) {
 	row, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
 		ID:                     db.ToUUID(u.ID()),
 		Email:                  u.Email().String(),
@@ -132,7 +132,7 @@ func (r *User) Update(ctx context.Context, u *user.User) (*user.User, error) {
 	return userFromRow(row)
 }
 
-func (r *User) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
+func (r *UserRepository) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
 	rows, err := r.store.UserUpdateBatch(ctx, usersJson)
 	if err != nil {
 		return nil, db.NewError(err, db.EntityUser)

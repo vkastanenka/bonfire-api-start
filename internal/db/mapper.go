@@ -1,7 +1,6 @@
 package db
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,11 +10,6 @@ import (
 type Integer interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
-}
-
-// StringLike permits any string underlying type or types implementing fmt.Stringer.
-type Stringer interface {
-	fmt.Stringer
 }
 
 // -----------------------------------------------------------------------------
@@ -93,18 +87,6 @@ func ToUUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
 		Bytes: *id,
 		Valid: true,
 	}
-}
-
-// StringerPtr converts a pointer to any type whose pointer receiver implements fmt.Stringer into pgtype.Text.
-// Works seamlessly with value object pointers like *channel.Name, *channel.IconURL, etc.
-func ToStringerPtr[T any, PT interface {
-	*T
-	fmt.Stringer
-}](v *T) pgtype.Text {
-	if v == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: PT(v).String(), Valid: true}
 }
 
 // -----------------------------------------------------------------------------

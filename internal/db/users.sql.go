@@ -179,7 +179,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
-const userListDeleteScheduled = `-- name: UserListDeleteScheduled :many
+const userGetDeleteScheduledBatch = `-- name: UserGetDeleteScheduledBatch :many
 SELECT
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 FROM
@@ -192,13 +192,13 @@ ORDER BY
 LIMIT $2::int
 `
 
-type UserListDeleteScheduledParams struct {
+type UserGetDeleteScheduledBatchParams struct {
 	Now        pgtype.Timestamptz `json:"now"`
 	BatchLimit int32              `json:"batch_limit"`
 }
 
-func (q *Queries) UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, userListDeleteScheduled, arg.Now, arg.BatchLimit)
+func (q *Queries) UserGetDeleteScheduledBatch(ctx context.Context, arg UserGetDeleteScheduledBatchParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, userGetDeleteScheduledBatch, arg.Now, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}

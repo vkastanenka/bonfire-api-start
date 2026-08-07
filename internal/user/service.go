@@ -3,7 +3,9 @@ package user
 import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/ptr"
 	"context"
 	"errors"
 	"fmt"
@@ -25,7 +27,7 @@ type Repository interface {
 	Create(ctx context.Context, u *User) (*User, error)
 	Get(ctx context.Context, id ID) (*User, error)
 	GetByEmail(ctx context.Context, email Email) (*User, error)
-	ListDeleteScheduled(ctx context.Context, currentTime Timestamp, batchLimit int32) ([]*User, error)
+	GetDeleteScheduledBatch(ctx context.Context, currentTime Timestamp, batchLimit int32) ([]*User, error)
 	Update(ctx context.Context, u *User) (*User, error)
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
 }
@@ -294,7 +296,7 @@ type UpdateProfileParams struct {
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
-	id, err := NewID(p.UserID)
+	id, err := fields.NewID(p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -304,17 +306,17 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	bio, err := NewBio(p.Bio)
+	bio, err := NewBio(ptr.From(p.Bio))
 	if err != nil {
 		return nil, err
 	}
 
-	avatarURL, err := NewURL(p.AvatarURL)
+	avatarURL, err := fields.NewURL(ptr.From(p.AvatarURL))
 	if err != nil {
 		return nil, err
 	}
 
-	bannerColor, err := NewHexColor(p.BannerColor)
+	bannerColor, err := fields.NewHexColor(ptr.From(p.BannerColor))
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +326,13 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	u.UpdateProfile(displayName, bio, avatarURL, bannerColor)
+	u.UpdateProfile(
+		displayName,
+		bio,
+		avatarURL,
+		bannerColor,
+		fields.NewTimestampFromTime(time.Now()),
+	)
 
 	uu, err := s.repo.Update(ctx, u)
 	if err != nil {
@@ -462,7 +470,7 @@ func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
 		batchSize = 100
 	}
 
-	users, err := s.repo.ListDeleteScheduled(ctx, time.Now().UTC(), batchSize)
+	users, err := s.repo.GetDeleteScheduledBatch(ctx, time.Now().UTC(), batchSize)
 	if err != nil {
 		return fmt.Errorf("failed to list scheduled deletions: %w", err)
 	}

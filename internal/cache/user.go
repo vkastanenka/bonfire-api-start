@@ -14,6 +14,10 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
+func userKey(id fields.ID) string {
+	return fmt.Sprintf("users:%s", id.String())
+}
+
 type UserCache struct {
 	store redis.Store
 	ttl   time.Duration
@@ -28,8 +32,10 @@ func NewUserCache(store redis.Store, ttl time.Duration) *UserCache {
 
 type CachedUser struct {
 	ID                     uuid.UUID `redis:"id"`
+	Email                  string    `redis:"email"`
 	Username               string    `redis:"username"`
 	DisplayName            string    `redis:"display_name"`
+	Phone                  string    `redis:"phone"`
 	Bio                    string    `redis:"bio"`
 	AvatarURL              string    `redis:"avatar_url"`
 	BannerColor            string    `redis:"banner_color"`
@@ -47,14 +53,21 @@ func NewCachedUser(u *user.User) *CachedUser {
 		return nil
 	}
 
+	var preferredPresence int16
+	if u.PreferredPresence().IsValid() {
+		preferredPresence = u.PreferredPresence().Int16()
+	}
+
 	return &CachedUser{
 		ID:                     u.ID().UUID(),
+		Email:                  u.Email().String(),
 		Username:               u.Username().String(),
 		DisplayName:            u.DisplayName().String(),
+		Phone:                  u.Phone().String(),
 		Bio:                    u.Bio().String(),
 		AvatarURL:              u.AvatarURL().String(),
 		BannerColor:            u.BannerColor().String(),
-		PreferredPresence:      u.PreferredPresence().Int16(),
+		PreferredPresence:      preferredPresence,
 		PreferredPresenceUntil: u.PreferredPresenceUntil().Unix(),
 		VerifiedAt:             u.VerifiedAt().Unix(),
 		DisabledAt:             u.DisabledAt().Unix(),
@@ -74,12 +87,22 @@ func (cu *CachedUser) Reconstitute() (*user.User, error) {
 		return nil, err
 	}
 
+	email, err := user.NewEmail(cu.Email)
+	if err != nil {
+		return nil, err
+	}
+
 	username, err := user.NewUsername(cu.Username)
 	if err != nil {
 		return nil, err
 	}
 
 	displayName, err := user.NewDisplayName(cu.DisplayName)
+	if err != nil {
+		return nil, err
+	}
+
+	phone, err := user.NewPhone(cu.Phone)
 	if err != nil {
 		return nil, err
 	}
@@ -99,17 +122,21 @@ func (cu *CachedUser) Reconstitute() (*user.User, error) {
 		return nil, err
 	}
 
-	prefPresence, err := user.PreferredPresenceFromInt16(cu.PreferredPresence)
-	if err != nil {
-		return nil, err
+	var prefPresence user.PreferredPresence
+	if cu.PreferredPresence != 0 {
+		var err error
+		prefPresence, err = user.PreferredPresenceFromInt16(cu.PreferredPresence)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return user.Reconstitute(
 		id,
-		user.Email{},
+		email,
 		username,
 		user.PasswordHash{},
-		user.Phone{},
+		phone,
 		displayName,
 		bio,
 		avatarURL,
@@ -122,10 +149,6 @@ func (cu *CachedUser) Reconstitute() (*user.User, error) {
 		fields.NewTimestampFromUnix(cu.CreatedAt),
 		fields.NewTimestampFromUnix(cu.UpdatedAt),
 	), nil
-}
-
-func userCacheKey(userID uuid.UUID) string {
-	return fmt.Sprintf("user:%s:profile", userID.String())
 }
 
 func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
@@ -153,7 +176,7 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 
 	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
 		for _, cu := range cus {
-			key := userCacheKey(cu.ID)
+			key := fmt.Sprintf("users:%s", cu.ID.String())
 			f := buildCachedUserFields(cu)
 
 			pipe.HSet(ctx, key, f)
@@ -168,8 +191,8 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 	return nil
 }
 
-func (u *UserCache) Get(ctx context.Context, userID uuid.UUID) (*user.User, error) {
-	found, _, err := u.GetBatch(ctx, []uuid.UUID{userID})
+func (u *UserCache) Get(ctx context.Context, userID fields.ID) (*user.User, error) {
+	found, _, err := u.GetBatch(ctx, []fields.ID{userID})
 	if err != nil {
 		return nil, err
 	}
@@ -177,24 +200,31 @@ func (u *UserCache) Get(ctx context.Context, userID uuid.UUID) (*user.User, erro
 	return found[userID], nil
 }
 
-func (u *UserCache) GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error) {
+func (u *UserCache) GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*user.User, []fields.ID, error) {
 	if len(userIDs) == 0 {
-		return make(map[uuid.UUID]*user.User), nil, nil
+		return make(map[fields.ID]*user.User), nil, nil
 	}
 
-	uniqueIDs := make([]uuid.UUID, 0, len(userIDs))
-	seen := make(map[uuid.UUID]struct{}, len(userIDs))
+	uniqueIDs := make([]fields.ID, 0, len(userIDs))
+	seen := make(map[fields.ID]struct{}, len(userIDs))
 	for _, id := range userIDs {
+		if !id.IsValid() {
+			continue
+		}
 		if _, exists := seen[id]; !exists {
 			seen[id] = struct{}{}
 			uniqueIDs = append(uniqueIDs, id)
 		}
 	}
 
-	cmds := make(map[uuid.UUID]*goredis.MapStringStringCmd, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return make(map[fields.ID]*user.User), nil, nil
+	}
+
+	cmds := make(map[fields.ID]*goredis.MapStringStringCmd, len(uniqueIDs))
 	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
 		for _, id := range uniqueIDs {
-			key := userCacheKey(id)
+			key := userKey(id)
 			cmds[id] = pipe.HGetAll(ctx, key)
 		}
 		return nil
@@ -203,8 +233,8 @@ func (u *UserCache) GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid
 		return nil, nil, redis.NewError(err, redis.ScopeUser)
 	}
 
-	found := make(map[uuid.UUID]*user.User, len(uniqueIDs))
-	var missing []uuid.UUID
+	found := make(map[fields.ID]*user.User, len(uniqueIDs))
+	var missing []fields.ID
 
 	for id, cmd := range cmds {
 		res, resErr := cmd.Result()
@@ -231,41 +261,68 @@ func (u *UserCache) GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid
 	return found, missing, nil
 }
 
-func (u *UserCache) Invalidate(ctx context.Context, userID uuid.UUID) error {
-	key := userCacheKey(userID)
-	if err := u.store.Del(ctx, key); err != nil {
+func (u *UserCache) Delete(ctx context.Context, userID fields.ID) error {
+	if !userID.IsValid() {
+		return nil
+	}
+	return u.DeleteBatch(ctx, []fields.ID{userID})
+}
+
+func (u *UserCache) DeleteBatch(ctx context.Context, userIDs []fields.ID) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	uniqueIDs := make([]fields.ID, 0, len(userIDs))
+	seen := make(map[fields.ID]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if !id.IsValid() {
+			continue
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			uniqueIDs = append(uniqueIDs, id)
+		}
+	}
+
+	if len(uniqueIDs) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(uniqueIDs))
+	for _, id := range uniqueIDs {
+		keys = append(keys, userKey(id))
+	}
+
+	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
+		pipe.Del(ctx, keys...)
+		return nil
+	})
+	if err != nil {
 		return redis.NewError(err, redis.ScopeUser)
 	}
+
 	return nil
 }
 
 func buildCachedUserFields(cu *CachedUser) map[string]interface{} {
-	f := map[string]interface{}{
-		"id":                 cu.ID.String(),
-		"username":           cu.Username,
-		"display_name":       cu.DisplayName,
-		"bio":                cu.Bio,
-		"avatar_url":         cu.AvatarURL,
-		"banner_color":       cu.BannerColor,
-		"preferred_presence": strconv.Itoa(int(cu.PreferredPresence)),
-		"created_at":         strconv.FormatInt(cu.CreatedAt, 10),
-		"updated_at":         strconv.FormatInt(cu.UpdatedAt, 10),
+	return map[string]interface{}{
+		"id":                       cu.ID.String(),
+		"email":                    cu.Email,
+		"username":                 cu.Username,
+		"display_name":             cu.DisplayName,
+		"phone":                    cu.Phone,
+		"bio":                      cu.Bio,
+		"avatar_url":               cu.AvatarURL,
+		"banner_color":             cu.BannerColor,
+		"preferred_presence":       strconv.Itoa(int(cu.PreferredPresence)),
+		"preferred_presence_until": strconv.FormatInt(cu.PreferredPresenceUntil, 10),
+		"verified_at":              strconv.FormatInt(cu.VerifiedAt, 10),
+		"disabled_at":              strconv.FormatInt(cu.DisabledAt, 10),
+		"delete_scheduled_at":      strconv.FormatInt(cu.DeleteScheduledAt, 10),
+		"created_at":               strconv.FormatInt(cu.CreatedAt, 10),
+		"updated_at":               strconv.FormatInt(cu.UpdatedAt, 10),
 	}
-
-	if cu.PreferredPresenceUntil != nil {
-		f["preferred_presence_until"] = strconv.FormatInt(*cu.PreferredPresenceUntil, 10)
-	}
-	if cu.VerifiedAt != nil {
-		f["verified_at"] = strconv.FormatInt(*cu.VerifiedAt, 10)
-	}
-	if cu.DisabledAt != nil {
-		f["disabled_at"] = strconv.FormatInt(*cu.DisabledAt, 10)
-	}
-	if cu.DeleteScheduledAt != nil {
-		f["delete_scheduled_at"] = strconv.FormatInt(*cu.DeleteScheduledAt, 10)
-	}
-
-	return f
 }
 
 func parseCachedUser(m map[string]string) (*CachedUser, error) {
@@ -274,42 +331,29 @@ func parseCachedUser(m map[string]string) (*CachedUser, error) {
 		return nil, err
 	}
 
-	prefPresenceInt, _ := strconv.ParseInt(m["preferred_presence"], 10, 16)
+	prefPresence, _ := strconv.ParseInt(m["preferred_presence"], 10, 16)
+	prefPresenceUntil, _ := strconv.ParseInt(m["preferred_presence_until"], 10, 64)
+	verifiedAt, _ := strconv.ParseInt(m["verified_at"], 10, 64)
+	disabledAt, _ := strconv.ParseInt(m["disabled_at"], 10, 64)
+	deleteScheduledAt, _ := strconv.ParseInt(m["delete_scheduled_at"], 10, 64)
 	createdAt, _ := strconv.ParseInt(m["created_at"], 10, 64)
 	updatedAt, _ := strconv.ParseInt(m["updated_at"], 10, 64)
 
-	cu := &CachedUser{
-		ID:                id,
-		Username:          m["username"],
-		DisplayName:       m["display_name"],
-		Bio:               m["bio"],
-		AvatarURL:         m["avatar_url"],
-		BannerColor:       m["banner_color"],
-		PreferredPresence: int16(prefPresenceInt),
-		CreatedAt:         createdAt,
-		UpdatedAt:         updatedAt,
-	}
-
-	if val, ok := m["preferred_presence_until"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			cu.PreferredPresenceUntil = &ts
-		}
-	}
-	if val, ok := m["verified_at"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			cu.VerifiedAt = &ts
-		}
-	}
-	if val, ok := m["disabled_at"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			cu.DisabledAt = &ts
-		}
-	}
-	if val, ok := m["delete_scheduled_at"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			cu.DeleteScheduledAt = &ts
-		}
-	}
-
-	return cu, nil
+	return &CachedUser{
+		ID:                     id,
+		Email:                  m["email"],
+		Username:               m["username"],
+		DisplayName:            m["display_name"],
+		Phone:                  m["phone"],
+		Bio:                    m["bio"],
+		AvatarURL:              m["avatar_url"],
+		BannerColor:            m["banner_color"],
+		PreferredPresence:      int16(prefPresence),
+		PreferredPresenceUntil: prefPresenceUntil,
+		VerifiedAt:             verifiedAt,
+		DisabledAt:             disabledAt,
+		DeleteScheduledAt:      deleteScheduledAt,
+		CreatedAt:              createdAt,
+		UpdatedAt:              updatedAt,
+	}, nil
 }

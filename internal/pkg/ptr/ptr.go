@@ -5,6 +5,23 @@ func To[T any](v T) *T {
 	return &v
 }
 
+// From returns the value pointed to by v, or the type's zero value if v is nil.
+func From[T any](v *T) T {
+	if v == nil {
+		var zero T
+		return zero
+	}
+	return *v
+}
+
+// FromOr returns the value pointed to by v, or fallback if v is nil.
+func FromOr[T any](v *T, fallback T) T {
+	if v == nil {
+		return fallback
+	}
+	return *v
+}
+
 // Clone returns a pointer to a copy of the value pointed to by v.
 // Returns nil if v is nil.
 func Clone[T any](v *T) *T {
