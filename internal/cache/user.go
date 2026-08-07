@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 
@@ -25,7 +26,7 @@ func NewUserCache(store redis.Store, ttl time.Duration) *UserCache {
 	}
 }
 
-type UserAggregate struct {
+type CachedUser struct {
 	ID                     uuid.UUID `redis:"id"`
 	Username               string    `redis:"username"`
 	DisplayName            string    `redis:"display_name"`
@@ -41,216 +42,141 @@ type UserAggregate struct {
 	UpdatedAt              int64     `redis:"updated_at"`
 }
 
-func NewUserAggregate(agg *user.Aggregate) *UserAggregate {
-	if agg == nil || agg.User() == nil || agg.Profile() == nil {
+func NewCachedUser(u *user.User) *CachedUser {
+	if u == nil {
 		return nil
 	}
 
-	u := agg.User()
-	p := agg.Profile()
-
-	var bio string
-	if p.Bio() != nil {
-		bio = p.Bio().String()
-	}
-
-	var avatarURL string
-	if p.AvatarURL() != nil {
-		avatarURL = p.AvatarURL().String()
-	}
-
-	var bannerColor string
-	if p.BannerColor() != nil {
-		bannerColor = p.BannerColor().String()
-	}
-
-	var prefPresence int16
-	if u.PreferredPresence() != nil {
-		prefPresence = u.PreferredPresence().Int16()
-	}
-
-	var prefPresenceUntil *int64
-	if u.PreferredPresenceUntil() != nil {
-		t := u.PreferredPresenceUntil().Unix()
-		prefPresenceUntil = &t
-	}
-
-	var verifiedAt *int64
-	if u.VerifiedAt() != nil {
-		t := u.VerifiedAt().Unix()
-		verifiedAt = &t
-	}
-
-	var disabledAt *int64
-	if u.DisabledAt() != nil {
-		t := u.DisabledAt().Unix()
-		disabledAt = &t
-	}
-
-	var deleteScheduledAt *int64
-	if u.DeleteScheduledAt() != nil {
-		t := u.DeleteScheduledAt().Unix()
-		deleteScheduledAt = &t
-	}
-
-	return &UserAggregate{
+	return &CachedUser{
 		ID:                     u.ID().UUID(),
 		Username:               u.Username().String(),
-		DisplayName:            p.DisplayName().String(),
-		Bio:                    bio,
-		AvatarURL:              avatarURL,
-		BannerColor:            bannerColor,
-		PreferredPresence:      prefPresence,
-		PreferredPresenceUntil: prefPresenceUntil,
-		VerifiedAt:             verifiedAt,
-		DisabledAt:             disabledAt,
-		DeleteScheduledAt:      deleteScheduledAt,
+		DisplayName:            u.DisplayName().String(),
+		Bio:                    u.Bio().String(),
+		AvatarURL:              u.AvatarURL().String(),
+		BannerColor:            u.BannerColor().String(),
+		PreferredPresence:      u.PreferredPresence().Int16(),
+		PreferredPresenceUntil: u.PreferredPresenceUntil().UnixPtr(),
+		VerifiedAt:             u.VerifiedAt().UnixPtr(),
+		DisabledAt:             u.DisabledAt().UnixPtr(),
+		DeleteScheduledAt:      u.DeleteScheduledAt().UnixPtr(),
 		CreatedAt:              u.CreatedAt().Unix(),
 		UpdatedAt:              u.UpdatedAt().Unix(),
 	}
 }
 
-func (dto *UserAggregate) Reconstitute() (*user.Aggregate, error) {
-	if dto == nil {
+func (cu *CachedUser) Reconstitute() (*user.User, error) {
+	if cu == nil {
 		return nil, nil
 	}
 
-	id, err := user.NewID(dto.ID)
+	id, err := fields.NewID(cu.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	username, err := user.NewUsername(dto.Username)
+	username, err := user.NewUsername(cu.Username)
 	if err != nil {
 		return nil, err
 	}
 
-	displayName, err := user.NewDisplayName(dto.DisplayName)
+	displayName, err := user.NewDisplayName(cu.DisplayName)
 	if err != nil {
 		return nil, err
 	}
 
-	var bio *user.Bio
-	if dto.Bio != "" {
-		b, err := user.NewBio(&dto.Bio)
-		if err != nil {
-			return nil, err
-		}
-		bio = &b
+	bio, err := user.NewBio(cu.Bio)
+	if err != nil {
+		return nil, err
 	}
 
-	var avatarURL *user.URL
-	if dto.AvatarURL != "" {
-		u, err := user.NewURL(&dto.AvatarURL)
-		if err != nil {
-			return nil, err
-		}
-		avatarURL = &u
+	avatarURL, err := fields.NewURL(cu.AvatarURL)
+	if err != nil {
+		return nil, err
 	}
 
-	var bannerColor *user.BannerColor
-	if dto.BannerColor != "" {
-		bc, err := user.NewBannerColor(&dto.BannerColor)
-		if err != nil {
-			return nil, err
-		}
-		bannerColor = &bc
+	bannerColor, err := fields.NewHexColor(cu.BannerColor)
+	if err != nil {
+		return nil, err
 	}
 
-	var prefPresence *user.PreferredPresence
-	if dto.PreferredPresence != 0 {
-		pp, err := user.NewPreferredPresenceFromInt16(dto.PreferredPresence)
-		if err != nil {
-			return nil, err
-		}
-		prefPresence = &pp
+	prefPresence, err := user.NewPreferredPresenceFromInt16(cu.PreferredPresence)
+	if err != nil {
+		return nil, err
 	}
 
-	var prefPresenceUntil *time.Time
-	if dto.PreferredPresenceUntil != nil {
-		t := time.Unix(*dto.PreferredPresenceUntil, 0).UTC()
-		prefPresenceUntil = &t
+	var prefPresenceUntil fields.Timestamp
+	if cu.PreferredPresenceUntil != nil {
+		prefPresenceUntil = fields.NewTimestampFromUnix(*cu.PreferredPresenceUntil)
 	}
 
-	var verifiedAt *time.Time
-	if dto.VerifiedAt != nil {
-		t := time.Unix(*dto.VerifiedAt, 0).UTC()
-		verifiedAt = &t
+	var verifiedAt fields.Timestamp
+	if cu.VerifiedAt != nil {
+		verifiedAt = fields.NewTimestampFromUnix(*cu.VerifiedAt)
 	}
 
-	var disabledAt *time.Time
-	if dto.DisabledAt != nil {
-		t := time.Unix(*dto.DisabledAt, 0).UTC()
-		disabledAt = &t
+	var disabledAt fields.Timestamp
+	if cu.DisabledAt != nil {
+		disabledAt = fields.NewTimestampFromUnix(*cu.DisabledAt)
 	}
 
-	var deleteScheduledAt *time.Time
-	if dto.DeleteScheduledAt != nil {
-		t := time.Unix(*dto.DeleteScheduledAt, 0).UTC()
-		deleteScheduledAt = &t
+	var deleteScheduledAt fields.Timestamp
+	if cu.DeleteScheduledAt != nil {
+		deleteScheduledAt = fields.NewTimestampFromUnix(*cu.DeleteScheduledAt)
 	}
 
-	// Reconstitute domain entities
-	u := user.Reconstitute(
+	return user.Reconstitute(
 		id,
-		user.Email{}, // Empty email if omitted from public aggregate cache
+		user.Email{}, // Omitted from public cached profile
 		username,
-		nil, // Phone omitted
-		user.Password{},
+		user.PasswordHash{},
+		user.Phone{},
+		displayName,
+		bio,
+		avatarURL,
+		bannerColor,
 		prefPresence,
 		prefPresenceUntil,
 		verifiedAt,
 		disabledAt,
 		deleteScheduledAt,
-		time.Unix(dto.CreatedAt, 0).UTC(),
-		time.Unix(dto.UpdatedAt, 0).UTC(),
-	)
-
-	p := user.ReconstituteProfile(
-		id,
-		displayName,
-		bio,
-		avatarURL,
-		bannerColor,
-		time.Unix(dto.UpdatedAt, 0).UTC(),
-	)
-
-	return user.NewAggregate(u, p), nil
+		fields.NewTimestampFromUnix(cu.CreatedAt),
+		fields.NewTimestampFromUnix(cu.UpdatedAt),
+	), nil
 }
 
-func userAggregateKey(userID uuid.UUID) string {
-	return fmt.Sprintf("user:%s:aggregate", userID.String())
+func userCacheKey(userID uuid.UUID) string {
+	return fmt.Sprintf("user:%s:profile", userID.String())
 }
 
-func (u *UserCache) SetAggregate(ctx context.Context, agg *user.Aggregate) error {
-	if agg == nil {
+func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
+	if usr == nil {
 		return nil
 	}
-	return u.SetAggregateBatch(ctx, []*user.Aggregate{agg})
+	return u.SetBatch(ctx, []*user.User{usr})
 }
 
-func (u *UserCache) SetAggregateBatch(ctx context.Context, aggs []*user.Aggregate) error {
-	if len(aggs) == 0 {
+func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
+	if len(users) == 0 {
 		return nil
 	}
 
-	dtos := make([]*UserAggregate, 0, len(aggs))
-	for _, agg := range aggs {
-		if dto := NewUserAggregate(agg); dto != nil {
-			dtos = append(dtos, dto)
+	cus := make([]*CachedUser, 0, len(users))
+	for _, usr := range users {
+		if cu := NewCachedUser(usr); cu != nil {
+			cus = append(cus, cu)
 		}
 	}
 
-	if len(dtos) == 0 {
+	if len(cus) == 0 {
 		return nil
 	}
 
 	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		for _, dto := range dtos {
-			key := userAggregateKey(dto.ID)
-			fields := buildUserAggregateFields(dto)
+		for _, cu := range cus {
+			key := userCacheKey(cu.ID)
+			f := buildCachedUserFields(cu)
 
-			pipe.HSet(ctx, key, fields)
+			pipe.HSet(ctx, key, f)
 			pipe.Expire(ctx, key, u.ttl)
 		}
 		return nil
@@ -262,8 +188,8 @@ func (u *UserCache) SetAggregateBatch(ctx context.Context, aggs []*user.Aggregat
 	return nil
 }
 
-func (u *UserCache) GetAggregate(ctx context.Context, userID uuid.UUID) (*user.Aggregate, error) {
-	found, _, err := u.GetAggregateBatch(ctx, []uuid.UUID{userID})
+func (u *UserCache) Get(ctx context.Context, userID uuid.UUID) (*user.User, error) {
+	found, _, err := u.GetBatch(ctx, []uuid.UUID{userID})
 	if err != nil {
 		return nil, err
 	}
@@ -271,9 +197,9 @@ func (u *UserCache) GetAggregate(ctx context.Context, userID uuid.UUID) (*user.A
 	return found[userID], nil
 }
 
-func (u *UserCache) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.Aggregate, []uuid.UUID, error) {
+func (u *UserCache) GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error) {
 	if len(userIDs) == 0 {
-		return make(map[uuid.UUID]*user.Aggregate), nil, nil
+		return make(map[uuid.UUID]*user.User), nil, nil
 	}
 
 	uniqueIDs := make([]uuid.UUID, 0, len(userIDs))
@@ -288,7 +214,7 @@ func (u *UserCache) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) 
 	cmds := make(map[uuid.UUID]*goredis.MapStringStringCmd, len(uniqueIDs))
 	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
 		for _, id := range uniqueIDs {
-			key := userAggregateKey(id)
+			key := userCacheKey(id)
 			cmds[id] = pipe.HGetAll(ctx, key)
 		}
 		return nil
@@ -297,7 +223,7 @@ func (u *UserCache) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) 
 		return nil, nil, redis.NewError(err, redis.ScopeUser)
 	}
 
-	found := make(map[uuid.UUID]*user.Aggregate, len(uniqueIDs))
+	found := make(map[uuid.UUID]*user.User, len(uniqueIDs))
 	var missing []uuid.UUID
 
 	for id, cmd := range cmds {
@@ -307,54 +233,62 @@ func (u *UserCache) GetAggregateBatch(ctx context.Context, userIDs []uuid.UUID) 
 			continue
 		}
 
-		dto, parseErr := parseUserAggregateDTO(res)
+		cu, parseErr := parseCachedUser(res)
 		if parseErr != nil {
 			missing = append(missing, id)
 			continue
 		}
 
-		domainAgg, domainErr := dto.Reconstitute()
-		if domainErr != nil || domainAgg == nil {
+		usr, domainErr := cu.Reconstitute()
+		if domainErr != nil || usr == nil {
 			missing = append(missing, id)
 			continue
 		}
 
-		found[id] = domainAgg
+		found[id] = usr
 	}
 
 	return found, missing, nil
 }
 
-func buildUserAggregateFields(agg *UserAggregate) map[string]interface{} {
-	fields := map[string]interface{}{
-		"id":                 agg.ID.String(),
-		"username":           agg.Username,
-		"display_name":       agg.DisplayName,
-		"bio":                agg.Bio,
-		"avatar_url":         agg.AvatarURL,
-		"banner_color":       agg.BannerColor,
-		"preferred_presence": strconv.Itoa(int(agg.PreferredPresence)),
-		"created_at":         strconv.FormatInt(agg.CreatedAt, 10),
-		"updated_at":         strconv.FormatInt(agg.UpdatedAt, 10),
+func (u *UserCache) Invalidate(ctx context.Context, userID uuid.UUID) error {
+	key := userCacheKey(userID)
+	if err := u.store.Del(ctx, key); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
 	}
-
-	if agg.PreferredPresenceUntil != nil {
-		fields["preferred_presence_until"] = strconv.FormatInt(*agg.PreferredPresenceUntil, 10)
-	}
-	if agg.VerifiedAt != nil {
-		fields["verified_at"] = strconv.FormatInt(*agg.VerifiedAt, 10)
-	}
-	if agg.DisabledAt != nil {
-		fields["disabled_at"] = strconv.FormatInt(*agg.DisabledAt, 10)
-	}
-	if agg.DeleteScheduledAt != nil {
-		fields["delete_scheduled_at"] = strconv.FormatInt(*agg.DeleteScheduledAt, 10)
-	}
-
-	return fields
+	return nil
 }
 
-func parseUserAggregateDTO(m map[string]string) (*UserAggregate, error) {
+func buildCachedUserFields(cu *CachedUser) map[string]interface{} {
+	f := map[string]interface{}{
+		"id":                 cu.ID.String(),
+		"username":           cu.Username,
+		"display_name":       cu.DisplayName,
+		"bio":                cu.Bio,
+		"avatar_url":         cu.AvatarURL,
+		"banner_color":       cu.BannerColor,
+		"preferred_presence": strconv.Itoa(int(cu.PreferredPresence)),
+		"created_at":         strconv.FormatInt(cu.CreatedAt, 10),
+		"updated_at":         strconv.FormatInt(cu.UpdatedAt, 10),
+	}
+
+	if cu.PreferredPresenceUntil != nil {
+		f["preferred_presence_until"] = strconv.FormatInt(*cu.PreferredPresenceUntil, 10)
+	}
+	if cu.VerifiedAt != nil {
+		f["verified_at"] = strconv.FormatInt(*cu.VerifiedAt, 10)
+	}
+	if cu.DisabledAt != nil {
+		f["disabled_at"] = strconv.FormatInt(*cu.DisabledAt, 10)
+	}
+	if cu.DeleteScheduledAt != nil {
+		f["delete_scheduled_at"] = strconv.FormatInt(*cu.DeleteScheduledAt, 10)
+	}
+
+	return f
+}
+
+func parseCachedUser(m map[string]string) (*CachedUser, error) {
 	id, err := uuid.Parse(m["id"])
 	if err != nil {
 		return nil, err
@@ -364,7 +298,7 @@ func parseUserAggregateDTO(m map[string]string) (*UserAggregate, error) {
 	createdAt, _ := strconv.ParseInt(m["created_at"], 10, 64)
 	updatedAt, _ := strconv.ParseInt(m["updated_at"], 10, 64)
 
-	agg := &UserAggregate{
+	cu := &CachedUser{
 		ID:                id,
 		Username:          m["username"],
 		DisplayName:       m["display_name"],
@@ -378,24 +312,24 @@ func parseUserAggregateDTO(m map[string]string) (*UserAggregate, error) {
 
 	if val, ok := m["preferred_presence_until"]; ok && val != "" {
 		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			agg.PreferredPresenceUntil = &ts
+			cu.PreferredPresenceUntil = &ts
 		}
 	}
 	if val, ok := m["verified_at"]; ok && val != "" {
 		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			agg.VerifiedAt = &ts
+			cu.VerifiedAt = &ts
 		}
 	}
 	if val, ok := m["disabled_at"]; ok && val != "" {
 		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			agg.DisabledAt = &ts
+			cu.DisabledAt = &ts
 		}
 	}
 	if val, ok := m["delete_scheduled_at"]; ok && val != "" {
 		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			agg.DeleteScheduledAt = &ts
+			cu.DeleteScheduledAt = &ts
 		}
 	}
 
-	return agg, nil
+	return cu, nil
 }

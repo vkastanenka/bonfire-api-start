@@ -178,6 +178,14 @@ func (t Timestamp) Unix() int64 {
 	return t.value.Unix()
 }
 
+func (t Timestamp) UnixPtr() *int64 {
+	if !t.IsValid() {
+		return nil
+	}
+	v := t.Unix()
+	return &v
+}
+
 func (t Timestamp) IsValid() bool {
 	return !t.value.IsZero()
 }

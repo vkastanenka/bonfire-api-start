@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 )
 
@@ -38,7 +39,7 @@ func (c *CachedUser) Create(ctx context.Context, u *user.User) (*user.User, erro
 	return createdUser, nil
 }
 
-func (c *CachedUser) Get(ctx context.Context, id user.ID) (*user.User, error) {
+func (c *CachedUser) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	// 1. Try reading from cache first
 	u, err := c.cache.Get(ctx, id)
 	if err == nil && u != nil {
