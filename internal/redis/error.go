@@ -32,10 +32,12 @@ func (s Scope) String() string {
 	return string(s)
 }
 
-var ErrNotFound = errors.New("cache: key not found")
+// ErrCacheMiss represents a standard cache miss and should not be treated as a system/infrastructure failure.
+var ErrCacheMiss = errors.New("cache: key not found")
 
-func IsNotFoundError(err error) bool {
-	return errors.Is(err, redis.Nil) || errors.Is(err, ErrNotFound)
+// IsCacheMiss checks if the underlying error is a redis.Nil or our package sentinel ErrCacheMiss.
+func IsCacheMiss(err error) bool {
+	return errors.Is(err, redis.Nil) || errors.Is(err, ErrCacheMiss)
 }
 
 func NewError(err error, scope Scope) error {
@@ -47,13 +49,12 @@ func NewError(err error, scope Scope) error {
 		return err
 	}
 
-	if IsNotFoundError(err) {
-		return attachContext(
-			errs.NotFound(fmt.Sprintf("The requested %s was not found in cache.", scope.String())),
-			scope,
-		).Wrap(err)
+	// 1. A cache miss is a normal operational outcome, return the sentinel error directly.
+	if IsCacheMiss(err) {
+		return ErrCacheMiss
 	}
 
+	// 2. Real cache failures (timeouts, network drops, internal errors) map to AIP-193 codes.
 	return handleCacheError(err, scope)
 }
 

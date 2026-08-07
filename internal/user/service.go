@@ -51,7 +51,7 @@ func NewService(cache Cache, repo Repository, outbox OutboxRepository) *Service 
 }
 
 func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
-	id, err := NewID(rawID)
+	id, err := fields.NewID(rawID)
 	if err != nil {
 		return nil, err
 	}
