@@ -4,24 +4,37 @@ import (
 	"context"
 	"time"
 
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 )
 
-type CachedUser struct {
-	repo  *UserRepository
-	cache cache.UserCache
+type userCache interface {
+	Delete(ctx context.Context, userID fields.ID) error
+	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
+	Get(ctx context.Context, userID fields.ID) (*user.User, error)
+	Set(ctx context.Context, usr *user.User) error
 }
 
-func NewCachedUser(repo *UserRepository, cache cache.UserCache) *CachedUser {
-	return &CachedUser{
+type userRepository interface {
+	Create(ctx context.Context, u *user.User) (*user.User, error)
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
+	Update(ctx context.Context, u *user.User) (*user.User, error)
+	UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error)
+}
+
+type CachedUserRepository struct {
+	repo  userRepository
+	cache userCache
+}
+
+func NewCachedUser(repo *UserRepository, cache userCache) *CachedUserRepository {
+	return &CachedUserRepository{
 		repo:  repo,
 		cache: cache,
 	}
 }
 
-func (c *CachedUser) Create(ctx context.Context, u *user.User) (*user.User, error) {
+func (c *CachedUserRepository) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	createdUser, err := c.repo.Create(ctx, u)
 	if err != nil {
 		return nil, err
@@ -35,7 +48,7 @@ func (c *CachedUser) Create(ctx context.Context, u *user.User) (*user.User, erro
 	return createdUser, nil
 }
 
-func (c *CachedUser) Get(ctx context.Context, id fields.ID) (*user.User, error) {
+func (c *CachedUserRepository) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	// 1. Try reading from cache first
 	u, err := c.cache.Get(ctx, id)
 	if err == nil && u != nil {
@@ -62,7 +75,7 @@ func (c *CachedUser) Get(ctx context.Context, id fields.ID) (*user.User, error) 
 	return u, nil
 }
 
-func (c *CachedUser) Update(ctx context.Context, u *user.User) (*user.User, error) {
+func (c *CachedUserRepository) Update(ctx context.Context, u *user.User) (*user.User, error) {
 	updatedUser, err := c.repo.Update(ctx, u)
 	if err != nil {
 		return nil, err
@@ -76,7 +89,7 @@ func (c *CachedUser) Update(ctx context.Context, u *user.User) (*user.User, erro
 	return updatedUser, nil
 }
 
-func (c *CachedUser) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
+func (c *CachedUserRepository) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
 	updatedUsers, err := c.repo.UpdateBatch(ctx, usersJson)
 	if err != nil {
 		return nil, err
