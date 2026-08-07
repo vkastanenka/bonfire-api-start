@@ -37,7 +37,7 @@ FROM
 WHERE
     email = $1;
 
--- name: UserListDeleteScheduled :many
+-- name: UserGetDeleteScheduledBatch :many
 SELECT
     users.*
 FROM
