@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"golang.org/x/sync/singleflight"
+
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
@@ -27,6 +29,7 @@ type userRepository interface {
 type CachedUserRepository struct {
 	repo  userRepository
 	cache userCache
+	sf    singleflight.Group
 }
 
 func NewCachedUser(repo *UserRepository, cache userCache) *CachedUserRepository {
@@ -58,6 +61,7 @@ func (c *CachedUserRepository) Get(ctx context.Context, id fields.ID) (*user.Use
 	if err == nil && u != nil {
 		return u, nil
 	}
+
 	if err != nil && !errors.Is(err, redis.ErrCacheMiss) {
 		slog.WarnContext(ctx, "user cache read failed, falling back to database",
 			"user_id", id.String(),
@@ -66,20 +70,29 @@ func (c *CachedUserRepository) Get(ctx context.Context, id fields.ID) (*user.Use
 		)
 	}
 
-	u, err = c.repo.Get(ctx, id)
+	key := id.String()
+	val, err, _ := c.sf.Do(key, func() (any, error) {
+		dbUser, repoErr := c.repo.Get(ctx, id)
+		if repoErr != nil {
+			return nil, repoErr
+		}
+
+		if cacheErr := c.cache.Set(ctx, dbUser); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill user cache",
+				"user_id", dbUser.ID().String(),
+				"error", cacheErr,
+				"scope", redis.ScopeUser,
+			)
+		}
+
+		return dbUser, nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if cacheErr := c.cache.Set(ctx, u); cacheErr != nil {
-		slog.WarnContext(ctx, "failed to backfill user cache",
-			"user_id", u.ID().String(),
-			"error", cacheErr,
-			"scope", redis.ScopeUser,
-		)
-	}
-
-	return u, nil
+	return val.(*user.User), nil
 }
 
 func (c *CachedUserRepository) Update(ctx context.Context, u *user.User) (*user.User, error) {
