@@ -32,7 +32,7 @@ type CachedUserRepository struct {
 	sf    singleflight.Group
 }
 
-func NewCachedUser(repo *UserRepository, cache userCache) *CachedUserRepository {
+func NewCachedUser(repo userRepository, cache userCache) *CachedUserRepository {
 	return &CachedUserRepository{
 		repo:  repo,
 		cache: cache,
@@ -71,14 +71,17 @@ func (c *CachedUserRepository) Get(ctx context.Context, id fields.ID) (*user.Use
 	}
 
 	key := id.String()
+
+	sfCtx := context.WithoutCancel(ctx)
+
 	val, err, _ := c.sf.Do(key, func() (any, error) {
-		dbUser, repoErr := c.repo.Get(ctx, id)
+		dbUser, repoErr := c.repo.Get(sfCtx, id)
 		if repoErr != nil {
 			return nil, repoErr
 		}
 
-		if cacheErr := c.cache.Set(ctx, dbUser); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill user cache",
+		if cacheErr := c.cache.Set(sfCtx, dbUser); cacheErr != nil {
+			slog.WarnContext(sfCtx, "failed to backfill user cache",
 				"user_id", dbUser.ID().String(),
 				"error", cacheErr,
 				"scope", redis.ScopeUser,
