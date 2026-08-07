@@ -34,10 +34,10 @@ type CachedUser struct {
 	AvatarURL              string    `redis:"avatar_url"`
 	BannerColor            string    `redis:"banner_color"`
 	PreferredPresence      int16     `redis:"preferred_presence"`
-	PreferredPresenceUntil *int64    `redis:"preferred_presence_until"`
-	VerifiedAt             *int64    `redis:"verified_at"`
-	DisabledAt             *int64    `redis:"disabled_at"`
-	DeleteScheduledAt      *int64    `redis:"delete_scheduled_at"`
+	PreferredPresenceUntil int64     `redis:"preferred_presence_until"`
+	VerifiedAt             int64     `redis:"verified_at"`
+	DisabledAt             int64     `redis:"disabled_at"`
+	DeleteScheduledAt      int64     `redis:"delete_scheduled_at"`
 	CreatedAt              int64     `redis:"created_at"`
 	UpdatedAt              int64     `redis:"updated_at"`
 }
@@ -55,10 +55,10 @@ func NewCachedUser(u *user.User) *CachedUser {
 		AvatarURL:              u.AvatarURL().String(),
 		BannerColor:            u.BannerColor().String(),
 		PreferredPresence:      u.PreferredPresence().Int16(),
-		PreferredPresenceUntil: u.PreferredPresenceUntil().UnixPtr(),
-		VerifiedAt:             u.VerifiedAt().UnixPtr(),
-		DisabledAt:             u.DisabledAt().UnixPtr(),
-		DeleteScheduledAt:      u.DeleteScheduledAt().UnixPtr(),
+		PreferredPresenceUntil: u.PreferredPresenceUntil().Unix(),
+		VerifiedAt:             u.VerifiedAt().Unix(),
+		DisabledAt:             u.DisabledAt().Unix(),
+		DeleteScheduledAt:      u.DeleteScheduledAt().Unix(),
 		CreatedAt:              u.CreatedAt().Unix(),
 		UpdatedAt:              u.UpdatedAt().Unix(),
 	}
@@ -99,34 +99,14 @@ func (cu *CachedUser) Reconstitute() (*user.User, error) {
 		return nil, err
 	}
 
-	prefPresence, err := user.NewPreferredPresenceFromInt16(cu.PreferredPresence)
+	prefPresence, err := user.PreferredPresenceFromInt16(cu.PreferredPresence)
 	if err != nil {
 		return nil, err
 	}
 
-	var prefPresenceUntil fields.Timestamp
-	if cu.PreferredPresenceUntil != nil {
-		prefPresenceUntil = fields.NewTimestampFromUnix(*cu.PreferredPresenceUntil)
-	}
-
-	var verifiedAt fields.Timestamp
-	if cu.VerifiedAt != nil {
-		verifiedAt = fields.NewTimestampFromUnix(*cu.VerifiedAt)
-	}
-
-	var disabledAt fields.Timestamp
-	if cu.DisabledAt != nil {
-		disabledAt = fields.NewTimestampFromUnix(*cu.DisabledAt)
-	}
-
-	var deleteScheduledAt fields.Timestamp
-	if cu.DeleteScheduledAt != nil {
-		deleteScheduledAt = fields.NewTimestampFromUnix(*cu.DeleteScheduledAt)
-	}
-
 	return user.Reconstitute(
 		id,
-		user.Email{}, // Omitted from public cached profile
+		user.Email{},
 		username,
 		user.PasswordHash{},
 		user.Phone{},
@@ -135,10 +115,10 @@ func (cu *CachedUser) Reconstitute() (*user.User, error) {
 		avatarURL,
 		bannerColor,
 		prefPresence,
-		prefPresenceUntil,
-		verifiedAt,
-		disabledAt,
-		deleteScheduledAt,
+		fields.NewTimestampFromUnix(cu.PreferredPresenceUntil),
+		fields.NewTimestampFromUnix(cu.VerifiedAt),
+		fields.NewTimestampFromUnix(cu.DisabledAt),
+		fields.NewTimestampFromUnix(cu.DeleteScheduledAt),
 		fields.NewTimestampFromUnix(cu.CreatedAt),
 		fields.NewTimestampFromUnix(cu.UpdatedAt),
 	), nil

@@ -144,6 +144,13 @@ func NewTimestampFromTime(t time.Time) Timestamp {
 	return Timestamp{value: t.UTC()}
 }
 
+func NewTimestampFromUnix(sec int64) Timestamp {
+	if sec <= 0 {
+		return Timestamp{}
+	}
+	return NewTimestampFromTime(time.Unix(sec, 0))
+}
+
 func (t Timestamp) Time() time.Time {
 	return t.value
 }
