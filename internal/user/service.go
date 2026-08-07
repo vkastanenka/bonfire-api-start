@@ -8,45 +8,68 @@ import (
 	"bonfire-api/internal/pkg/ptr"
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type Cache interface {
-	Delete(ctx context.Context, id ID) error
-	DeleteBatch(ctx context.Context, ids []ID) error
-	Get(ctx context.Context, id ID) (*User, error)
-	GetBatch(ctx context.Context, ids []ID) (map[ID]*User, []ID, error)
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
 	Set(ctx context.Context, user *User) error
 	SetBatch(ctx context.Context, users []*User) error
 }
 
 type Repository interface {
 	Create(ctx context.Context, u *User) (*User, error)
-	Get(ctx context.Context, id ID) (*User, error)
+	Get(ctx context.Context, id fields.ID) (*User, error)
 	GetByEmail(ctx context.Context, email Email) (*User, error)
-	GetDeleteScheduledBatch(ctx context.Context, currentTime Timestamp, batchLimit int32) ([]*User, error)
+	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*User, error)
 	Update(ctx context.Context, u *User) (*User, error)
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
+}
+
+type CachedRepository interface {
+	Create(ctx context.Context, u *User) (*User, error)
+	Get(ctx context.Context, id fields.ID) (*User, error)
+	Update(ctx context.Context, u *User) (*User, error)
+	UpdateBatch(ctx context.Context, usersJson []byte)
 }
 
 type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
 }
 
-type Service struct {
-	cache  Cache
-	repo   Repository
-	outbox OutboxRepository
+type VerificationCodeCache interface {
+	DeleteUserEmailUpdateCode(ctx context.Context, userID fields.ID) error
+	GetUserEmailUpdateCode(ctx context.Context, userID fields.ID) (fields.VerificationCode, error)
+	SetUserEmailUpdateCode(ctx context.Context, userID fields.ID, code fields.VerificationCode) error
 }
 
-func NewService(cache Cache, repo Repository, outbox OutboxRepository) *Service {
+type Service struct {
+	cache      Cache
+	repo       Repository
+	cRepo      CachedRepository
+	outbox     OutboxRepository
+	vCodeCache VerificationCodeCache
+}
+
+func NewService(
+	cache Cache,
+	repo Repository,
+	cachedRepo CachedRepository,
+	outbox OutboxRepository,
+	vCodeCache VerificationCodeCache,
+) *Service {
 	return &Service{
-		cache:  cache,
-		repo:   repo,
-		outbox: outbox,
+		cache:      cache,
+		repo:       repo,
+		cRepo:      cachedRepo,
+		outbox:     outbox,
+		vCodeCache: vCodeCache,
 	}
 }
 
@@ -56,76 +79,12 @@ func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
 		return nil, err
 	}
 
-	u, err := s.cache.Get(ctx, id)
-	if err == nil && u != nil {
-		return u, nil
-	}
-	if err != nil {
-		// Log cache err
-	}
-
-	u, err = s.repo.Get(ctx, id)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-
-	go func(userToCache *User) {
-		asyncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		defer cancel()
-
-		if cacheErr := s.cache.Set(asyncCtx, userToCache); cacheErr != nil {
-			// Log cache err
-		}
-	}(u)
 
 	return u, nil
-}
-
-type UpdateUsernameParams struct {
-	UserID      uuid.UUID
-	NewUsername string
-	Password    string
-}
-
-func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
-	id, err := NewID(p.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	newUsername, err := NewUsername(p.NewUsername)
-	if err != nil {
-		return nil, err
-	}
-
-	password, err := NewPassword(p.Password)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.repo.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
-	}
-
-	u.UpdateUsername(newUsername)
-
-	uu, err := s.repo.Update(ctx, u)
-	if err != nil {
-		return nil, err
-	}
-
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
-	}
-
-	return uu, nil
 }
 
 type UpdateEmailParams struct {
@@ -135,7 +94,7 @@ type UpdateEmailParams struct {
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
-	id, err := NewID(p.UserID)
+	id, err := fields.NewID(p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +109,7 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return nil, err
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -161,15 +120,54 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 			Wrap(errors.New("invalid credentials"))
 	}
 
-	u.UpdateEmail(newEmail)
+	u.UpdateEmail(newEmail, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.repo.Update(ctx, u)
+	uu, err := s.cRepo.Update(ctx, u)
 	if err != nil {
 		return nil, err
 	}
 
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
+	return uu, nil
+}
+
+type UpdateUsernameParams struct {
+	UserID      uuid.UUID
+	NewUsername string
+	Password    string
+}
+
+func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
+	id, err := fields.NewID(p.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	newUsername, err := NewUsername(p.NewUsername)
+	if err != nil {
+		return nil, err
+	}
+
+	password, err := NewPassword(p.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := s.cRepo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return nil, errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
+	}
+
+	u.UpdateUsername(newUsername, fields.NewTimestampFromTime(time.Now()))
+
+	uu, err := s.cRepo.Update(ctx, u)
+	if err != nil {
+		return nil, err
 	}
 
 	return uu, nil
@@ -183,7 +181,7 @@ type UpdatePasswordParams struct {
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	id, err := NewID(p.UserID)
+	id, err := fields.NewID(p.UserID)
 	if err != nil {
 		return err
 	}
@@ -207,7 +205,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return errs.InvalidArgument("Passwords must match.")
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -223,20 +221,16 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return errs.Internal("failed to hash password").Wrap(err)
 	}
 
-	newPasswordHash, err := NewPassword(passwordHash)
+	newPasswordHash, err := NewPasswordHash(passwordHash)
 	if err != nil {
 		return err
 	}
 
-	u.UpdatePassword(newPasswordHash)
+	u.UpdatePasswordHash(newPasswordHash, fields.NewTimestampFromTime(time.Now()))
 
-	_, err = s.repo.Update(ctx, u)
+	_, err = s.cRepo.Update(ctx, u)
 	if err != nil {
 		return err
-	}
-
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
 	}
 
 	return nil
@@ -253,35 +247,31 @@ type UpdatePreferredPresenceParams struct {
 }
 
 func (s *Service) UpdatePreferredPreference(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
-	id, err := NewID(p.UserID)
+	id, err := fields.NewID(p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	preferredPresence, err := NewPreferredPresence(p.Presence)
+	preferredPresence, err := NewPreferredPresence(ptr.From(p.Presence))
 	if err != nil {
 		return nil, err
 	}
 
-	until, err := NewTimestamp(p.Until)
+	until, err := fields.NewTimestamp(ptr.From(p.Until))
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	u.SetPreferredPresence(preferredPresence, until)
+	u.UpdatePreferredPresence(preferredPresence, until, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.repo.Update(ctx, u)
+	uu, err := s.cRepo.Update(ctx, u)
 	if err != nil {
 		return nil, err
-	}
-
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
 	}
 
 	return uu, nil
@@ -321,7 +311,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -334,72 +324,90 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		fields.NewTimestampFromTime(time.Now()),
 	)
 
-	uu, err := s.repo.Update(ctx, u)
+	uu, err := s.cRepo.Update(ctx, u)
 	if err != nil {
 		return nil, err
-	}
-
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
 	}
 
 	return uu, nil
 }
 
-func (s *Service) Disable(ctx context.Context, rawID uuid.UUID) error {
-	id, err := NewID(rawID)
+func (s *Service) Disable(ctx context.Context, rawID uuid.UUID, rawPassword string) error {
+	id, err := fields.NewID(rawID)
 	if err != nil {
 		return err
 	}
 
-	u, err := s.repo.Get(ctx, id)
+	password, err := NewPassword(rawPassword)
 	if err != nil {
 		return err
 	}
 
-	u.Disable()
-
-	_, err = s.repo.Update(ctx, u)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
+	if err := u.EnsureActive(); err != nil {
+		return err
+	}
+
+	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
+	}
+
+	u.Disable(fields.NewTimestampFromTime(time.Now()))
+
+	_, err = s.cRepo.Update(ctx, u)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDeleteAt time.Time) error {
-	id, err := NewID(rawID)
+func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDeleteAt time.Time, rawPassword string) error {
+	id, err := fields.NewID(rawID)
 	if err != nil {
 		return err
 	}
 
-	deleteAt := NewTimestampFromTime(&rawDeleteAt)
-
-	u, err := s.repo.Get(ctx, id)
+	password, err := NewPassword(rawPassword)
 	if err != nil {
 		return err
 	}
 
-	u.ScheduleDelete(*deleteAt.Time())
+	deleteAt := fields.NewTimestampFromTime(rawDeleteAt)
 
-	_, err = s.repo.Update(ctx, u)
+	u, err := s.cRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	if cacheErr := s.cache.Delete(ctx, id); cacheErr != nil {
-		// Log err
+	if err := u.EnsureActive(); err != nil {
+		return err
+	}
+
+	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
+			Wrap(errors.New("invalid credentials"))
+	}
+
+	u.ScheduleDelete(deleteAt, fields.NewTimestampFromTime(time.Now()))
+
+	_, err = s.cRepo.Update(ctx, u)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (s *Service) RequestUpdateEmailCode(ctx context.Context, rawID uuid.UUID) error {
-	id, err := NewID(rawID)
+	id, err := fields.NewID(rawID)
 	if err != nil {
 		return err
 	}
@@ -413,20 +421,23 @@ func (s *Service) RequestUpdateEmailCode(ctx context.Context, rawID uuid.UUID) e
 		return err
 	}
 
-	code, err := crypto.GenerateVerificationCode(6)
+	rawCode, err := crypto.GenerateVerificationCode(6)
 	if err != nil {
-		return fmt.Errorf("failed to generate verification code: %w", err)
+		return errs.Internal("failed to generate verification code").Wrap(err)
 	}
 
-	// TODO: Update cache
-	// cacheKey := fmt.Sprintf("email_update_code:%s", u.ID().String())
-	// if err := s.cache.Set(ctx, cacheKey, code, 15*time.Minute); err != nil {
-	// 	return fmt.Errorf("failed to store verification code: %w", err)
-	// }
+	code, err := fields.NewVerificationCode(rawCode)
+	if err != nil {
+		return err
+	}
+
+	if err := s.vCodeCache.SetUserEmailUpdateCode(ctx, id, code); err != nil {
+		return err
+	}
 
 	_, err = s.outbox.Publish(ctx, EventRequestUpdateEmailCode, RequestUpdateEmailCodePayload{
 		Email: u.Email().String(),
-		Code:  code,
+		Code:  code.String(),
 	})
 	if err != nil {
 		return err
@@ -435,67 +446,63 @@ func (s *Service) RequestUpdateEmailCode(ctx context.Context, rawID uuid.UUID) e
 	return nil
 }
 
-func (s *Service) VerifyUpdateEmailCode(ctx context.Context, rawID uuid.UUID, rawVerificationCode string) error {
-	// id, err := NewID(rawID)
-	// if err != nil {
-	// 	return err
-	// }
+func (s *Service) VerifyUpdateEmailCode(ctx context.Context, rawID uuid.UUID, rawCandidateCode string) error {
+	id, err := fields.NewID(rawID)
+	if err != nil {
+		return err
+	}
 
-	// verificationCode, err := NewVerificationCode(rawVerificationCode)
-	// if err != nil {
-	// 	return err
-	// }
+	candidateCode, err := fields.NewVerificationCode(rawCandidateCode)
+	if err != nil {
+		return err
+	}
 
-	// cacheKey := fmt.Sprintf("email_update_code:%s", id.String())
-	// cachedCode, err := s.cache.Get(ctx, cacheKey)
-	// if err != nil {
-	// 	if errors.Is(err, cache.ErrNotFound) {
-	// 		return ErrCodeExpiredOrInvalid
-	// 	}
-	// 	return err
-	// }
+	cachedCode, err := s.vCodeCache.GetUserEmailUpdateCode(ctx, id)
+	if err != nil {
+		return err
+	}
 
-	// if !verificationCode.Equals(cachedCode) {
-	// 	return ErrCodeMismatch
-	// }
+	if !cachedCode.Equals(candidateCode) {
+		return errs.InvalidArgument("invalid code").Wrap(err)
+	}
 
-	// // Delete code after single use to prevent replay attacks
-	// _ = s.cache.Delete(ctx, cacheKey)
+	if err := s.vCodeCache.DeleteUserEmailUpdateCode(ctx, id); err != nil {
+		slog.WarnContext(ctx, "failed to delete verification code after successful verification",
+			"user_id", id.String(),
+			"error", err,
+		)
+	}
 
 	return nil
 }
 
-func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
-	if batchSize <= 0 {
-		batchSize = 100
-	}
+// func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
+// 	if batchSize <= 0 {
+// 		batchSize = 100
+// 	}
 
-	users, err := s.repo.GetDeleteScheduledBatch(ctx, time.Now().UTC(), batchSize)
-	if err != nil {
-		return fmt.Errorf("failed to list scheduled deletions: %w", err)
-	}
+// 	users, err := s.repo.GetDeleteScheduledBatch(ctx, fields.NewTimestampFromTime(time.Now()), batchSize)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	if len(users) == 0 {
-		return nil
-	}
+// 	if len(users) == 0 {
+// 		return nil
+// 	}
 
-	idsToDelete := make([]ID, len(users))
-	for i, u := range users {
-		u.Anonymize()
-		idsToDelete[i] = u.ID()
-	}
+// 	idsToDelete := make([]fields.ID, len(users))
+// 	for i, u := range users {
+// 		u.Anonymize(fields.NewTimestampFromTime(time.Now()))
+// 		idsToDelete[i] = u.ID()
+// 	}
 
-	_, err = s.repo.UpdateBatch(ctx, users)
-	if err != nil {
-		return fmt.Errorf("failed to batch update anonymized users: %w", err)
-	}
+// 	_, err = s.repo.UpdateBatch(ctx, users)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to batch update anonymized users: %w", err)
+// 	}
 
-	if cacheErr := s.cache.DeleteBatch(ctx, idsToDelete); cacheErr != nil {
-		// Log cache error without failing the core transaction
-	}
-
-	return nil
-}
+// 	return nil
+// }
 
 // // VerifyEmail verifies a user's email address using a signed verification token.
 // func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {

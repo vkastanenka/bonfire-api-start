@@ -8,7 +8,7 @@ import (
 )
 
 type Querier interface {
-	// Existing methods...
+	// Basic String & Key Operations
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
 	SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string, dest interface{}) error
