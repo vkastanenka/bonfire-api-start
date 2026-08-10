@@ -52,7 +52,10 @@ func NewHexColor(raw string) (HexColor, error) {
 		return HexColor{}, nil
 	}
 
-	if !rgxHexColor.MatchString(s) {
+	if err := Validate(s, ValidateCfg{
+		Field: "hex_color",
+		Regex: rgxHexColor,
+	}); err != nil {
 		return HexColor{}, errs.InvalidArgument("Invalid hex color.").
 			Reason("HEX_COLOR_INVALID_FORMAT").
 			FieldViolation("hex_color", "Must be a valid hex code (e.g., #FF5733)", "INVALID_FORMAT")
@@ -89,9 +92,7 @@ func ParseID(raw string) (ID, error) {
 
 	parsed, err := uuid.Parse(s)
 	if err != nil {
-		return ID{}, errs.InvalidArgument("Invalid identifier.").
-			Reason("ID_INVALID_FORMAT").
-			FieldViolation("id", "Must be a valid UUID", "INVALID_FORMAT")
+		return ID{}, ErrInvalidFormat("id", "Must be a valid UUID")
 	}
 
 	return ID(parsed), nil
@@ -130,9 +131,7 @@ func NewTimestamp(raw string) (Timestamp, error) {
 
 	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		return Timestamp{}, errs.InvalidArgument("Invalid timestamp.").
-			Reason("TIMESTAMP_INVALID_FORMAT").
-			FieldViolation("timestamp", "Timestamp must be a valid RFC 3339 date-time format", "INVALID_FORMAT")
+		return Timestamp{}, ErrInvalidFormat("timestamp", "Timestamp must be a valid RFC 3339 date-time format")
 	}
 
 	return Timestamp{value: parsed.UTC()}, nil
@@ -217,17 +216,16 @@ func NewURL(raw string) (URL, error) {
 		return URL{}, nil
 	}
 
-	if len(s) > MaxURLLength {
-		return URL{}, errs.InvalidArgument("Invalid URL.").
-			Reason("URL_TOO_LONG").
-			FieldViolation("url", "URL must not exceed 2048 characters", "MAX_LENGTH_EXCEEDED")
+	if err := Validate(s, ValidateCfg{
+		Field:  "url",
+		MaxLen: MaxURLLength,
+	}); err != nil {
+		return URL{}, err
 	}
 
 	parsed, err := url.ParseRequestURI(s)
 	if err != nil || parsed.Host == "" || (!strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://")) {
-		return URL{}, errs.InvalidArgument("Invalid URL.").
-			Reason("URL_INVALID_FORMAT").
-			FieldViolation("url", "URL must be a valid HTTP or HTTPS address", "INVALID_FORMAT")
+		return URL{}, ErrInvalidFormat("url", "URL must be a valid HTTP or HTTPS address")
 	}
 
 	return URL{Text: NewText(parsed.String())}, nil
@@ -254,7 +252,10 @@ func NewVerificationCode(raw string) (VerificationCode, error) {
 		return VerificationCode{}, nil
 	}
 
-	if !rgxVerificationCode.MatchString(s) {
+	if err := Validate(s, ValidateCfg{
+		Field: "verification_code",
+		Regex: rgxVerificationCode,
+	}); err != nil {
 		return VerificationCode{}, errs.InvalidArgument("Invalid verification code.").
 			Reason("VERIFICATION_CODE_INVALID_FORMAT").
 			FieldViolation("verification_code", "Verification code must be 6 alphanumeric characters", "INVALID_FORMAT")

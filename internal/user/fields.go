@@ -3,7 +3,6 @@ package user
 import (
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
@@ -27,10 +26,12 @@ func NewBio(raw string) (Bio, error) {
 		return Bio{}, nil
 	}
 
-	if len([]rune(s)) > MaxBioLength {
-		return Bio{}, errs.InvalidArgument("Invalid user bio.").
-			Reason("BIO_TOO_LONG").
-			FieldViolation("bio", "Bio must not exceed 190 characters.", "MAX_LENGTH_EXCEEDED")
+	if err := fields.Validate(s, fields.ValidateCfg{
+		Field:     "bio",
+		MaxLen:    MaxBioLength,
+		IsRuneLen: true,
+	}); err != nil {
+		return Bio{}, err
 	}
 
 	return Bio{Text: fields.NewText(s)}, nil
@@ -66,15 +67,15 @@ type DisplayName struct {
 func NewDisplayName(raw string) (DisplayName, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return DisplayName{}, errs.InvalidArgument("Invalid display name.").
-			Reason("DISPLAY_NAME_REQUIRED").
-			FieldViolation("display_name", "Display name cannot be empty.", "REQUIRED")
+		return DisplayName{}, fields.ErrRequired("display_name", "Display name cannot be empty.")
 	}
 
-	if len([]rune(s)) > MaxDisplayNameLength {
-		return DisplayName{}, errs.InvalidArgument("Invalid display name.").
-			Reason("DISPLAY_NAME_TOO_LONG").
-			FieldViolation("display_name", "Display name must not exceed 32 characters.", "MAX_LENGTH_EXCEEDED")
+	if err := fields.Validate(s, fields.ValidateCfg{
+		Field:     "display_name",
+		MaxLen:    MaxDisplayNameLength,
+		IsRuneLen: true,
+	}); err != nil {
+		return DisplayName{}, err
 	}
 
 	return DisplayName{Text: fields.NewText(s)}, nil
@@ -99,6 +100,8 @@ func (d *DisplayName) UnmarshalText(text []byte) (err error) {
 
 const MaxEmailLength = 255
 
+var rgxEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
 type Email struct {
 	fields.Text
 }
@@ -106,30 +109,15 @@ type Email struct {
 func NewEmail(raw string) (Email, error) {
 	s := sanitize.Email(raw)
 	if s == "" {
-		return Email{}, errs.InvalidArgument("Invalid email address.").
-			Reason("EMAIL_REQUIRED").
-			FieldViolation("email", "Email address cannot be empty", "REQUIRED")
+		return Email{}, fields.ErrRequired("email", "Email address cannot be empty")
 	}
 
-	if len(s) > MaxEmailLength {
-		return Email{}, errs.InvalidArgument("Invalid email address.").
-			Reason("EMAIL_TOO_LONG").
-			FieldViolation("email", "Email address must not exceed 255 characters", "MAX_LENGTH_EXCEEDED")
-	}
-
-	at := strings.IndexByte(s, '@')
-	if at <= 0 || at == len(s)-1 {
-		return Email{}, errs.InvalidArgument("Invalid email address.").
-			Reason("EMAIL_INVALID_FORMAT").
-			FieldViolation("email", "Must be a valid email address", "INVALID_FORMAT")
-	}
-
-	domain := s[at+1:]
-	dot := strings.IndexByte(domain, '.')
-	if dot <= 0 || dot == len(domain)-1 {
-		return Email{}, errs.InvalidArgument("Invalid email address.").
-			Reason("EMAIL_INVALID_FORMAT").
-			FieldViolation("email", "Must be a valid email address", "INVALID_FORMAT")
+	if err := fields.Validate(s, fields.ValidateCfg{
+		Field:  "email",
+		MaxLen: MaxEmailLength,
+		Regex:  rgxEmail,
+	}); err != nil {
+		return Email{}, fields.ErrInvalidFormat("email", "Must be a valid email address")
 	}
 
 	return Email{Text: fields.NewText(s)}, nil
@@ -163,21 +151,15 @@ type Password struct {
 
 func NewPassword(raw string) (Password, error) {
 	if raw == "" {
-		return Password{}, errs.InvalidArgument("Invalid password.").
-			Reason("PASSWORD_REQUIRED").
-			FieldViolation("password", "Password cannot be empty", "REQUIRED")
+		return Password{}, fields.ErrRequired("password", "Password cannot be empty")
 	}
 
-	if len(raw) < MinPasswordLength {
-		return Password{}, errs.InvalidArgument("Invalid password.").
-			Reason("PASSWORD_TOO_SHORT").
-			FieldViolation("password", "Password must be at least 12 characters", "MIN_LENGTH_NOT_MET")
-	}
-
-	if len(raw) > MaxPasswordLength {
-		return Password{}, errs.InvalidArgument("Invalid password.").
-			Reason("PASSWORD_TOO_LONG").
-			FieldViolation("password", "Password must not exceed 255 characters", "MAX_LENGTH_EXCEEDED")
+	if err := fields.Validate(raw, fields.ValidateCfg{
+		Field:  "password",
+		MinLen: MinPasswordLength,
+		MaxLen: MaxPasswordLength,
+	}); err != nil {
+		return Password{}, err
 	}
 
 	return Password{Text: fields.NewText(raw)}, nil
@@ -211,21 +193,15 @@ type PasswordHash struct {
 
 func NewPasswordHash(raw string) (PasswordHash, error) {
 	if raw == "" {
-		return PasswordHash{}, errs.InvalidArgument("Invalid password hash.").
-			Reason("PASSWORD_HASH_REQUIRED").
-			FieldViolation("password_hash", "Password hash cannot be empty", "REQUIRED")
+		return PasswordHash{}, fields.ErrRequired("password_hash", "Password hash cannot be empty")
 	}
 
-	if len(raw) < MinPasswordHashLength {
-		return PasswordHash{}, errs.InvalidArgument("Invalid password hash.").
-			Reason("PASSWORD_HASH_TOO_SHORT").
-			FieldViolation("password_hash", "Password hash must be at least 50 characters", "MIN_LENGTH_NOT_MET")
-	}
-
-	if len(raw) > MaxPasswordHashLength {
-		return PasswordHash{}, errs.InvalidArgument("Invalid password hash.").
-			Reason("PASSWORD_HASH_TOO_LONG").
-			FieldViolation("password_hash", "Password hash must not exceed 255 characters", "MAX_LENGTH_EXCEEDED")
+	if err := fields.Validate(raw, fields.ValidateCfg{
+		Field:  "password_hash",
+		MinLen: MinPasswordHashLength,
+		MaxLen: MaxPasswordHashLength,
+	}); err != nil {
+		return PasswordHash{}, err
 	}
 
 	return PasswordHash{Text: fields.NewText(raw)}, nil
@@ -260,10 +236,11 @@ func NewPhone(raw string) (Phone, error) {
 		return Phone{}, nil
 	}
 
-	if !rgxPhone.MatchString(s) {
-		return Phone{}, errs.InvalidArgument("Invalid phone number.").
-			Reason("PHONE_INVALID_FORMAT").
-			FieldViolation("phone", "Phone must be in international E.164 format (e.g., +1234567890)", "INVALID_FORMAT")
+	if err := fields.Validate(s, fields.ValidateCfg{
+		Field: "phone",
+		Regex: rgxPhone,
+	}); err != nil {
+		return Phone{}, fields.ErrInvalidFormat("phone", "Phone must be in international E.164 format (e.g., +1234567890)")
 	}
 
 	return Phone{Text: fields.NewText(s)}, nil
@@ -410,27 +387,17 @@ type Username struct {
 func NewUsername(raw string) (Username, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason("USERNAME_REQUIRED").
-			FieldViolation("username", "Username cannot be empty", "REQUIRED")
+		return Username{}, fields.ErrRequired("username", "Username cannot be empty")
 	}
 
-	runeLen := utf8.RuneCountInString(s)
-	if runeLen < MinUsernameLength {
-		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason("USERNAME_TOO_SHORT").
-			FieldViolation("username", "Username must be at least 3 characters", "MIN_LENGTH_NOT_MET")
-	}
-	if runeLen > MaxUsernameLength {
-		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason("USERNAME_TOO_LONG").
-			FieldViolation("username", "Username cannot exceed 32 characters", "MAX_LENGTH_EXCEEDED")
-	}
-
-	if !rgxUsername.MatchString(s) {
-		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason("USERNAME_INVALID_FORMAT").
-			FieldViolation("username", "Username must start and end with an alphanumeric character and contain no consecutive dots or underscores", "INVALID_FORMAT")
+	if err := fields.Validate(s, fields.ValidateCfg{
+		Field:     "username",
+		MinLen:    MinUsernameLength,
+		MaxLen:    MaxUsernameLength,
+		Regex:     rgxUsername,
+		IsRuneLen: true,
+	}); err != nil {
+		return Username{}, err
 	}
 
 	switch strings.ToLower(s) {
