@@ -2,8 +2,6 @@ package redis
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -21,21 +19,19 @@ func NewStore(client *redis.Client) *Store {
 }
 
 func (s *Store) ExecPipeline(ctx context.Context, fn func(pipeCtx context.Context) error) error {
-	// 1. If ALREADY inside a pipeline context, reuse it without nesting.
-	if _, ok := ExtractPipeline(ctx); ok {
+	if IsPipelined(ctx) {
 		return fn(ctx)
 	}
 
-	// 2. Outer-most call: Initialize a new pipeline.
 	pipe := s.client.Pipeline()
-	pipeCtx := InjectPipeline(ctx, pipe)
+	pipeCtx := InjectCmdable(ctx, pipe)
 
 	if err := fn(pipeCtx); err != nil {
 		pipe.Discard()
-		return fmt.Errorf("failed to enqueue pipeline commands: %w", err)
+		return err
 	}
 
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+	if _, err := pipe.Exec(ctx); err != nil {
 		return NewError(err, ScopeStore)
 	}
 
