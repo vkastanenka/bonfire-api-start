@@ -35,7 +35,7 @@ func (s *CacheSub) Unsubscribe(ctx context.Context) error {
 	})
 
 	if err != nil {
-		return NewError(err, ScopeEvents)
+		return NewError(err, ScopeEvent)
 	}
 	return nil
 }
@@ -56,12 +56,12 @@ func (s *Store) Publish(ctx context.Context, channel string, message interface{}
 	default:
 		payload, err = json.Marshal(v)
 		if err != nil {
-			return NewError(err, ScopeEvents)
+			return NewError(err, ScopeEvent)
 		}
 	}
 
 	if err := s.client.Publish(ctx, channel, payload).Err(); err != nil {
-		return NewError(err, ScopeEvents)
+		return NewError(err, ScopeEvent)
 	}
 	return nil
 }
@@ -74,7 +74,7 @@ func (s *Store) Subscribe(ctx context.Context, channel string) (*CacheSub, error
 
 	if _, err := pb.Receive(subCtx); err != nil {
 		_ = pb.Close()
-		return nil, NewError(err, ScopeEvents)
+		return nil, NewError(err, ScopeEvent)
 	}
 
 	sub := &CacheSub{
@@ -95,7 +95,7 @@ func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (*CacheSub, 
 
 	if _, err := pb.Receive(subCtx); err != nil {
 		_ = pb.Close()
-		return nil, NewError(err, ScopeEvents)
+		return nil, NewError(err, ScopeEvent)
 	}
 
 	sub := &CacheSub{
