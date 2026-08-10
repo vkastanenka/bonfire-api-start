@@ -1,59 +1,65 @@
 package fields
 
 import (
-	"errors"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
+	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
 
 	"github.com/google/uuid"
 )
 
 // ============================================================================
+// Text
+// ============================================================================
+
+type Text struct {
+	value string
+}
+
+func NewText(v string) Text           { return Text{value: v} }
+func (t Text) String() string         { return t.value }
+func (t Text) IsZero() bool           { return t.value == "" }
+func (t Text) IsValid() bool          { return !t.IsZero() }
+func (t Text) Equals(other Text) bool { return t.value == other.value }
+
+func (t Text) StringPtr() *string {
+	if t.IsZero() {
+		return nil
+	}
+	return ptr.To(t.value)
+}
+
+func (t Text) MarshalText() ([]byte, error) {
+	return []byte(t.value), nil
+}
+
+// ============================================================================
 // HexColor
 // ============================================================================
 
-var (
-	ErrHexColorInvalid = errors.New("must be a valid hex code (e.g., #FF5733)")
-	rgxHexColor        = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
-)
+var rgxHexColor = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
 
-type HexColor struct {
-	value string
-}
+type HexColor struct{ Text }
 
 func NewHexColor(raw string) (HexColor, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return HexColor{}, nil
 	}
-	if !rgxHexColor.MatchString(s) {
-		return HexColor{}, ErrHexColorInvalid
+
+	detail := "Must be a valid hex code (e.g., #FF5733)"
+	if err := ValidatePattern(s, rgxHexColor, "hex_color", "hex color", "HEX_COLOR_INVALID_FORMAT", detail); err != nil {
+		return HexColor{}, err
 	}
-	return HexColor{value: strings.ToUpper(s)}, nil
+
+	return HexColor{Text: NewText(strings.ToUpper(s))}, nil
 }
 
-func (hc HexColor) String() string {
-	return hc.value
-}
-
-func (hc HexColor) StringPtr() *string {
-	if hc.value == "" {
-		return nil
-	}
-	return &hc.value
-}
-
-func (hc HexColor) IsValid() bool {
-	return hc.value != ""
-}
-
-func (hc HexColor) Equals(other HexColor) bool {
-	return hc.value == other.value
-}
+func (hc HexColor) Equals(other HexColor) bool { return hc.Text.Equals(other.Text) }
 
 func (hc *HexColor) UnmarshalText(text []byte) (err error) {
 	*hc, err = UnmarshalText(text, NewHexColor)
@@ -64,50 +70,39 @@ func (hc *HexColor) UnmarshalText(text []byte) (err error) {
 // ID
 // ============================================================================
 
-var (
-	ErrIDNil     = errors.New("id cannot be nil or zero-value")
-	ErrIDInvalid = errors.New("invalid uuid format")
-)
-
 type ID uuid.UUID
 
-func NewID(raw uuid.UUID) (ID, error) {
+func NewID(raw uuid.UUID) ID {
 	if raw == uuid.Nil {
-		return ID{}, ErrIDNil
+		return ID{}
 	}
-	return ID(raw), nil
+	return ID(raw)
 }
 
 func ParseID(raw string) (ID, error) {
-	parsed, err := uuid.Parse(sanitize.Text(raw))
-	if err != nil {
-		return ID{}, ErrIDInvalid
+	s := sanitize.Text(raw)
+	if s == "" {
+		return ID{}, nil
 	}
-	return NewID(parsed)
+
+	parsed, err := uuid.Parse(s)
+	if err != nil {
+		return ID{}, NewError("id", "id", "Must be a valid UUID", "ID_INVALID_FORMAT", "INVALID_FORMAT")
+	}
+
+	return NewID(parsed), nil
 }
 
-func (id ID) UUID() uuid.UUID {
-	return uuid.UUID(id)
-}
-
-func (id ID) String() string {
-	return uuid.UUID(id).String()
-}
+func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
+func (id ID) String() string       { return uuid.UUID(id).String() }
+func (id ID) IsValid() bool        { return uuid.UUID(id) != uuid.Nil }
+func (id ID) Equals(other ID) bool { return id == other }
 
 func (id ID) StringPtr() *string {
 	if !id.IsValid() {
 		return nil
 	}
-	s := uuid.UUID(id).String()
-	return &s
-}
-
-func (id ID) IsValid() bool {
-	return uuid.UUID(id) != uuid.Nil
-}
-
-func (id ID) Equals(other ID) bool {
-	return id == other
+	return ptr.To(id.String())
 }
 
 func (id *ID) UnmarshalText(text []byte) (err error) {
@@ -119,8 +114,6 @@ func (id *ID) UnmarshalText(text []byte) (err error) {
 // Timestamp
 // ============================================================================
 
-var ErrTimestampInvalid = errors.New("timestamp must be a valid RFC 3339 date-time format")
-
 type Timestamp struct {
 	value time.Time
 }
@@ -130,10 +123,13 @@ func NewTimestamp(raw string) (Timestamp, error) {
 	if s == "" {
 		return Timestamp{}, nil
 	}
+
 	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		return Timestamp{}, ErrTimestampInvalid
+		detail := "Timestamp must be a valid RFC 3339 date-time format"
+		return Timestamp{}, NewError("timestamp", "timestamp", detail, "TIMESTAMP_INVALID_FORMAT", "INVALID_FORMAT")
 	}
+
 	return NewTimestampFromTime(parsed), nil
 }
 
@@ -151,16 +147,15 @@ func NewTimestampFromUnix(sec int64) Timestamp {
 	return NewTimestampFromTime(time.Unix(sec, 0))
 }
 
-func (t Timestamp) Time() time.Time {
-	return t.value
-}
+func (t Timestamp) Time() time.Time         { return t.value }
+func (t Timestamp) IsValid() bool           { return !t.value.IsZero() }
+func (t Timestamp) Equals(o Timestamp) bool { return t.value.Equal(o.value) }
 
 func (t Timestamp) TimePtr() *time.Time {
 	if !t.IsValid() {
 		return nil
 	}
-	utc := t.value
-	return &utc
+	return ptr.To(t.value)
 }
 
 func (t Timestamp) String() string {
@@ -174,8 +169,7 @@ func (t Timestamp) StringPtr() *string {
 	if !t.IsValid() {
 		return nil
 	}
-	s := t.String()
-	return &s
+	return ptr.To(t.String())
 }
 
 func (t Timestamp) Unix() int64 {
@@ -189,16 +183,7 @@ func (t Timestamp) UnixPtr() *int64 {
 	if !t.IsValid() {
 		return nil
 	}
-	v := t.Unix()
-	return &v
-}
-
-func (t Timestamp) IsValid() bool {
-	return !t.value.IsZero()
-}
-
-func (t Timestamp) Equals(other Timestamp) bool {
-	return t.value.Equal(other.value)
+	return ptr.To(t.Unix())
 }
 
 func (t Timestamp) HasPassed(now time.Time) bool {
@@ -217,51 +202,30 @@ func (t *Timestamp) UnmarshalText(text []byte) (err error) {
 // URL
 // ============================================================================
 
-var (
-	ErrURLInvalid = errors.New("url must be a valid HTTP or HTTPS address")
-	ErrURLTooLong = errors.New("url cannot exceed 2048 characters")
-)
+const MaxURLLength = 2048
 
-type URL struct {
-	value string
-}
+type URL struct{ Text }
 
 func NewURL(raw string) (URL, error) {
 	s := sanitize.URL(raw)
 	if s == "" {
 		return URL{}, nil
 	}
-	if len(s) > 2048 {
-		return URL{}, ErrURLTooLong
+
+	if err := ValidateMaxLen(s, MaxURLLength, "url", "url", "URL_TOO_LONG"); err != nil {
+		return URL{}, err
 	}
-	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
-		return URL{}, ErrURLInvalid
-	}
+
 	parsed, err := url.ParseRequestURI(s)
-	if err != nil || parsed.Host == "" {
-		return URL{}, ErrURLInvalid
+	if err != nil || parsed.Host == "" || (!strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://")) {
+		detail := "URL must be a valid HTTP or HTTPS address"
+		return URL{}, NewError("url", "url", detail, "URL_INVALID_FORMAT", "INVALID_FORMAT")
 	}
-	return URL{value: parsed.String()}, nil
+
+	return URL{Text: NewText(parsed.String())}, nil
 }
 
-func (u URL) String() string {
-	return u.value
-}
-
-func (u URL) StringPtr() *string {
-	if u.value == "" {
-		return nil
-	}
-	return &u.value
-}
-
-func (u URL) IsValid() bool {
-	return u.value != ""
-}
-
-func (u URL) Equals(other URL) bool {
-	return u.value == other.value
-}
+func (u URL) Equals(other URL) bool { return u.Text.Equals(other.Text) }
 
 func (u *URL) UnmarshalText(text []byte) (err error) {
 	*u, err = UnmarshalText(text, NewURL)
@@ -272,44 +236,39 @@ func (u *URL) UnmarshalText(text []byte) (err error) {
 // VerificationCode
 // ============================================================================
 
-var ErrInvalidVerificationCode = errors.New("verification code must be 6 alphanumeric characters")
-
 var rgxVerificationCode = regexp.MustCompile(`^[2-9A-HJ-NP-Z]{6}$`)
 
-type VerificationCode struct {
-	value string
-}
+type VerificationCode struct{ Text }
 
 func NewVerificationCode(raw string) (VerificationCode, error) {
 	s := strings.ToUpper(sanitize.Text(raw))
-	if !rgxVerificationCode.MatchString(s) {
-		return VerificationCode{}, ErrInvalidVerificationCode
+	if s == "" {
+		return VerificationCode{}, nil
 	}
-	return VerificationCode{value: s}, nil
+
+	detail := "Verification code must be 6 alphanumeric characters"
+	if err := ValidatePattern(s, rgxVerificationCode, "verification_code", "verification code", "VERIFICATION_CODE_INVALID_FORMAT", detail); err != nil {
+		return VerificationCode{}, err
+	}
+
+	return VerificationCode{Text: NewText(s)}, nil
 }
 
-func (c VerificationCode) String() string {
-	return c.value
-}
+func (c VerificationCode) Equals(other VerificationCode) bool { return c.Text.Equals(other.Text) }
 
-func (c VerificationCode) Equals(other VerificationCode) bool {
-	return c.value == other.value
+func (c *VerificationCode) UnmarshalText(text []byte) (err error) {
+	*c, err = UnmarshalText(text, NewVerificationCode)
+	return err
 }
 
 // ============================================================================
-// Helpers
+// Serialization Helpers
 // ============================================================================
 
-// Go Struct $\rightarrow$ JSON/Bytes = Marshaling (packing up from Go)
-
-// MarshalText is a generic helper to eliminate boilerplate across MarshalText implementations.
 func MarshalText[T any](val T, getter func(T) string) ([]byte, error) {
 	return []byte(getter(val)), nil
 }
 
-// JSON/Bytes -> Go Struct = Unmarshaling (unpacking into Go)
-
-// UnmarshalText is a generic helper to eliminate boilerplate across UnmarshalText implementations
 func UnmarshalText[T any](text []byte, parser func(string) (T, error)) (T, error) {
 	if len(text) == 0 {
 		var zero T
