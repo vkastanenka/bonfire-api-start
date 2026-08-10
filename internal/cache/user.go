@@ -175,11 +175,7 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 
 	return u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
 		for _, cu := range cus {
-			id, err := fields.NewID(cu.ID)
-			if err != nil {
-				continue
-			}
-			key := userKey(id)
+			key := userKey(fields.ID(cu.ID))
 			f := buildCachedUserFields(cu)
 
 			if err := u.store.HMSet(pipeCtx, key, f); err != nil {
