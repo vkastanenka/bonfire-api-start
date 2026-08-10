@@ -10,7 +10,6 @@ import (
 type Querier interface {
 	// Basic String & Key Operations
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string, dest interface{}) error
 	MGet(ctx context.Context, keys ...string) ([]interface{}, error)
 	Delete(ctx context.Context, keys ...string) error
@@ -22,19 +21,12 @@ type Querier interface {
 	HGet(ctx context.Context, key, field string, dest interface{}) error
 	HDel(ctx context.Context, key string, fields ...string) error
 	HGetAll(ctx context.Context, key string, dest *map[string]string) error
-	HIncrBy(ctx context.Context, key, field string, incr int64) (int64, error)
-	HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error)
 
 	// Sorted Sets (ZSET)
 	ZAdd(ctx context.Context, key string, score float64, member interface{}) error
 	ZRem(ctx context.Context, key string, members ...interface{}) error
-	ZCard(ctx context.Context, key string) (int64, error)
-	ZRangeByScore(ctx context.Context, key string, min, max string, offset, count int64, dest interface{}) error
 	ZRevRangeByScoreWithScores(ctx context.Context, key string, max, min string, offset, count int64) ([]redis.Z, error)
 	ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error
-
-	// Sets
-	SAdd(ctx context.Context, key string, members ...interface{}) error
 
 	// Key Expiry & PubSub
 	Expire(ctx context.Context, key string, ttl time.Duration) error

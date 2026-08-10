@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,23 +10,13 @@ import (
 )
 
 // ============================================================================
-// Basic String & Key Operations
+// String & Key Operations
 // ============================================================================
 
 func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
-	var payload []byte
-	var err error
-
-	switch v := value.(type) {
-	case []byte:
-		payload = v
-	case string:
-		payload = []byte(v)
-	default:
-		payload, err = json.Marshal(value)
-		if err != nil {
-			return NewError(err, ScopeStore)
-		}
+	payload, err := marshalValue(value)
+	if err != nil {
+		return NewError(err, ScopeStore)
 	}
 
 	if err := q.cmd.Set(ctx, key, payload, ttl).Err(); err != nil {
@@ -36,33 +25,16 @@ func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl ti
 	return nil
 }
 
-func (q *Queries) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
-	ok, err := q.cmd.SetNX(ctx, key, value, ttl).Result()
-	if err != nil {
-		return false, NewError(err, ScopeStore)
-	}
-	return ok, nil
-}
-
 func (q *Queries) Get(ctx context.Context, key string, dest interface{}) error {
 	rawBytes, err := q.cmd.Get(ctx, key).Bytes()
 	if err != nil {
 		return NewError(err, ScopeStore)
 	}
 
-	switch d := dest.(type) {
-	case *string:
-		*d = string(rawBytes)
-		return nil
-	case *[]byte:
-		*d = rawBytes
-		return nil
-	default:
-		if err := json.Unmarshal(rawBytes, dest); err != nil {
-			return NewError(err, ScopeStore)
-		}
-		return nil
+	if err := unmarshalValue(rawBytes, dest); err != nil {
+		return NewError(err, ScopeStore)
 	}
+	return nil
 }
 
 func (q *Queries) MGet(ctx context.Context, keys ...string) ([]interface{}, error) {
@@ -122,22 +94,12 @@ func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) 
 // ============================================================================
 
 func (q *Queries) HSet(ctx context.Context, key string, field string, value interface{}) error {
-	var val interface{}
-
-	switch v := value.(type) {
-	case []byte:
-		val = string(v)
-	case string:
-		val = v
-	default:
-		rawBytes, err := json.Marshal(value)
-		if err != nil {
-			return NewError(err, ScopeStore)
-		}
-		val = string(rawBytes)
+	payload, err := marshalValue(value)
+	if err != nil {
+		return NewError(err, ScopeStore)
 	}
 
-	if err := q.cmd.HSet(ctx, key, field, val).Err(); err != nil {
+	if err := q.cmd.HSet(ctx, key, field, payload).Err(); err != nil {
 		return NewError(err, ScopeStore)
 	}
 	return nil
@@ -149,19 +111,10 @@ func (q *Queries) HGet(ctx context.Context, key, field string, dest interface{})
 		return NewError(err, ScopeStore)
 	}
 
-	switch d := dest.(type) {
-	case *string:
-		*d = string(rawBytes)
-		return nil
-	case *[]byte:
-		*d = rawBytes
-		return nil
-	default:
-		if err := json.Unmarshal(rawBytes, dest); err != nil {
-			return NewError(err, ScopeStore)
-		}
-		return nil
+	if err := unmarshalValue(rawBytes, dest); err != nil {
+		return NewError(err, ScopeStore)
 	}
+	return nil
 }
 
 func (q *Queries) HDel(ctx context.Context, key string, fields ...string) error {
@@ -184,49 +137,19 @@ func (q *Queries) HGetAll(ctx context.Context, key string, dest *map[string]stri
 	return nil
 }
 
-func (q *Queries) HIncrBy(ctx context.Context, key, field string, incr int64) (int64, error) {
-	val, err := q.cmd.HIncrBy(ctx, key, field, incr).Result()
-	if err != nil {
-		return 0, NewError(err, ScopeStore)
-	}
-	return val, nil
-}
-
-func (q *Queries) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
-	if len(fields) == 0 {
-		return nil, nil
-	}
-
-	values, err := q.cmd.HMGet(ctx, key, fields...).Result()
-	if err != nil {
-		return nil, NewError(err, ScopeStore)
-	}
-	return values, nil
-}
-
 // ============================================================================
 // Sorted Set (ZSET) Operations
 // ============================================================================
 
 func (q *Queries) ZAdd(ctx context.Context, key string, score float64, member interface{}) error {
-	var val interface{}
-
-	switch v := member.(type) {
-	case []byte:
-		val = string(v)
-	case string:
-		val = v
-	default:
-		rawBytes, err := json.Marshal(member)
-		if err != nil {
-			return NewError(err, ScopeStore)
-		}
-		val = string(rawBytes)
+	payload, err := marshalValue(member)
+	if err != nil {
+		return NewError(err, ScopeStore)
 	}
 
-	err := q.cmd.ZAdd(ctx, key, redis.Z{
+	err = q.cmd.ZAdd(ctx, key, redis.Z{
 		Score:  score,
-		Member: val,
+		Member: payload,
 	}).Err()
 
 	if err != nil {
@@ -242,67 +165,17 @@ func (q *Queries) ZRem(ctx context.Context, key string, members ...interface{}) 
 
 	vals := make([]interface{}, len(members))
 	for i, m := range members {
-		switch v := m.(type) {
-		case []byte:
-			vals[i] = string(v)
-		case string:
-			vals[i] = v
-		default:
-			rawBytes, err := json.Marshal(m)
-			if err != nil {
-				return NewError(err, ScopeStore)
-			}
-			vals[i] = string(rawBytes)
+		payload, err := marshalValue(m)
+		if err != nil {
+			return NewError(err, ScopeStore)
 		}
+		vals[i] = payload
 	}
 
 	if err := q.cmd.ZRem(ctx, key, vals...).Err(); err != nil {
 		return NewError(err, ScopeStore)
 	}
 	return nil
-}
-
-func (q *Queries) ZCard(ctx context.Context, key string) (int64, error) {
-	count, err := q.cmd.ZCard(ctx, key).Result()
-	if err != nil {
-		return 0, NewError(err, ScopeStore)
-	}
-	return count, nil
-}
-
-func (q *Queries) ZRangeByScore(ctx context.Context, key string, min, max string, offset, count int64, dest interface{}) error {
-	res, err := q.cmd.ZRangeArgs(ctx, redis.ZRangeArgs{
-		Key:     key,
-		Start:   min,
-		Stop:    max,
-		ByScore: true,
-		Offset:  offset,
-		Count:   count,
-	}).Result()
-	if err != nil {
-		return NewError(err, ScopeStore)
-	}
-
-	switch d := dest.(type) {
-	case *[]string:
-		*d = res
-		return nil
-	default:
-		var buf bytes.Buffer
-		buf.WriteByte('[')
-		for i, item := range res {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			buf.WriteString(item)
-		}
-		buf.WriteByte(']')
-
-		if err := json.Unmarshal(buf.Bytes(), dest); err != nil {
-			return NewError(err, ScopeStore)
-		}
-		return nil
-	}
 }
 
 func (q *Queries) ZRevRangeByScoreWithScores(ctx context.Context, key string, max, min string, offset, count int64) ([]redis.Z, error) {
@@ -330,20 +203,6 @@ func (q *Queries) ZRemRangeByRank(ctx context.Context, key string, start, stop i
 }
 
 // ============================================================================
-// Unordered Set Operations
-// ============================================================================
-
-func (q *Queries) SAdd(ctx context.Context, key string, members ...interface{}) error {
-	if len(members) == 0 {
-		return nil
-	}
-	if err := q.cmd.SAdd(ctx, key, members...).Err(); err != nil {
-		return NewError(err, ScopeStore)
-	}
-	return nil
-}
-
-// ============================================================================
 // Key Expiry & PubSub Operations
 // ============================================================================
 
@@ -355,7 +214,7 @@ func (q *Queries) Expire(ctx context.Context, key string, ttl time.Duration) err
 }
 
 func (q *Queries) Publish(ctx context.Context, channel string, payload interface{}) error {
-	rawBytes, err := json.Marshal(payload)
+	rawBytes, err := marshalValue(payload)
 	if err != nil {
 		return NewError(err, ScopeEvents)
 	}
@@ -364,4 +223,32 @@ func (q *Queries) Publish(ctx context.Context, channel string, payload interface
 		return NewError(err, ScopeEvents)
 	}
 	return nil
+}
+
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+func marshalValue(v interface{}) ([]byte, error) {
+	switch val := v.(type) {
+	case []byte:
+		return val, nil
+	case string:
+		return []byte(val), nil
+	default:
+		return json.Marshal(v)
+	}
+}
+
+func unmarshalValue(raw []byte, dest interface{}) error {
+	switch d := dest.(type) {
+	case *string:
+		*d = string(raw)
+		return nil
+	case *[]byte:
+		*d = raw
+		return nil
+	default:
+		return json.Unmarshal(raw, dest)
+	}
 }
