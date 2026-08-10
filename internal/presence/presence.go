@@ -2,12 +2,17 @@ package presence
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"unsafe"
+
+	"bonfire-api/internal/errs"
 )
 
-var ErrInvalidPresence = errors.New("invalid presence status")
+func ErrPresenceInvalid() *errs.Error {
+	return errs.InvalidArgument("Invalid presence status.").
+		Reason("PRESENCE_INVALID").
+		FieldViolation("presence", "Must be one of: online, offline, idle, busy, dnd, invisible.", "INVALID_ENUM_VALUE")
+}
 
 const (
 	EventUpdated = "presence.updated"
@@ -54,7 +59,7 @@ var presenceBytes = [...][]byte{
 func New(raw string) (Presence, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return PresenceUnknown, ErrInvalidPresence
+		return PresenceUnknown, ErrPresenceInvalid()
 	}
 	b := unsafe.Slice(unsafe.StringData(s), len(s))
 	for i := 1; i < int(presenceMax); i++ {
@@ -62,20 +67,20 @@ func New(raw string) (Presence, error) {
 			return Presence(i), nil
 		}
 	}
-	return PresenceUnknown, ErrInvalidPresence
+	return PresenceUnknown, ErrPresenceInvalid()
 }
 
 func ParseBytes(b []byte) (Presence, error) {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 {
-		return PresenceUnknown, ErrInvalidPresence
+		return PresenceUnknown, ErrPresenceInvalid()
 	}
 	for i := 1; i < int(presenceMax); i++ {
 		if bytes.EqualFold(presenceBytes[i], b) {
 			return Presence(i), nil
 		}
 	}
-	return PresenceUnknown, ErrInvalidPresence
+	return PresenceUnknown, ErrPresenceInvalid()
 }
 
 func (p Presence) IsValid() bool {
@@ -103,11 +108,11 @@ func (p Presence) Int16Ptr() *int16 {
 
 func FromInt16(v int16) (Presence, error) {
 	if v < 0 || v >= int16(presenceMax) {
-		return PresenceUnknown, ErrInvalidPresence
+		return PresenceUnknown, ErrPresenceInvalid()
 	}
 	p := Presence(v)
 	if p == PresenceUnknown {
-		return PresenceUnknown, ErrInvalidPresence
+		return PresenceUnknown, ErrPresenceInvalid()
 	}
 	return p, nil
 }

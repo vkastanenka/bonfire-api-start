@@ -300,6 +300,15 @@ func (c VerificationCode) Equals(other VerificationCode) bool {
 // Helpers
 // ============================================================================
 
+// Go Struct $\rightarrow$ JSON/Bytes = Marshaling (packing up from Go)
+
+// MarshalText is a generic helper to eliminate boilerplate across MarshalText implementations.
+func MarshalText[T any](val T, getter func(T) string) ([]byte, error) {
+	return []byte(getter(val)), nil
+}
+
+// JSON/Bytes -> Go Struct = Unmarshaling (unpacking into Go)
+
 // UnmarshalText is a generic helper to eliminate boilerplate across UnmarshalText implementations
 func UnmarshalText[T any](text []byte, parser func(string) (T, error)) (T, error) {
 	if len(text) == 0 {

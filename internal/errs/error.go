@@ -180,11 +180,21 @@ func (e *Error) FieldViolation(field, description, reason string) *Error {
 	if e == nil {
 		return nil
 	}
-	if fv, err := NewFieldViolation(field, description, reason); err == nil {
-		if br, err := NewBadRequest(*fv); err == nil {
-			e.Detail(br)
-		}
+
+	fv, err := NewFieldViolation(field, description, reason)
+	if err != nil {
+		return e
 	}
+
+	if br, ok := e.GetDetail(DetailBadRequest).(*BadRequest); ok && br != nil {
+		br.FieldViolations = append(br.FieldViolations, *fv)
+		return e
+	}
+
+	if br, err := NewBadRequest(*fv); err == nil {
+		e.Detail(br)
+	}
+
 	return e
 }
 
