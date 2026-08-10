@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"bonfire-api/internal/errs"
@@ -18,6 +19,8 @@ const (
 	errWhitespace             = "Cannot consist entirely of whitespace."
 	errEmail                  = "Must be a valid email address."
 	errAlphanum               = "Must contain only letters and numbers."
+	errHexColor               = "Must be a valid hex code (e.g., #FF5733)."
+	errVerCode                = "Must be 6 uppercase alphanumeric characters."
 	errMinString              = "Must be at least %s characters."
 	errMinNumeric             = "Must be %s or greater."
 	errMinCollection          = "Must contain at least %s items."
@@ -26,9 +29,13 @@ const (
 	errMaxCollection          = "Cannot contain more than %s items."
 )
 
+var (
+	rgxHexColor = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
+	rgxVerCode  = regexp.MustCompile(`^[2-9A-HJ-NP-Z]{6}$`)
+)
+
 type Validator struct {
-	validate      *goValidator.Validate
-	errorMessages map[string]string
+	validate *goValidator.Validate
 }
 
 func New() *Validator {
@@ -52,9 +59,18 @@ func New() *Validator {
 
 	v.RegisterAlias("token", "max=1024")
 
+	_ = v.RegisterValidation("hexcolor", func(fl goValidator.FieldLevel) bool {
+		str := fl.Field().String()
+		return str == "" || rgxHexColor.MatchString(str)
+	})
+
+	_ = v.RegisterValidation("vercode", func(fl goValidator.FieldLevel) bool {
+		str := fl.Field().String()
+		return str == "" || rgxVerCode.MatchString(str)
+	})
+
 	instance := &Validator{
-		validate:      v,
-		errorMessages: make(map[string]string),
+		validate: v,
 	}
 
 	return instance
@@ -68,12 +84,14 @@ func (v *Validator) Validate(s interface{}) error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return errs.Internal("failed to execute struct validation").Wrap(err)
+		return errs.Internal("Failed to execute struct validation.").Wrap(err)
 	}
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		err := errs.InvalidArgument(errValidationFailed)
+		appErr := errs.InvalidArgument(errValidationFailed).
+			Reason("VALIDATION_FAILED").
+			Wrap(err)
 
 		for _, fieldErr := range validationErrors {
 			ns := fieldErr.Namespace()
@@ -85,24 +103,20 @@ func (v *Validator) Validate(s interface{}) error {
 				jsonPath = fieldErr.Field()
 			}
 
-			err.FieldViolation(
+			appErr.FieldViolation(
 				jsonPath,
 				v.msgForFieldError(fieldErr),
-				fieldErr.ActualTag(),
+				strings.ToUpper(fieldErr.ActualTag()),
 			)
 		}
 
-		return err.Wrap(err)
+		return appErr
 	}
 
-	return errs.Internal("unexpected validation error").Wrap(err)
+	return errs.Internal("Unexpected validation error.").Wrap(err)
 }
 
 func (v *Validator) msgForFieldError(err goValidator.FieldError) string {
-	if msg, exists := v.errorMessages[err.ActualTag()]; exists {
-		return msg
-	}
-
 	if err.ActualTag() == "required" {
 		val := err.Value()
 
@@ -126,6 +140,10 @@ func (v *Validator) msgForFieldError(err goValidator.FieldError) string {
 		return errEmail
 	case "alphanum":
 		return errAlphanum
+	case "hexcolor":
+		return errHexColor
+	case "vercode":
+		return errVerCode
 	case "min":
 		return formatRangeMessage(err, errMinString, errMinNumeric, errMinCollection)
 	case "max":
