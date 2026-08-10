@@ -10,7 +10,7 @@ import (
 type Error struct {
 	Code    Code     `json:"code"`
 	Message string   `json:"message"`
-	Details []Detail `json:"details,omitempty"`
+	Details []Detail `json:"details"`
 	Err     error    `json:"-"`
 }
 

@@ -14,15 +14,14 @@ import (
 type Entity string
 
 const (
-	EntityChannel         Entity = "channel"
-	EntityChannelMember   Entity = "channel_member"
-	EntityMessage         Entity = "message"
-	EntityMessageReaction Entity = "message_reaction"
-	EntityOutboxEvent     Entity = "outbox_event"
-	EntityRelationship    Entity = "relationship"
-	EntitySession         Entity = "session"
-	EntityUser            Entity = "user"
-	EntityUserProfile     Entity = "user_profile"
+	EntityChannels         Entity = "channel"
+	EntityChannelMembers   Entity = "channel_member"
+	EntityMessages         Entity = "message"
+	EntityMessageReactions Entity = "message_reaction"
+	EntityOutboxEvents     Entity = "outbox_event"
+	EntityRelationships    Entity = "relationship"
+	EntitySessions         Entity = "session"
+	EntityUsers            Entity = "user"
 )
 
 func (e Entity) String() string { return string(e) }
@@ -40,34 +39,13 @@ const (
 	pgCodeQueryCanceled       = "57014"
 )
 
-func NewError(err error, entity Entity) error {
-	if err == nil {
-		return nil
-	}
+// ErrNotFound represents a standard database record miss and wraps pgx.ErrNoRows for direct comparison.
+var ErrNotFound = fmt.Errorf("db: record not found: %w", pgx.ErrNoRows)
 
-	if appErr := errs.As(err); appErr != nil {
-		return err
-	}
-
-	if IsNotFoundError(err) {
-		return attachContext(
-			errs.NotFound(fmt.Sprintf("The requested %s could not be found.", entity.String())),
-			entity,
-		).Wrap(err)
-	}
-
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return handlePgError(err, pgErr, entity)
-	}
-
-	return attachContext(
-		errs.Internal(fmt.Sprintf("An error occurred operating on %s.", entity.String())),
-		entity,
-	).Wrap(err)
+// IsNotFoundError checks if the error represents a database record miss.
+func IsNotFoundError(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrNotFound)
 }
-
-func IsNotFoundError(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
 // IsAlreadyExistsError checks if the error represents a unique constraint violation.
 func IsAlreadyExistsError(err error) bool {
@@ -80,111 +58,102 @@ func IsAlreadyExistsError(err error) bool {
 	}
 
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == pgCodeUniqueViolation
-	}
-
-	return false
+	return errors.As(err, &pgErr) && pgErr.Code == pgCodeUniqueViolation
 }
 
-func attachContext(e *errs.Error, entity Entity) *errs.Error {
-	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", "")
+// NewError transforms raw database errors into structured domain errors with entity metadata.
+func NewError(err error, entity Entity) error {
+	if err == nil {
+		return nil
+	}
+
+	if appErr := errs.As(err); appErr != nil {
+		return err
+	}
+
+	return handleDbError(err, entity)
+}
+
+func handleDbError(err error, entity Entity) error {
+	if IsNotFoundError(err) {
+		msg := fmt.Sprintf("The requested %s could not be found.", entity)
+		return attachContext(errs.NotFound(msg), entity).Wrap(err)
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return handlePgError(err, pgErr, entity)
+	}
+
+	msg := fmt.Sprintf("An error occurred operating on %s.", entity)
+	return attachContext(errs.Internal(msg), entity).Wrap(err)
 }
 
 func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity) error {
-	p := dbErrorParams{
-		origErr: origErr,
-		pgErr:   pgErr,
-		entity:  entity,
-	}
-
 	switch pgErr.Code {
 	case pgCodeUniqueViolation:
-		return p.handleConstraint(
-			errs.CodeAlreadyExists,
+		return handleConstraint(origErr, pgErr, entity, errs.CodeAlreadyExists,
 			"This %s is already taken.",
-			fmt.Sprintf("A record for %s with those details already exists.", entity.String()),
-		)
+			fmt.Sprintf("A record for %s with those details already exists.", entity))
 
 	case pgCodeNotNullViolation:
-		return p.handleConstraint(
-			errs.CodeInvalidArgument,
+		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
 			"This field is required.",
-			fmt.Sprintf("A required field is missing for %s.", entity.String()),
-		)
+			fmt.Sprintf("A required field is missing for %s.", entity))
 
 	case pgCodeForeignKeyViolation:
-		return attachContext(
-			errs.InvalidArgument(fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity)
+		return attachContext(errs.InvalidArgument(msg), entity).Wrap(origErr)
 
 	case pgCodeCheckViolation:
-		return p.handleConstraint(
-			errs.CodeInvalidArgument,
+		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
 			"Invalid value.",
-			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity.String()),
-		)
+			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity))
 
 	case pgCodeStringDataTruncated:
-		return p.handleConstraint(
-			errs.CodeInvalidArgument,
+		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
 			"Exceeds maximum allowed length.",
-			fmt.Sprintf("A provided field for %s exceeds maximum length.", entity.String()),
-		)
+			fmt.Sprintf("A provided field for %s exceeds maximum length.", entity))
 
 	case pgCodeNumericOutOfRange:
-		return attachContext(
-			errs.OutOfRange(fmt.Sprintf("A numeric value for %s was out of range.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("A numeric value for %s was out of range.", entity)
+		return attachContext(errs.OutOfRange(msg), entity).Wrap(origErr)
 
 	case pgCodeInvalidTextRepr:
-		return attachContext(
-			errs.InvalidArgument(fmt.Sprintf("Invalid data format provided for %s.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("Invalid data format provided for %s.", entity)
+		return attachContext(errs.InvalidArgument(msg), entity).Wrap(origErr)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
-		return attachContext(
-			errs.Aborted(fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity)
+		return attachContext(errs.Aborted(msg), entity).Wrap(origErr)
 
 	case pgCodeQueryCanceled:
-		return attachContext(
-			errs.DeadlineExceeded(fmt.Sprintf("Database operation on %s timed out.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("Database operation on %s timed out.", entity)
+		return attachContext(errs.DeadlineExceeded(msg), entity).Wrap(origErr)
 
 	default:
-		return attachContext(
-			errs.Internal(fmt.Sprintf("An internal database error occurred while processing %s.", entity.String())),
-			entity,
-		).Wrap(origErr)
+		msg := fmt.Sprintf("An internal database error occurred while processing %s.", entity)
+		return attachContext(errs.Internal(msg), entity).Wrap(origErr)
 	}
 }
 
-type dbErrorParams struct {
-	origErr error
-	pgErr   *pgconn.PgError
-	entity  Entity
-}
-
-func (p dbErrorParams) handleConstraint(
+func handleConstraint(
+	origErr error,
+	pgErr *pgconn.PgError,
+	entity Entity,
 	code errs.Code,
 	fieldMsgTemplate string,
 	fallbackMsg string,
 ) error {
-	field, ok := getFieldName(p.pgErr, p.entity)
+	field, ok := getFieldName(pgErr, entity)
 	if ok {
 		formattedMsg := formatMessage(fieldMsgTemplate, field)
-		return attachContext(errs.New(code, formattedMsg), p.entity).
-			FieldViolation(field, formattedMsg, p.pgErr.Code).
-			Wrap(p.origErr)
+		return attachContext(errs.New(code, formattedMsg), entity).
+			FieldViolation(field, formattedMsg, pgErr.Code).
+			Wrap(origErr)
 	}
 
-	return attachContext(errs.New(code, fallbackMsg), p.entity).Wrap(p.origErr)
+	return attachContext(errs.New(code, fallbackMsg), entity).Wrap(origErr)
 }
 
 func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
@@ -240,4 +209,8 @@ func formatMessage(template string, field string) string {
 
 func humanize(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(s, "_", " "))
+}
+
+func attachContext(e *errs.Error, entity Entity) *errs.Error {
+	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", "")
 }
