@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
 
@@ -51,9 +52,10 @@ func NewHexColor(raw string) (HexColor, error) {
 		return HexColor{}, nil
 	}
 
-	detail := "Must be a valid hex code (e.g., #FF5733)"
-	if err := ValidatePattern(s, rgxHexColor, "hex_color", "hex color", "HEX_COLOR_INVALID_FORMAT", detail); err != nil {
-		return HexColor{}, err
+	if !rgxHexColor.MatchString(s) {
+		return HexColor{}, errs.InvalidArgument("Invalid hex color.").
+			Reason("HEX_COLOR_INVALID_FORMAT").
+			FieldViolation("hex_color", "Must be a valid hex code (e.g., #FF5733)", "INVALID_FORMAT")
 	}
 
 	return HexColor{Text: NewText(strings.ToUpper(s))}, nil
@@ -87,10 +89,12 @@ func ParseID(raw string) (ID, error) {
 
 	parsed, err := uuid.Parse(s)
 	if err != nil {
-		return ID{}, NewError("id", "id", "Must be a valid UUID", "ID_INVALID_FORMAT", "INVALID_FORMAT")
+		return ID{}, errs.InvalidArgument("Invalid identifier.").
+			Reason("ID_INVALID_FORMAT").
+			FieldViolation("id", "Must be a valid UUID", "INVALID_FORMAT")
 	}
 
-	return NewID(parsed), nil
+	return ID(parsed), nil
 }
 
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
@@ -126,11 +130,12 @@ func NewTimestamp(raw string) (Timestamp, error) {
 
 	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		detail := "Timestamp must be a valid RFC 3339 date-time format"
-		return Timestamp{}, NewError("timestamp", "timestamp", detail, "TIMESTAMP_INVALID_FORMAT", "INVALID_FORMAT")
+		return Timestamp{}, errs.InvalidArgument("Invalid timestamp.").
+			Reason("TIMESTAMP_INVALID_FORMAT").
+			FieldViolation("timestamp", "Timestamp must be a valid RFC 3339 date-time format", "INVALID_FORMAT")
 	}
 
-	return NewTimestampFromTime(parsed), nil
+	return Timestamp{value: parsed.UTC()}, nil
 }
 
 func NewTimestampFromTime(t time.Time) Timestamp {
@@ -212,14 +217,17 @@ func NewURL(raw string) (URL, error) {
 		return URL{}, nil
 	}
 
-	if err := ValidateMaxLen(s, MaxURLLength, "url", "url", "URL_TOO_LONG"); err != nil {
-		return URL{}, err
+	if len(s) > MaxURLLength {
+		return URL{}, errs.InvalidArgument("Invalid URL.").
+			Reason("URL_TOO_LONG").
+			FieldViolation("url", "URL must not exceed 2048 characters", "MAX_LENGTH_EXCEEDED")
 	}
 
 	parsed, err := url.ParseRequestURI(s)
 	if err != nil || parsed.Host == "" || (!strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://")) {
-		detail := "URL must be a valid HTTP or HTTPS address"
-		return URL{}, NewError("url", "url", detail, "URL_INVALID_FORMAT", "INVALID_FORMAT")
+		return URL{}, errs.InvalidArgument("Invalid URL.").
+			Reason("URL_INVALID_FORMAT").
+			FieldViolation("url", "URL must be a valid HTTP or HTTPS address", "INVALID_FORMAT")
 	}
 
 	return URL{Text: NewText(parsed.String())}, nil
@@ -246,9 +254,10 @@ func NewVerificationCode(raw string) (VerificationCode, error) {
 		return VerificationCode{}, nil
 	}
 
-	detail := "Verification code must be 6 alphanumeric characters"
-	if err := ValidatePattern(s, rgxVerificationCode, "verification_code", "verification code", "VERIFICATION_CODE_INVALID_FORMAT", detail); err != nil {
-		return VerificationCode{}, err
+	if !rgxVerificationCode.MatchString(s) {
+		return VerificationCode{}, errs.InvalidArgument("Invalid verification code.").
+			Reason("VERIFICATION_CODE_INVALID_FORMAT").
+			FieldViolation("verification_code", "Verification code must be 6 alphanumeric characters", "INVALID_FORMAT")
 	}
 
 	return VerificationCode{Text: NewText(s)}, nil
@@ -262,7 +271,7 @@ func (c *VerificationCode) UnmarshalText(text []byte) (err error) {
 }
 
 // ============================================================================
-// Serialization Helpers
+// Helpers
 // ============================================================================
 
 func MarshalText[T any](val T, getter func(T) string) ([]byte, error) {
