@@ -173,7 +173,7 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 		return nil
 	}
 
-	return u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
+	err := u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
 		for _, cu := range cus {
 			key := userKey(fields.ID(cu.ID))
 			f := buildCachedUserFields(cu)
@@ -187,6 +187,11 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return u.store.Err(err)
+	}
+
+	return nil
 }
 
 func (u *UserCache) Get(ctx context.Context, userID fields.ID) (*user.User, error) {
@@ -228,13 +233,12 @@ func (u *UserCache) GetBatch(ctx context.Context, userIDs []fields.ID) (map[fiel
 	err := u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
 		for _, id := range uniqueIDs {
 			key := userKey(id)
-			// HGetAll automatically queues inside the pipeline via pipeCtx
 			_ = u.store.HGetAll(pipeCtx, key, results[id])
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, u.store.Err(err)
 	}
 
 	found := make(map[fields.ID]*user.User, len(uniqueIDs))
@@ -298,7 +302,11 @@ func (u *UserCache) DeleteBatch(ctx context.Context, userIDs []fields.ID) error 
 		keys = append(keys, userKey(id))
 	}
 
-	return u.store.Delete(ctx, keys...)
+	if err := u.store.Delete(ctx, keys...); err != nil {
+		return u.store.Err(err)
+	}
+
+	return nil
 }
 
 func buildCachedUserFields(cu *CachedUser) map[string]interface{} {

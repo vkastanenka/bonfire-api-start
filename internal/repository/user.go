@@ -9,25 +9,16 @@ import (
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type UserStore interface {
-	UserAvailability(ctx context.Context, arg db.UserAvailabilityParams) (db.UserAvailabilityRow, error)
-	UserCreate(ctx context.Context, arg db.UserCreateParams) (db.User, error)
-	UserGet(ctx context.Context, id pgtype.UUID) (db.User, error)
-	UserGetByEmail(ctx context.Context, email string) (db.User, error)
-	UserGetDeleteScheduledBatch(ctx context.Context, arg db.UserGetDeleteScheduledBatchParams) ([]db.User, error)
-	UserUpdate(ctx context.Context, arg db.UserUpdateParams) (db.User, error)
-	UserUpdateBatch(ctx context.Context, usersJson []byte) ([]db.User, error)
-}
-
 type UserRepository struct {
-	store UserStore
+	store *db.Store
 }
 
-func NewUserRepository(store UserStore) *UserRepository {
-	return &UserRepository{store: store}
+func NewUserRepository(store *db.Store) *UserRepository {
+	return &UserRepository{
+		store: store.WithEntity(db.EntityUser),
+	}
 }
 
 func (r *UserRepository) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
@@ -36,7 +27,7 @@ func (r *UserRepository) Availability(ctx context.Context, email user.Email, use
 		Username: username.String(),
 	})
 	if err != nil {
-		return false, false, db.NewError(err, db.EntityUser)
+		return false, false, r.store.Err(err)
 	}
 
 	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
@@ -62,7 +53,7 @@ func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, 
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt().Time()),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	return userFromRow(row)
@@ -71,7 +62,7 @@ func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, 
 func (r *UserRepository) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	return userFromRow(row)
@@ -80,7 +71,7 @@ func (r *UserRepository) Get(ctx context.Context, id fields.ID) (*user.User, err
 func (r *UserRepository) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email.String())
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	return userFromRow(row)
@@ -92,7 +83,7 @@ func (r *UserRepository) GetDeleteScheduledBatch(ctx context.Context, currentTim
 		BatchLimit: batchLimit,
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	users := make([]*user.User, 0, len(rows))
@@ -126,7 +117,7 @@ func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, 
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt().Time()),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	return userFromRow(row)
@@ -135,7 +126,7 @@ func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, 
 func (r *UserRepository) UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error) {
 	rows, err := r.store.UserUpdateBatch(ctx, usersJson)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, r.store.Err(err)
 	}
 
 	updatedUsers := make([]*user.User, 0, len(rows))

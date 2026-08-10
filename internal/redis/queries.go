@@ -12,36 +12,16 @@ import (
 
 type Queries struct {
 	client redis.Cmdable
-	scope  Scope
 }
 
-// New initializes Queries with the default ScopeStore.
 func New(client redis.Cmdable) *Queries {
 	return &Queries{
 		client: client,
-		scope:  ScopeStore,
 	}
-}
-
-// WithScope creates a shallow copy of Queries bound to a domain scope.
-func (q *Queries) WithScope(scope Scope) *Queries {
-	return &Queries{
-		client: q.client,
-		scope:  scope,
-	}
-}
-
-// Scope returns the currently configured domain scope.
-func (q *Queries) Scope() Scope {
-	return q.scope
 }
 
 func (q *Queries) getCmd(ctx context.Context) redis.Cmdable {
 	return ExtractCmdable(ctx, q.client)
-}
-
-func (q *Queries) err(err error) error {
-	return NewError(err, q.scope)
 }
 
 // ============================================================================
@@ -51,23 +31,20 @@ func (q *Queries) err(err error) error {
 func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	payload, err := marshalValue(value)
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
-	if err := q.getCmd(ctx).Set(ctx, key, payload, ttl).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).Set(ctx, key, payload, ttl).Err()
 }
 
 func (q *Queries) Get(ctx context.Context, key string, dest interface{}) error {
 	if IsPipelined(ctx) {
-		return q.err(errors.New("cannot execute read operations like Get inside a pipeline callback"))
+		return errors.New("cannot execute read operations like Get inside a pipeline callback")
 	}
 
 	rawBytes, err := q.getCmd(ctx).Get(ctx, key).Bytes()
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
 	return unmarshalValue(rawBytes, dest)
@@ -78,34 +55,27 @@ func (q *Queries) MGet(ctx context.Context, keys ...string) ([]interface{}, erro
 		return nil, nil
 	}
 	if IsPipelined(ctx) {
-		return nil, q.err(errors.New("cannot execute MGet inside a pipeline callback"))
+		return nil, errors.New("cannot execute MGet inside a pipeline callback")
 	}
 
-	values, err := q.getCmd(ctx).MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, q.err(err)
-	}
-	return values, nil
+	return q.getCmd(ctx).MGet(ctx, keys...).Result()
 }
 
 func (q *Queries) Delete(ctx context.Context, keys ...string) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	if err := q.getCmd(ctx).Del(ctx, keys...).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).Del(ctx, keys...).Err()
 }
 
 func (q *Queries) Exists(ctx context.Context, key string) (bool, error) {
 	if IsPipelined(ctx) {
-		return false, q.err(errors.New("cannot execute Exists inside a pipeline callback"))
+		return false, errors.New("cannot execute Exists inside a pipeline callback")
 	}
 
 	count, err := q.getCmd(ctx).Exists(ctx, key).Result()
 	if err != nil {
-		return false, q.err(err)
+		return false, err
 	}
 	return count > 0, nil
 }
@@ -120,20 +90,15 @@ var incrWithTTLScript = redis.NewScript(`
 
 func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	if IsPipelined(ctx) {
-		return 0, q.err(errors.New("cannot read Increment result inside a pipeline callback"))
+		return 0, errors.New("cannot read Increment result inside a pipeline callback")
 	}
 
 	ms := ttl.Milliseconds()
 	if ms <= 0 {
-		ms = 1000 // default fallback if sub-millisecond
+		ms = 1000
 	}
 
-	res, err := incrWithTTLScript.Run(ctx, q.getCmd(ctx), []string{key}, ms).Int64()
-	if err != nil {
-		return 0, q.err(err)
-	}
-
-	return res, nil
+	return incrWithTTLScript.Run(ctx, q.getCmd(ctx), []string{key}, ms).Int64()
 }
 
 // ============================================================================
@@ -143,13 +108,10 @@ func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) 
 func (q *Queries) HSet(ctx context.Context, key string, field string, value interface{}) error {
 	payload, err := marshalValue(value)
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
-	if err := q.getCmd(ctx).HSet(ctx, key, field, payload).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).HSet(ctx, key, field, payload).Err()
 }
 
 func (q *Queries) HMSet(ctx context.Context, key string, values map[string]interface{}) error {
@@ -161,25 +123,22 @@ func (q *Queries) HMSet(ctx context.Context, key string, values map[string]inter
 	for k, v := range values {
 		b, err := marshalValue(v)
 		if err != nil {
-			return q.err(err)
+			return err
 		}
 		args = append(args, k, b)
 	}
 
-	if err := q.getCmd(ctx).HSet(ctx, key, args...).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).HSet(ctx, key, args...).Err()
 }
 
 func (q *Queries) HGet(ctx context.Context, key, field string, dest interface{}) error {
 	if IsPipelined(ctx) {
-		return q.err(errors.New("cannot execute HGet inside a pipeline callback"))
+		return errors.New("cannot execute HGet inside a pipeline callback")
 	}
 
 	rawBytes, err := q.getCmd(ctx).HGet(ctx, key, field).Bytes()
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
 	return unmarshalValue(rawBytes, dest)
@@ -189,23 +148,20 @@ func (q *Queries) HDel(ctx context.Context, key string, fields ...string) error 
 	if len(fields) == 0 {
 		return nil
 	}
-	if err := q.getCmd(ctx).HDel(ctx, key, fields...).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).HDel(ctx, key, fields...).Err()
 }
 
 func (q *Queries) HGetAll(ctx context.Context, key string, dest *map[string]string) error {
 	if dest == nil {
-		return q.err(errors.New("destination map pointer cannot be nil"))
+		return errors.New("destination map pointer cannot be nil")
 	}
 	if IsPipelined(ctx) {
-		return q.err(errors.New("cannot execute HGetAll inside a pipeline callback"))
+		return errors.New("cannot execute HGetAll inside a pipeline callback")
 	}
 
 	res, err := q.getCmd(ctx).HGetAll(ctx, key).Result()
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
 	*dest = res
@@ -219,18 +175,13 @@ func (q *Queries) HGetAll(ctx context.Context, key string, dest *map[string]stri
 func (q *Queries) ZAdd(ctx context.Context, key string, score float64, member interface{}) error {
 	payload, err := marshalValue(member)
 	if err != nil {
-		return q.err(err)
+		return err
 	}
 
-	err = q.getCmd(ctx).ZAdd(ctx, key, redis.Z{
+	return q.getCmd(ctx).ZAdd(ctx, key, redis.Z{
 		Score:  score,
 		Member: payload,
 	}).Err()
-
-	if err != nil {
-		return q.err(err)
-	}
-	return nil
 }
 
 func (q *Queries) ZRem(ctx context.Context, key string, members ...interface{}) error {
@@ -242,23 +193,20 @@ func (q *Queries) ZRem(ctx context.Context, key string, members ...interface{}) 
 	for i, m := range members {
 		payload, err := marshalValue(m)
 		if err != nil {
-			return q.err(err)
+			return err
 		}
 		vals[i] = payload
 	}
 
-	if err := q.getCmd(ctx).ZRem(ctx, key, vals...).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).ZRem(ctx, key, vals...).Err()
 }
 
 func (q *Queries) ZRevRangeByScoreWithScores(ctx context.Context, key string, max, min string, offset, count int64) ([]redis.Z, error) {
 	if IsPipelined(ctx) {
-		return nil, q.err(errors.New("cannot execute ZRevRangeByScoreWithScores inside a pipeline callback"))
+		return nil, errors.New("cannot execute ZRevRangeByScoreWithScores inside a pipeline callback")
 	}
 
-	zs, err := q.getCmd(ctx).ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
+	return q.getCmd(ctx).ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
 		Key:     key,
 		Start:   min,
 		Stop:    max,
@@ -267,18 +215,10 @@ func (q *Queries) ZRevRangeByScoreWithScores(ctx context.Context, key string, ma
 		Offset:  offset,
 		Count:   count,
 	}).Result()
-	if err != nil {
-		return nil, q.err(err)
-	}
-
-	return zs, nil
 }
 
 func (q *Queries) ZRemRangeByRank(ctx context.Context, key string, start, stop int64) error {
-	if err := q.getCmd(ctx).ZRemRangeByRank(ctx, key, start, stop).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).ZRemRangeByRank(ctx, key, start, stop).Err()
 }
 
 // ============================================================================
@@ -286,22 +226,16 @@ func (q *Queries) ZRemRangeByRank(ctx context.Context, key string, start, stop i
 // ============================================================================
 
 func (q *Queries) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	if err := q.getCmd(ctx).Expire(ctx, key, ttl).Err(); err != nil {
-		return q.err(err)
-	}
-	return nil
+	return q.getCmd(ctx).Expire(ctx, key, ttl).Err()
 }
 
 func (q *Queries) Publish(ctx context.Context, channel string, payload interface{}) error {
 	rawBytes, err := marshalValue(payload)
 	if err != nil {
-		return NewError(err, ScopeEvents)
+		return err
 	}
 
-	if err := q.getCmd(ctx).Publish(ctx, channel, rawBytes).Err(); err != nil {
-		return NewError(err, ScopeEvents)
-	}
-	return nil
+	return q.getCmd(ctx).Publish(ctx, channel, rawBytes).Err()
 }
 
 // ============================================================================

@@ -1,4 +1,3 @@
-// internal/db/store.go
 package db
 
 import (
@@ -14,21 +13,37 @@ import (
 
 type Store struct {
 	*Queries
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	entity Entity
 }
 
-// Returns concrete *Store
 func NewStore(pool *pgxpool.Pool) *Store {
 	cdb := newContextDB(pool)
 	return &Store{
 		Queries: New(cdb),
 		pool:    pool,
+		entity:  Entity("store"),
 	}
 }
 
+func (s *Store) WithEntity(entity Entity) *Store {
+	return &Store{
+		Queries: s.Queries,
+		pool:    s.pool,
+		entity:  entity,
+	}
+}
+
+func (s *Store) Entity() Entity {
+	return s.entity
+}
+
+func (s *Store) Err(err error) error {
+	return NewError(err, s.entity)
+}
+
 func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error {
-	// 1. If we are ALREADY inside a transaction, reuse it.
-	// Do NOT start a new one, do NOT create a savepoint, do NOT commit/rollback here.
+	// 1. If we are ALREADY inside a transaction, reuse it directly.
 	if _, ok := ExtractTx(ctx); ok {
 		return fn(ctx)
 	}
@@ -36,7 +51,7 @@ func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error
 	// 2. Outer-most call: Begin a real database transaction.
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return s.Err(err)
 	}
 
 	defer func() {
@@ -61,7 +76,7 @@ func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return s.Err(err)
 	}
 
 	return nil
