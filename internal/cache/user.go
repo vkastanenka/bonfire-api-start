@@ -24,7 +24,7 @@ type UserCache struct {
 
 func NewUserCache(store *redis.Store, ttl time.Duration) *UserCache {
 	return &UserCache{
-		store: store.WithScope(redis.ScopeUsers),
+		store: store.WithScope(redis.ScopeUser),
 		ttl:   ttl,
 	}
 }
