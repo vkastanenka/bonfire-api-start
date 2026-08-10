@@ -28,6 +28,9 @@ func (q *Queries) Set(ctx context.Context, key string, value interface{}, ttl ti
 func (q *Queries) Get(ctx context.Context, key string, dest interface{}) error {
 	rawBytes, err := q.cmd.Get(ctx, key).Bytes()
 	if err != nil {
+		if isPipelined(ctx) {
+			return nil
+		}
 		return NewError(err, ScopeStore)
 	}
 
@@ -43,6 +46,9 @@ func (q *Queries) MGet(ctx context.Context, keys ...string) ([]interface{}, erro
 	}
 	values, err := q.cmd.MGet(ctx, keys...).Result()
 	if err != nil {
+		if isPipelined(ctx) {
+			return nil, nil
+		}
 		return nil, NewError(err, ScopeStore)
 	}
 	return values, nil
@@ -61,6 +67,9 @@ func (q *Queries) Delete(ctx context.Context, keys ...string) error {
 func (q *Queries) Exists(ctx context.Context, key string) (bool, error) {
 	count, err := q.cmd.Exists(ctx, key).Result()
 	if err != nil {
+		if isPipelined(ctx) {
+			return false, nil
+		}
 		return false, NewError(err, ScopeStore)
 	}
 	return count > 0, nil
@@ -77,7 +86,19 @@ var incrWithTTLScript = redis.NewScript(`
 func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	seconds := int64(ttl.Seconds())
 
-	result, err := incrWithTTLScript.Run(ctx, q.cmd, []string{key}, seconds).Result()
+	scripter, ok := q.cmd.(redis.Scripter)
+	if !ok {
+		if pipe, ok := ExtractPipeline(ctx); ok {
+			scripter = pipe
+		}
+	}
+
+	res := incrWithTTLScript.Run(ctx, scripter, []string{key}, seconds)
+	if isPipelined(ctx) {
+		return 0, nil
+	}
+
+	result, err := res.Result()
 	if err != nil {
 		return 0, NewError(err, ScopeStore)
 	}
@@ -108,6 +129,9 @@ func (q *Queries) HSet(ctx context.Context, key string, field string, value inte
 func (q *Queries) HGet(ctx context.Context, key, field string, dest interface{}) error {
 	rawBytes, err := q.cmd.HGet(ctx, key, field).Bytes()
 	if err != nil {
+		if isPipelined(ctx) {
+			return nil
+		}
 		return NewError(err, ScopeStore)
 	}
 
@@ -130,6 +154,9 @@ func (q *Queries) HDel(ctx context.Context, key string, fields ...string) error 
 func (q *Queries) HGetAll(ctx context.Context, key string, dest *map[string]string) error {
 	res, err := q.cmd.HGetAll(ctx, key).Result()
 	if err != nil {
+		if isPipelined(ctx) {
+			return nil
+		}
 		return NewError(err, ScopeStore)
 	}
 
@@ -189,6 +216,9 @@ func (q *Queries) ZRevRangeByScoreWithScores(ctx context.Context, key string, ma
 		Count:   count,
 	}).Result()
 	if err != nil {
+		if isPipelined(ctx) {
+			return nil, nil
+		}
 		return nil, NewError(err, ScopeStore)
 	}
 
@@ -228,6 +258,11 @@ func (q *Queries) Publish(ctx context.Context, channel string, payload interface
 // ============================================================================
 // Internal Helpers
 // ============================================================================
+
+func isPipelined(ctx context.Context) bool {
+	_, ok := ExtractPipeline(ctx)
+	return ok
+}
 
 func marshalValue(v interface{}) ([]byte, error) {
 	switch val := v.(type) {

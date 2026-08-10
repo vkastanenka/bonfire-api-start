@@ -20,10 +20,17 @@ func NewStore(client *redis.Client) *Store {
 	}
 }
 
-func (s *Store) ExecPipelineFunc(ctx context.Context, fn func(pipe redis.Pipeliner) error) error {
-	pipe := s.client.Pipeline()
+func (s *Store) ExecPipeline(ctx context.Context, fn func(pipeCtx context.Context) error) error {
+	// 1. If ALREADY inside a pipeline context, reuse it without nesting.
+	if _, ok := ExtractPipeline(ctx); ok {
+		return fn(ctx)
+	}
 
-	if err := fn(pipe); err != nil {
+	// 2. Outer-most call: Initialize a new pipeline.
+	pipe := s.client.Pipeline()
+	pipeCtx := InjectPipeline(ctx, pipe)
+
+	if err := fn(pipeCtx); err != nil {
 		pipe.Discard()
 		return fmt.Errorf("failed to enqueue pipeline commands: %w", err)
 	}
