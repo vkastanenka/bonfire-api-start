@@ -28,12 +28,15 @@ func IsPipelined(ctx context.Context) bool {
 		return false
 	}
 
-	// Ensure it implements Pipeliner AND is not the base client instance
 	_, isPipe := val.(redis.Pipeliner)
 	if !isPipe {
 		return false
 	}
 
-	_, isBaseClient := val.(*redis.Client)
-	return !isBaseClient
+	switch val.(type) {
+	case *redis.Client, *redis.ClusterClient:
+		return false
+	default:
+		return true
+	}
 }

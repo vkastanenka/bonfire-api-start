@@ -20,6 +20,11 @@ func ExtractTx(ctx context.Context) (pgx.Tx, bool) {
 	return tx, ok
 }
 
+func IsTx(ctx context.Context) bool {
+	_, ok := ExtractTx(ctx)
+	return ok
+}
+
 type ctxDB struct {
 	pool *pgxpool.Pool
 }

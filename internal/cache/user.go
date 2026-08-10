@@ -11,7 +11,6 @@ import (
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func userKey(id fields.ID) string {
@@ -19,13 +18,13 @@ func userKey(id fields.ID) string {
 }
 
 type UserCache struct {
-	store redis.Store
+	store *redis.Store
 	ttl   time.Duration
 }
 
-func NewUserCache(store redis.Store, ttl time.Duration) *UserCache {
+func NewUserCache(store *redis.Store, ttl time.Duration) *UserCache {
 	return &UserCache{
-		store: store,
+		store: store.WithScope(redis.ScopeUsers),
 		ttl:   ttl,
 	}
 }
@@ -174,21 +173,24 @@ func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
 		return nil
 	}
 
-	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
+	return u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
 		for _, cu := range cus {
-			key := fmt.Sprintf("users:%s", cu.ID.String())
+			id, err := fields.NewID(cu.ID)
+			if err != nil {
+				continue
+			}
+			key := userKey(id)
 			f := buildCachedUserFields(cu)
 
-			pipe.HSet(ctx, key, f)
-			pipe.Expire(ctx, key, u.ttl)
+			if err := u.store.HMSet(pipeCtx, key, f); err != nil {
+				return err
+			}
+			if err := u.store.Expire(pipeCtx, key, u.ttl); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
 }
 
 func (u *UserCache) Get(ctx context.Context, userID fields.ID) (*user.User, error) {
@@ -221,24 +223,30 @@ func (u *UserCache) GetBatch(ctx context.Context, userIDs []fields.ID) (map[fiel
 		return make(map[fields.ID]*user.User), nil, nil
 	}
 
-	cmds := make(map[fields.ID]*goredis.MapStringStringCmd, len(uniqueIDs))
-	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
+	results := make(map[fields.ID]*map[string]string, len(uniqueIDs))
+	for _, id := range uniqueIDs {
+		res := make(map[string]string)
+		results[id] = &res
+	}
+
+	err := u.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
 		for _, id := range uniqueIDs {
 			key := userKey(id)
-			cmds[id] = pipe.HGetAll(ctx, key)
+			// HGetAll automatically queues inside the pipeline via pipeCtx
+			_ = u.store.HGetAll(pipeCtx, key, results[id])
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, nil, redis.NewError(err, redis.ScopeUser)
+		return nil, nil, err
 	}
 
 	found := make(map[fields.ID]*user.User, len(uniqueIDs))
 	var missing []fields.ID
 
-	for id, cmd := range cmds {
-		res, resErr := cmd.Result()
-		if resErr != nil || len(res) == 0 {
+	for id, resPtr := range results {
+		res := *resPtr
+		if len(res) == 0 {
 			missing = append(missing, id)
 			continue
 		}
@@ -294,15 +302,7 @@ func (u *UserCache) DeleteBatch(ctx context.Context, userIDs []fields.ID) error 
 		keys = append(keys, userKey(id))
 	}
 
-	err := u.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		pipe.Del(ctx, keys...)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
+	return u.store.Delete(ctx, keys...)
 }
 
 func buildCachedUserFields(cu *CachedUser) map[string]interface{} {
