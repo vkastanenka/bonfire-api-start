@@ -6,12 +6,41 @@ import (
 	"strings"
 	"time"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
 
 	"github.com/google/uuid"
 )
+
+// ============================================================================
+// Core Interfaces & Helpers
+// ============================================================================
+
+type Validatable interface {
+	IsValid() bool
+}
+
+// ensureRequired centralizes mandatory value checks across all domain primitives.
+func ensureRequired[T Validatable](field string, val T, err error) (T, error) {
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	if !val.IsValid() {
+		var zero T
+		return zero, ErrRequired(field)
+	}
+	return val, nil
+}
+
+// UnmarshalText standardizes custom unmarshaling logic for text-based fields.
+func UnmarshalText[T any](text []byte, fieldName string, parser func(field, raw string) (T, error)) (T, error) {
+	if len(text) == 0 {
+		var zero T
+		return zero, nil
+	}
+	return parser(fieldName, string(text))
+}
 
 // ============================================================================
 // Text
@@ -46,28 +75,29 @@ var rgxHexColor = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
 
 type HexColor struct{ Text }
 
-func NewHexColor(raw string) (HexColor, error) {
+func ParseHexColor(field, raw string) (HexColor, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return HexColor{}, nil
 	}
 
-	if err := Validate(s, ValidateCfg{
-		Field: "hex_color",
-		Regex: rgxHexColor,
-	}); err != nil {
-		return HexColor{}, errs.InvalidArgument("Invalid hex color.").
-			Reason("HEX_COLOR_INVALID_FORMAT").
-			FieldViolation("hex_color", "Must be a valid hex code (e.g., #FF5733)", "INVALID_FORMAT")
+	if err := Validate(field, s, ValidateCfg{Regex: rgxHexColor}); err != nil {
+		return HexColor{}, ErrInvalidFormat(field, "Must be a valid hex code (e.g., #FF5733)")
 	}
 
 	return HexColor{Text: NewText(strings.ToUpper(s))}, nil
 }
 
+func ParseRequiredHexColor(field, raw string) (HexColor, error) {
+	v, err := ParseHexColor(field, raw)
+	return ensureRequired(field, v, err)
+}
+
 func (hc HexColor) Equals(other HexColor) bool { return hc.Text.Equals(other.Text) }
 
-func (hc *HexColor) UnmarshalText(text []byte) (err error) {
-	*hc, err = UnmarshalText(text, NewHexColor)
+func (hc *HexColor) UnmarshalText(text []byte) error {
+	var err error
+	*hc, err = UnmarshalText(text, "hex_color", ParseHexColor)
 	return err
 }
 
@@ -84,7 +114,11 @@ func NewID(raw uuid.UUID) ID {
 	return ID(raw)
 }
 
-func ParseID(raw string) (ID, error) {
+func NewRequiredID(field string, raw uuid.UUID) (ID, error) {
+	return ensureRequired(field, NewID(raw), nil)
+}
+
+func ParseID(field, raw string) (ID, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return ID{}, nil
@@ -92,10 +126,15 @@ func ParseID(raw string) (ID, error) {
 
 	parsed, err := uuid.Parse(s)
 	if err != nil {
-		return ID{}, ErrInvalidFormat("id", "Must be a valid UUID")
+		return ID{}, ErrInvalidFormat(field, "Must be a valid UUID")
 	}
 
 	return ID(parsed), nil
+}
+
+func ParseRequiredID(field, raw string) (ID, error) {
+	v, err := ParseID(field, raw)
+	return ensureRequired(field, v, err)
 }
 
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
@@ -110,8 +149,9 @@ func (id ID) StringPtr() *string {
 	return ptr.To(id.String())
 }
 
-func (id *ID) UnmarshalText(text []byte) (err error) {
-	*id, err = UnmarshalText(text, ParseID)
+func (id *ID) UnmarshalText(text []byte) error {
+	var err error
+	*id, err = UnmarshalText(text, "id", ParseID)
 	return err
 }
 
@@ -123,7 +163,7 @@ type Timestamp struct {
 	value time.Time
 }
 
-func NewTimestamp(raw string) (Timestamp, error) {
+func ParseTimestamp(field, raw string) (Timestamp, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return Timestamp{}, nil
@@ -131,10 +171,15 @@ func NewTimestamp(raw string) (Timestamp, error) {
 
 	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		return Timestamp{}, ErrInvalidFormat("timestamp", "Timestamp must be a valid RFC 3339 date-time format")
+		return Timestamp{}, ErrInvalidFormat(field, "Timestamp must be a valid RFC 3339 date-time format")
 	}
 
 	return Timestamp{value: parsed.UTC()}, nil
+}
+
+func ParseRequiredTimestamp(field, raw string) (Timestamp, error) {
+	v, err := ParseTimestamp(field, raw)
+	return ensureRequired(field, v, err)
 }
 
 func NewTimestampFromTime(t time.Time) Timestamp {
@@ -142,6 +187,10 @@ func NewTimestampFromTime(t time.Time) Timestamp {
 		return Timestamp{}
 	}
 	return Timestamp{value: t.UTC()}
+}
+
+func NewRequiredTimestampFromTime(field string, t time.Time) (Timestamp, error) {
+	return ensureRequired(field, NewTimestampFromTime(t), nil)
 }
 
 func NewTimestampFromUnix(sec int64) Timestamp {
@@ -197,8 +246,9 @@ func (t Timestamp) HasPassed(now time.Time) bool {
 	return now.After(t.value)
 }
 
-func (t *Timestamp) UnmarshalText(text []byte) (err error) {
-	*t, err = UnmarshalText(text, NewTimestamp)
+func (t *Timestamp) UnmarshalText(text []byte) error {
+	var err error
+	*t, err = UnmarshalText(text, "timestamp", ParseTimestamp)
 	return err
 }
 
@@ -210,31 +260,34 @@ const MaxURLLength = 2048
 
 type URL struct{ Text }
 
-func NewURL(raw string) (URL, error) {
+func ParseURL(field, raw string) (URL, error) {
 	s := sanitize.URL(raw)
 	if s == "" {
 		return URL{}, nil
 	}
 
-	if err := Validate(s, ValidateCfg{
-		Field:  "url",
-		MaxLen: MaxURLLength,
-	}); err != nil {
+	if err := Validate(field, s, ValidateCfg{MaxLen: MaxURLLength}); err != nil {
 		return URL{}, err
 	}
 
 	parsed, err := url.ParseRequestURI(s)
 	if err != nil || parsed.Host == "" || (!strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://")) {
-		return URL{}, ErrInvalidFormat("url", "URL must be a valid HTTP or HTTPS address")
+		return URL{}, ErrInvalidFormat(field, "URL must be a valid HTTP or HTTPS address")
 	}
 
 	return URL{Text: NewText(parsed.String())}, nil
 }
 
+func ParseRequiredURL(field, raw string) (URL, error) {
+	v, err := ParseURL(field, raw)
+	return ensureRequired(field, v, err)
+}
+
 func (u URL) Equals(other URL) bool { return u.Text.Equals(other.Text) }
 
-func (u *URL) UnmarshalText(text []byte) (err error) {
-	*u, err = UnmarshalText(text, NewURL)
+func (u *URL) UnmarshalText(text []byte) error {
+	var err error
+	*u, err = UnmarshalText(text, "url", ParseURL)
 	return err
 }
 
@@ -246,43 +299,28 @@ var rgxVerificationCode = regexp.MustCompile(`^[2-9A-HJ-NP-Z]{6}$`)
 
 type VerificationCode struct{ Text }
 
-func NewVerificationCode(raw string) (VerificationCode, error) {
+func ParseVerificationCode(field, raw string) (VerificationCode, error) {
 	s := strings.ToUpper(sanitize.Text(raw))
 	if s == "" {
 		return VerificationCode{}, nil
 	}
 
-	if err := Validate(s, ValidateCfg{
-		Field: "verification_code",
-		Regex: rgxVerificationCode,
-	}); err != nil {
-		return VerificationCode{}, errs.InvalidArgument("Invalid verification code.").
-			Reason("VERIFICATION_CODE_INVALID_FORMAT").
-			FieldViolation("verification_code", "Verification code must be 6 alphanumeric characters", "INVALID_FORMAT")
+	if err := Validate(field, s, ValidateCfg{Regex: rgxVerificationCode}); err != nil {
+		return VerificationCode{}, ErrInvalidFormat(field, "Verification code must be 6 alphanumeric characters")
 	}
 
 	return VerificationCode{Text: NewText(s)}, nil
 }
 
+func ParseRequiredVerificationCode(field, raw string) (VerificationCode, error) {
+	v, err := ParseVerificationCode(field, raw)
+	return ensureRequired(field, v, err)
+}
+
 func (c VerificationCode) Equals(other VerificationCode) bool { return c.Text.Equals(other.Text) }
 
-func (c *VerificationCode) UnmarshalText(text []byte) (err error) {
-	*c, err = UnmarshalText(text, NewVerificationCode)
+func (c *VerificationCode) UnmarshalText(text []byte) error {
+	var err error
+	*c, err = UnmarshalText(text, "verification_code", ParseVerificationCode)
 	return err
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-func MarshalText[T any](val T, getter func(T) string) ([]byte, error) {
-	return []byte(getter(val)), nil
-}
-
-func UnmarshalText[T any](text []byte, parser func(string) (T, error)) (T, error) {
-	if len(text) == 0 {
-		var zero T
-		return zero, nil
-	}
-	return parser(string(text))
 }
