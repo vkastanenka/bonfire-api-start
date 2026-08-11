@@ -3,121 +3,171 @@ package cache
 import (
 	"context"
 	"fmt"
-	"net/netip"
 	"time"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
 )
 
-type SessionStore interface {
-	Get(ctx context.Context, key string, dest interface{}) error
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Delete(ctx context.Context, key ...string) error
+func SessionKey(id fields.ID) string {
+	return fmt.Sprintf("sessions:%s", id.String())
 }
 
 type Session struct {
-	store SessionStore
+	ID               uuid.UUID `json:"id"`
+	UserID           uuid.UUID `json:"user_id"`
+	RefreshTokenHash []byte    `json:"refresh_token_hash"`
+	ClientIP         string    `json:"client_ip"`
+	UserAgent        string    `json:"user_agent"`
+	OS               string    `json:"os"`
+	Client           string    `json:"client"`
+	ExpiresAt        int64     `json:"expires_at"`
+	LastSeenAt       int64     `json:"last_seen_at"`
+	RevokedAt        int64     `json:"revoked_at"`
+	CreatedAt        int64     `json:"created_at"`
+	UpdatedAt        int64     `json:"updated_at"`
 }
 
-func NewSession(store SessionStore) *Session {
-	return &Session{store: store}
-}
-
-func sessionKey(id uuid.UUID) string {
-	return fmt.Sprintf("session:%s", id.String())
-}
-
-type sessionDTO struct {
-	ID               uuid.UUID  `json:"id"`
-	UserID           uuid.UUID  `json:"user_id"`
-	RefreshTokenHash []byte     `json:"refresh_token_hash"`
-	ClientIP         string     `json:"client_ip"`
-	UserAgent        string     `json:"user_agent"`
-	OS               string     `json:"os"`
-	Browser          string     `json:"browser"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	LastSeenAt       time.Time  `json:"last_seen_at"`
-	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-}
-
-func (s *Session) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
-	key := sessionKey(id)
-
-	var dto sessionDTO
-	err := s.store.Get(ctx, key, &dto)
-	if redis.IsNotFoundError(err) {
-		return nil, nil // Return nil on redis miss to let caller fall back to DB
-	}
+func (s Session) ToDomain() (*session.Session, error) {
+	id, err := fields.ParseRequiredID("id", s.ID)
 	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeSession)
+		return nil, err
 	}
-
-	clientIP, err := netip.ParseAddr(dto.ClientIP)
+	userID, err := fields.ParseRequiredID("user_id", s.UserID)
 	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeSession)
+		return nil, err
 	}
-
-	tokenHash, err := session.NewRefreshTokenHash(dto.RefreshTokenHash)
+	hash, err := session.ParseRefreshTokenHash("refresh_token_hash", s.RefreshTokenHash)
 	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeSession)
+		return nil, err
+	}
+	clientIP, err := session.ParseClientIP("client_ip", s.ClientIP)
+	if err != nil {
+		return nil, err
+	}
+	userAgent, err := session.ParseUserAgent("user_agent", s.UserAgent)
+	if err != nil {
+		return nil, err
+	}
+	os, err := session.ParseOS("os", s.OS)
+	if err != nil {
+		return nil, err
+	}
+	client, err := session.ParseClient("client", s.Client)
+	if err != nil {
+		return nil, err
+	}
+	expiresAt, err := session.ParseExpiresAt("expires_at", time.Unix(s.ExpiresAt, 0), time.Time{})
+	if err != nil {
+		return nil, err
 	}
 
 	return session.Reconstitute(
-		dto.ID,
-		dto.UserID,
-		tokenHash,
+		id,
+		userID,
+		hash,
 		clientIP,
-		dto.UserAgent,
-		dto.OS,
-		dto.Browser,
-		dto.ExpiresAt,
-		dto.LastSeenAt,
-		dto.CreatedAt,
-		dto.UpdatedAt,
-		dto.RevokedAt,
+		userAgent,
+		os,
+		client,
+		expiresAt,
+		fields.NewTimestampFromUnix(s.LastSeenAt),
+		fields.NewTimestampFromUnix(s.RevokedAt),
+		fields.NewTimestampFromUnix(s.CreatedAt),
+		fields.NewTimestampFromUnix(s.UpdatedAt),
 	), nil
 }
 
-func (s *Session) Set(ctx context.Context, sess *session.Session) error {
-	ttl := time.Until(sess.ExpiresAt())
-	if ttl <= 0 {
-		return nil
+func SessionFromDomain(s *session.Session) *Session {
+	return &Session{
+		ID:               s.ID().UUID(),
+		UserID:           s.UserID().UUID(),
+		RefreshTokenHash: s.RefreshTokenHash().Bytes.Bytes(),
+		ClientIP:         s.ClientIP().String(),
+		UserAgent:        s.UserAgent().String(),
+		OS:               s.OS().String(),
+		Client:           s.Client().String(),
+		ExpiresAt:        s.ExpiresAt().Unix(),
+		LastSeenAt:       s.LastSeenAt().Unix(),
+		RevokedAt:        s.RevokedAt().Unix(),
+		CreatedAt:        s.CreatedAt().Unix(),
+		UpdatedAt:        s.UpdatedAt().Unix(),
 	}
-
-	dto := sessionDTO{
-		ID:               sess.ID(),
-		UserID:           sess.UserID(),
-		RefreshTokenHash: sess.RefreshTokenHash().Bytes(),
-		ClientIP:         sess.ClientIP().String(),
-		UserAgent:        sess.UserAgent(),
-		OS:               sess.OS(),
-		Browser:          sess.Browser(),
-		ExpiresAt:        sess.ExpiresAt(),
-		LastSeenAt:       sess.LastSeenAt(),
-		RevokedAt:        sess.RevokedAt(),
-		CreatedAt:        sess.CreatedAt(),
-		UpdatedAt:        sess.UpdatedAt(),
-	}
-
-	key := sessionKey(sess.ID())
-	if err := s.store.Set(ctx, key, dto, ttl); err != nil {
-		return redis.NewError(err, redis.ScopeSession)
-	}
-
-	return nil
 }
 
-func (s *Session) Delete(ctx context.Context, id uuid.UUID) error {
-	key := sessionKey(id)
+type SessionCache struct {
+	engine *KeyCache[fields.ID, Session]
+}
 
-	if err := s.store.Delete(ctx, key); err != nil && !redis.IsNotFoundError(err) {
-		return redis.NewError(err, redis.ScopeSession)
+func NewSessionCache(store *redis.Store, ttl time.Duration) *SessionCache {
+	engine := NewKeyCache[fields.ID, Session](
+		store.WithScope(redis.ScopeSession),
+		ttl,
+		SessionKey,
+	)
+	return &SessionCache{engine: engine}
+}
+
+func (s *SessionCache) Set(ctx context.Context, sess *session.Session) error {
+	if sess == nil {
+		return nil
+	}
+	return s.engine.Set(ctx, sess.ID(), SessionFromDomain(sess))
+}
+
+func (s *SessionCache) SetBatch(ctx context.Context, sessions []*session.Session) error {
+	if len(sessions) == 0 {
+		return nil
+	}
+	items := make(map[fields.ID]*Session, len(sessions))
+	for _, sess := range sessions {
+		if sess != nil {
+			items[sess.ID()] = SessionFromDomain(sess)
+		}
+	}
+	return s.engine.SetBatch(ctx, items)
+}
+
+func (s *SessionCache) Get(ctx context.Context, sessionID fields.ID) (*session.Session, error) {
+	if !sessionID.IsValid() {
+		return nil, nil
+	}
+	cached, err := s.engine.Get(ctx, sessionID)
+	if err != nil || cached == nil {
+		return nil, err
+	}
+	return cached.ToDomain()
+}
+
+func (s *SessionCache) GetBatch(ctx context.Context, sessionIDs []fields.ID) (map[fields.ID]*session.Session, []fields.ID, error) {
+	found, missing, err := s.engine.GetBatch(ctx, sessionIDs)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return nil
+	result := make(map[fields.ID]*session.Session, len(found))
+	for id, cached := range found {
+		domainSession, err := cached.ToDomain()
+		if err != nil {
+			missing = append(missing, id)
+			continue
+		}
+		result[id] = domainSession
+	}
+
+	return result, missing, nil
+}
+
+func (s *SessionCache) Delete(ctx context.Context, sessionID fields.ID) error {
+	if !sessionID.IsValid() {
+		return nil
+	}
+	return s.engine.Delete(ctx, sessionID)
+}
+
+func (s *SessionCache) DeleteBatch(ctx context.Context, sessionIDs []fields.ID) error {
+	return s.engine.DeleteBatch(ctx, sessionIDs)
 }
