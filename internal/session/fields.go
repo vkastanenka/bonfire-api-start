@@ -2,7 +2,7 @@ package session
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
 	"bonfire-api/internal/fields"
@@ -50,7 +50,7 @@ func (h *RefreshTokenHash) UnmarshalText(text []byte) error {
 
 type ClientIP struct {
 	fields.Text
-	ip net.IP
+	addr netip.Addr
 }
 
 func ParseClientIP(field, raw string) (ClientIP, error) {
@@ -62,21 +62,23 @@ func ParseClientIP(field, raw string) (ClientIP, error) {
 		return ClientIP{}, err
 	}
 
-	parsedIP := net.ParseIP(s)
-	if parsedIP == nil {
+	addr, err := netip.ParseAddr(s)
+	if err != nil {
 		return ClientIP{}, fields.ErrInvalidFormat(field, "Must be a valid IPv4 or IPv6 address")
 	}
 
 	return ClientIP{
-		Text: fields.NewText(parsedIP.String()),
-		ip:   parsedIP,
+		Text: fields.NewText(addr.String()),
+		addr: addr,
 	}, nil
 }
 
-func (c ClientIP) IP() net.IP { return c.ip }
+func (c ClientIP) Addr() netip.Addr {
+	return c.addr
+}
 
 func (c ClientIP) Equals(other ClientIP) bool {
-	return c.ip.Equal(other.ip)
+	return c.addr == other.addr
 }
 
 func (c *ClientIP) UnmarshalText(text []byte) error {
