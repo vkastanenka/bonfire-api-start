@@ -31,6 +31,10 @@ type User struct {
 	updatedAt              fields.Timestamp
 }
 
+// ============================================================================
+// Getters
+// ============================================================================
+
 func (u *User) ID() fields.ID                            { return u.id }
 func (u *User) Email() Email                             { return u.email }
 func (u *User) Username() Username                       { return u.username }
@@ -47,6 +51,10 @@ func (u *User) DisabledAt() fields.Timestamp             { return u.disabledAt }
 func (u *User) DeleteScheduledAt() fields.Timestamp      { return u.deleteScheduledAt }
 func (u *User) CreatedAt() fields.Timestamp              { return u.createdAt }
 func (u *User) UpdatedAt() fields.Timestamp              { return u.updatedAt }
+
+// ============================================================================
+// State Queries & Invariants
+// ============================================================================
 
 func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
 func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
@@ -68,6 +76,10 @@ func (u *User) EnsureActive() error {
 	}
 	return nil
 }
+
+// ============================================================================
+// Constructors & Factory Methods
+// ============================================================================
 
 func New(
 	id fields.ID,
@@ -121,6 +133,10 @@ func Reconstitute(
 	}
 }
 
+// ============================================================================
+// Lifecycle & Domain Mutations
+// ============================================================================
+
 func (u *User) Verify(now fields.Timestamp) {
 	if !u.verifiedAt.IsValid() {
 		u.verifiedAt = now
@@ -143,8 +159,10 @@ func (u *User) Enable(now fields.Timestamp) {
 }
 
 func (u *User) ScheduleDelete(scheduledAt fields.Timestamp, now fields.Timestamp) {
-	u.deleteScheduledAt = scheduledAt
-	u.touch(now)
+	if !u.deleteScheduledAt.IsValid() {
+		u.deleteScheduledAt = scheduledAt
+		u.touch(now)
+	}
 }
 
 func (u *User) CancelDelete(now fields.Timestamp) {
@@ -155,9 +173,6 @@ func (u *User) CancelDelete(now fields.Timestamp) {
 }
 
 func (u *User) UpdateEmail(newEmail Email, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	if !u.email.Equals(newEmail) {
 		u.email = newEmail
 		u.touch(now)
@@ -166,9 +181,6 @@ func (u *User) UpdateEmail(newEmail Email, now fields.Timestamp) error {
 }
 
 func (u *User) UpdateUsername(newUsername Username, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	if !u.username.Equals(newUsername) {
 		u.username = newUsername
 		u.touch(now)
@@ -177,9 +189,6 @@ func (u *User) UpdateUsername(newUsername Username, now fields.Timestamp) error 
 }
 
 func (u *User) UpdatePhone(newPhone Phone, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	if !u.phone.Equals(newPhone) {
 		u.phone = newPhone
 		u.touch(now)
@@ -188,18 +197,12 @@ func (u *User) UpdatePhone(newPhone Phone, now fields.Timestamp) error {
 }
 
 func (u *User) UpdatePasswordHash(newHash PasswordHash, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	u.passwordHash = newHash
 	u.touch(now)
 	return nil
 }
 
 func (u *User) UpdateProfile(displayName DisplayName, bio Bio, avatarURL fields.URL, bannerColor fields.HexColor, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	u.displayName = displayName
 	u.bio = bio
 	u.avatarURL = avatarURL
@@ -209,9 +212,6 @@ func (u *User) UpdateProfile(displayName DisplayName, bio Bio, avatarURL fields.
 }
 
 func (u *User) UpdatePreferredPresence(p PreferredPresence, until fields.Timestamp, now fields.Timestamp) error {
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
 	u.preferredPresence = p
 	u.preferredPresenceUntil = until
 	u.touch(now)
@@ -221,9 +221,9 @@ func (u *User) UpdatePreferredPresence(p PreferredPresence, until fields.Timesta
 func (u *User) Anonymize(now fields.Timestamp) {
 	anonID := u.id.String()
 
-	u.email = Email{value: fmt.Sprintf("deleted-%s@deleted.invalid", anonID)}
-	u.username = Username{value: fmt.Sprintf("deleted_%s", anonID[:8])}
-	u.displayName = DisplayName{value: "Deleted User"}
+	u.email = Email{Text: fields.NewText(fmt.Sprintf("deleted-%s@deleted.invalid", anonID))}
+	u.username = Username{Text: fields.NewText(fmt.Sprintf("deleted_%s", anonID[:8]))}
+	u.displayName = DisplayName{Text: fields.NewText("Deleted User")}
 	u.bio = Bio{}
 	u.avatarURL = fields.URL{}
 	u.bannerColor = fields.HexColor{}
