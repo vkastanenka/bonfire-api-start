@@ -7,6 +7,7 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -33,6 +34,12 @@ type MeUserService interface {
 	ScheduleDelete(ctx context.Context, p user.ScheduleDeleteParams) error
 }
 
+type MeSessionService interface {
+	GetUserSessions(ctx context.Context, rawUserID uuid.UUID) ([]*session.Session, error)
+	UserRevoke(ctx context.Context, p session.RevokeParams) error
+	UserRevokeAll(ctx context.Context, rawUserID uuid.UUID) error
+}
+
 type MePresenceService interface {
 	GetBulk(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
 }
@@ -40,6 +47,7 @@ type MePresenceService interface {
 type Me struct {
 	relationships MeRelationshipService
 	users         MeUserService
+	sessions      MeSessionService
 	presence      MePresenceService
 	// channels      channel.Service
 	bind *httpio.Bind
@@ -48,6 +56,7 @@ type Me struct {
 func NewMe(
 	r MeRelationshipService,
 	u MeUserService,
+	s MeSessionService,
 	p MePresenceService,
 	// c channel.Service,
 	bind *httpio.Bind,
@@ -55,6 +64,7 @@ func NewMe(
 	return &Me{
 		relationships: r,
 		users:         u,
+		sessions:      s,
 		presence:      p,
 		// channels:      c,
 		bind: bind,
@@ -443,5 +453,68 @@ func (h *Me) respondWithPerspective(
 	}
 
 	httpio.RespondOK(w, r, ToRelationshipResponse(*perspective, peerPresence))
+	return nil
+}
+
+// Session Handlers
+
+func (h *Me) GetSessions(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httpio.CtxGetUserID(r.Context())
+	if err != nil {
+		return err
+	}
+
+	sessions, err := h.sessions.GetUserSessions(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+
+	responses := make([]SessionResponse, len(sessions))
+	for i, s := range sessions {
+		responses[i] = ToSessionResponse(*s)
+	}
+
+	httpio.RespondOK(w, r, responses)
+	return nil
+}
+
+type RevokeSessionPath struct {
+	ID uuid.UUID `path:"id" validate:"required,uuid"`
+}
+
+func (h *Me) RevokeSession(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httpio.CtxGetUserID(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var path RevokeSessionPath
+	if err := h.bind.Path(r, &path); err != nil {
+		return err
+	}
+
+	err = h.sessions.UserRevoke(r.Context(), session.RevokeParams{
+		SessionID: path.ID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondNoContent(w)
+	return nil
+}
+
+func (h *Me) RevokeAllSessions(w http.ResponseWriter, r *http.Request) error {
+	userID, err := httpio.CtxGetUserID(r.Context())
+	if err != nil {
+		return err
+	}
+
+	if err := h.sessions.UserRevokeAll(r.Context(), userID); err != nil {
+		return err
+	}
+
+	httpio.RespondNoContent(w)
 	return nil
 }

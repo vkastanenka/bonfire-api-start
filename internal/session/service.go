@@ -59,7 +59,7 @@ func NewService(
 	}
 }
 
-func (s *Service) GetUserSessions(ctx context.Context, rawUserID uuid.UUID) ([]*Session, error) {
+func (s *Service) UserGetBatch(ctx context.Context, rawUserID uuid.UUID) ([]*Session, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
