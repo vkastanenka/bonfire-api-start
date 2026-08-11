@@ -61,16 +61,6 @@ WHERE
     refresh_token_hash = @refresh_token_hash::bytea
 LIMIT 1;
 
--- name: SessionRevoke :exec
-UPDATE
-    sessions
-SET
-    revoked_at = @revoked_at::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
-    AND revoked_at IS NULL;
-
 -- name: SessionRotateRefreshToken :one
 UPDATE
     sessions
@@ -100,7 +90,7 @@ RETURNING
     client,
     user_agent;
 
--- name: SessionUserListActive :many
+-- name: SessionUserGetBatch :many
 SELECT
     id,
     user_id,
@@ -122,6 +112,17 @@ WHERE
 ORDER BY
     last_seen_at DESC
 LIMIT @limit_val::int;
+
+-- name: SessionUserRevoke :exec
+UPDATE
+    sessions
+SET
+    revoked_at = @revoked_at::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND user_id = @user_id::uuid
+    AND revoked_at IS NULL;
 
 -- name: SessionUserRevokeAll :exec
 UPDATE

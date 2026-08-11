@@ -177,28 +177,6 @@ func (q *Queries) SessionGetByRefreshTokenHash(ctx context.Context, refreshToken
 	return i, err
 }
 
-const sessionRevoke = `-- name: SessionRevoke :exec
-UPDATE
-    sessions
-SET
-    revoked_at = $1::timestamptz,
-    updated_at = $2::timestamptz
-WHERE
-    id = $3::uuid
-    AND revoked_at IS NULL
-`
-
-type SessionRevokeParams struct {
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ID        pgtype.UUID        `json:"id"`
-}
-
-func (q *Queries) SessionRevoke(ctx context.Context, arg SessionRevokeParams) error {
-	_, err := q.db.Exec(ctx, sessionRevoke, arg.RevokedAt, arg.UpdatedAt, arg.ID)
-	return err
-}
-
 const sessionRotateRefreshToken = `-- name: SessionRotateRefreshToken :one
 UPDATE
     sessions
@@ -271,7 +249,7 @@ func (q *Queries) SessionRotateRefreshToken(ctx context.Context, arg SessionRota
 	return i, err
 }
 
-const sessionUserListActive = `-- name: SessionUserListActive :many
+const sessionUserGetBatch = `-- name: SessionUserGetBatch :many
 SELECT
     id,
     user_id,
@@ -295,13 +273,13 @@ ORDER BY
 LIMIT $3::int
 `
 
-type SessionUserListActiveParams struct {
+type SessionUserGetBatchParams struct {
 	UserID   pgtype.UUID        `json:"user_id"`
 	Now      pgtype.Timestamptz `json:"now"`
 	LimitVal int32              `json:"limit_val"`
 }
 
-type SessionUserListActiveRow struct {
+type SessionUserGetBatchRow struct {
 	ID         pgtype.UUID        `json:"id"`
 	UserID     pgtype.UUID        `json:"user_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
@@ -315,15 +293,15 @@ type SessionUserListActiveRow struct {
 	UserAgent  string             `json:"user_agent"`
 }
 
-func (q *Queries) SessionUserListActive(ctx context.Context, arg SessionUserListActiveParams) ([]SessionUserListActiveRow, error) {
-	rows, err := q.db.Query(ctx, sessionUserListActive, arg.UserID, arg.Now, arg.LimitVal)
+func (q *Queries) SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]SessionUserGetBatchRow, error) {
+	rows, err := q.db.Query(ctx, sessionUserGetBatch, arg.UserID, arg.Now, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []SessionUserListActiveRow
+	var items []SessionUserGetBatchRow
 	for rows.Next() {
-		var i SessionUserListActiveRow
+		var i SessionUserGetBatchRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -345,6 +323,35 @@ func (q *Queries) SessionUserListActive(ctx context.Context, arg SessionUserList
 		return nil, err
 	}
 	return items, nil
+}
+
+const sessionUserRevoke = `-- name: SessionUserRevoke :exec
+UPDATE
+    sessions
+SET
+    revoked_at = $1::timestamptz,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+    AND user_id = $4::uuid
+    AND revoked_at IS NULL
+`
+
+type SessionUserRevokeParams struct {
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+func (q *Queries) SessionUserRevoke(ctx context.Context, arg SessionUserRevokeParams) error {
+	_, err := q.db.Exec(ctx, sessionUserRevoke,
+		arg.RevokedAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
+	return err
 }
 
 const sessionUserRevokeAll = `-- name: SessionUserRevokeAll :exec
