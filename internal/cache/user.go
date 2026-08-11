@@ -35,7 +35,7 @@ type User struct {
 }
 
 func (u User) ToDomain() (*user.User, error) {
-	id, err := fields.NewRequiredID("id", u.ID)
+	id, err := fields.ParseRequiredID("id", u.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,14 +94,6 @@ func (u User) ToDomain() (*user.User, error) {
 }
 
 func FromDomain(u *user.User) *User {
-	if u == nil {
-		return nil
-	}
-	var prefPresence int16
-	if u.PreferredPresence().IsValid() {
-		prefPresence = u.PreferredPresence().Int16()
-	}
-
 	return &User{
 		ID:                     u.ID().UUID(),
 		Email:                  u.Email().String(),
@@ -111,7 +103,7 @@ func FromDomain(u *user.User) *User {
 		Bio:                    u.Bio().String(),
 		AvatarURL:              u.AvatarURL().String(),
 		BannerColor:            u.BannerColor().String(),
-		PreferredPresence:      prefPresence,
+		PreferredPresence:      u.PreferredPresence().Int16(),
 		PreferredPresenceUntil: u.PreferredPresenceUntil().Unix(),
 		VerifiedAt:             u.VerifiedAt().Unix(),
 		DisabledAt:             u.DisabledAt().Unix(),

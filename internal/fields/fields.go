@@ -107,15 +107,19 @@ func (hc *HexColor) UnmarshalText(text []byte) error {
 
 type ID uuid.UUID
 
-func NewID(raw uuid.UUID) ID {
-	return ID(raw)
+func ParseID(field string, raw uuid.UUID) (ID, error) {
+	id := ID(raw)
+	if !id.IsValid() {
+		return ID{}, nil
+	}
+	return id, nil
 }
 
-func NewRequiredID(field string, raw uuid.UUID) (ID, error) {
-	return ensureRequired(field, NewID(raw), nil)
+func ParseRequiredID(field string, raw uuid.UUID) (ID, error) {
+	return ensureRequired(field, ID(raw), nil)
 }
 
-func ParseID(field, raw string) (ID, error) {
+func ParseIDFromString(field, raw string) (ID, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return ID{}, nil
@@ -127,6 +131,11 @@ func ParseID(field, raw string) (ID, error) {
 	}
 
 	return ID(parsed), nil
+}
+
+func ParseRequiredIDFromString(field, raw string) (ID, error) {
+	v, err := ParseIDFromString(field, raw)
+	return ensureRequired(field, v, err)
 }
 
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
@@ -143,7 +152,7 @@ func (id ID) StringPtr() *string {
 
 func (id *ID) UnmarshalText(text []byte) error {
 	var err error
-	*id, err = UnmarshalText(text, "id", ParseID)
+	*id, err = UnmarshalText(text, "id", ParseIDFromString)
 	return err
 }
 
