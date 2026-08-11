@@ -3,7 +3,6 @@ package session
 import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"time"
 )
 
 var (
@@ -51,9 +50,17 @@ func (s *Session) UpdatedAt() fields.Timestamp        { return s.updatedAt }
 // Meta
 // ============================================================================
 
-func (s *Session) IsRevoked() bool { return s.revokedAt.StringPtr() != nil }
-func (s *Session) IsExpired() bool { return time.Now().After(s.expiresAt.Time()) }
-func (s Session) IsValid() bool    { return !s.IsRevoked() && !s.IsExpired() }
+func (s *Session) IsRevoked() bool {
+	return s.revokedAt.IsValid()
+}
+
+func (s *Session) IsExpired(now fields.Timestamp) bool {
+	return !s.expiresAt.Time().After(now.Time())
+}
+
+func (s *Session) IsValid(now fields.Timestamp) bool {
+	return !s.IsRevoked() && !s.IsExpired(now)
+}
 
 // ============================================================================
 // Mappers
@@ -121,12 +128,16 @@ func (s *Session) RotateToken(
 	newExpiresAt ExpiresAt,
 	newClientIP ClientIP,
 	newUserAgent UserAgent,
+	newOS OS,
+	newClient Client,
 	now fields.Timestamp,
 ) error {
 	s.refreshTokenHash = newHash
 	s.expiresAt = newExpiresAt
 	s.clientIP = newClientIP
 	s.userAgent = newUserAgent
+	s.os = newOS
+	s.client = newClient
 	s.TouchLastSeen(now)
 	return nil
 }

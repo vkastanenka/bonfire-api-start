@@ -55,8 +55,11 @@ type ClientIP struct {
 
 func ParseClientIP(field, raw string) (ClientIP, error) {
 	s := sanitize.Text(raw)
-	if s == "" {
-		return ClientIP{}, nil
+	err := fields.Validate(field, s, fields.ValidateCfg{
+		Required: true,
+	})
+	if err != nil {
+		return ClientIP{}, err
 	}
 
 	parsedIP := net.ParseIP(s)
@@ -98,8 +101,9 @@ type UserAgent struct {
 func ParseUserAgent(field, raw string) (UserAgent, error) {
 	s := sanitize.Text(raw)
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MinLen: MinUserAgentLength,
-		MaxLen: MaxUserAgentLength,
+		MinLen:   MinUserAgentLength,
+		MaxLen:   MaxUserAgentLength,
+		Required: true,
 	}); err != nil {
 		return UserAgent{}, err
 	}
@@ -133,8 +137,9 @@ type OS struct {
 func ParseOS(field, raw string) (OS, error) {
 	s := sanitize.Text(raw)
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MinLen: MinOSLength,
-		MaxLen: MaxOSLength,
+		MinLen:   MinOSLength,
+		MaxLen:   MaxOSLength,
+		Required: true,
 	}); err != nil {
 		return OS{}, err
 	}
@@ -168,8 +173,9 @@ type Client struct {
 func ParseClient(field, raw string) (Client, error) {
 	s := sanitize.Text(raw)
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MinLen: MinClientLength,
-		MaxLen: MaxClientLength,
+		MinLen:   MinClientLength,
+		MaxLen:   MaxClientLength,
+		Required: true,
 	}); err != nil {
 		return Client{}, err
 	}
