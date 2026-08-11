@@ -215,3 +215,8 @@ func (e *Event) ResetAttempts(at time.Time) {
 	e.nextAttemptAt = now
 	e.updatedAt = now
 }
+
+type BatchItem struct {
+	Variant string
+	Payload any
+}

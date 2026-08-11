@@ -185,3 +185,19 @@ func (u *UserCache) Delete(ctx context.Context, userID fields.ID) error {
 func (u *UserCache) DeleteBatch(ctx context.Context, userIDs []fields.ID) error {
 	return u.engine.DeleteBatch(ctx, userIDs)
 }
+
+// PublishEvent broadcasts a user domain event over the user's WebSocket channel.
+// func (u *UserCache) PublishEvent(ctx context.Context, userID string, eventType string, payload any) error {
+// 	channel := fmt.Sprintf("user:%s:events", userID)
+// 	wsEvent := map[string]any{
+// 		"type": eventType,
+// 		"data": payload,
+// 	}
+// 	return u.engine.Store().Publish(ctx, channel, wsEvent)
+// }
+
+// InvalidateSession clears active user session keys from Redis. (TODO: Move to session cache)
+// func (u *UserCache) InvalidateSession(ctx context.Context, userID string) error {
+// 	sessionKey := fmt.Sprintf("user:%s:session", userID)
+// 	return u.engine.Store().Delete(ctx, sessionKey)
+// }

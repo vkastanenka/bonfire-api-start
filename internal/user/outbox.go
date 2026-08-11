@@ -1,13 +1,5 @@
 package user
 
-import (
-	"bonfire-api/internal/email"
-	"bonfire-api/internal/outbox"
-	"context"
-	"encoding/json"
-	"fmt"
-)
-
 const (
 	EventUpdateEmail             = "user.update-email"
 	EventUpdateUsername          = "user.update-username"
@@ -64,115 +56,96 @@ type EventAnonymizedPayload struct {
 	UserID string `json:"user_id"`
 }
 
-// RegisterOutboxHandlers registers all user domain outbox processors.
-func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer, cacheStore cache.Store) {
-	// 1. Send Security Notification on Email Change
-	w.RegisterHandler(EventUpdateEmail, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventUpdateEmailPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed update email payload: %v", outbox.ErrFatal, err)
-		}
-		// Notify old email address about the update
-		return mailer.SendSecurityAlertEmail(ctx, p.OldEmail, "Your email address was updated.")
-	})
+// // RegisterOutboxHandlers registers all user domain outbox processors.
+// func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer, cacheStore *cache.Store) {
+// 	pubToUser := func(ctx context.Context, userID string, eventType string, payload any) error {
+// 		channel := fmt.Sprintf("user:%s:events", userID)
+// 		wsEvent := map[string]any{
+// 			"type": eventType,
+// 			"data": payload,
+// 		}
+// 		return cacheStore.Publish(ctx, channel, wsEvent)
+// 	}
 
-	// 2. Send Security Notification on Password Change
-	w.RegisterHandler(EventUpdatePassword, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventUpdatePasswordPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed update password payload: %v", outbox.ErrFatal, err)
-		}
-		return mailer.SendSecurityAlertEmail(ctx, p.Email, "Your password was recently changed.")
-	})
+// 	handleUserTeardown := func(ctx context.Context, userID string, eventType string) error {
+// 		// Invalidate cache sessions
+// 		sessionKey := fmt.Sprintf("user:%s:session", userID)
+// 		_ = cacheStore.Delete(ctx, sessionKey) // Non-fatal, proceed to disconnect WS
 
-	// 3. Broadcast Profile / Username Updates to Connected WebSocket Clients via Redis
-	w.RegisterHandler(EventUpdateProfile, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventUpdateProfilePayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed profile update payload: %v", outbox.ErrFatal, err)
-		}
+// 		// Force gateway to sever open WS connection
+// 		return pubToUser(ctx, userID, eventType, map[string]string{"user_id": userID})
+// 	}
 
-		channel := fmt.Sprintf("user:%s:events", p.UserID)
-		eventMessage := map[string]any{
-			"type": EventUpdateProfile,
-			"data": p,
-		}
+// 	// 1. Email & Password Security Alerts
+// 	w.RegisterHandler(EventUpdateEmail, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventUpdateEmailPayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed update email payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return mailer.SendSecurityAlertEmail(ctx, p.OldEmail, "Your email address was updated.")
+// 	})
 
-		data, err := json.Marshal(eventMessage)
-		if err != nil {
-			return fmt.Errorf("%w: failed to marshal websocket payload: %v", outbox.ErrFatal, err)
-		}
+// 	w.RegisterHandler(EventUpdatePassword, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventUpdatePasswordPayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed update password payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return mailer.SendSecurityAlertEmail(ctx, p.Email, "Your password was recently changed.")
+// 	})
 
-		return cacheStore.Publish(ctx, channel, string(data))
-	})
+// 	// 2. Real-time User Updates over WebSocket
+// 	w.RegisterHandler(EventUpdateProfile, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventUpdateProfilePayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed profile update payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return pubToUser(ctx, p.UserID, EventUpdateProfile, p)
+// 	})
 
-	w.RegisterHandler(EventUpdateUsername, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventUpdateUsernamePayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed username update payload: %v", outbox.ErrFatal, err)
-		}
+// 	w.RegisterHandler(EventUpdateUsername, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventUpdateUsernamePayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed username update payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return pubToUser(ctx, p.UserID, EventUpdateUsername, p)
+// 	})
 
-		channel := fmt.Sprintf("user:%s:events", p.UserID)
-		eventMessage := map[string]any{
-			"type": EventUpdateUsername,
-			"data": p,
-		}
+// 	w.RegisterHandler(EventUpdatePreferredPresence, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventUpdatePreferredPresencePayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed preferred presence update payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return pubToUser(ctx, p.UserID, EventUpdatePreferredPresence, p)
+// 	})
 
-		data, err := json.Marshal(eventMessage)
-		if err != nil {
-			return fmt.Errorf("%w: failed to marshal username payload: %v", outbox.ErrFatal, err)
-		}
+// 	// 3. Lifecycle & Teardown Events
+// 	w.RegisterHandler(EventScheduleDelete, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventScheduleDeletePayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed schedule delete payload: %v", outbox.ErrFatal, err)
+// 		}
 
-		return cacheStore.Publish(ctx, channel, string(data))
-	})
+// 		msg := fmt.Sprintf("Your account has been scheduled for deletion on %s. If you did not request this, please log in to cancel.", p.ScheduledAt)
+// 		if err := mailer.SendSecurityAlertEmail(ctx, p.Email, msg); err != nil {
+// 			return err
+// 		}
 
-	// 4. Teardown Active User Sessions on Disable or Anonymization
-	handleUserTeardown := func(ctx context.Context, userID string, eventType string) error {
-		// Invalidate cache sessions
-		sessionKey := fmt.Sprintf("user:%s:session", userID)
-		if err := cacheStore.Delete(ctx, sessionKey); err != nil {
-			// Non-fatal, keep going to force WS disconnect
-		}
+// 		return handleUserTeardown(ctx, p.UserID, EventScheduleDelete)
+// 	})
 
-		// Force gateway to sever open WS connection
-		channel := fmt.Sprintf("user:%s:events", userID)
-		eventMessage := map[string]any{
-			"type": eventType,
-			"data": map[string]string{"user_id": userID},
-		}
+// 	w.RegisterHandler(EventDisable, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventDisablePayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed disable payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return handleUserTeardown(ctx, p.UserID, EventDisable)
+// 	})
 
-		data, _ := json.Marshal(eventMessage)
-		return cacheStore.Publish(ctx, channel, string(data))
-	}
-
-	w.RegisterHandler(EventScheduleDelete, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventScheduleDeletePayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed schedule delete payload: %v", outbox.ErrFatal, err)
-		}
-
-		msg := fmt.Sprintf("Your account has been scheduled for deletion on %s. If you did not request this, please log in to cancel.", p.ScheduledAt)
-		if err := mailer.SendSecurityAlertEmail(ctx, p.Email, msg); err != nil {
-			return err
-		}
-
-		// Also perform teardown so WS disconnects and sessions clear
-		return handleUserTeardown(ctx, p.UserID, EventScheduleDelete)
-	})
-
-	w.RegisterHandler(EventDisable, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventDisablePayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed disable payload: %v", outbox.ErrFatal, err)
-		}
-		return handleUserTeardown(ctx, p.UserID, EventDisable)
-	})
-
-	w.RegisterHandler(EventAnonymized, func(ctx context.Context, raw json.RawMessage) error {
-		var p EventAnonymizedPayload
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return fmt.Errorf("%w: malformed anonymized payload: %v", outbox.ErrFatal, err)
-		}
-		return handleUserTeardown(ctx, p.UserID, EventAnonymized)
-	})
-}
+// 	w.RegisterHandler(EventAnonymized, func(ctx context.Context, raw json.RawMessage) error {
+// 		var p EventAnonymizedPayload
+// 		if err := json.Unmarshal(raw, &p); err != nil {
+// 			return fmt.Errorf("%w: malformed anonymized payload: %v", outbox.ErrFatal, err)
+// 		}
+// 		return handleUserTeardown(ctx, p.UserID, EventAnonymized)
+// 	})
+// }

@@ -18,28 +18,19 @@ import (
 type Cache interface {
 	Delete(ctx context.Context, userID fields.ID) error
 	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
-	Get(ctx context.Context, userID fields.ID) (*User, error)
-	Set(ctx context.Context, usr *User) error
 }
 
 type Repository interface {
-	Create(ctx context.Context, u *User) (*User, error)
 	Get(ctx context.Context, id fields.ID) (*User, error)
 	GetCached(ctx context.Context, id fields.ID) (*User, error)
-	GetByEmail(ctx context.Context, email Email) (*User, error)
 	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*User, error)
 	Update(ctx context.Context, u *User) (*User, error)
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
 }
 
-type BatchItem struct {
-	Variant string
-	Payload any
-}
-
 type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
-	PublishBatch(ctx context.Context, items []BatchItem) ([]*outbox.Event, error)
+	PublishBatch(ctx context.Context, items []outbox.BatchItem) ([]*outbox.Event, error)
 }
 
 type TX interface {
@@ -545,13 +536,13 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	}
 
 	userIDs := make([]fields.ID, len(users))
-	batchItems := make([]BatchItem, len(users))
+	batchItems := make([]outbox.BatchItem, len(users))
 
 	for i, u := range users {
 		u.Anonymize(now)
 		userIDs[i] = u.ID()
 
-		batchItems[i] = BatchItem{
+		batchItems[i] = outbox.BatchItem{
 			Variant: EventAnonymized,
 			Payload: EventAnonymizedPayload{
 				UserID: u.ID().String(),
