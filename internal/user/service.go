@@ -498,13 +498,31 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return err
 	}
 
-	scheduledAt := fields.NewTimestampFromTime(time.Now().Add(ScheduleDeleteGracePeriod))
-	u.ScheduleDelete(
-		scheduledAt,
-		fields.NewTimestampFromTime(time.Now()),
-	)
+	t := time.Now()
+	now := fields.NewTimestampFromTime(t)
+	scheduledAt := fields.NewTimestampFromTime(t.Add(ScheduleDeleteGracePeriod))
 
-	if _, err := s.r.Update(ctx, u); err != nil {
+	u.ScheduleDelete(scheduledAt, now)
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		updatedUser, err := s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventScheduleDeletePayload{
+			UserID:      updatedUser.ID().String(),
+			Email:       updatedUser.Email().String(),
+			ScheduledAt: scheduledAt.String(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventScheduleDelete, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 
