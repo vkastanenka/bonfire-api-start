@@ -55,7 +55,6 @@ func (app *Application) routes() http.Handler {
 			auth.Post("/auth/resend-verify", httpio.ToHTTPErr(app.Handlers.Auth.ResendVerify))
 			auth.Post("/auth/ws-ticket", httpio.ToHTTPErr(app.Handlers.Auth.WSTicket))
 
-			// Account & Profile Management
 			auth.Get("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.Get))
 			auth.Patch("/users/@me/email", httpio.ToHTTPErr(app.Handlers.Me.UpdateEmail))
 			auth.Patch("/users/@me/username", httpio.ToHTTPErr(app.Handlers.Me.UpdateUsername))
@@ -64,6 +63,10 @@ func (app *Application) routes() http.Handler {
 			auth.Patch("/users/@me/profile", httpio.ToHTTPErr(app.Handlers.Me.UpdateProfile))
 			auth.Post("/users/@me/disable", httpio.ToHTTPErr(app.Handlers.Me.Disable))
 			auth.Delete("/users/@me", httpio.ToHTTPErr(app.Handlers.Me.ScheduleDelete))
+
+			auth.Get("/users/@me/sessions", httpio.ToHTTPErr(app.Handlers.Me.GetSessions))
+			auth.Delete("/users/@me/sessions", httpio.ToHTTPErr(app.Handlers.Me.RevokeAllSessions))
+			auth.Delete("/users/@me/sessions/{id}", httpio.ToHTTPErr(app.Handlers.Me.RevokeSession))
 
 			auth.Post("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.SendFriendRequest))
 			auth.Post("/users/@me/relationships/{id}/accept", httpio.ToHTTPErr(app.Handlers.Me.AcceptFriendRequest))
