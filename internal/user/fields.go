@@ -20,14 +20,13 @@ type Bio struct {
 	fields.Text
 }
 
-func NewBio(raw string) (Bio, error) {
+func ParseBio(field, raw string) (Bio, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return Bio{}, nil
 	}
 
-	if err := fields.Validate(s, fields.ValidateCfg{
-		Field:     "bio",
+	if err := fields.Validate(field, s, fields.ValidateCfg{
 		MaxLen:    MaxBioLength,
 		IsRuneLen: true,
 	}); err != nil {
@@ -37,21 +36,25 @@ func NewBio(raw string) (Bio, error) {
 	return Bio{Text: fields.NewText(s)}, nil
 }
 
+func ParseRequiredBio(field, raw string) (Bio, error) {
+	v, err := ParseBio(field, raw)
+	if err != nil {
+		return Bio{}, err
+	}
+	if !v.IsValid() {
+		return Bio{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
 func (b Bio) Equals(other Bio) bool {
 	return b.Text.Equals(other.Text)
 }
 
-func (b Bio) MarshalText() ([]byte, error) {
-	return fields.MarshalText(b, Bio.String)
-}
-
 func (b *Bio) UnmarshalText(text []byte) error {
-	val, err := fields.UnmarshalText(text, NewBio)
-	if err != nil {
-		return err
-	}
-	*b = val
-	return nil
+	var err error
+	*b, err = fields.UnmarshalText(text, "bio", ParseBio)
+	return err
 }
 
 // ============================================================================
@@ -64,14 +67,13 @@ type DisplayName struct {
 	fields.Text
 }
 
-func NewDisplayName(raw string) (DisplayName, error) {
+func ParseDisplayName(field, raw string) (DisplayName, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return DisplayName{}, fields.ErrRequired("display_name", "Display name cannot be empty.")
+		return DisplayName{}, nil
 	}
 
-	if err := fields.Validate(s, fields.ValidateCfg{
-		Field:     "display_name",
+	if err := fields.Validate(field, s, fields.ValidateCfg{
 		MaxLen:    MaxDisplayNameLength,
 		IsRuneLen: true,
 	}); err != nil {
@@ -81,16 +83,24 @@ func NewDisplayName(raw string) (DisplayName, error) {
 	return DisplayName{Text: fields.NewText(s)}, nil
 }
 
+func ParseRequiredDisplayName(field, raw string) (DisplayName, error) {
+	v, err := ParseDisplayName(field, raw)
+	if err != nil {
+		return DisplayName{}, err
+	}
+	if !v.IsValid() {
+		return DisplayName{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
 func (d DisplayName) Equals(other DisplayName) bool {
 	return d.Text.Equals(other.Text)
 }
 
-func (d DisplayName) MarshalText() ([]byte, error) {
-	return fields.MarshalText(d, DisplayName.String)
-}
-
-func (d *DisplayName) UnmarshalText(text []byte) (err error) {
-	*d, err = fields.UnmarshalText(text, NewDisplayName)
+func (d *DisplayName) UnmarshalText(text []byte) error {
+	var err error
+	*d, err = fields.UnmarshalText(text, "display_name", ParseDisplayName)
 	return err
 }
 
@@ -106,33 +116,40 @@ type Email struct {
 	fields.Text
 }
 
-func NewEmail(raw string) (Email, error) {
+func ParseEmail(field, raw string) (Email, error) {
 	s := sanitize.Email(raw)
 	if s == "" {
-		return Email{}, fields.ErrRequired("email", "Email address cannot be empty")
+		return Email{}, nil
 	}
 
-	if err := fields.Validate(s, fields.ValidateCfg{
-		Field:  "email",
+	if err := fields.Validate(field, s, fields.ValidateCfg{
 		MaxLen: MaxEmailLength,
 		Regex:  rgxEmail,
 	}); err != nil {
-		return Email{}, fields.ErrInvalidFormat("email", "Must be a valid email address")
+		return Email{}, fields.ErrInvalidFormat(field, "Must be a valid email address")
 	}
 
 	return Email{Text: fields.NewText(s)}, nil
 }
 
+func ParseRequiredEmail(field, raw string) (Email, error) {
+	v, err := ParseEmail(field, raw)
+	if err != nil {
+		return Email{}, err
+	}
+	if !v.IsValid() {
+		return Email{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
 func (e Email) Equals(other Email) bool {
-	return e.Text.Equals(other.Text)
+	return strings.EqualFold(e.String(), other.String())
 }
 
-func (e Email) MarshalText() ([]byte, error) {
-	return fields.MarshalText(e, Email.String)
-}
-
-func (e *Email) UnmarshalText(text []byte) (err error) {
-	*e, err = fields.UnmarshalText(text, NewEmail)
+func (e *Email) UnmarshalText(text []byte) error {
+	var err error
+	*e, err = fields.UnmarshalText(text, "email", ParseEmail)
 	return err
 }
 
@@ -149,13 +166,12 @@ type Password struct {
 	fields.Text
 }
 
-func NewPassword(raw string) (Password, error) {
+func ParsePassword(field, raw string) (Password, error) {
 	if raw == "" {
-		return Password{}, fields.ErrRequired("password", "Password cannot be empty")
+		return Password{}, nil
 	}
 
-	if err := fields.Validate(raw, fields.ValidateCfg{
-		Field:  "password",
+	if err := fields.Validate(field, raw, fields.ValidateCfg{
 		MinLen: MinPasswordLength,
 		MaxLen: MaxPasswordLength,
 	}); err != nil {
@@ -165,16 +181,24 @@ func NewPassword(raw string) (Password, error) {
 	return Password{Text: fields.NewText(raw)}, nil
 }
 
+func ParseRequiredPassword(field, raw string) (Password, error) {
+	v, err := ParsePassword(field, raw)
+	if err != nil {
+		return Password{}, err
+	}
+	if !v.IsValid() {
+		return Password{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
 func (p Password) Equals(other Password) bool {
 	return p.Text.Equals(other.Text)
 }
 
-func (p Password) MarshalText() ([]byte, error) {
-	return fields.MarshalText(p, Password.String)
-}
-
-func (p *Password) UnmarshalText(text []byte) (err error) {
-	*p, err = fields.UnmarshalText(text, NewPassword)
+func (p *Password) UnmarshalText(text []byte) error {
+	var err error
+	*p, err = fields.UnmarshalText(text, "password", ParsePassword)
 	return err
 }
 
@@ -191,13 +215,12 @@ type PasswordHash struct {
 	fields.Text
 }
 
-func NewPasswordHash(raw string) (PasswordHash, error) {
+func ParsePasswordHash(field, raw string) (PasswordHash, error) {
 	if raw == "" {
-		return PasswordHash{}, fields.ErrRequired("password_hash", "Password hash cannot be empty")
+		return PasswordHash{}, nil
 	}
 
-	if err := fields.Validate(raw, fields.ValidateCfg{
-		Field:  "password_hash",
+	if err := fields.Validate(field, raw, fields.ValidateCfg{
 		MinLen: MinPasswordHashLength,
 		MaxLen: MaxPasswordHashLength,
 	}); err != nil {
@@ -207,16 +230,24 @@ func NewPasswordHash(raw string) (PasswordHash, error) {
 	return PasswordHash{Text: fields.NewText(raw)}, nil
 }
 
+func ParseRequiredPasswordHash(field, raw string) (PasswordHash, error) {
+	v, err := ParsePasswordHash(field, raw)
+	if err != nil {
+		return PasswordHash{}, err
+	}
+	if !v.IsValid() {
+		return PasswordHash{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
 func (p PasswordHash) Equals(other PasswordHash) bool {
 	return p.Text.Equals(other.Text)
 }
 
-func (p PasswordHash) MarshalText() ([]byte, error) {
-	return fields.MarshalText(p, PasswordHash.String)
-}
-
-func (p *PasswordHash) UnmarshalText(text []byte) (err error) {
-	*p, err = fields.UnmarshalText(text, NewPasswordHash)
+func (p *PasswordHash) UnmarshalText(text []byte) error {
+	var err error
+	*p, err = fields.UnmarshalText(text, "password_hash", ParsePasswordHash)
 	return err
 }
 
@@ -230,32 +261,39 @@ type Phone struct {
 	fields.Text
 }
 
-func NewPhone(raw string) (Phone, error) {
+func ParsePhone(field, raw string) (Phone, error) {
 	s := sanitize.Phone(raw)
 	if s == "" {
 		return Phone{}, nil
 	}
 
-	if err := fields.Validate(s, fields.ValidateCfg{
-		Field: "phone",
+	if err := fields.Validate(field, s, fields.ValidateCfg{
 		Regex: rgxPhone,
 	}); err != nil {
-		return Phone{}, fields.ErrInvalidFormat("phone", "Phone must be in international E.164 format (e.g., +1234567890)")
+		return Phone{}, fields.ErrInvalidFormat(field, "Phone must be in international E.164 format (e.g., +1234567890)")
 	}
 
 	return Phone{Text: fields.NewText(s)}, nil
+}
+
+func ParseRequiredPhone(field, raw string) (Phone, error) {
+	v, err := ParsePhone(field, raw)
+	if err != nil {
+		return Phone{}, err
+	}
+	if !v.IsValid() {
+		return Phone{}, fields.ErrRequired(field)
+	}
+	return v, nil
 }
 
 func (p Phone) Equals(other Phone) bool {
 	return p.Text.Equals(other.Text)
 }
 
-func (p Phone) MarshalText() ([]byte, error) {
-	return fields.MarshalText(p, Phone.String)
-}
-
-func (p *Phone) UnmarshalText(text []byte) (err error) {
-	*p, err = fields.UnmarshalText(text, NewPhone)
+func (p *Phone) UnmarshalText(text []byte) error {
+	var err error
+	*p, err = fields.UnmarshalText(text, "phone", ParsePhone)
 	return err
 }
 
@@ -263,17 +301,17 @@ func (p *Phone) UnmarshalText(text []byte) (err error) {
 // PreferredPresence
 // ============================================================================
 
-func ErrPreferredPresenceInvalid() *errs.Error {
+func ErrPreferredPresenceInvalid(field string) *errs.Error {
 	return errs.InvalidArgument("Invalid preferred presence status.").
-		Reason("PREFERRED_PRESENCE_INVALID").
-		FieldViolation("preferred_presence", "Must be one of: idle, busy, dnd.", "INVALID_ENUM_VALUE")
+		Reason(strings.ToUpper(field)+"_INVALID").
+		FieldViolation(field, "Must be one of: idle, busy, dnd.", "INVALID_ENUM_VALUE")
 }
 
 type PreferredPresence struct {
 	value presence.Presence
 }
 
-func NewPreferredPresence(raw string) (PreferredPresence, error) {
+func ParsePreferredPresence(field, raw string) (PreferredPresence, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return PreferredPresence{}, nil
@@ -281,13 +319,24 @@ func NewPreferredPresence(raw string) (PreferredPresence, error) {
 
 	p, err := presence.ParseBytes([]byte(s))
 	if err != nil {
-		return PreferredPresence{}, ErrPreferredPresenceInvalid()
+		return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 	}
 
-	return PreferredPresenceFromPresence(p)
+	return PreferredPresenceFromPresence(field, p)
 }
 
-func PreferredPresenceFromInt16(v int16) (PreferredPresence, error) {
+func ParseRequiredPreferredPresence(field, raw string) (PreferredPresence, error) {
+	v, err := ParsePreferredPresence(field, raw)
+	if err != nil {
+		return PreferredPresence{}, err
+	}
+	if !v.IsValid() {
+		return PreferredPresence{}, fields.ErrRequired(field)
+	}
+	return v, nil
+}
+
+func PreferredPresenceFromInt16(field string, v int16) (PreferredPresence, error) {
 	if v == 0 {
 		return PreferredPresence{}, nil
 	}
@@ -299,19 +348,19 @@ func PreferredPresenceFromInt16(v int16) (PreferredPresence, error) {
 	case int16(presence.PresenceIdle), int16(presence.PresenceBusy), int16(presence.PresenceDND):
 		p, err = presence.FromInt16(v)
 		if err != nil {
-			return PreferredPresence{}, ErrPreferredPresenceInvalid()
+			return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 		}
 	}
 
-	return PreferredPresenceFromPresence(p)
+	return PreferredPresenceFromPresence(field, p)
 }
 
-func PreferredPresenceFromPresence(p presence.Presence) (PreferredPresence, error) {
+func PreferredPresenceFromPresence(field string, p presence.Presence) (PreferredPresence, error) {
 	switch p {
 	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
 		return PreferredPresence{value: p}, nil
 	}
-	return PreferredPresence{}, ErrPreferredPresenceInvalid()
+	return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 }
 
 func (pp PreferredPresence) Presence() presence.Presence { return pp.value }
@@ -361,11 +410,12 @@ func (pp PreferredPresence) MarshalText() ([]byte, error) {
 	if !pp.IsSet() {
 		return nil, nil
 	}
-	return fields.MarshalText(pp, PreferredPresence.String)
+	return []byte(pp.String()), nil
 }
 
-func (pp *PreferredPresence) UnmarshalText(text []byte) (err error) {
-	*pp, err = fields.UnmarshalText(text, NewPreferredPresence)
+func (pp *PreferredPresence) UnmarshalText(text []byte) error {
+	var err error
+	*pp, err = fields.UnmarshalText(text, "preferred_presence", ParsePreferredPresence)
 	return err
 }
 
@@ -384,14 +434,13 @@ type Username struct {
 	fields.Text
 }
 
-func NewUsername(raw string) (Username, error) {
+func ParseUsername(field, raw string) (Username, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return Username{}, fields.ErrRequired("username", "Username cannot be empty")
+		return Username{}, nil
 	}
 
-	if err := fields.Validate(s, fields.ValidateCfg{
-		Field:     "username",
+	if err := fields.Validate(field, s, fields.ValidateCfg{
 		MinLen:    MinUsernameLength,
 		MaxLen:    MaxUsernameLength,
 		Regex:     rgxUsername,
@@ -403,26 +452,30 @@ func NewUsername(raw string) (Username, error) {
 	switch strings.ToLower(s) {
 	case "admin", "root", "support", "system", "moderator", "bonfire":
 		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason("USERNAME_RESERVED").
-			FieldViolation("username", "This username is reserved and cannot be used", "RESERVED_VALUE")
+			Reason(strings.ToUpper(field)+"_RESERVED").
+			FieldViolation(field, "This username is reserved and cannot be used", "RESERVED_VALUE")
 	}
 
 	return Username{Text: fields.NewText(s)}, nil
+}
+
+func ParseRequiredUsername(field, raw string) (Username, error) {
+	v, err := ParseUsername(field, raw)
+	if err != nil {
+		return Username{}, err
+	}
+	if !v.IsValid() {
+		return Username{}, fields.ErrRequired(field)
+	}
+	return v, nil
 }
 
 func (u Username) Equals(other Username) bool {
 	return strings.EqualFold(u.String(), other.String())
 }
 
-func (u Username) MarshalText() ([]byte, error) {
-	return fields.MarshalText(u, Username.String)
-}
-
 func (u *Username) UnmarshalText(text []byte) error {
-	val, err := fields.UnmarshalText(text, NewUsername)
-	if err != nil {
-		return err
-	}
-	*u = val
-	return nil
+	var err error
+	*u, err = fields.UnmarshalText(text, "username", ParseUsername)
+	return err
 }
