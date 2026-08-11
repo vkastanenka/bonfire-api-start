@@ -82,7 +82,7 @@ func ParseHexColor(field, raw string) (HexColor, error) {
 	}
 
 	if err := Validate(field, s, ValidateCfg{Regex: rgxHexColor}); err != nil {
-		return HexColor{}, ErrInvalidFormat(field, "Must be a valid hex code (e.g., #FF5733)")
+		return HexColor{}, err
 	}
 
 	return HexColor{Text: NewText(strings.ToUpper(s))}, nil
@@ -132,11 +132,6 @@ func ParseID(field, raw string) (ID, error) {
 	return ID(parsed), nil
 }
 
-func ParseRequiredID(field, raw string) (ID, error) {
-	v, err := ParseID(field, raw)
-	return ensureRequired(field, v, err)
-}
-
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
 func (id ID) String() string       { return uuid.UUID(id).String() }
 func (id ID) IsValid() bool        { return uuid.UUID(id) != uuid.Nil }
@@ -177,20 +172,11 @@ func ParseTimestamp(field, raw string) (Timestamp, error) {
 	return Timestamp{value: parsed.UTC()}, nil
 }
 
-func ParseRequiredTimestamp(field, raw string) (Timestamp, error) {
-	v, err := ParseTimestamp(field, raw)
-	return ensureRequired(field, v, err)
-}
-
 func NewTimestampFromTime(t time.Time) Timestamp {
 	if t.IsZero() {
 		return Timestamp{}
 	}
 	return Timestamp{value: t.UTC()}
-}
-
-func NewRequiredTimestampFromTime(field string, t time.Time) (Timestamp, error) {
-	return ensureRequired(field, NewTimestampFromTime(t), nil)
 }
 
 func NewTimestampFromUnix(sec int64) Timestamp {

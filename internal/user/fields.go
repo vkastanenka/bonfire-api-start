@@ -36,17 +36,6 @@ func ParseBio(field, raw string) (Bio, error) {
 	return Bio{Text: fields.NewText(s)}, nil
 }
 
-func ParseRequiredBio(field, raw string) (Bio, error) {
-	v, err := ParseBio(field, raw)
-	if err != nil {
-		return Bio{}, err
-	}
-	if !v.IsValid() {
-		return Bio{}, fields.ErrRequired(field)
-	}
-	return v, nil
-}
-
 func (b Bio) Equals(other Bio) bool {
 	return b.Text.Equals(other.Text)
 }
@@ -70,7 +59,7 @@ type DisplayName struct {
 func ParseDisplayName(field, raw string) (DisplayName, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return DisplayName{}, nil
+		return DisplayName{}, fields.ErrRequired(field)
 	}
 
 	if err := fields.Validate(field, s, fields.ValidateCfg{
@@ -81,17 +70,6 @@ func ParseDisplayName(field, raw string) (DisplayName, error) {
 	}
 
 	return DisplayName{Text: fields.NewText(s)}, nil
-}
-
-func ParseRequiredDisplayName(field, raw string) (DisplayName, error) {
-	v, err := ParseDisplayName(field, raw)
-	if err != nil {
-		return DisplayName{}, err
-	}
-	if !v.IsValid() {
-		return DisplayName{}, fields.ErrRequired(field)
-	}
-	return v, nil
 }
 
 func (d DisplayName) Equals(other DisplayName) bool {
@@ -119,32 +97,21 @@ type Email struct {
 func ParseEmail(field, raw string) (Email, error) {
 	s := sanitize.Email(raw)
 	if s == "" {
-		return Email{}, nil
+		return Email{}, fields.ErrRequired(field)
 	}
 
 	if err := fields.Validate(field, s, fields.ValidateCfg{
 		MaxLen: MaxEmailLength,
 		Regex:  rgxEmail,
 	}); err != nil {
-		return Email{}, fields.ErrInvalidFormat(field, "Must be a valid email address")
+		return Email{}, err
 	}
 
 	return Email{Text: fields.NewText(s)}, nil
 }
 
-func ParseRequiredEmail(field, raw string) (Email, error) {
-	v, err := ParseEmail(field, raw)
-	if err != nil {
-		return Email{}, err
-	}
-	if !v.IsValid() {
-		return Email{}, fields.ErrRequired(field)
-	}
-	return v, nil
-}
-
 func (e Email) Equals(other Email) bool {
-	return strings.EqualFold(e.String(), other.String())
+	return e.Text.Equals(other.Text)
 }
 
 func (e *Email) UnmarshalText(text []byte) error {
@@ -168,7 +135,7 @@ type Password struct {
 
 func ParsePassword(field, raw string) (Password, error) {
 	if raw == "" {
-		return Password{}, nil
+		return Password{}, fields.ErrRequired(field)
 	}
 
 	if err := fields.Validate(field, raw, fields.ValidateCfg{
@@ -179,17 +146,6 @@ func ParsePassword(field, raw string) (Password, error) {
 	}
 
 	return Password{Text: fields.NewText(raw)}, nil
-}
-
-func ParseRequiredPassword(field, raw string) (Password, error) {
-	v, err := ParsePassword(field, raw)
-	if err != nil {
-		return Password{}, err
-	}
-	if !v.IsValid() {
-		return Password{}, fields.ErrRequired(field)
-	}
-	return v, nil
 }
 
 func (p Password) Equals(other Password) bool {
@@ -217,7 +173,7 @@ type PasswordHash struct {
 
 func ParsePasswordHash(field, raw string) (PasswordHash, error) {
 	if raw == "" {
-		return PasswordHash{}, nil
+		return PasswordHash{}, fields.ErrRequired(field)
 	}
 
 	if err := fields.Validate(field, raw, fields.ValidateCfg{
@@ -228,17 +184,6 @@ func ParsePasswordHash(field, raw string) (PasswordHash, error) {
 	}
 
 	return PasswordHash{Text: fields.NewText(raw)}, nil
-}
-
-func ParseRequiredPasswordHash(field, raw string) (PasswordHash, error) {
-	v, err := ParsePasswordHash(field, raw)
-	if err != nil {
-		return PasswordHash{}, err
-	}
-	if !v.IsValid() {
-		return PasswordHash{}, fields.ErrRequired(field)
-	}
-	return v, nil
 }
 
 func (p PasswordHash) Equals(other PasswordHash) bool {
@@ -276,17 +221,6 @@ func ParsePhone(field, raw string) (Phone, error) {
 	return Phone{Text: fields.NewText(s)}, nil
 }
 
-func ParseRequiredPhone(field, raw string) (Phone, error) {
-	v, err := ParsePhone(field, raw)
-	if err != nil {
-		return Phone{}, err
-	}
-	if !v.IsValid() {
-		return Phone{}, fields.ErrRequired(field)
-	}
-	return v, nil
-}
-
 func (p Phone) Equals(other Phone) bool {
 	return p.Text.Equals(other.Text)
 }
@@ -303,7 +237,7 @@ func (p *Phone) UnmarshalText(text []byte) error {
 
 func ErrPreferredPresenceInvalid(field string) *errs.Error {
 	return errs.InvalidArgument("Invalid preferred presence status.").
-		Reason(strings.ToUpper(field)+"_INVALID").
+		Reason("PREFERRED_PRESENCE_INVALID").
 		FieldViolation(field, "Must be one of: idle, busy, dnd.", "INVALID_ENUM_VALUE")
 }
 
@@ -325,31 +259,14 @@ func ParsePreferredPresence(field, raw string) (PreferredPresence, error) {
 	return PreferredPresenceFromPresence(field, p)
 }
 
-func ParseRequiredPreferredPresence(field, raw string) (PreferredPresence, error) {
-	v, err := ParsePreferredPresence(field, raw)
-	if err != nil {
-		return PreferredPresence{}, err
-	}
-	if !v.IsValid() {
-		return PreferredPresence{}, fields.ErrRequired(field)
-	}
-	return v, nil
-}
-
 func PreferredPresenceFromInt16(field string, v int16) (PreferredPresence, error) {
 	if v == 0 {
 		return PreferredPresence{}, nil
 	}
 
-	var p presence.Presence
-	var err error
-
-	switch v {
-	case int16(presence.PresenceIdle), int16(presence.PresenceBusy), int16(presence.PresenceDND):
-		p, err = presence.FromInt16(v)
-		if err != nil {
-			return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
-		}
+	p, err := presence.FromInt16(v)
+	if err != nil {
+		return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 	}
 
 	return PreferredPresenceFromPresence(field, p)
@@ -437,7 +354,7 @@ type Username struct {
 func ParseUsername(field, raw string) (Username, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
-		return Username{}, nil
+		return Username{}, fields.ErrRequired(field)
 	}
 
 	if err := fields.Validate(field, s, fields.ValidateCfg{
@@ -452,22 +369,11 @@ func ParseUsername(field, raw string) (Username, error) {
 	switch strings.ToLower(s) {
 	case "admin", "root", "support", "system", "moderator", "bonfire":
 		return Username{}, errs.InvalidArgument("Invalid username.").
-			Reason(strings.ToUpper(field)+"_RESERVED").
+			Reason("USERNAME_RESERVED").
 			FieldViolation(field, "This username is reserved and cannot be used", "RESERVED_VALUE")
 	}
 
 	return Username{Text: fields.NewText(s)}, nil
-}
-
-func ParseRequiredUsername(field, raw string) (Username, error) {
-	v, err := ParseUsername(field, raw)
-	if err != nil {
-		return Username{}, err
-	}
-	if !v.IsValid() {
-		return Username{}, fields.ErrRequired(field)
-	}
-	return v, nil
 }
 
 func (u Username) Equals(other Username) bool {
