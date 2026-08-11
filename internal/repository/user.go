@@ -22,10 +22,18 @@ func NewUserRepository(store *db.Store) *UserRepository {
 	}
 }
 
-func (r *UserRepository) Availability(ctx context.Context, email user.Email, username user.Username) (bool, bool, error) {
+func (r *UserRepository) Availability(ctx context.Context, email *user.Email, username *user.Username) (bool, bool, error) {
+	var emailStr, usernameStr string
+	if email != nil {
+		emailStr = email.String()
+	}
+	if username != nil {
+		usernameStr = username.String()
+	}
+
 	row, err := r.store.UserAvailability(ctx, db.UserAvailabilityParams{
-		Email:    email.String(),
-		Username: username.String(),
+		Email:    emailStr,
+		Username: usernameStr,
 	})
 	if err != nil {
 		return false, false, r.store.Err(err)

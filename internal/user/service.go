@@ -6,25 +6,12 @@ import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 )
-
-type Cache interface {
-	Delete(ctx context.Context, id fields.ID) error
-	DeleteBatch(ctx context.Context, ids []fields.ID) error
-	Get(ctx context.Context, id fields.ID) (*User, error)
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
-	Set(ctx context.Context, user *User) error
-	SetBatch(ctx context.Context, users []*User) error
-}
 
 type Repository interface {
 	Create(ctx context.Context, u *User) (*User, error)
@@ -46,46 +33,31 @@ type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
 }
 
-type VerificationCodeCache interface {
-	DeleteUserEmailUpdateCode(ctx context.Context, userID fields.ID) error
-	DeleteUserPhoneUpdateCode(ctx context.Context, userID fields.ID) error
-	GetUserEmailUpdateCode(ctx context.Context, userID fields.ID) (fields.VerificationCode, error)
-	GetUserPhoneUpdateCode(ctx context.Context, userID fields.ID) (fields.VerificationCode, string, error)
-	SetUserEmailUpdateCode(ctx context.Context, userID fields.ID, code fields.VerificationCode) error
-	SetUserPhoneUpdateCode(ctx context.Context, userID fields.ID, code fields.VerificationCode, phone string) error
-}
-
 type Service struct {
-	cache      Cache
-	repo       Repository
-	cRepo      CachedRepository
-	outbox     OutboxRepository
-	vCodeCache VerificationCodeCache
+	r  Repository
+	cr CachedRepository
+	o  OutboxRepository
 }
 
 func NewService(
-	cache Cache,
-	repo Repository,
-	cachedRepo CachedRepository,
-	outbox OutboxRepository,
-	vCodeCache VerificationCodeCache,
+	r Repository,
+	cr CachedRepository,
+	o OutboxRepository,
 ) *Service {
 	return &Service{
-		cache:      cache,
-		repo:       repo,
-		cRepo:      cachedRepo,
-		outbox:     outbox,
-		vCodeCache: vCodeCache,
+		r:  r,
+		cr: cr,
+		o:  o,
 	}
 }
 
 func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
-	id, err := fields.NewID(rawID)
+	id, err := fields.ParseRequiredID("id", rawID)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.cr.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -100,35 +72,33 @@ type UpdateEmailParams struct {
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
-	id, err := fields.NewID(p.UserID)
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	newEmail, err := NewEmail(p.NewEmail)
+	newEmail, err := ParseEmail("email", p.NewEmail)
 	if err != nil {
 		return nil, err
 	}
 
-	password, err := NewPassword(p.Password)
+	password, err := ParsePassword("password", p.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.authenticateAndFetch(ctx, id, password)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
+	if u.email.Equals(newEmail) {
+		return u, nil
 	}
 
 	u.UpdateEmail(newEmail, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cRepo.Update(ctx, u)
+	uu, err := s.cr.Update(ctx, u)
 	if err != nil {
 		return nil, err
 	}
@@ -143,35 +113,33 @@ type UpdateUsernameParams struct {
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
-	id, err := fields.NewID(p.UserID)
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	newUsername, err := NewUsername(p.NewUsername)
+	newUsername, err := ParseUsername("username", p.NewUsername)
 	if err != nil {
 		return nil, err
 	}
 
-	password, err := NewPassword(p.Password)
+	password, err := ParsePassword("password", p.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.authenticateAndFetch(ctx, id, password)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
+	if u.username.Equals(newUsername) {
+		return u, nil
 	}
 
 	u.UpdateUsername(newUsername, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cRepo.Update(ctx, u)
+	uu, err := s.cr.Update(ctx, u)
 	if err != nil {
 		return nil, err
 	}
@@ -187,62 +155,53 @@ type UpdatePasswordParams struct {
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	id, err := fields.NewID(p.UserID)
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return err
 	}
 
-	currentPassword, err := NewPassword(p.CurrentPassword)
+	currentPassword, err := ParsePassword("current_password", p.CurrentPassword)
 	if err != nil {
 		return err
 	}
 
-	newPassword, err := NewPassword(p.NewPassword)
+	newPassword, err := ParsePassword("new_password", p.NewPassword)
 	if err != nil {
 		return err
 	}
 
-	newPasswordConfirm, err := NewPassword(p.NewPasswordConfirm)
+	newPasswordConfirm, err := ParsePassword("new_password_confirm", p.NewPasswordConfirm)
 	if err != nil {
 		return err
 	}
 
 	if !newPassword.Equals(newPasswordConfirm) {
-		return errs.InvalidArgument("Passwords must match.")
+		return errs.InvalidArgument("Passwords must match.").
+			FieldViolation("new_password_confirm", "Passwords do not match.", "PASSWORD_MISMATCH")
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.authenticateAndFetch(ctx, id, currentPassword)
 	if err != nil {
 		return err
 	}
 
-	if err = crypto.ComparePassword(u.PasswordHash().String(), currentPassword.String()); err != nil {
-		return errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
-	}
-
 	passwordHash, err := crypto.HashPassword(newPassword.String())
 	if err != nil {
-		return errs.Internal("failed to hash password").Wrap(err)
+		return errs.Internal("Failed to hash password.").Wrap(err)
 	}
 
-	newPasswordHash, err := NewPasswordHash(passwordHash)
+	newPasswordHash, err := ParsePasswordHash("new_password_hash", passwordHash)
 	if err != nil {
 		return err
 	}
 
 	u.UpdatePasswordHash(newPasswordHash, fields.NewTimestampFromTime(time.Now()))
 
-	_, err = s.cRepo.Update(ctx, u)
+	_, err = s.cr.Update(ctx, u)
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func (s *Service) UpdatePhone(ctx context.Context) error {
 	return nil
 }
 
@@ -252,30 +211,34 @@ type UpdatePreferredPresenceParams struct {
 	Until    *string
 }
 
-func (s *Service) UpdatePreferredPreference(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
-	id, err := fields.NewID(p.UserID)
+func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	preferredPresence, err := NewPreferredPresence(ptr.From(p.Presence))
+	preferredPresence, err := ParsePreferredPresence("preferred_presence", ptr.From(p.Presence))
 	if err != nil {
 		return nil, err
 	}
 
-	until, err := fields.NewTimestamp(ptr.From(p.Until))
+	until, err := fields.ParseTimestamp("preferred_presence_until", ptr.From(p.Until))
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.cr.Get(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := u.EnsureActive(); err != nil {
 		return nil, err
 	}
 
 	u.UpdatePreferredPresence(preferredPresence, until, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cRepo.Update(ctx, u)
+	uu, err := s.cr.Update(ctx, u)
 	if err != nil {
 		return nil, err
 	}
@@ -292,33 +255,37 @@ type UpdateProfileParams struct {
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
-	id, err := fields.NewID(p.UserID)
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	displayName, err := NewDisplayName(p.DisplayName)
+	displayName, err := ParseDisplayName("display_name", p.DisplayName)
 	if err != nil {
 		return nil, err
 	}
 
-	bio, err := NewBio(ptr.From(p.Bio))
+	bio, err := ParseBio("bio", ptr.From(p.Bio))
 	if err != nil {
 		return nil, err
 	}
 
-	avatarURL, err := fields.NewURL(ptr.From(p.AvatarURL))
+	avatarURL, err := fields.ParseURL("avatar_url", ptr.From(p.AvatarURL))
 	if err != nil {
 		return nil, err
 	}
 
-	bannerColor, err := fields.NewHexColor(ptr.From(p.BannerColor))
+	bannerColor, err := fields.ParseHexColor("banner_color", ptr.From(p.BannerColor))
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.cr.Get(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := u.EnsureActive(); err != nil {
 		return nil, err
 	}
 
@@ -330,7 +297,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		fields.NewTimestampFromTime(time.Now()),
 	)
 
-	uu, err := s.cRepo.Update(ctx, u)
+	uu, err := s.cr.Update(ctx, u)
 	if err != nil {
 		return nil, err
 	}
@@ -338,35 +305,30 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	return uu, nil
 }
 
-func (s *Service) Disable(ctx context.Context, rawID uuid.UUID, rawPassword string) error {
-	id, err := fields.NewID(rawID)
+type DisableParams struct {
+	UserID   uuid.UUID
+	Password string
+}
+
+func (s *Service) Disable(ctx context.Context, p DisableParams) error {
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return err
 	}
 
-	password, err := NewPassword(rawPassword)
+	password, err := ParsePassword("password", p.Password)
 	if err != nil {
 		return err
 	}
 
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.authenticateAndFetch(ctx, id, password)
 	if err != nil {
 		return err
-	}
-
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
-
-	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
 	}
 
 	u.Disable(fields.NewTimestampFromTime(time.Now()))
 
-	_, err = s.cRepo.Update(ctx, u)
+	_, err = s.cr.Update(ctx, u)
 	if err != nil {
 		return err
 	}
@@ -374,37 +336,35 @@ func (s *Service) Disable(ctx context.Context, rawID uuid.UUID, rawPassword stri
 	return nil
 }
 
-func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDeleteAt time.Time, rawPassword string) error {
-	id, err := fields.NewID(rawID)
+const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
+
+type ScheduleDeleteParams struct {
+	UserID   uuid.UUID
+	Password string
+}
+
+func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) error {
+	id, err := fields.ParseRequiredID("id", p.UserID)
 	if err != nil {
 		return err
 	}
 
-	password, err := NewPassword(rawPassword)
+	password, err := ParsePassword("password", p.Password)
 	if err != nil {
 		return err
 	}
 
-	deleteAt := fields.NewTimestampFromTime(rawDeleteAt)
-
-	u, err := s.cRepo.Get(ctx, id)
+	u, err := s.authenticateAndFetch(ctx, id, password)
 	if err != nil {
 		return err
 	}
 
-	if err := u.EnsureActive(); err != nil {
-		return err
-	}
+	u.ScheduleDelete(
+		fields.NewTimestampFromTime(time.Now().Add(ScheduleDeleteGracePeriod)),
+		fields.NewTimestampFromTime(time.Now()),
+	)
 
-	if err = crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_CREDENTIALS").
-			Wrap(errors.New("invalid credentials"))
-	}
-
-	u.ScheduleDelete(deleteAt, fields.NewTimestampFromTime(time.Now()))
-
-	_, err = s.cRepo.Update(ctx, u)
+	_, err = s.cr.Update(ctx, u)
 	if err != nil {
 		return err
 	}
@@ -412,81 +372,13 @@ func (s *Service) ScheduleDelete(ctx context.Context, rawID uuid.UUID, rawDelete
 	return nil
 }
 
-func (s *Service) RequestUpdateEmailCode(ctx context.Context, rawID uuid.UUID, rawEmail string) error {
-	id, err := fields.NewID(rawID)
-	if err != nil {
-		return err
-	}
+const AnonymizeBatchSize = 100
 
-	email, err := NewEmail(rawEmail)
-	if err != nil {
-		return err
-	}
-
-	rawCode, err := crypto.GenerateVerificationCode(6)
-	if err != nil {
-		return errs.Internal("failed to generate verification code").Wrap(err)
-	}
-
-	code, err := fields.NewVerificationCode(rawCode)
-	if err != nil {
-		return err
-	}
-
-	if err := s.vCodeCache.SetUserEmailUpdateCode(ctx, id, code); err != nil {
-		return err
-	}
-
-	_, err = s.outbox.Publish(ctx, EventRequestUpdateEmailCode, RequestUpdateEmailCodePayload{
-		Code:  code.String(),
-		Email: email.String(),
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Service) VerifyUpdateEmailCode(ctx context.Context, rawID uuid.UUID, rawCandidateCode string) error {
-	id, err := fields.NewID(rawID)
-	if err != nil {
-		return err
-	}
-
-	candidateCode, err := fields.NewVerificationCode(rawCandidateCode)
-	if err != nil {
-		return err
-	}
-
-	cachedCode, err := s.vCodeCache.GetUserEmailUpdateCode(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if !cachedCode.Equals(candidateCode) {
-		return errs.InvalidArgument("invalid code").Wrap(err)
-	}
-
-	if err := s.vCodeCache.DeleteUserEmailUpdateCode(ctx, id); err != nil {
-		slog.WarnContext(ctx, "failed to delete verification code after successful verification",
-			"user_id", id.String(),
-			"error", err,
-		)
-	}
-
-	return nil
-}
-
-func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
-	if batchSize <= 0 {
-		batchSize = 100
-	}
-
+func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	now := fields.NewTimestampFromTime(time.Now())
-	users, err := s.repo.GetDeleteScheduledBatch(ctx, now, batchSize)
+	users, err := s.r.GetDeleteScheduledBatch(ctx, now, AnonymizeBatchSize)
 	if err != nil {
-		return fmt.Errorf("failed to fetch users scheduled for deletion: %w", err)
+		return err
 	}
 
 	if len(users) == 0 {
@@ -499,97 +391,35 @@ func (s *Service) AnonymizeBatch(ctx context.Context, batchSize int32) error {
 
 	usersJSON, err := json.Marshal(users)
 	if err != nil {
-		return fmt.Errorf("failed to marshal anonymized users batch: %w", err)
+		return errs.Internal("Failed to marshal anonymized users batch.").Wrap(err)
 	}
 
-	if _, err := s.cRepo.UpdateBatch(ctx, usersJSON); err != nil {
-		return fmt.Errorf("failed to batch update anonymized users: %w", err)
+	if _, err := s.cr.UpdateBatch(ctx, usersJSON); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (s *Service) RequestUpdatePhoneCode(ctx context.Context, rawID uuid.UUID, rawPhone string) error {
-	id, err := fields.NewID(rawID)
+func (s *Service) authenticateAndFetch(ctx context.Context, id fields.ID, password Password) (*User, error) {
+	u, err := s.r.Get(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	phone, err := NewPhone(rawPhone)
-	if err != nil {
-		return err
+	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return nil, ErrInvalidPassword(err)
 	}
 
-	rawCode, err := crypto.GenerateVerificationCode(6)
-	if err != nil {
-		return fmt.Errorf("failed to generate phone code: %w", err)
+	if err := u.EnsureActive(); err != nil {
+		return nil, err
 	}
 
-	code, err := fields.NewVerificationCode(rawCode)
-	if err != nil {
-		return err
-	}
-
-	if err := s.vCodeCache.SetUserPhoneUpdateCode(ctx, id, code, phone.String()); err != nil {
-		return err
-	}
-
-	_, err = s.outbox.Publish(ctx, EventRequestUpdatePhoneCode, RequestUpdatePhoneCodePayload{
-		Code:  code.String(),
-		Phone: phone.String(),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to publish outbox event: %w", err)
-	}
-
-	return nil
+	return u, nil
 }
 
-func (s *Service) VerifyUpdatePhoneCode(ctx context.Context, rawID uuid.UUID, rawCandidateCode string) (*User, error) {
-	id, err := fields.NewID(rawID)
-	if err != nil {
-		return nil, err
-	}
-
-	candidateCode, err := fields.NewVerificationCode(rawCandidateCode)
-	if err != nil {
-		return nil, err
-	}
-
-	cachedCode, rawPhone, err := s.vCodeCache.GetUserPhoneUpdateCode(ctx, id)
-	if err != nil {
-		if errors.Is(err, redis.ErrCacheMiss) {
-			return nil, errs.InvalidArgument("Verification code has expired or is invalid.").
-				FieldViolation("code", "Verification code has expired or is invalid.", "INVALID_CODE")
-		}
-		return nil, err
-	}
-
-	if !candidateCode.Equals(cachedCode) {
-		return nil, errs.InvalidArgument("Invalid verification code.").
-			FieldViolation("code", "Invalid verification code.", "INVALID_CODE")
-	}
-
-	newPhone, err := NewPhone(rawPhone)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.repo.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := u.UpdatePhone(newPhone, fields.NewTimestampFromTime(time.Now())); err != nil {
-		return nil, err
-	}
-
-	updatedUser, err := s.repo.Update(ctx, u)
-	if err != nil {
-		return nil, err
-	}
-
-	_ = s.vCodeCache.DeleteUserPhoneUpdateCode(ctx, id)
-
-	return updatedUser, nil
+func ErrInvalidPassword(err error) *errs.Error {
+	return errs.Unauthenticated("Invalid password.").
+		FieldViolation("password", "Invalid password.", "INVALID_PASSWORD").
+		Wrap(err)
 }

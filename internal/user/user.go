@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	ErrUserDisabled = errs.PermissionDenied("user account is disabled").
+	ErrUserDisabled = errs.PermissionDenied("User account is disabled.").
 			Reason("USER_DISABLED")
 
-	ErrUserScheduledDeletion = errs.FailedPrecondition("user account is scheduled for deletion").
+	ErrUserScheduledDeletion = errs.FailedPrecondition("User account is scheduled for deletion.").
 					Reason("USER_SCHEDULED_FOR_DELETION")
 )
 
