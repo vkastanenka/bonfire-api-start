@@ -1,15 +1,18 @@
 package user
 
 import (
-	"errors"
 	"fmt"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 )
 
 var (
-	ErrUserDisabled          = errors.New("cannot perform action on a disabled user account")
-	ErrUserScheduledDeletion = errors.New("cannot perform action on an account scheduled for deletion")
+	ErrUserDisabled = errs.PermissionDenied("user account is disabled").
+			Reason("USER_DISABLED")
+
+	ErrUserScheduledDeletion = errs.FailedPrecondition("user account is scheduled for deletion").
+					Reason("USER_SCHEDULED_FOR_DELETION")
 )
 
 type User struct {

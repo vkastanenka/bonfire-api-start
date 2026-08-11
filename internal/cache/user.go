@@ -67,7 +67,6 @@ func (u User) ToDomain() (*user.User, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	prefPresence, err := user.ParsePreferredPresenceFromInt16("preferred_presence", u.PreferredPresence)
 	if err != nil {
 		return nil, err

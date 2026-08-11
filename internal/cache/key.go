@@ -68,7 +68,6 @@ func (s *KeyCache[K, V]) GetBatch(ctx context.Context, keys []K) (map[K]*V, []K,
 		return make(map[K]*V), nil, nil
 	}
 
-	// Deduplicate keys
 	uniqueKeys := make([]K, 0, len(keys))
 	seen := make(map[K]struct{}, len(keys))
 	for _, k := range keys {
