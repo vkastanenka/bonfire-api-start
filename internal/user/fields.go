@@ -22,13 +22,8 @@ type Bio struct {
 
 func ParseBio(field, raw string) (Bio, error) {
 	s := sanitize.Text(raw)
-	if s == "" {
-		return Bio{}, nil
-	}
-
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MaxLen:    MaxBioLength,
-		IsRuneLen: true,
+		MaxLen: MaxBioLength,
 	}); err != nil {
 		return Bio{}, err
 	}
@@ -58,13 +53,9 @@ type DisplayName struct {
 
 func ParseDisplayName(field, raw string) (DisplayName, error) {
 	s := sanitize.Text(raw)
-	if s == "" {
-		return DisplayName{}, fields.ErrRequired(field)
-	}
-
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MaxLen:    MaxDisplayNameLength,
-		IsRuneLen: true,
+		MaxLen:   MaxDisplayNameLength,
+		Required: true,
 	}); err != nil {
 		return DisplayName{}, err
 	}
@@ -96,13 +87,10 @@ type Email struct {
 
 func ParseEmail(field, raw string) (Email, error) {
 	s := sanitize.Email(raw)
-	if s == "" {
-		return Email{}, fields.ErrRequired(field)
-	}
-
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MaxLen: MaxEmailLength,
-		Regex:  rgxEmail,
+		MaxLen:   MaxEmailLength,
+		Regex:    rgxEmail,
+		Required: true,
 	}); err != nil {
 		return Email{}, err
 	}
@@ -134,13 +122,10 @@ type Password struct {
 }
 
 func ParsePassword(field, raw string) (Password, error) {
-	if raw == "" {
-		return Password{}, fields.ErrRequired(field)
-	}
-
 	if err := fields.Validate(field, raw, fields.ValidateCfg{
-		MinLen: MinPasswordLength,
-		MaxLen: MaxPasswordLength,
+		MinLen:   MinPasswordLength,
+		MaxLen:   MaxPasswordLength,
+		Required: true,
 	}); err != nil {
 		return Password{}, err
 	}
@@ -172,13 +157,10 @@ type PasswordHash struct {
 }
 
 func ParsePasswordHash(field, raw string) (PasswordHash, error) {
-	if raw == "" {
-		return PasswordHash{}, fields.ErrRequired(field)
-	}
-
 	if err := fields.Validate(field, raw, fields.ValidateCfg{
-		MinLen: MinPasswordHashLength,
-		MaxLen: MaxPasswordHashLength,
+		MinLen:   MinPasswordHashLength,
+		MaxLen:   MaxPasswordHashLength,
+		Required: true,
 	}); err != nil {
 		return PasswordHash{}, err
 	}
@@ -208,10 +190,6 @@ type Phone struct {
 
 func ParsePhone(field, raw string) (Phone, error) {
 	s := sanitize.Phone(raw)
-	if s == "" {
-		return Phone{}, nil
-	}
-
 	if err := fields.Validate(field, s, fields.ValidateCfg{
 		Regex: rgxPhone,
 	}); err != nil {
@@ -353,15 +331,11 @@ type Username struct {
 
 func ParseUsername(field, raw string) (Username, error) {
 	s := sanitize.Text(raw)
-	if s == "" {
-		return Username{}, fields.ErrRequired(field)
-	}
-
 	if err := fields.Validate(field, s, fields.ValidateCfg{
-		MinLen:    MinUsernameLength,
-		MaxLen:    MaxUsernameLength,
-		Regex:     rgxUsername,
-		IsRuneLen: true,
+		MinLen:   MinUsernameLength,
+		MaxLen:   MaxUsernameLength,
+		Regex:    rgxUsername,
+		Required: true,
 	}); err != nil {
 		return Username{}, err
 	}
