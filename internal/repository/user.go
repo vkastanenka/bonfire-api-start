@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
@@ -143,96 +144,65 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, usersJson []byte) ([]*
 
 func userFromRow(row db.User) (*user.User, error) {
 	userID := db.FromUUID[uuid.UUID](row.ID)
+	userIDStr := userID.String()
 
-	id, err := fields.NewID(userID)
-	if err != nil {
-		return nil, errs.Internal("failed to parse user id from database").
+	mapErr := func(msg, key string, val any, err error) *errs.Error {
+		return errs.Internal(msg).
 			Wrap(err).
 			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("id", userID.String()).
-			Resource("User", userID.String(), "", "database row mapping")
+			Meta(key, fmt.Sprintf("%v", val)).
+			Resource("User", userIDStr, "", "database row mapping")
 	}
 
-	email, err := user.NewEmail(row.Email)
+	id, err := fields.ParseRequiredID("id", userID)
 	if err != nil {
-		return nil, errs.Internal("failed to parse user email from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("email", row.Email).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse user id from database", "id", userIDStr, err)
 	}
 
-	username, err := user.NewUsername(row.Username)
+	email, err := user.ParseEmail("email", row.Email)
 	if err != nil {
-		return nil, errs.Internal("failed to parse username from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("username", row.Username).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse user email from database", "email", row.Email, err)
 	}
 
-	passwordHash, err := user.NewPasswordHash(row.PasswordHash)
+	username, err := user.ParseUsername("username", row.Username)
 	if err != nil {
-		return nil, errs.Internal("failed to parse password hash from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("password_hash", row.PasswordHash).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse username from database", "username", row.Username, err)
 	}
 
-	displayName, err := user.NewDisplayName(row.DisplayName)
+	passwordHash, err := user.ParsePasswordHash("password_hash", row.PasswordHash)
 	if err != nil {
-		return nil, errs.Internal("failed to parse display name from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("display_name", row.DisplayName).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse password hash from database", "password_hash", row.PasswordHash, err)
 	}
 
-	phone, err := user.NewPhone(db.FromText[string](row.Phone))
+	displayName, err := user.ParseDisplayName("display_name", row.DisplayName)
 	if err != nil {
-		return nil, errs.Internal("failed to parse phone from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("phone", row.Phone.String).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse display name from database", "display_name", row.DisplayName, err)
 	}
 
-	bio, err := user.NewBio(db.FromText[string](row.Bio))
+	phone, err := user.ParsePhone("phone", db.FromText[string](row.Phone))
 	if err != nil {
-		return nil, errs.Internal("failed to parse bio from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("bio", row.Bio.String).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse phone from database", "phone", row.Phone.String, err)
 	}
 
-	avatarURL, err := fields.NewURL(db.FromText[string](row.AvatarUrl))
+	bio, err := user.ParseBio("bio", db.FromText[string](row.Bio))
 	if err != nil {
-		return nil, errs.Internal("failed to parse avatar url from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("avatar_url", row.AvatarUrl.String).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse bio from database", "bio", row.Bio.String, err)
 	}
 
-	bannerColor, err := fields.NewHexColor(db.FromText[string](row.BannerColor))
+	avatarURL, err := fields.ParseURL("avatar_url", db.FromText[string](row.AvatarUrl))
 	if err != nil {
-		return nil, errs.Internal("failed to parse banner color from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("banner_color", row.BannerColor.String).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse avatar url from database", "avatar_url", row.AvatarUrl.String, err)
+	}
+
+	bannerColor, err := fields.ParseHexColor("banner_color", db.FromText[string](row.BannerColor))
+	if err != nil {
+		return nil, mapErr("failed to parse banner color from database", "banner_color", row.BannerColor.String, err)
 	}
 
 	rowPreferredPresence := db.FromInt2[int16](row.PreferredPresence)
-	preferredPresence, err := user.PreferredPresenceFromInt16(rowPreferredPresence)
+	preferredPresence, err := user.ParsePreferredPresenceFromInt16("preferred_presence", rowPreferredPresence)
 	if err != nil {
-		return nil, errs.Internal("failed to parse preferred presence from database").
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta("preferred_presence", string(rowPreferredPresence)).
-			Resource("User", userID.String(), "", "database row mapping")
+		return nil, mapErr("failed to parse preferred presence from database", "preferred_presence", rowPreferredPresence, err)
 	}
 
 	preferredPresenceUntil := fields.NewTimestampFromTime(db.FromTimestamptz(row.PreferredPresenceUntil))

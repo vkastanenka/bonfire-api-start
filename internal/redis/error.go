@@ -14,15 +14,16 @@ import (
 type Scope string
 
 const (
-	ScopeAuth     Scope = "auth"
-	ScopeChannel  Scope = "channel"
-	ScopeEvent    Scope = "event"
-	ScopeMessage  Scope = "message"
-	ScopePresence Scope = "presence"
-	ScopeSession  Scope = "session"
-	ScopeStore    Scope = "store"
-	ScopeTicket   Scope = "ticket"
-	ScopeUser     Scope = "user"
+	ScopeAuth             Scope = "auth"
+	ScopeChannel          Scope = "channel"
+	ScopeEvent            Scope = "event"
+	ScopeMessage          Scope = "message"
+	ScopePresence         Scope = "presence"
+	ScopeSession          Scope = "session"
+	ScopeStore            Scope = "store"
+	ScopeTicket           Scope = "ticket"
+	ScopeUser             Scope = "user"
+	ScopeVerificationCode Scope = "verification_code"
 )
 
 func (e Scope) String() string { return string(e) }

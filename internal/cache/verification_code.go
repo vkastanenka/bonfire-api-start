@@ -2,38 +2,48 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/redis"
 )
 
-var ErrInvalidUserID = errors.New("invalid user ID")
+// Key generation helpers following the standard namespace format.
+func UserEmailUpdateCodeKey(userID fields.ID) string {
+	return fmt.Sprintf("users:%s:email_update_code", userID.String())
+}
 
-type phoneUpdatePayload struct {
+func UserPhoneUpdateCodeKey(userID fields.ID) string {
+	return fmt.Sprintf("users:%s:phone_update_code", userID.String())
+}
+
+// PhoneUpdatePayload represents the JSON DTO cached for phone update verification.
+type PhoneUpdatePayload struct {
 	Code  string `json:"code"`
 	Phone string `json:"phone"`
 }
 
-func usersEmailUpdateCodeKey(userID fields.ID) string {
-	return fmt.Sprintf("users:%s:email_update_code", userID.String())
-}
-
-func usersPhoneUpdateCodeKey(userID fields.ID) string {
-	return fmt.Sprintf("users:%s:phone_update_code", userID.String())
-}
-
 type VerificationCodeCache struct {
-	store      redis.Store
-	defaultTTL time.Duration
+	emailCodeEngine *KeyCache[fields.ID, string]
+	phoneCodeEngine *KeyCache[fields.ID, PhoneUpdatePayload]
 }
 
-func NewVerificationCodeCache(store redis.Store, defaultTTL time.Duration) *VerificationCodeCache {
+func NewVerificationCodeCache(store *redis.Store, ttl time.Duration) *VerificationCodeCache {
+	userScopeStore := store.WithScope(redis.ScopeVerificationCode)
+
 	return &VerificationCodeCache{
-		store:      store,
-		defaultTTL: defaultTTL,
+		emailCodeEngine: NewKeyCache[fields.ID, string](
+			userScopeStore,
+			ttl,
+			UserEmailUpdateCodeKey,
+		),
+		phoneCodeEngine: NewKeyCache[fields.ID, PhoneUpdatePayload](
+			userScopeStore,
+			ttl,
+			UserPhoneUpdateCodeKey,
+		),
 	}
 }
 
@@ -41,76 +51,79 @@ func NewVerificationCodeCache(store redis.Store, defaultTTL time.Duration) *Veri
 // Email Update Verification Code
 // ============================================================================
 
-func (c *VerificationCodeCache) SetUserEmailUpdateCode(ctx context.Context, userID fields.ID, code fields.VerificationCode) error {
+func (c *VerificationCodeCache) SetUserEmailUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+	code fields.VerificationCode,
+) error {
 	if !userID.IsValid() {
-		return redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return nil
 	}
-
-	key := usersEmailUpdateCodeKey(userID)
-	if err := c.store.Set(ctx, key, code.String(), c.defaultTTL); err != nil {
-		return err
-	}
-	return nil
+	return c.emailCodeEngine.Set(ctx, userID, code.StringPtr())
 }
 
-func (c *VerificationCodeCache) GetUserEmailUpdateCode(ctx context.Context, userID fields.ID) (fields.VerificationCode, error) {
+func (c *VerificationCodeCache) GetUserEmailUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+) (fields.VerificationCode, error) {
 	if !userID.IsValid() {
-		return fields.VerificationCode{}, redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return fields.VerificationCode{}, nil
 	}
 
-	var code string
-	key := usersEmailUpdateCodeKey(userID)
-	if err := c.store.Get(ctx, key, &code); err != nil {
+	rawCode, err := c.emailCodeEngine.Get(ctx, userID)
+	if err != nil || rawCode == nil {
 		return fields.VerificationCode{}, err
 	}
-	return fields.NewVerificationCode(code)
+
+	return fields.ParseVerificationCode("verification_code", *rawCode)
 }
 
-func (c *VerificationCodeCache) DeleteUserEmailUpdateCode(ctx context.Context, userID fields.ID) error {
+func (c *VerificationCodeCache) DeleteUserEmailUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+) error {
 	if !userID.IsValid() {
-		return redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return nil
 	}
-
-	key := usersEmailUpdateCodeKey(userID)
-	if err := c.store.Delete(ctx, key); err != nil {
-		return err
-	}
-	return nil
+	return c.emailCodeEngine.Delete(ctx, userID)
 }
 
 // ============================================================================
 // Phone Update Verification Code
 // ============================================================================
 
-func (c *VerificationCodeCache) SetUserPhoneUpdateCode(ctx context.Context, userID fields.ID, code fields.VerificationCode, phone string) error {
+func (c *VerificationCodeCache) SetUserPhoneUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+	code fields.VerificationCode,
+	phone string,
+) error {
 	if !userID.IsValid() {
-		return redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return nil
 	}
 
-	payload := phoneUpdatePayload{
+	payload := PhoneUpdatePayload{
 		Code:  code.String(),
 		Phone: phone,
 	}
 
-	key := usersPhoneUpdateCodeKey(userID)
-	if err := c.store.Set(ctx, key, payload, c.defaultTTL); err != nil {
-		return err
-	}
-	return nil
+	return c.phoneCodeEngine.Set(ctx, userID, ptr.To(payload))
 }
 
-func (c *VerificationCodeCache) GetUserPhoneUpdateCode(ctx context.Context, userID fields.ID) (fields.VerificationCode, string, error) {
+func (c *VerificationCodeCache) GetUserPhoneUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+) (fields.VerificationCode, string, error) {
 	if !userID.IsValid() {
-		return fields.VerificationCode{}, "", redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return fields.VerificationCode{}, "", nil
 	}
 
-	var payload phoneUpdatePayload
-	key := usersPhoneUpdateCodeKey(userID)
-	if err := c.store.Get(ctx, key, &payload); err != nil {
+	payload, err := c.phoneCodeEngine.Get(ctx, userID)
+	if err != nil || payload == nil {
 		return fields.VerificationCode{}, "", err
 	}
 
-	vCode, err := fields.NewVerificationCode(payload.Code)
+	vCode, err := fields.ParseVerificationCode("verification_code", payload.Code)
 	if err != nil {
 		return fields.VerificationCode{}, "", err
 	}
@@ -118,14 +131,12 @@ func (c *VerificationCodeCache) GetUserPhoneUpdateCode(ctx context.Context, user
 	return vCode, payload.Phone, nil
 }
 
-func (c *VerificationCodeCache) DeleteUserPhoneUpdateCode(ctx context.Context, userID fields.ID) error {
+func (c *VerificationCodeCache) DeleteUserPhoneUpdateCode(
+	ctx context.Context,
+	userID fields.ID,
+) error {
 	if !userID.IsValid() {
-		return redis.NewError(ErrInvalidUserID, redis.ScopeUser)
+		return nil
 	}
-
-	key := usersPhoneUpdateCodeKey(userID)
-	if err := c.store.Delete(ctx, key); err != nil {
-		return err
-	}
-	return nil
+	return c.phoneCodeEngine.Delete(ctx, userID)
 }
