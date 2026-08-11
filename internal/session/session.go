@@ -1,61 +1,83 @@
 package session
 
 import (
-	"errors"
-	"net/netip"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var (
-	ErrSessionExpired = errors.New("session has expired")
-	ErrSessionRevoked = errors.New("session has been revoked")
+	ErrSessionExpired = errs.Unauthenticated("Session has expired.").
+				Reason("SESSION_EXPIRED")
+	ErrSessionRevoked = errs.Unauthenticated("Session has been revoked.").
+				Reason("SESSION_REVOKED")
+	ErrSessionInvalid = errs.Unauthenticated("Session is invalid.").
+				Reason("SESSION_INVALID")
 )
 
 type Session struct {
-	id               uuid.UUID
-	userID           uuid.UUID
+	id               fields.ID
+	userID           fields.ID
 	refreshTokenHash RefreshTokenHash
-	clientIP         netip.Addr
-	userAgent        string
-	os               string
-	browser          string
-	expiresAt        time.Time
-	lastSeenAt       time.Time
-	revokedAt        *time.Time
-	createdAt        time.Time
-	updatedAt        time.Time
+	clientIP         ClientIP
+	userAgent        UserAgent
+	os               OS
+	client           Client
+	expiresAt        ExpiresAt
+	lastSeenAt       fields.Timestamp
+	revokedAt        fields.Timestamp
+	createdAt        fields.Timestamp
+	updatedAt        fields.Timestamp
 }
 
-// session/session.go
-func New(
-	id uuid.UUID, // Pass explicit ID so token generator and session stay in sync
-	userID uuid.UUID,
-	tokenHash RefreshTokenHash,
-	expiresAt time.Time,
-	clientIP netip.Addr,
-	userAgent, os, browser string,
-) (*Session, error) {
-	if id == uuid.Nil {
-		return nil, errors.New("session ID cannot be nil")
-	}
-	if userID == uuid.Nil {
-		return nil, errors.New("user ID cannot be nil")
-	}
-	if time.Now().After(expiresAt) {
-		return nil, errors.New("expiration time must be in the future")
-	}
+// ============================================================================
+// Getters
+// ============================================================================
 
-	now := time.Now().UTC()
+func (s *Session) ID() fields.ID                      { return s.id }
+func (s *Session) UserID() fields.ID                  { return s.userID }
+func (s *Session) RefreshTokenHash() RefreshTokenHash { return s.refreshTokenHash }
+func (s *Session) ClientIP() ClientIP                 { return s.clientIP }
+func (s *Session) UserAgent() UserAgent               { return s.userAgent }
+func (s *Session) OS() OS                             { return s.os }
+func (s *Session) Client() Client                     { return s.client }
+func (s *Session) ExpiresAt() ExpiresAt               { return s.expiresAt }
+func (s *Session) LastSeenAt() fields.Timestamp       { return s.lastSeenAt }
+func (s *Session) RevokedAt() fields.Timestamp        { return s.revokedAt }
+func (s *Session) CreatedAt() fields.Timestamp        { return s.createdAt }
+func (s *Session) UpdatedAt() fields.Timestamp        { return s.updatedAt }
+
+// ============================================================================
+// Meta
+// ============================================================================
+
+func (s *Session) IsRevoked() bool { return s.revokedAt.StringPtr() != nil }
+func (s *Session) IsExpired() bool { return time.Now().After(s.expiresAt.Time()) }
+func (s Session) IsValid() bool    { return !s.IsRevoked() && !s.IsExpired() }
+
+// ============================================================================
+// Mappers
+// ============================================================================
+
+func New(
+	id fields.ID,
+	userID fields.ID,
+	refreshTokenHash RefreshTokenHash,
+	clientIP ClientIP,
+	userAgent UserAgent,
+	os OS,
+	client Client,
+	expiresAt ExpiresAt,
+	now fields.Timestamp,
+) (*Session, error) {
 	return &Session{
 		id:               id,
 		userID:           userID,
-		refreshTokenHash: tokenHash,
+		refreshTokenHash: refreshTokenHash,
 		clientIP:         clientIP,
 		userAgent:        userAgent,
 		os:               os,
-		browser:          browser,
+		client:           client,
 		expiresAt:        expiresAt,
 		lastSeenAt:       now,
 		createdAt:        now,
@@ -63,23 +85,25 @@ func New(
 	}, nil
 }
 
-// Reconstitute restores an existing session aggregate from storage.
 func Reconstitute(
-	id, userID uuid.UUID,
-	tokenHash RefreshTokenHash,
-	clientIP netip.Addr,
-	userAgent, os, browser string,
-	expiresAt, lastSeenAt, createdAt, updatedAt time.Time,
-	revokedAt *time.Time,
+	id fields.ID,
+	userID fields.ID,
+	refreshTokenHash RefreshTokenHash,
+	clientIP ClientIP,
+	userAgent UserAgent,
+	os OS,
+	client Client,
+	expiresAt ExpiresAt,
+	lastSeenAt, revokedAt, createdAt, updatedAt fields.Timestamp,
 ) *Session {
 	return &Session{
 		id:               id,
 		userID:           userID,
-		refreshTokenHash: tokenHash,
+		refreshTokenHash: refreshTokenHash,
 		clientIP:         clientIP,
 		userAgent:        userAgent,
 		os:               os,
-		browser:          browser,
+		client:           client,
 		expiresAt:        expiresAt,
 		lastSeenAt:       lastSeenAt,
 		revokedAt:        revokedAt,
@@ -88,58 +112,58 @@ func Reconstitute(
 	}
 }
 
-// --- Domain Business Logic & Mutations ---
+// ============================================================================
+// Mutations
+// ============================================================================
 
-func (s *Session) RotateToken(newHash RefreshTokenHash, newExpiresAt time.Time) error {
-	if s.IsRevoked() {
-		return ErrSessionRevoked
-	}
-	if s.IsExpired() {
-		return ErrSessionExpired
-	}
+func (s *Session) RotateToken(
+	newHash RefreshTokenHash,
+	newExpiresAt ExpiresAt,
+	newClientIP ClientIP,
+	newUserAgent UserAgent,
+	now fields.Timestamp,
+) error {
 	s.refreshTokenHash = newHash
 	s.expiresAt = newExpiresAt
-	s.lastSeenAt = time.Now().UTC()
-	s.updatedAt = time.Now().UTC()
+	s.clientIP = newClientIP
+	s.userAgent = newUserAgent
+	s.TouchLastSeen(now)
 	return nil
 }
 
-func (s *Session) TouchLastSeen() error {
-	if s.IsRevoked() {
-		return ErrSessionRevoked
-	}
-	s.lastSeenAt = time.Now().UTC()
+func (s *Session) UpdateMetadata(
+	clientIP ClientIP,
+	userAgent UserAgent,
+	os OS,
+	client Client,
+	now fields.Timestamp,
+) error {
+	s.clientIP = clientIP
+	s.userAgent = userAgent
+	s.os = os
+	s.client = client
+	s.TouchLastSeen(now)
 	return nil
 }
 
-func (s *Session) Revoke() {
-	if s.revokedAt == nil {
-		now := time.Now().UTC()
-		s.revokedAt = &now
-		s.updatedAt = now
-	}
+func (s *Session) ExtendExpiry(newExpiresAt ExpiresAt, now fields.Timestamp) error {
+	s.expiresAt = newExpiresAt
+	s.TouchLastSeen(now)
+	return nil
 }
 
-func (s *Session) IsRevoked() bool {
-	return s.revokedAt != nil
+func (s *Session) Revoke(now fields.Timestamp) error {
+	s.revokedAt = now
+	s.TouchLastSeen(now)
+	return nil
 }
 
-func (s *Session) IsExpired() bool {
-	return time.Now().After(s.expiresAt)
+func (s *Session) TouchLastSeen(now fields.Timestamp) error {
+	s.lastSeenAt = now
+	s.touch(now)
+	return nil
 }
 
-func (s Session) IsValid() bool { return !s.IsRevoked() && !s.IsExpired() }
-
-// Getters
-func (s *Session) ID() uuid.UUID                      { return s.id }
-func (s *Session) UserID() uuid.UUID                  { return s.userID }
-func (s *Session) RefreshTokenHash() RefreshTokenHash { return s.refreshTokenHash }
-func (s *Session) ClientIP() netip.Addr               { return s.clientIP }
-func (s *Session) UserAgent() string                  { return s.userAgent }
-func (s *Session) OS() string                         { return s.os }
-func (s *Session) Browser() string                    { return s.browser }
-func (s *Session) ExpiresAt() time.Time               { return s.expiresAt }
-func (s *Session) LastSeenAt() time.Time              { return s.lastSeenAt }
-func (s *Session) RevokedAt() *time.Time              { return s.revokedAt }
-func (s *Session) CreatedAt() time.Time               { return s.createdAt }
-func (s *Session) UpdatedAt() time.Time               { return s.updatedAt }
+func (s *Session) touch(at fields.Timestamp) {
+	s.updatedAt = at
+}

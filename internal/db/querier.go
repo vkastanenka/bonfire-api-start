@@ -47,7 +47,9 @@ type Querier interface {
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionGetByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (Session, error)
 	SessionRotateRefreshToken(ctx context.Context, arg SessionRotateRefreshTokenParams) (Session, error)
-	SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]SessionUserGetBatchRow, error)
+	SessionUpdate(ctx context.Context, arg SessionUpdateParams) (Session, error)
+	SessionUpdateBatch(ctx context.Context, sessionsJson []byte) ([]Session, error)
+	SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]Session, error)
 	SessionUserRevoke(ctx context.Context, arg SessionUserRevokeParams) error
 	SessionUserRevokeAll(ctx context.Context, arg SessionUserRevokeAllParams) error
 	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)

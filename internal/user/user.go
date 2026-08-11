@@ -10,7 +10,6 @@ import (
 var (
 	ErrUserDisabled = errs.PermissionDenied("User account is disabled.").
 			Reason("USER_DISABLED")
-
 	ErrUserScheduledDeletion = errs.FailedPrecondition("User account is scheduled for deletion.").
 					Reason("USER_SCHEDULED_FOR_DELETION")
 )
@@ -56,7 +55,7 @@ func (u *User) CreatedAt() fields.Timestamp              { return u.createdAt }
 func (u *User) UpdatedAt() fields.Timestamp              { return u.updatedAt }
 
 // ============================================================================
-// State Queries & Invariants
+// Meta
 // ============================================================================
 
 func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
@@ -81,7 +80,7 @@ func (u *User) EnsureActive() error {
 }
 
 // ============================================================================
-// Constructors & Factory Methods
+// Mappers
 // ============================================================================
 
 func New(
@@ -137,7 +136,7 @@ func Reconstitute(
 }
 
 // ============================================================================
-// Lifecycle & Domain Mutations
+// Mutations
 // ============================================================================
 
 func (u *User) Verify(now fields.Timestamp) {

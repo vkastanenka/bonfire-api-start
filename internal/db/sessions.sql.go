@@ -13,41 +13,41 @@ import (
 )
 
 const sessionCreate = `-- name: SessionCreate :one
-INSERT INTO sessions(id, user_id, created_at, updated_at, last_seen_at, expires_at, revoked_at, client_ip, refresh_token_hash, os, client, user_agent)
-    VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::inet, $9::bytea, $10::text, $11::text, $12::text)
+INSERT INTO sessions(id, user_id, refresh_token_hash, client_ip, user_agent, os, client, expires_at, last_seen_at, revoked_at, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING
-    id, user_id, created_at, updated_at, last_seen_at, expires_at, revoked_at, client_ip, refresh_token_hash, os, client, user_agent
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
 `
 
 type SessionCreateParams struct {
 	ID               pgtype.UUID        `json:"id"`
 	UserID           pgtype.UUID        `json:"user_id"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
-	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
-	ClientIP         netip.Addr         `json:"client_ip"`
 	RefreshTokenHash []byte             `json:"refresh_token_hash"`
+	ClientIP         netip.Addr         `json:"client_ip"`
+	UserAgent        string             `json:"user_agent"`
 	OS               string             `json:"os"`
 	Client           string             `json:"client"`
-	UserAgent        string             `json:"user_agent"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error) {
 	row := q.db.QueryRow(ctx, sessionCreate,
 		arg.ID,
 		arg.UserID,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-		arg.LastSeenAt,
-		arg.ExpiresAt,
-		arg.RevokedAt,
-		arg.ClientIP,
 		arg.RefreshTokenHash,
+		arg.ClientIP,
+		arg.UserAgent,
 		arg.OS,
 		arg.Client,
-		arg.UserAgent,
+		arg.ExpiresAt,
+		arg.LastSeenAt,
+		arg.RevokedAt,
+		arg.CreatedAt,
+		arg.UpdatedAt,
 	)
 	var i Session
 	err := row.Scan(
@@ -97,23 +97,11 @@ func (q *Queries) SessionDeleteExpiredBatch(ctx context.Context, arg SessionDele
 
 const sessionGet = `-- name: SessionGet :one
 SELECT
-    id,
-    user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
-    client_ip,
-    refresh_token_hash,
-    os,
-    client,
-    user_agent
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
 FROM
     sessions
 WHERE
-    id = $1::uuid
-LIMIT 1
+    id = $1
 `
 
 func (q *Queries) SessionGet(ctx context.Context, id pgtype.UUID) (Session, error) {
@@ -138,23 +126,11 @@ func (q *Queries) SessionGet(ctx context.Context, id pgtype.UUID) (Session, erro
 
 const sessionGetByRefreshTokenHash = `-- name: SessionGetByRefreshTokenHash :one
 SELECT
-    id,
-    user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
-    client_ip,
-    refresh_token_hash,
-    os,
-    client,
-    user_agent
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
 FROM
     sessions
 WHERE
-    refresh_token_hash = $1::bytea
-LIMIT 1
+    refresh_token_hash = $1
 `
 
 func (q *Queries) SessionGetByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (Session, error) {
@@ -193,18 +169,7 @@ WHERE
     AND revoked_at IS NULL
     AND expires_at > $9::timestamptz
 RETURNING
-    id,
-    user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
-    client_ip,
-    refresh_token_hash,
-    os,
-    client,
-    user_agent
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
 `
 
 type SessionRotateRefreshTokenParams struct {
@@ -249,19 +214,148 @@ func (q *Queries) SessionRotateRefreshToken(ctx context.Context, arg SessionRota
 	return i, err
 }
 
-const sessionUserGetBatch = `-- name: SessionUserGetBatch :many
+const sessionUpdate = `-- name: SessionUpdate :one
+UPDATE
+    sessions
+SET
+    user_id = $2,
+    refresh_token_hash = $3,
+    client_ip = $4,
+    user_agent = $5,
+    os = $6,
+    client = $7,
+    expires_at = $8,
+    last_seen_at = $9,
+    revoked_at = $10,
+    updated_at = $11
+WHERE
+    id = $1
+RETURNING
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
+`
+
+type SessionUpdateParams struct {
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	RefreshTokenHash []byte             `json:"refresh_token_hash"`
+	ClientIP         netip.Addr         `json:"client_ip"`
+	UserAgent        string             `json:"user_agent"`
+	OS               string             `json:"os"`
+	Client           string             `json:"client"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
+	RevokedAt        pgtype.Timestamptz `json:"revoked_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) SessionUpdate(ctx context.Context, arg SessionUpdateParams) (Session, error) {
+	row := q.db.QueryRow(ctx, sessionUpdate,
+		arg.ID,
+		arg.UserID,
+		arg.RefreshTokenHash,
+		arg.ClientIP,
+		arg.UserAgent,
+		arg.OS,
+		arg.Client,
+		arg.ExpiresAt,
+		arg.LastSeenAt,
+		arg.RevokedAt,
+		arg.UpdatedAt,
+	)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.ClientIP,
+		&i.RefreshTokenHash,
+		&i.OS,
+		&i.Client,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
+const sessionUpdateBatch = `-- name: SessionUpdateBatch :many
+WITH input_data AS (
+    SELECT
+        jsonb_populate_recordset
+    FROM
+        jsonb_populate_recordset(NULL::sessions, $1::jsonb))
+INSERT INTO sessions(id, user_id, refresh_token_hash, client_ip, user_agent, os, client, expires_at, last_seen_at, revoked_at, created_at, updated_at)
 SELECT
     id,
     user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
+    refresh_token_hash,
     client_ip,
+    user_agent,
     os,
     client,
-    user_agent
+    expires_at,
+    last_seen_at,
+    revoked_at,
+    created_at,
+    updated_at
+FROM
+    input_data
+ORDER BY
+    id ASC
+ON CONFLICT (id)
+    DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        refresh_token_hash = EXCLUDED.refresh_token_hash,
+        client_ip = EXCLUDED.client_ip,
+        user_agent = EXCLUDED.user_agent,
+        os = EXCLUDED.os,
+        client = EXCLUDED.client,
+        expires_at = EXCLUDED.expires_at,
+        last_seen_at = EXCLUDED.last_seen_at,
+        revoked_at = EXCLUDED.revoked_at,
+        updated_at = EXCLUDED.updated_at
+    RETURNING
+        sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
+`
+
+func (q *Queries) SessionUpdateBatch(ctx context.Context, sessionsJson []byte) ([]Session, error) {
+	rows, err := q.db.Query(ctx, sessionUpdateBatch, sessionsJson)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastSeenAt,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+			&i.ClientIP,
+			&i.RefreshTokenHash,
+			&i.OS,
+			&i.Client,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sessionUserGetBatch = `-- name: SessionUserGetBatch :many
+SELECT
+    sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
 FROM
     sessions
 WHERE
@@ -279,29 +373,15 @@ type SessionUserGetBatchParams struct {
 	LimitVal int32              `json:"limit_val"`
 }
 
-type SessionUserGetBatchRow struct {
-	ID         pgtype.UUID        `json:"id"`
-	UserID     pgtype.UUID        `json:"user_id"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
-	LastSeenAt pgtype.Timestamptz `json:"last_seen_at"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	ClientIP   netip.Addr         `json:"client_ip"`
-	OS         string             `json:"os"`
-	Client     string             `json:"client"`
-	UserAgent  string             `json:"user_agent"`
-}
-
-func (q *Queries) SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]SessionUserGetBatchRow, error) {
+func (q *Queries) SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]Session, error) {
 	rows, err := q.db.Query(ctx, sessionUserGetBatch, arg.UserID, arg.Now, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []SessionUserGetBatchRow
+	var items []Session
 	for rows.Next() {
-		var i SessionUserGetBatchRow
+		var i Session
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -311,6 +391,7 @@ func (q *Queries) SessionUserGetBatch(ctx context.Context, arg SessionUserGetBat
 			&i.ExpiresAt,
 			&i.RevokedAt,
 			&i.ClientIP,
+			&i.RefreshTokenHash,
 			&i.OS,
 			&i.Client,
 			&i.UserAgent,

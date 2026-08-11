@@ -1,6 +1,7 @@
 package fields
 
 import (
+	"bytes"
 	"net/url"
 	"regexp"
 	"strings"
@@ -40,6 +41,44 @@ func UnmarshalText[T any](text []byte, fieldName string, parser func(field, raw 
 		return zero, nil
 	}
 	return parser(fieldName, string(text))
+}
+
+// ============================================================================
+// Bytes
+// ============================================================================
+
+type Bytes struct {
+	value []byte
+}
+
+func NewBytes(v []byte) Bytes {
+	if len(v) == 0 {
+		return Bytes{}
+	}
+	buf := make([]byte, len(v))
+	copy(buf, v)
+	return Bytes{value: buf}
+}
+
+func (b Bytes) Bytes() []byte {
+	if len(b.value) == 0 {
+		return nil
+	}
+	buf := make([]byte, len(b.value))
+	copy(buf, b.value)
+	return buf
+}
+
+func (b Bytes) IsZero() bool            { return len(b.value) == 0 }
+func (b Bytes) IsValid() bool           { return !b.IsZero() }
+func (b Bytes) Equals(other Bytes) bool { return bytes.Equal(b.value, other.value) }
+
+func UnmarshalTextBytes[T any](text []byte, fieldName string, parser func(field string, raw []byte) (T, error)) (T, error) {
+	if len(text) == 0 {
+		var zero T
+		return zero, nil
+	}
+	return parser(fieldName, text)
 }
 
 // ============================================================================
