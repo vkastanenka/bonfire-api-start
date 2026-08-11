@@ -164,14 +164,14 @@ func (u *User) Enable(now fields.Timestamp) {
 func (u *User) ScheduleDelete(scheduledAt fields.Timestamp, now fields.Timestamp) {
 	if !u.deleteScheduledAt.IsValid() {
 		u.deleteScheduledAt = scheduledAt
-		u.touch(now)
+		u.Disable(now)
 	}
 }
 
 func (u *User) CancelDelete(now fields.Timestamp) {
 	if u.deleteScheduledAt.IsValid() {
 		u.deleteScheduledAt = fields.Timestamp{}
-		u.touch(now)
+		u.Enable(now)
 	}
 }
 

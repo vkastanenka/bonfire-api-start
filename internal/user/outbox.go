@@ -15,6 +15,7 @@ const (
 	EventUpdateProfile           = "user.update-profile"
 	EventUpdatePreferredPresence = "user.update-preferred-presence"
 	EventDisable                 = "user.disable"
+	EventScheduleDelete          = "user.schedule-delete"
 	EventAnonymized              = "user.anonymized"
 )
 
@@ -51,6 +52,12 @@ type EventUpdatePreferredPresencePayload struct {
 
 type EventDisablePayload struct {
 	UserID string `json:"user_id"`
+}
+
+type EventScheduleDeletePayload struct {
+	UserID      string `json:"user_id"`
+	Email       string `json:"email"`
+	ScheduledAt string `json:"scheduled_at"`
 }
 
 type EventAnonymizedPayload struct {
@@ -137,6 +144,21 @@ func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer, cacheStore ca
 		data, _ := json.Marshal(eventMessage)
 		return cacheStore.Publish(ctx, channel, string(data))
 	}
+
+	w.RegisterHandler(EventScheduleDelete, func(ctx context.Context, raw json.RawMessage) error {
+		var p EventScheduleDeletePayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return fmt.Errorf("%w: malformed schedule delete payload: %v", outbox.ErrFatal, err)
+		}
+
+		msg := fmt.Sprintf("Your account has been scheduled for deletion on %s. If you did not request this, please log in to cancel.", p.ScheduledAt)
+		if err := mailer.SendSecurityAlertEmail(ctx, p.Email, msg); err != nil {
+			return err
+		}
+
+		// Also perform teardown so WS disconnects and sessions clear
+		return handleUserTeardown(ctx, p.UserID, EventScheduleDelete)
+	})
 
 	w.RegisterHandler(EventDisable, func(ctx context.Context, raw json.RawMessage) error {
 		var p EventDisablePayload

@@ -58,6 +58,41 @@ func (r *Outbox) Publish(ctx context.Context, variant string, payload any) (*out
 	return event, nil
 }
 
+// func (r *Outbox) PublishBatch(ctx context.Context, items []BatchItem) ([]*outbox.Event, error) {
+// 	if len(items) == 0 {
+// 		return []*outbox.Event{}, nil
+// 	}
+
+// 	events := make([]*outbox.Event, 0, len(items))
+
+// 	for i, item := range items {
+// 		var payloadBytes []byte
+// 		switch v := item.Payload.(type) {
+// 		case []byte:
+// 			payloadBytes = v
+// 		default:
+// 			var err, jsonErr error
+// 			payloadBytes, jsonErr = json.Marshal(item.Payload)
+// 			if jsonErr != nil {
+// 				return nil, errs.InvalidArgument("failed to marshal outbox event payload at index %d", i).Wrap(jsonErr)
+// 			}
+// 		}
+
+// 		event, err := outbox.New(item.Variant, payloadBytes)
+// 		if err != nil {
+// 			return nil, errs.InvalidArgument("failed to instantiate outbox event at index %d", i).Wrap(err)
+// 		}
+
+// 		events = append(events, event)
+// 	}
+
+// 	if err := r.CreateBatch(ctx, events); err != nil {
+// 		return nil, err
+// 	}
+
+// 	return events, nil
+// }
+
 // Create persists a newly instantiated domain event with all initial state flags
 func (r *Outbox) Create(ctx context.Context, event *outbox.Event) error {
 	_, err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{

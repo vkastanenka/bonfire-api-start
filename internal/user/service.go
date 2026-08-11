@@ -32,8 +32,14 @@ type Repository interface {
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
 }
 
+type BatchItem struct {
+	Variant string
+	Payload any
+}
+
 type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+	PublishBatch(ctx context.Context, items []BatchItem) ([]*outbox.Event, error)
 }
 
 type TX interface {
@@ -469,7 +475,6 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 	return nil
 }
 
-// TODO: DISABLE ON SCHEDULE
 const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type ScheduleDeleteParams struct {
@@ -522,9 +527,18 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	}
 
 	userIDs := make([]fields.ID, len(users))
+	batchItems := make([]BatchItem, len(users))
+
 	for i, u := range users {
 		u.Anonymize(now)
 		userIDs[i] = u.ID()
+
+		batchItems[i] = BatchItem{
+			Variant: EventAnonymized,
+			Payload: EventAnonymizedPayload{
+				UserID: u.ID().String(),
+			},
+		}
 	}
 
 	usersJSON, err := json.Marshal(users)
@@ -537,15 +551,8 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 			return err
 		}
 
-		// TODO: PublishBatch
-		for _, userID := range userIDs {
-			payload := EventAnonymizedPayload{
-				UserID: userID.String(),
-			}
-
-			if _, err := s.o.Publish(txCtx, EventAnonymized, payload); err != nil {
-				return err
-			}
+		if _, err := s.o.PublishBatch(txCtx, batchItems); err != nil {
+			return err
 		}
 
 		return nil
