@@ -23,18 +23,7 @@ WHERE s.id = t.id;
 
 -- name: SessionGet :one
 SELECT
-    id,
-    user_id,
-    created_at,
-    updated_at,
-    last_seen_at,
-    expires_at,
-    revoked_at,
-    client_ip,
-    refresh_token_hash,
-    os,
-    client,
-    user_agent
+    sessions.*
 FROM
     sessions
 WHERE
@@ -72,7 +61,7 @@ RETURNING
 
 -- name: SessionUserGetBatch :many
 SELECT
-    *
+    sessions.*
 FROM
     sessions
 WHERE
@@ -94,7 +83,7 @@ WHERE
     AND user_id = @user_id::uuid
     AND revoked_at IS NULL;
 
--- name: SessionUserRevokeAll :exec
+-- name: SessionUserRevokeAll :many
 UPDATE
     sessions
 SET
@@ -102,5 +91,7 @@ SET
     updated_at = @updated_at::timestamptz
 WHERE
     user_id = @user_id::uuid
-    AND revoked_at IS NULL;
+    AND revoked_at IS NULL
+RETURNING
+    id;
 

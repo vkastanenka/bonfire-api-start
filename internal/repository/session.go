@@ -102,7 +102,15 @@ func (r *SessionRepository) SessionGet(ctx context.Context, id fields.ID) (*sess
 	return sess, nil
 }
 
-func (r *SessionRepository) SessionRotateRefreshToken(ctx context.Context, id fields.ID, oldHash, newHash session.RefreshTokenHash, expiresAt, lastSeenAt, updatedAt fields.Timestamp, clientIP session.ClientIP, userAgent session.UserAgent, now fields.Timestamp) (*session.Session, error) {
+func (r *SessionRepository) SessionRotateRefreshToken(
+	ctx context.Context,
+	id fields.ID,
+	oldHash, newHash session.RefreshTokenHash,
+	expiresAt, lastSeenAt, updatedAt fields.Timestamp,
+	clientIP session.ClientIP,
+	userAgent session.UserAgent,
+	now fields.Timestamp,
+) (*session.Session, error) {
 	row, err := r.store.SessionRotateRefreshToken(ctx, db.SessionRotateRefreshTokenParams{
 		ID:                  db.ToUUID(id.UUID()),
 		OldRefreshTokenHash: oldHash.Bytes.Bytes(),
@@ -167,17 +175,26 @@ func (r *SessionRepository) SessionUserRevoke(ctx context.Context, id, userID fi
 	return nil
 }
 
-func (r *SessionRepository) SessionUserRevokeAll(ctx context.Context, userID fields.ID, revokedAt, updatedAt fields.Timestamp) error {
-	err := r.store.SessionUserRevokeAll(ctx, db.SessionUserRevokeAllParams{
+func (r *SessionRepository) SessionUserRevokeAll(ctx context.Context, userID fields.ID, revokedAt, updatedAt fields.Timestamp) ([]fields.ID, error) {
+	rows, err := r.store.SessionUserRevokeAll(ctx, db.SessionUserRevokeAllParams{
 		UserID:    db.ToUUID(userID.UUID()),
 		RevokedAt: db.ToTimestamptz(revokedAt.Time()),
 		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return nil, r.store.Err(err)
 	}
 
-	return nil
+	sessionIDs := make([]fields.ID, 0, len(rows))
+	for _, sessID := range rows {
+		parsedID, err := fields.ParseRequiredID("id", db.FromUUID[uuid.UUID](sessID))
+		if err != nil {
+			return nil, err
+		}
+		sessionIDs = append(sessionIDs, parsedID)
+	}
+
+	return sessionIDs, nil
 }
 
 func sessionFromRow(row db.Session) (*session.Session, error) {
