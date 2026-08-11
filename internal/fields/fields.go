@@ -108,9 +108,6 @@ func (hc *HexColor) UnmarshalText(text []byte) error {
 type ID uuid.UUID
 
 func NewID(raw uuid.UUID) ID {
-	if raw == uuid.Nil {
-		return ID{}
-	}
 	return ID(raw)
 }
 

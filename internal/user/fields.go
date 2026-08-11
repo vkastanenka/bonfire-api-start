@@ -256,10 +256,10 @@ func ParsePreferredPresence(field, raw string) (PreferredPresence, error) {
 		return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 	}
 
-	return PreferredPresenceFromPresence(field, p)
+	return ParsePreferredPresenceFromPresence(field, p)
 }
 
-func PreferredPresenceFromInt16(field string, v int16) (PreferredPresence, error) {
+func ParsePreferredPresenceFromInt16(field string, v int16) (PreferredPresence, error) {
 	if v == 0 {
 		return PreferredPresence{}, nil
 	}
@@ -269,10 +269,10 @@ func PreferredPresenceFromInt16(field string, v int16) (PreferredPresence, error
 		return PreferredPresence{}, ErrPreferredPresenceInvalid(field)
 	}
 
-	return PreferredPresenceFromPresence(field, p)
+	return ParsePreferredPresenceFromPresence(field, p)
 }
 
-func PreferredPresenceFromPresence(field string, p presence.Presence) (PreferredPresence, error) {
+func ParsePreferredPresenceFromPresence(field string, p presence.Presence) (PreferredPresence, error) {
 	switch p {
 	case presence.PresenceIdle, presence.PresenceBusy, presence.PresenceDND:
 		return PreferredPresence{value: p}, nil
