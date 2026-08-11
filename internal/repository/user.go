@@ -2,23 +2,37 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
+
+type userCache interface {
+	Delete(ctx context.Context, userID fields.ID) error
+	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
+	Get(ctx context.Context, userID fields.ID) (*user.User, error)
+	Set(ctx context.Context, usr *user.User) error
+}
 
 type UserRepository struct {
 	store *db.Store
+	cache userCache
+	sf    singleflight.Group
 }
 
-func NewUserRepository(store *db.Store) *UserRepository {
+func NewUserRepository(store *db.Store, cache userCache) *UserRepository {
 	return &UserRepository{
 		store: store.WithEntity(db.EntityUser),
+		cache: cache,
 	}
 }
 
@@ -75,6 +89,48 @@ func (r *UserRepository) Get(ctx context.Context, id fields.ID) (*user.User, err
 	}
 
 	return userFromRow(row)
+}
+
+func (r *UserRepository) GetCached(ctx context.Context, id fields.ID) (*user.User, error) {
+	u, err := r.cache.Get(ctx, id)
+	if err == nil && u != nil {
+		return u, nil
+	}
+
+	if err != nil && !errors.Is(err, redis.ErrCacheMiss) {
+		slog.WarnContext(ctx, "user cache read failed, falling back to database",
+			"user_id", id.String(),
+			"error", err,
+			"scope", redis.ScopeUser,
+		)
+	}
+
+	key := id.String()
+
+	sfCtx := context.WithoutCancel(ctx)
+
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		dbUser, repoErr := r.Get(sfCtx, id)
+		if repoErr != nil {
+			return nil, repoErr
+		}
+
+		if cacheErr := r.cache.Set(sfCtx, dbUser); cacheErr != nil {
+			slog.WarnContext(sfCtx, "failed to backfill user cache",
+				"user_id", dbUser.ID().String(),
+				"error", cacheErr,
+				"scope", redis.ScopeUser,
+			)
+		}
+
+		return dbUser, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return val.(*user.User), nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {

@@ -1,30 +1,33 @@
 package user
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"time"
+
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
-	"context"
-	"encoding/json"
-	"time"
 
 	"github.com/google/uuid"
 )
 
+type Cache interface {
+	Delete(ctx context.Context, userID fields.ID) error
+	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
+	Get(ctx context.Context, userID fields.ID) (*User, error)
+	Set(ctx context.Context, usr *User) error
+}
+
 type Repository interface {
 	Create(ctx context.Context, u *User) (*User, error)
 	Get(ctx context.Context, id fields.ID) (*User, error)
+	GetCached(ctx context.Context, id fields.ID) (*User, error)
 	GetByEmail(ctx context.Context, email Email) (*User, error)
 	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*User, error)
-	Update(ctx context.Context, u *User) (*User, error)
-	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
-}
-
-type CachedRepository interface {
-	Create(ctx context.Context, u *User) (*User, error)
-	Get(ctx context.Context, id fields.ID) (*User, error)
 	Update(ctx context.Context, u *User) (*User, error)
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
 }
@@ -33,21 +36,28 @@ type OutboxRepository interface {
 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
 }
 
+type TX interface {
+	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
 type Service struct {
+	c  Cache
 	r  Repository
-	cr CachedRepository
 	o  OutboxRepository
+	tx TX
 }
 
 func NewService(
+	c Cache,
 	r Repository,
-	cr CachedRepository,
 	o OutboxRepository,
+	tx TX,
 ) *Service {
 	return &Service{
+		c:  c,
 		r:  r,
-		cr: cr,
 		o:  o,
+		tx: tx,
 	}
 }
 
@@ -57,7 +67,7 @@ func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
 		return nil, err
 	}
 
-	u, err := s.cr.Get(ctx, id)
+	u, err := s.r.GetCached(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -96,14 +106,36 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return u, nil
 	}
 
+	oldEmail := u.email.String()
 	u.UpdateEmail(newEmail, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cr.Update(ctx, u)
+	var updatedUser *User
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdateEmailPayload{
+			UserID:   updatedUser.ID().String(),
+			OldEmail: oldEmail,
+			NewEmail: updatedUser.Email().String(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventUpdateEmail, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return uu, nil
+	s.invalidateCache(ctx, updatedUser.ID(), "update email")
+
+	return updatedUser, nil
 }
 
 type UpdateUsernameParams struct {
@@ -137,14 +169,36 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return u, nil
 	}
 
+	oldUsername := u.username.String()
 	u.UpdateUsername(newUsername, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cr.Update(ctx, u)
+	var updatedUser *User
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdateUsernamePayload{
+			UserID:      updatedUser.ID().String(),
+			OldUsername: oldUsername,
+			NewUsername: updatedUser.Username().String(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventUpdateUsername, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return uu, nil
+	s.invalidateCache(ctx, updatedUser.ID(), "update username")
+
+	return updatedUser, nil
 }
 
 type UpdatePasswordParams struct {
@@ -197,10 +251,28 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 
 	u.UpdatePasswordHash(newPasswordHash, fields.NewTimestampFromTime(time.Now()))
 
-	_, err = s.cr.Update(ctx, u)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		updatedUser, err := s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdatePasswordPayload{
+			UserID: updatedUser.ID().String(),
+			Email:  updatedUser.Email().String(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventUpdatePassword, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return err
 	}
+
+	s.invalidateCache(ctx, u.ID(), "update password")
 
 	return nil
 }
@@ -227,7 +299,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	u, err := s.cr.Get(ctx, id)
+	u, err := s.r.GetCached(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -238,12 +310,33 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 
 	u.UpdatePreferredPresence(preferredPresence, until, fields.NewTimestampFromTime(time.Now()))
 
-	uu, err := s.cr.Update(ctx, u)
+	var updatedUser *User
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdatePreferredPresencePayload{
+			UserID:            updatedUser.ID().String(),
+			PreferredPresence: updatedUser.PreferredPresence().StringPtr(),
+			Until:             updatedUser.PreferredPresenceUntil().StringPtr(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventUpdatePreferredPresence, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return uu, nil
+	s.invalidateCache(ctx, updatedUser.ID(), "update preferred presence")
+
+	return updatedUser, nil
 }
 
 type UpdateProfileParams struct {
@@ -280,7 +373,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	u, err := s.cr.Get(ctx, id)
+	u, err := s.r.GetCached(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -297,12 +390,35 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		fields.NewTimestampFromTime(time.Now()),
 	)
 
-	uu, err := s.cr.Update(ctx, u)
+	var updatedUser *User
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdateProfilePayload{
+			UserID:      updatedUser.ID().String(),
+			DisplayName: updatedUser.DisplayName().String(),
+			Bio:         updatedUser.Bio().StringPtr(),
+			AvatarURL:   updatedUser.AvatarURL().StringPtr(),
+			BannerColor: updatedUser.BannerColor().StringPtr(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventUpdateProfile, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return uu, nil
+	s.invalidateCache(ctx, updatedUser.ID(), "update profile")
+
+	return updatedUser, nil
 }
 
 type DisableParams struct {
@@ -328,14 +444,32 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 
 	u.Disable(fields.NewTimestampFromTime(time.Now()))
 
-	_, err = s.cr.Update(ctx, u)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		updatedUser, err := s.r.Update(txCtx, u)
+		if err != nil {
+			return err
+		}
+
+		payload := EventDisablePayload{
+			UserID: updatedUser.ID().String(),
+		}
+
+		if _, err := s.o.Publish(txCtx, EventDisable, payload); err != nil {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return err
 	}
 
+	s.invalidateCache(ctx, u.ID(), "disable user")
+
 	return nil
 }
 
+// TODO: DISABLE ON SCHEDULE
 const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type ScheduleDeleteParams struct {
@@ -359,15 +493,17 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return err
 	}
 
+	scheduledAt := fields.NewTimestampFromTime(time.Now().Add(ScheduleDeleteGracePeriod))
 	u.ScheduleDelete(
-		fields.NewTimestampFromTime(time.Now().Add(ScheduleDeleteGracePeriod)),
+		scheduledAt,
 		fields.NewTimestampFromTime(time.Now()),
 	)
 
-	_, err = s.cr.Update(ctx, u)
-	if err != nil {
+	if _, err := s.r.Update(ctx, u); err != nil {
 		return err
 	}
+
+	s.invalidateCache(ctx, u.ID(), "schedule delete")
 
 	return nil
 }
@@ -385,8 +521,10 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		return nil
 	}
 
-	for _, u := range users {
+	userIDs := make([]fields.ID, len(users))
+	for i, u := range users {
 		u.Anonymize(now)
+		userIDs[i] = u.ID()
 	}
 
 	usersJSON, err := json.Marshal(users)
@@ -394,11 +532,46 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		return errs.Internal("Failed to marshal anonymized users batch.").Wrap(err)
 	}
 
-	if _, err := s.cr.UpdateBatch(ctx, usersJSON); err != nil {
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if _, err := s.r.UpdateBatch(txCtx, usersJSON); err != nil {
+			return err
+		}
+
+		// TODO: PublishBatch
+		for _, userID := range userIDs {
+			payload := EventAnonymizedPayload{
+				UserID: userID.String(),
+			}
+
+			if _, err := s.o.Publish(txCtx, EventAnonymized, payload); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 
+	if err := s.c.DeleteBatch(ctx, userIDs); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate batch user cache after anonymization",
+			"count", len(userIDs),
+			"error", err,
+		)
+	}
+
 	return nil
+}
+
+func (s *Service) invalidateCache(ctx context.Context, id fields.ID, action string) {
+	if err := s.c.Delete(ctx, id); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate user cache",
+			"user_id", id.String(),
+			"action", action,
+			"error", err,
+		)
+	}
 }
 
 func (s *Service) authenticateAndFetch(ctx context.Context, id fields.ID, password Password) (*User, error) {
@@ -408,7 +581,9 @@ func (s *Service) authenticateAndFetch(ctx context.Context, id fields.ID, passwo
 	}
 
 	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, ErrInvalidPassword(err)
+		return nil, errs.Unauthenticated("Invalid password.").
+			FieldViolation("password", "Invalid password.", "INVALID_PASSWORD").
+			Wrap(err)
 	}
 
 	if err := u.EnsureActive(); err != nil {
@@ -416,10 +591,4 @@ func (s *Service) authenticateAndFetch(ctx context.Context, id fields.ID, passwo
 	}
 
 	return u, nil
-}
-
-func ErrInvalidPassword(err error) *errs.Error {
-	return errs.Unauthenticated("Invalid password.").
-		FieldViolation("password", "Invalid password.", "INVALID_PASSWORD").
-		Wrap(err)
 }
