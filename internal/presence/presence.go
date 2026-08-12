@@ -14,15 +14,6 @@ func ErrPresenceInvalid() *errs.Error {
 		FieldViolation("presence", "Must be one of: online, offline, idle, busy, dnd, invisible.", "INVALID_ENUM_VALUE")
 }
 
-const (
-	EventUpdated = "presence.updated"
-)
-
-type PresenceUpdatedPayload struct {
-	UserID   string `json:"user_id"`
-	Presence string `json:"presence"`
-}
-
 type Presence uint8
 
 const (
@@ -56,18 +47,43 @@ var presenceBytes = [...][]byte{
 	PresenceInvisible: []byte("invisible"),
 }
 
-func New(raw string) (Presence, error) {
+func Parse(raw string) (Presence, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return PresenceUnknown, ErrPresenceInvalid()
 	}
-	b := unsafe.Slice(unsafe.StringData(s), len(s))
-	for i := 1; i < int(presenceMax); i++ {
-		if bytes.EqualFold(presenceBytes[i], b) {
-			return Presence(i), nil
-		}
+
+	switch s {
+	case "online":
+		return PresenceOnline, nil
+	case "offline":
+		return PresenceOffline, nil
+	case "idle":
+		return PresenceIdle, nil
+	case "busy":
+		return PresenceBusy, nil
+	case "dnd":
+		return PresenceDND, nil
+	case "invisible":
+		return PresenceInvisible, nil
 	}
-	return PresenceUnknown, ErrPresenceInvalid()
+
+	switch strings.ToLower(s) {
+	case "online":
+		return PresenceOnline, nil
+	case "offline":
+		return PresenceOffline, nil
+	case "idle":
+		return PresenceIdle, nil
+	case "busy":
+		return PresenceBusy, nil
+	case "dnd":
+		return PresenceDND, nil
+	case "invisible":
+		return PresenceInvisible, nil
+	default:
+		return PresenceUnknown, ErrPresenceInvalid()
+	}
 }
 
 func ParseBytes(b []byte) (Presence, error) {
@@ -75,12 +91,9 @@ func ParseBytes(b []byte) (Presence, error) {
 	if len(b) == 0 {
 		return PresenceUnknown, ErrPresenceInvalid()
 	}
-	for i := 1; i < int(presenceMax); i++ {
-		if bytes.EqualFold(presenceBytes[i], b) {
-			return Presence(i), nil
-		}
-	}
-	return PresenceUnknown, ErrPresenceInvalid()
+
+	s := unsafe.String(unsafe.SliceData(b), len(b))
+	return Parse(s)
 }
 
 func (p Presence) IsValid() bool {

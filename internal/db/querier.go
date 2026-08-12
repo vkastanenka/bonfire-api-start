@@ -39,9 +39,11 @@ type Querier interface {
 	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) (OutboxEventMarkProcessedRow, error)
 	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
-	RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error
+	RelationshipDeleteByUser(ctx context.Context, arg RelationshipDeleteByUserParams) error
 	RelationshipGet(ctx context.Context, arg RelationshipGetParams) (Relationship, error)
-	RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error)
+	RelationshipGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relationship, error)
+	RelationshipListTypeByUser(ctx context.Context, arg RelationshipListTypeByUserParams) ([]RelationshipListTypeByUserRow, error)
+	RelationshipSave(ctx context.Context, arg RelationshipSaveParams) (Relationship, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDeleteExpiredBatch(ctx context.Context, arg SessionDeleteExpiredBatchParams) error
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)

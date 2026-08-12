@@ -203,7 +203,7 @@ type Perspective struct {
 	createdAt   time.Time
 	updatedAt   time.Time
 	username    user.Username
-	displayName user.ProfileDisplayName
+	displayName user.DisplayName
 	avatarURL   *string
 }
 
@@ -237,7 +237,7 @@ func ReconstitutePerspective(
 		return nil, err
 	}
 
-	uname, err := user.NewUsername(rawUsername)
+	uname, err := user.ParseUsername(rawUsername)
 	if err != nil {
 		return nil, err
 	}

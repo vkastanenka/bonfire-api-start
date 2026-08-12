@@ -209,14 +209,17 @@ CREATE TABLE relationships(
     CONSTRAINT fk_relationships_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_relationships_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_relationships_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
-    CONSTRAINT relationships_channel_key UNIQUE (channel_id),
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
     CONSTRAINT relationship_values CHECK (type IN (1, 2, 3)),
     CONSTRAINT channel_required_for_friends CHECK (type != 2 OR channel_id IS NOT NULL)
 );
 
-CREATE INDEX idx_relationships_user1 ON relationships(user1_id, type);
+CREATE INDEX idx_relationships_user1_type_created ON relationships(user1_id, type, created_at DESC);
 
-CREATE INDEX idx_relationships_user2 ON relationships(user2_id, type);
+CREATE INDEX idx_relationships_user2_type_created ON relationships(user2_id, type, created_at DESC);
+
+CREATE UNIQUE INDEX idx_relationships_channel_id ON relationships(channel_id)
+WHERE
+    channel_id IS NOT NULL;
 

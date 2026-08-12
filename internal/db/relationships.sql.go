@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const relationshipDeleteVerified = `-- name: RelationshipDeleteVerified :exec
+const relationshipDeleteByUser = `-- name: RelationshipDeleteByUser :exec
 DELETE FROM relationships
 WHERE user1_id = LEAST($1::uuid, $2::uuid)
     AND user2_id = GREATEST($1::uuid, $2::uuid)
@@ -19,26 +19,20 @@ WHERE user1_id = LEAST($1::uuid, $2::uuid)
         OR actor_id = $3::uuid)
 `
 
-type RelationshipDeleteVerifiedParams struct {
+type RelationshipDeleteByUserParams struct {
 	User1ID pgtype.UUID `json:"user1_id"`
 	User2ID pgtype.UUID `json:"user2_id"`
 	ActorID pgtype.UUID `json:"actor_id"`
 }
 
-func (q *Queries) RelationshipDeleteVerified(ctx context.Context, arg RelationshipDeleteVerifiedParams) error {
-	_, err := q.db.Exec(ctx, relationshipDeleteVerified, arg.User1ID, arg.User2ID, arg.ActorID)
+func (q *Queries) RelationshipDeleteByUser(ctx context.Context, arg RelationshipDeleteByUserParams) error {
+	_, err := q.db.Exec(ctx, relationshipDeleteByUser, arg.User1ID, arg.User2ID, arg.ActorID)
 	return err
 }
 
 const relationshipGet = `-- name: RelationshipGet :one
 SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    channel_id,
-    created_at,
-    updated_at,
-    type
+    relationships.user1_id, relationships.user2_id, relationships.actor_id, relationships.channel_id, relationships.created_at, relationships.updated_at, relationships.type
 FROM
     relationships
 WHERE
@@ -66,7 +60,95 @@ func (q *Queries) RelationshipGet(ctx context.Context, arg RelationshipGetParams
 	return i, err
 }
 
-const relationshipUpsert = `-- name: RelationshipUpsert :one
+const relationshipGetByChannel = `-- name: RelationshipGetByChannel :one
+SELECT
+    relationships.user1_id, relationships.user2_id, relationships.actor_id, relationships.channel_id, relationships.created_at, relationships.updated_at, relationships.type
+FROM
+    relationships
+WHERE
+    channel_id = $1::uuid
+`
+
+func (q *Queries) RelationshipGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipGetByChannel, channelID)
+	var i Relationship
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.ChannelID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+	)
+	return i, err
+}
+
+const relationshipListTypeByUser = `-- name: RelationshipListTypeByUser :many
+SELECT
+    CASE WHEN user1_id = $1::uuid THEN
+        user2_id
+    ELSE
+        user1_id
+    END AS peer_id,
+    actor_id,
+    channel_id,
+    created_at,
+    updated_at,
+    type
+FROM
+    relationships
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = $2::smallint
+ORDER BY
+    created_at DESC
+LIMIT $3::int
+`
+
+type RelationshipListTypeByUserParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	TypeVal    int16       `json:"type_val"`
+	BatchLimit int32       `json:"batch_limit"`
+}
+
+type RelationshipListTypeByUserRow struct {
+	PeerID    interface{}        `json:"peer_id"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+}
+
+func (q *Queries) RelationshipListTypeByUser(ctx context.Context, arg RelationshipListTypeByUserParams) ([]RelationshipListTypeByUserRow, error) {
+	rows, err := q.db.Query(ctx, relationshipListTypeByUser, arg.UserID, arg.TypeVal, arg.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RelationshipListTypeByUserRow
+	for rows.Next() {
+		var i RelationshipListTypeByUserRow
+		if err := rows.Scan(
+			&i.PeerID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationshipSave = `-- name: RelationshipSave :one
 INSERT INTO relationships(user1_id, user2_id, actor_id, channel_id, created_at, updated_at, type)
     VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz, $7::smallint)
 ON CONFLICT (user1_id, user2_id)
@@ -80,16 +162,10 @@ ON CONFLICT (user1_id, user2_id)
         updated_at = EXCLUDED.updated_at,
         type = EXCLUDED.type
     RETURNING
-        user1_id,
-        user2_id,
-        actor_id,
-        channel_id,
-        created_at,
-        updated_at,
-        type
+        relationships.user1_id, relationships.user2_id, relationships.actor_id, relationships.channel_id, relationships.created_at, relationships.updated_at, relationships.type
 `
 
-type RelationshipUpsertParams struct {
+type RelationshipSaveParams struct {
 	User1ID   pgtype.UUID        `json:"user1_id"`
 	User2ID   pgtype.UUID        `json:"user2_id"`
 	ActorID   pgtype.UUID        `json:"actor_id"`
@@ -99,8 +175,8 @@ type RelationshipUpsertParams struct {
 	Type      int16              `json:"type"`
 }
 
-func (q *Queries) RelationshipUpsert(ctx context.Context, arg RelationshipUpsertParams) (Relationship, error) {
-	row := q.db.QueryRow(ctx, relationshipUpsert,
+func (q *Queries) RelationshipSave(ctx context.Context, arg RelationshipSaveParams) (Relationship, error) {
+	row := q.db.QueryRow(ctx, relationshipSave,
 		arg.User1ID,
 		arg.User2ID,
 		arg.ActorID,
