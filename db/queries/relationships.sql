@@ -7,13 +7,7 @@ WHERE user1_id = LEAST(@user1_id::uuid, @user2_id::uuid)
 
 -- name: RelationshipGet :one
 SELECT
-    user1_id,
-    user2_id,
-    actor_id,
-    channel_id,
-    created_at,
-    updated_at,
-    type
+    relationships.*
 FROM
     relationships
 WHERE
@@ -34,11 +28,5 @@ ON CONFLICT (user1_id, user2_id)
         updated_at = EXCLUDED.updated_at,
         type = EXCLUDED.type
     RETURNING
-        user1_id,
-        user2_id,
-        actor_id,
-        channel_id,
-        created_at,
-        updated_at,
-        type;
+        relationships.*;
 
