@@ -5,11 +5,14 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type Cache interface {
@@ -21,13 +24,19 @@ type Cache interface {
 	InvalidateUser(ctx context.Context, userID fields.ID) error
 }
 
-type ChannelRepository interface {
-	Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error)
-	MemberAddBatch(ctx context.Context, members []*channel.Member) error
+type PresenceCache interface {
+	Get(ctx context.Context, userID uuid.UUID) (presence.Presence, error)
+	GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
+	Set(ctx context.Context, userID uuid.UUID, p presence.Presence) error
 }
 
-type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+type UserCache interface {
+	Delete(ctx context.Context, userID fields.ID) error
+	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
+	Get(ctx context.Context, userID fields.ID) (*user.User, error)
+	GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
+	Set(ctx context.Context, usr *user.User) error
+	SetBatch(ctx context.Context, users []*user.User) error
 }
 
 type Repository interface {
@@ -39,31 +48,60 @@ type Repository interface {
 	Save(ctx context.Context, rel *Relation) (*Relation, error)
 }
 
+type ChannelRepository interface {
+	Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error)
+	MemberAddBatch(ctx context.Context, members []*channel.Member) error
+}
+
+type OutboxRepository interface {
+	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+}
+
+type UserRepository interface {
+	Availability(ctx context.Context, email *user.Email, username *user.Username) (bool, bool, error)
+	Create(ctx context.Context, u *user.User) (*user.User, error)
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
+	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
+	GetCached(ctx context.Context, id fields.ID) (*user.User, error)
+	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error)
+	Update(ctx context.Context, u *user.User) (*user.User, error)
+	UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error)
+}
+
 type Tx interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
 type Service struct {
-	cache   Cache
-	repo    Repository
-	channel ChannelRepository
-	outbox  OutboxRepository
-	tx      Tx
+	cache     Cache
+	presence  PresenceCache
+	userCache UserCache
+	repo      Repository
+	channel   ChannelRepository
+	outbox    OutboxRepository
+	user      UserRepository
+	tx        Tx
 }
 
 func NewService(
 	cache Cache,
+	presence PresenceCache,
+	userCache UserCache,
 	repo Repository,
 	channel ChannelRepository,
 	outbox OutboxRepository,
+	user UserRepository,
 	tx Tx,
 ) *Service {
 	return &Service{
-		cache:   cache,
-		repo:    repo,
-		channel: channel,
-		outbox:  outbox,
-		tx:      tx,
+		cache:     cache,
+		presence:  presence,
+		userCache: userCache,
+		repo:      repo,
+		channel:   channel,
+		outbox:    outbox,
+		user:      user,
+		tx:        tx,
 	}
 }
 
@@ -202,28 +240,82 @@ func NewService(
 // 	})
 // }
 
-// func (s *Service) GetPerspective(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (*Perspective, error) {
-// 	userID, err := NewUserID(rawUserID)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument("invalid user id")
-// 	}
+func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (*Peer, error) {
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+	if err != nil {
+		return nil, err
+	}
 
-// 	peerID, err := NewUserID(rawPeerID)
-// 	if err != nil {
-// 		return nil, errs.InvalidArgument("invalid peer id")
-// 	}
+	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	if err != nil {
+		return nil, err
+	}
 
-// 	if userID == peerID {
-// 		return nil, errs.InvalidArgument("cannot get your own perspective")
-// 	}
+	if userID.Equals(peerID) {
+		return nil, errs.InvalidArgument("Relation ids cannot match.").
+			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
+	}
 
-// 	perspective, err := s.repo.GetPerspective(ctx, userID.UUID(), peerID.UUID())
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	u1, u2 := SortUserIDs(userID, peerID)
 
-// 	return perspective, nil
-// }
+	rel, err := s.cache.Get(ctx, u1, u2)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to read relation cache", "error", err)
+	}
+
+	if rel == nil {
+		rel, err = s.repo.Get(ctx, u1, u2)
+		if err != nil {
+			return nil, err
+		}
+
+		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, rel); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill relation cache", "error", cacheErr)
+		}
+	}
+
+	var (
+		peerUser     *user.User
+		peerPresence presence.Presence
+	)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		u, uErr := s.user.GetCached(gCtx, peerID)
+		if uErr != nil {
+			return uErr
+		}
+		peerUser = u
+		return nil
+	})
+
+	g.Go(func() error {
+		p, pErr := s.presence.Get(gCtx, peerID.UUID())
+		if pErr != nil {
+			slog.WarnContext(gCtx, "failed to fetch presence", "peer_id", peerID.String(), "error", pErr)
+			peerPresence = presence.PresenceOffline
+			return nil
+		}
+		peerPresence = p
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return NewPeer(
+		peerID,
+		rel.ChannelID(),
+		rel.ActorID(),
+		peerUser.AvatarURL(),
+		peerUser.Username(),
+		peerUser.DisplayName(),
+		rel.Type(),
+		peerPresence,
+	), nil
+}
 
 // // func (s *Service) ListPerspectives(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
 // // 	if filter != nil && !filter.IsValid() {

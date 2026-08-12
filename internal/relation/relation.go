@@ -4,6 +4,8 @@ import (
 	"bytes"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 )
 
 type Relation struct {
@@ -14,6 +16,17 @@ type Relation struct {
 	relType   Type
 	createdAt fields.Timestamp
 	updatedAt fields.Timestamp
+}
+
+type Peer struct {
+	id          fields.ID
+	actorID     fields.ID
+	channelID   fields.ID
+	avatarURL   fields.URL
+	username    user.Username
+	displayName user.DisplayName
+	relType     Type
+	presence    presence.Presence
 }
 
 // -----------------------------------------------------------------------------
@@ -80,6 +93,28 @@ func New(
 		relType:   TypePending,
 		createdAt: createdAt,
 		updatedAt: updatedAt,
+	}
+}
+
+func NewPeer(
+	id,
+	actorID,
+	channelID fields.ID,
+	avatarURL fields.URL,
+	username user.Username,
+	displayName user.DisplayName,
+	relType Type,
+	pres presence.Presence,
+) *Peer {
+	return &Peer{
+		id:          id,
+		actorID:     actorID,
+		channelID:   channelID,
+		avatarURL:   avatarURL,
+		username:    username,
+		displayName: displayName,
+		relType:     relType,
+		presence:    pres,
 	}
 }
 
