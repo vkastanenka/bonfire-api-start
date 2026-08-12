@@ -1,43 +1,58 @@
 package relation
 
+import (
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/outbox"
+	"context"
+	"errors"
+
+	"github.com/google/uuid"
+)
+
 // type ChannelRepository interface {
 // 	Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error)
 // 	MemberAddBatch(ctx context.Context, members []*channel.Member) error
 // }
 
-// type OutboxRepository interface {
-// 	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
-// }
+type OutboxRepository interface {
+	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+}
 
-// type Repository interface {
-// 	Get(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relation, error)
-// 	GetForUpdate(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relation, error)
-// 	Upsert(ctx context.Context, rel *Relation) error
-// 	Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) error
-// 	DeleteVerified(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID, actorID uuid.UUID) error
-// 	GetPerspective(ctx context.Context, userID uuid.UUID, peerID uuid.UUID) (*Perspective, error)
-// 	ListPerspectives(ctx context.Context, userID uuid.UUID, filterVariant *Variant) ([]Perspective, error)
-// }
+type Repository interface {
+	DeleteByUser(ctx context.Context, user1ID fields.ID, user2ID fields.ID, actorID fields.ID) error
+	Get(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
+	GetByChannel(ctx context.Context, channelID fields.ID) (*Relation, error)
+	GetForUpdate(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
+	ListTypeByUser(ctx context.Context, userID fields.ID, relType Type, limit int32) ([]*Relation, error)
+	Save(ctx context.Context, rel *Relation) (*Relation, error)
+}
 
-// type Tx interface {
-// 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
-// }
+type Tx interface {
+	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+}
 
-// type Service struct {
-// 	repo    Repository
-// 	channel ChannelRepository
-// 	outbox  OutboxRepository
-// 	tx      Tx
-// }
+type Service struct {
+	repo Repository
+	// channel ChannelRepository
+	outbox OutboxRepository
+	tx     Tx
+}
 
-// func NewService(repo Repository, channel ChannelRepository, outbox OutboxRepository, tx Tx) *Service {
-// 	return &Service{
-// 		repo:    repo,
-// 		channel: channel,
-// 		outbox:  outbox,
-// 		tx:      tx,
-// 	}
-// }
+func NewService(
+	repo Repository,
+	//  channel ChannelRepository,
+	outbox OutboxRepository,
+	tx Tx,
+) *Service {
+	return &Service{
+		repo: repo,
+		// channel: channel,
+		outbox: outbox,
+		tx:     tx,
+	}
+}
 
 // // AcceptFriendRequest explicitly accepts a pending incoming friend request.
 // func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
@@ -213,132 +228,132 @@ package relation
 // // 	return perspectives, nil
 // // }
 
-// func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawTargetID uuid.UUID) error {
-// 	actorID, err := NewUserID(rawActorID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid actor id")
-// 	}
+func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
 
-// 	targetID, err := NewUserID(rawTargetID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid peer id")
-// 	}
+	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	if err != nil {
+		return err
+	}
 
-// 	if actorID == targetID {
-// 		return errs.InvalidArgument("cannot friend yourself")
-// 	}
+	if actorID.Equals(peerID) {
+		return errs.InvalidArgument("Cannot friend yourself.").
+			FieldViolation("Peer ID", "ID is the same as actor ID", "PEER_ID_INVALID")
+	}
 
-// 	u1, u2 := sortUserIDs(actorID, targetID)
+	u1, u2 := SortUserIDs(actorID, peerID)
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		// Fetch with row-level lock to prevent concurrent request race conditions inside the transaction
-// 		rel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
-// 		if err != nil {
-// 			if errs.IsNotFound(err) {
-// 				newRel, reqErr := New(actorID, targetID)
-// 				if reqErr != nil {
-// 					return errs.InvalidArgument(reqErr.Error()).Wrap(reqErr)
-// 				}
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				newRel, reqErr := New(actorID, targetID)
+				if reqErr != nil {
+					return errs.InvalidArgument(reqErr.Error()).Wrap(reqErr)
+				}
 
-// 				if err := s.repo.Upsert(txCtx, newRel); err != nil {
-// 					return err
-// 				}
+				_, err := s.repo.Save(txCtx, newRel) // TODO: Set in cache
+				if err != nil {
+					return err
+				}
 
-// 				// Emit outbox event atomically
-// 				_, err := s.outbox.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{
-// 					ActorID:  actorID.UUID(),
-// 					TargetID: targetID.UUID(),
-// 				})
-// 				return err
-// 			}
-// 			return err
-// 		}
+				// Emit outbox event atomically
+				_, err := s.outbox.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{
+					ActorID:  actorID.UUID(),
+					TargetID: targetID.UUID(),
+				})
+				return err
+			}
+			return err
+		}
 
-// 		switch rel.Variant() {
-// 		case VariantFriends:
-// 			return errs.AlreadyExists("already friends with this user")
+		switch rel.Type() {
+		case TypeFriends:
+			return errs.AlreadyExists("Already friends with this user.")
 
-// 		case VariantBlocked:
-// 			return errs.PermissionDenied("cannot interact with this user").Wrap(ErrRelationBlocked)
+		case TypeBlocked:
+			return errs.PermissionDenied("Cannot interact with this user.")
 
-// 		case VariantPending:
-// 			// Cross-request scenario: Peer already sent a request to actor, auto-accept it!
-// 			if rel.ActorID() != actorID {
-// 				return s.acceptPendingRequestTx(txCtx, rel, actorID.UUID())
-// 			}
-// 			return errs.AlreadyExists("friend request already pending")
-// 		}
+		case TypePending:
+			if rel.ActorID() != actorID {
+				return s.acceptPendingRequestTx(txCtx, rel, actorID.UUID())
+			}
+			return errs.AlreadyExists("Friend request already pending.")
+		}
 
-// 		return nil
-// 	})
-// }
+		return nil
+	})
+}
 
-// // Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
-// func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relation, actorID uuid.UUID) error {
-// 	actID, err := NewUserID(actorID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid actor id")
-// 	}
+// Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
+func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relation, actorID uuid.UUID) error {
+	actID, err := NewUserID(actorID)
+	if err != nil {
+		return errs.InvalidArgument("invalid actor id")
+	}
 
-// 	var channelID ChannelID
+	var channelID ChannelID
 
-// 	// 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
-// 	if existingChID := rel.ChannelID(); existingChID != nil {
-// 		channelID = *existingChID
-// 	} else {
-// 		// 2. Instantiate new 1:1 Direct Message Channel entity (TypeDirect)
-// 		ch, err := channel.New(channel.TypeDirect, nil, nil)
-// 		if err != nil {
-// 			return errs.InvalidArgument("failed to construct DM channel").Wrap(err)
-// 		}
+	// 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
+	if existingChID := rel.ChannelID(); existingChID != nil {
+		channelID = *existingChID
+	} else {
+		// 2. Instantiate new 1:1 Direct Message Channel entity (TypeDirect)
+		ch, err := channel.New(channel.TypeDirect, nil, nil)
+		if err != nil {
+			return errs.InvalidArgument("failed to construct DM channel").Wrap(err)
+		}
 
-// 		// 3. Persist Channel record inside current transaction
-// 		createdCh, err := s.channel.Create(ctx, ch)
-// 		if err != nil {
-// 			return err
-// 		}
+		// 3. Persist Channel record inside current transaction
+		createdCh, err := s.channel.Create(ctx, ch)
+		if err != nil {
+			return err
+		}
 
-// 		// 4. Construct & batch-add members
-// 		chUUID := createdCh.ID().UUID()
-// 		u1ID := rel.User1ID().UUID()
-// 		u2ID := rel.User2ID().UUID()
+		// 4. Construct & batch-add members
+		chUUID := createdCh.ID().UUID()
+		u1ID := rel.User1ID().UUID()
+		u2ID := rel.User2ID().UUID()
 
-// 		m1, err := channel.NewMember(chUUID, u1ID)
-// 		if err != nil {
-// 			return errs.InvalidArgument("invalid member 1").Wrap(err)
-// 		}
+		m1, err := channel.NewMember(chUUID, u1ID)
+		if err != nil {
+			return errs.InvalidArgument("invalid member 1").Wrap(err)
+		}
 
-// 		m2, err := channel.NewMember(chUUID, u2ID)
-// 		if err != nil {
-// 			return errs.InvalidArgument("invalid member 2").Wrap(err)
-// 		}
+		m2, err := channel.NewMember(chUUID, u2ID)
+		if err != nil {
+			return errs.InvalidArgument("invalid member 2").Wrap(err)
+		}
 
-// 		if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
-// 			return err
-// 		}
+		if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
+			return err
+		}
 
-// 		channelID = ChannelID(createdCh.ID())
-// 	}
+		channelID = ChannelID(createdCh.ID())
+	}
 
-// 	// 5. Transition relationship state to VariantFriends with the active channel ID
-// 	if err := rel.Accept(actID, channelID); err != nil {
-// 		if errors.Is(err, ErrCannotAccept) {
-// 			return errs.PermissionDenied("cannot accept your own outgoing friend request").Wrap(err)
-// 		}
-// 		return errs.InvalidArgument(err.Error()).Wrap(err)
-// 	}
+	// 5. Transition relationship state to VariantFriends with the active channel ID
+	if err := rel.Accept(actID, channelID); err != nil {
+		if errors.Is(err, ErrCannotAccept) {
+			return errs.PermissionDenied("cannot accept your own outgoing friend request").Wrap(err)
+		}
+		return errs.InvalidArgument(err.Error()).Wrap(err)
+	}
 
-// 	// 6. Upsert updated relationship state
-// 	if err := s.repo.Upsert(ctx, rel); err != nil {
-// 		return err
-// 	}
+	// 6. Upsert updated relationship state
+	if err := s.repo.Upsert(ctx, rel); err != nil {
+		return err
+	}
 
-// 	// 7. Emit outbox event
-// 	peerID := rel.GetPeerID(actID)
-// 	_, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
-// 		ActorID:   actorID,
-// 		TargetID:  peerID.UUID(),
-// 		ChannelID: channelID.UUID(),
-// 	})
-// 	return err
-// }
+	// 7. Emit outbox event
+	peerID := rel.GetPeerID(actID)
+	_, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
+		ActorID:   actorID,
+		TargetID:  peerID.UUID(),
+		ChannelID: channelID.UUID(),
+	})
+	return err
+}

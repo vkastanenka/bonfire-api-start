@@ -22,7 +22,7 @@ func NewRelationRepository(store *db.Store) *RelationRepository {
 	}
 }
 
-func (r *RelationRepository) RelationDeleteByUser(ctx context.Context, user1ID, user2ID, actorID fields.ID) error {
+func (r *RelationRepository) DeleteByUser(ctx context.Context, user1ID, user2ID, actorID fields.ID) error {
 	err := r.store.RelationDeleteByUser(ctx, db.RelationDeleteByUserParams{
 		User1ID: db.ToUUID(user1ID.UUID()),
 		User2ID: db.ToUUID(user2ID.UUID()),
@@ -35,7 +35,7 @@ func (r *RelationRepository) RelationDeleteByUser(ctx context.Context, user1ID, 
 	return nil
 }
 
-func (r *RelationRepository) RelationGet(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
+func (r *RelationRepository) Get(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
 	row, err := r.store.RelationGet(ctx, db.RelationGetParams{
 		User1ID: db.ToUUID(user1ID.UUID()),
 		User2ID: db.ToUUID(user2ID.UUID()),
@@ -47,7 +47,19 @@ func (r *RelationRepository) RelationGet(ctx context.Context, user1ID, user2ID f
 	return relationFromRow(row)
 }
 
-func (r *RelationRepository) RelationGetByChannel(ctx context.Context, channelID fields.ID) (*relation.Relation, error) {
+func (r *RelationRepository) GetForUpdate(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
+	row, err := r.store.RelationGetForUpdate(ctx, db.RelationGetForUpdateParams{
+		User1ID: db.ToUUID(user1ID.UUID()),
+		User2ID: db.ToUUID(user2ID.UUID()),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationFromRow(row)
+}
+
+func (r *RelationRepository) GetByChannel(ctx context.Context, channelID fields.ID) (*relation.Relation, error) {
 	row, err := r.store.RelationGetByChannel(ctx, db.ToUUID(channelID.UUID()))
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -56,7 +68,7 @@ func (r *RelationRepository) RelationGetByChannel(ctx context.Context, channelID
 	return relationFromRow(row)
 }
 
-func (r *RelationRepository) RelationListTypeByUser(
+func (r *RelationRepository) ListTypeByUser(
 	ctx context.Context,
 	userID fields.ID,
 	relType relation.Type,
@@ -83,7 +95,7 @@ func (r *RelationRepository) RelationListTypeByUser(
 	return relations, nil
 }
 
-func (r *RelationRepository) RelationSave(ctx context.Context, rel *relation.Relation) (*relation.Relation, error) {
+func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (*relation.Relation, error) {
 	row, err := r.store.RelationSave(ctx, db.RelationSaveParams{
 		User1ID:   db.ToUUID(rel.User1ID().UUID()),
 		User2ID:   db.ToUUID(rel.User2ID().UUID()),

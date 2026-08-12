@@ -42,6 +42,7 @@ type Querier interface {
 	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error
 	RelationGet(ctx context.Context, arg RelationGetParams) (Relation, error)
 	RelationGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relation, error)
+	RelationGetForUpdate(ctx context.Context, arg RelationGetForUpdateParams) (Relation, error)
 	RelationListTypeByUser(ctx context.Context, arg RelationListTypeByUserParams) ([]RelationListTypeByUserRow, error)
 	RelationSave(ctx context.Context, arg RelationSaveParams) (Relation, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)

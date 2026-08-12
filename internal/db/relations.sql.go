@@ -84,6 +84,37 @@ func (q *Queries) RelationGetByChannel(ctx context.Context, channelID pgtype.UUI
 	return i, err
 }
 
+const relationGetForUpdate = `-- name: RelationGetForUpdate :one
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE
+    user1_id = LEAST($1::uuid, $2::uuid)
+    AND user2_id = GREATEST($1::uuid, $2::uuid)
+FOR UPDATE
+`
+
+type RelationGetForUpdateParams struct {
+	User1ID pgtype.UUID `json:"user1_id"`
+	User2ID pgtype.UUID `json:"user2_id"`
+}
+
+func (q *Queries) RelationGetForUpdate(ctx context.Context, arg RelationGetForUpdateParams) (Relation, error) {
+	row := q.db.QueryRow(ctx, relationGetForUpdate, arg.User1ID, arg.User2ID)
+	var i Relation
+	err := row.Scan(
+		&i.User1ID,
+		&i.User2ID,
+		&i.ActorID,
+		&i.ChannelID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Type,
+	)
+	return i, err
+}
+
 const relationListTypeByUser = `-- name: RelationListTypeByUser :many
 SELECT
     (
