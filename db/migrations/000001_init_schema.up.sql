@@ -196,7 +196,7 @@ CREATE TABLE message_reactions(
 
 CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id, created_at ASC);
 
-CREATE TABLE relationships(
+CREATE TABLE relations(
     user1_id uuid NOT NULL,
     user2_id uuid NOT NULL,
     actor_id uuid NOT NULL,
@@ -204,22 +204,22 @@ CREATE TABLE relationships(
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     type smallint NOT NULL,
-    CONSTRAINT relationships_pkey PRIMARY KEY (user1_id, user2_id),
-    CONSTRAINT fk_relationships_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relationships_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relationships_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relationships_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+    CONSTRAINT relations_pkey PRIMARY KEY (user1_id, user2_id),
+    CONSTRAINT fk_relations_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_relations_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_relations_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_relations_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
     CONSTRAINT relationship_values CHECK (type IN (1, 2, 3)),
     CONSTRAINT channel_required_for_friends CHECK (type != 2 OR channel_id IS NOT NULL)
 );
 
-CREATE INDEX idx_relationships_user1_type_created ON relationships(user1_id, type, created_at DESC);
+CREATE INDEX idx_relations_user1_type_created ON relations(user1_id, type, created_at DESC);
 
-CREATE INDEX idx_relationships_user2_type_created ON relationships(user2_id, type, created_at DESC);
+CREATE INDEX idx_relations_user2_type_created ON relations(user2_id, type, created_at DESC);
 
-CREATE UNIQUE INDEX idx_relationships_channel_id ON relationships(channel_id)
+CREATE UNIQUE INDEX idx_relations_channel_id ON relations(channel_id)
 WHERE
     channel_id IS NOT NULL;
 

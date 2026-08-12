@@ -84,7 +84,7 @@ type OutboxEvent struct {
 	LastError      pgtype.Text        `json:"last_error"`
 }
 
-type Relationship struct {
+type Relation struct {
 	User1ID   pgtype.UUID        `json:"user1_id"`
 	User2ID   pgtype.UUID        `json:"user2_id"`
 	ActorID   pgtype.UUID        `json:"actor_id"`

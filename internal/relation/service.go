@@ -1,4 +1,4 @@
-package relationship
+package relation
 
 import (
 	"context"
@@ -22,9 +22,9 @@ type OutboxRepository interface {
 }
 
 type Repository interface {
-	Get(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relationship, error)
-	GetForUpdate(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relationship, error)
-	Upsert(ctx context.Context, rel *Relationship) error
+	Get(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relation, error)
+	GetForUpdate(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*Relation, error)
+	Upsert(ctx context.Context, rel *Relation) error
 	Delete(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) error
 	DeleteVerified(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID, actorID uuid.UUID) error
 	GetPerspective(ctx context.Context, userID uuid.UUID, peerID uuid.UUID) (*Perspective, error)
@@ -101,7 +101,7 @@ func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) er
 	u1, u2 := sortUserIDs(actorID, peerID)
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var rel *Relationship
+		var rel *Relation
 
 		fetchedRel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
 		if err != nil && !errs.IsNotFound(err) {
@@ -160,7 +160,7 @@ func (s *Service) DeleteVerified(ctx context.Context, rawActorID, rawPeerID uuid
 	}
 
 	if actorID == peerID {
-		return errs.InvalidArgument("cannot target yourself").Wrap(ErrSelfRelationship)
+		return errs.InvalidArgument("cannot target yourself").Wrap(ErrSelfRelation)
 	}
 
 	u1, u2 := sortUserIDs(actorID, peerID)
@@ -171,14 +171,14 @@ func (s *Service) DeleteVerified(ctx context.Context, rawActorID, rawPeerID uuid
 			if errs.IsNotFound(err) {
 				return errs.NotFound("relationship not found").Wrap(err)
 			}
-			if errors.Is(err, ErrRelationshipBlocked) {
+			if errors.Is(err, ErrRelationBlocked) {
 				return errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
 			}
 			return err
 		}
 
 		// Emit outbox event for removal (unfriend / cancel request)
-		_, err = s.outbox.Publish(txCtx, EventRelationshipRemoved, RelationshipRemovedPayload{
+		_, err = s.outbox.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{
 			ActorID:  actorID.UUID(),
 			TargetID: peerID.UUID(),
 		})
@@ -271,7 +271,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawTargetID
 			return errs.AlreadyExists("already friends with this user")
 
 		case VariantBlocked:
-			return errs.PermissionDenied("cannot interact with this user").Wrap(ErrRelationshipBlocked)
+			return errs.PermissionDenied("cannot interact with this user").Wrap(ErrRelationBlocked)
 
 		case VariantPending:
 			// Cross-request scenario: Peer already sent a request to actor, auto-accept it!
@@ -286,7 +286,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawTargetID
 }
 
 // Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
-func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relationship, actorID uuid.UUID) error {
+func (s *Service) acceptPendingRequestTx(ctx context.Context, rel *Relation, actorID uuid.UUID) error {
 	actID, err := NewUserID(actorID)
 	if err != nil {
 		return errs.InvalidArgument("invalid actor id")

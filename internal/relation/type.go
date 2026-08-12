@@ -1,4 +1,4 @@
-package relationship
+package relation
 
 import (
 	"bonfire-api/internal/errs"
