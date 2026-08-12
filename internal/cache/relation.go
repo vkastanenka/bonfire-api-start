@@ -39,7 +39,7 @@ func (r Relation) RelationToDomain(u1, u2 fields.ID) (*relation.Relation, error)
 		return nil, err
 	}
 
-	relType, err := relation.ParseTypeFromInt16("type", r.Type)
+	relType, err := relation.ParseInt16("type", r.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +96,70 @@ func (c *RelationCache) Get(ctx context.Context, u1, u2 fields.ID) (*relation.Re
 	return edge.RelationToDomain(u1, u2)
 }
 
-// GetUserRelations fetches all relationship mappings (PeerID -> RelationType) for a user.
-func (c *RelationCache) GetUserRelations(ctx context.Context, userID fields.ID) (map[uuid.UUID]relation.Type, error) {
+// GetBatch performs a batch pipeline lookup for canonical relation edges between u1 and multiple peer IDs.
+// Returns a map of found relations and a slice of missing peer IDs.
+func (c *RelationCache) GetBatch(
+	ctx context.Context,
+	u1 fields.ID,
+	peers []fields.ID,
+) (map[fields.ID]*relation.Relation, []fields.ID, error) {
+	if len(peers) == 0 {
+		return map[fields.ID]*relation.Relation{}, nil, nil
+	}
+
+	keys := make([]string, len(peers))
+	for i, peerID := range peers {
+		user1, user2 := relation.SortUserIDs(u1, peerID)
+		keys[i] = relationKey(user1, user2)
+	}
+
+	rawValues, err := c.store.MGet(ctx, keys...)
+	if err != nil {
+		return nil, nil, c.store.Err(err)
+	}
+
+	found := make(map[fields.ID]*relation.Relation, len(peers))
+	var missing []fields.ID
+
+	for i, raw := range rawValues {
+		peerID := peers[i]
+
+		if raw == nil || raw == "" {
+			missing = append(missing, peerID)
+			continue
+		}
+
+		rawStr, ok := raw.(string)
+		if !ok {
+			missing = append(missing, peerID)
+			continue
+		}
+
+		var edge Relation
+		if err := json.Unmarshal([]byte(rawStr), &edge); err != nil {
+			missing = append(missing, peerID)
+			continue
+		}
+
+		user1, user2 := relation.SortUserIDs(u1, peerID)
+		rel, err := edge.RelationToDomain(user1, user2)
+		if err != nil {
+			missing = append(missing, peerID)
+			continue
+		}
+
+		found[peerID] = rel
+	}
+
+	return found, missing, nil
+}
+
+// GetUserRelations fetches relationship mappings (PeerID -> RelationType) for a user.
+func (c *RelationCache) GetUserRelations(
+	ctx context.Context,
+	userID fields.ID,
+	relType relation.Type,
+) (map[uuid.UUID]relation.Type, error) {
 	k := userRelationsKey(userID)
 
 	var rawMap map[string]string
@@ -121,7 +183,17 @@ func (c *RelationCache) GetUserRelations(ctx context.Context, userID fields.ID) 
 			continue
 		}
 
-		res[peerID] = relation.Type(val)
+		parsedType := relation.Type(val)
+
+		if relType != relation.TypeUnknown && parsedType != relType {
+			continue
+		}
+
+		res[peerID] = parsedType
+	}
+
+	if len(res) == 0 {
+		return nil, nil
 	}
 
 	return res, nil

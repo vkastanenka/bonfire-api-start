@@ -15,6 +15,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const maxPeerLimit int32 = 1000
+
 type Cache interface {
 	Get(ctx context.Context, u1, u2 fields.ID) (*Relation, error)
 	GetUserRelations(ctx context.Context, userID fields.ID) (map[uuid.UUID]Type, error)
@@ -315,6 +317,52 @@ func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (
 		rel.Type(),
 		peerPresence,
 	), nil
+}
+
+func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (*[]Peer, error) {
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse type
+	relType, err := Parse(rawType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get from cache, ensure 1000 limit
+	peerIDs, err := s.cache.GetUserRelations(ctx, userID, peerType, maxPeerLimit)
+	if err != nil {
+		// 3. Fallback to repo if cache miss/failure (enforcing max 1000 limit)
+		peerIDs, err = s.relationshipRepo.GetPeerIDs(ctx, userID, peerType, maxPeerLimit)
+		if err != nil {
+			return nil, err
+		}
+
+		// Asynchronously backfill peer IDs cache on miss
+		go func(ids []fields.ID) {
+			_ = s.peerCache.SetPeerIDs(context.WithoutCancel(ctx), userID, peerType, ids)
+		}(peerIDs)
+	}
+
+	// Fallback to repo if miss, ensure 1000 limit
+
+	// Order ids by asc display_name
+
+	// Start goroutine
+
+	// Get batch presences, fallback to offline if issues
+
+	// Get batch users from cache
+
+	// Fallback to db batch get for missing users from cache
+
+	// End goroutine
+
+	// Build array of peers
+
+	// return
 }
 
 // // func (s *Service) ListPeers(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {

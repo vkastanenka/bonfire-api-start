@@ -20,7 +20,9 @@ type userCache interface {
 	Delete(ctx context.Context, userID fields.ID) error
 	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
 	Get(ctx context.Context, userID fields.ID) (*user.User, error)
+	GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
 	Set(ctx context.Context, usr *user.User) error
+	SetBatch(ctx context.Context, users []*user.User) error
 }
 
 type UserRepository struct {
@@ -91,6 +93,36 @@ func (r *UserRepository) Get(ctx context.Context, id fields.ID) (*user.User, err
 	return userFromRow(row)
 }
 
+func (r *UserRepository) GetBatch(ctx context.Context, ids []fields.ID, batchLimit int32) (map[fields.ID]*user.User, error) {
+	if len(ids) == 0 {
+		return make(map[fields.ID]*user.User), nil
+	}
+
+	uuids := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
+		uuids[i] = id.UUID()
+	}
+
+	rows, err := r.store.UserGetBatch(ctx, db.UserGetBatchParams{
+		Ids:        db.ToUUIDs(uuids),
+		BatchLimit: batchLimit,
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	result := make(map[fields.ID]*user.User, len(rows))
+	for _, row := range rows {
+		u, err := userFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		result[u.ID()] = u
+	}
+
+	return result, nil
+}
+
 func (r *UserRepository) GetCached(ctx context.Context, id fields.ID) (*user.User, error) {
 	u, err := r.cache.Get(ctx, id)
 	if err == nil && u != nil {
@@ -131,6 +163,68 @@ func (r *UserRepository) GetCached(ctx context.Context, id fields.ID) (*user.Use
 	}
 
 	return val.(*user.User), nil
+}
+
+func (r *UserRepository) GetCachedBatch(ctx context.Context, ids []fields.ID, batchLimit int32) (map[fields.ID]*user.User, error) {
+	if len(ids) == 0 {
+		return make(map[fields.ID]*user.User), nil
+	}
+
+	cachedUsers, missingIDs, err := r.cache.GetBatch(ctx, ids)
+	if err != nil {
+		slog.WarnContext(ctx, "user cache batch read failed, falling back to database",
+			"requested_count", len(ids),
+			"error", err,
+			"scope", redis.ScopeUser,
+		)
+		missingIDs = ids
+		cachedUsers = make(map[fields.ID]*user.User)
+	}
+
+	if len(missingIDs) == 0 {
+		return cachedUsers, nil
+	}
+
+	sfKey := fmt.Sprintf("get_cached_batch:%d:%v", len(missingIDs), missingIDs)
+	sfCtx := context.WithoutCancel(ctx)
+
+	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
+		dbUsers, repoErr := r.GetBatch(sfCtx, missingIDs, batchLimit)
+		if repoErr != nil {
+			return nil, repoErr
+		}
+
+		if len(dbUsers) > 0 {
+			toBackfill := make([]*user.User, 0, len(dbUsers))
+			for _, u := range dbUsers {
+				toBackfill = append(toBackfill, u)
+			}
+
+			if cacheErr := r.cache.SetBatch(sfCtx, toBackfill); cacheErr != nil {
+				slog.WarnContext(sfCtx, "failed to backfill user batch cache",
+					"count", len(toBackfill),
+					"error", cacheErr,
+					"scope", redis.ScopeUser,
+				)
+			}
+		}
+
+		return dbUsers, nil
+	})
+
+	if err != nil {
+		if len(cachedUsers) > 0 {
+			return cachedUsers, nil
+		}
+		return nil, err
+	}
+
+	fetchedUsers := val.(map[fields.ID]*user.User)
+	for id, u := range fetchedUsers {
+		cachedUsers[id] = u
+	}
+
+	return cachedUsers, nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email user.Email) (*user.User, error) {

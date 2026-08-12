@@ -146,6 +146,60 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
 	return i, err
 }
 
+const userGetBatch = `-- name: UserGetBatch :many
+SELECT
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+FROM
+    users
+WHERE
+    id = ANY ($1::uuid[])
+ORDER BY
+    id ASC
+LIMIT $2::int
+`
+
+type UserGetBatchParams struct {
+	Ids        []pgtype.UUID `json:"ids"`
+	BatchLimit int32         `json:"batch_limit"`
+}
+
+func (q *Queries) UserGetBatch(ctx context.Context, arg UserGetBatchParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, userGetBatch, arg.Ids, arg.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VerifiedAt,
+			&i.DisabledAt,
+			&i.DeleteScheduledAt,
+			&i.PreferredPresenceUntil,
+			&i.PreferredPresence,
+			&i.Email,
+			&i.Username,
+			&i.DisplayName,
+			&i.PasswordHash,
+			&i.Phone,
+			&i.Bio,
+			&i.AvatarUrl,
+			&i.BannerColor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const userGetByEmail = `-- name: UserGetByEmail :one
 SELECT
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color

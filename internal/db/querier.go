@@ -55,6 +55,7 @@ type Querier interface {
 	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
+	UserGetBatch(ctx context.Context, arg UserGetBatchParams) ([]User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
 	UserGetDeleteScheduledBatch(ctx context.Context, arg UserGetDeleteScheduledBatchParams) ([]User, error)
 	UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error)

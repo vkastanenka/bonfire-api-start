@@ -89,6 +89,21 @@ func ToUUIDPtr[T ~[16]byte](id *T) pgtype.UUID {
 	}
 }
 
+// ToUUIDs converts a slice of 16-byte arrays (e.g., []uuid.UUID) into []pgtype.UUID.
+func ToUUIDs[T ~[16]byte](ids []T) []pgtype.UUID {
+	if ids == nil {
+		return nil
+	}
+	res := make([]pgtype.UUID, len(ids))
+	for i, id := range ids {
+		res[i] = pgtype.UUID{
+			Bytes: id,
+			Valid: true,
+		}
+	}
+	return res
+}
+
 // -----------------------------------------------------------------------------
 // DB -> Domain
 // -----------------------------------------------------------------------------
@@ -162,4 +177,19 @@ func FromUUIDPtr[T ~[16]byte](id pgtype.UUID) *T {
 	}
 	v := T(id.Bytes)
 	return &v
+}
+
+// FromUUIDs converts a slice of pgtype.UUID into a slice of 16-byte arrays (e.g., []uuid.UUID).
+func FromUUIDs[T ~[16]byte](ids []pgtype.UUID) []T {
+	if ids == nil {
+		return nil
+	}
+	res := make([]T, 0, len(ids))
+	for _, id := range ids {
+		if !id.Valid {
+			continue
+		}
+		res = append(res, T(id.Bytes))
+	}
+	return res
 }

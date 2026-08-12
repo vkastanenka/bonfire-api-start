@@ -29,6 +29,17 @@ FROM
 WHERE
     id = $1;
 
+-- name: UserGetBatch :many
+SELECT
+    users.*
+FROM
+    users
+WHERE
+    id = ANY (@ids::uuid[])
+ORDER BY
+    id ASC
+LIMIT @batch_limit::int;
+
 -- name: UserGetByEmail :one
 SELECT
     users.*
