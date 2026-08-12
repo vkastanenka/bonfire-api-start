@@ -19,7 +19,7 @@ const (
 	EntityMessage         Entity = "message"
 	EntityMessageReaction Entity = "message_reaction"
 	EntityOutboxEvents    Entity = "outbox_event"
-	EntityRelationship    Entity = "relationship"
+	EntityRelation        Entity = "relation"
 	EntitySession         Entity = "session"
 	EntityUser            Entity = "user"
 )

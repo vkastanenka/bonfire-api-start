@@ -24,7 +24,7 @@ func (r *Relation) User1ID() fields.ID          { return r.user1ID }
 func (r *Relation) User2ID() fields.ID          { return r.user2ID }
 func (r *Relation) ActorID() fields.ID          { return r.actorID }
 func (r *Relation) ChannelID() fields.ID        { return r.channelID }
-func (r *Relation) Variant() Type               { return r.relType }
+func (r *Relation) Type() Type                  { return r.relType }
 func (r *Relation) CreatedAt() fields.Timestamp { return r.createdAt }
 func (r *Relation) UpdatedAt() fields.Timestamp { return r.updatedAt }
 
@@ -71,7 +71,7 @@ func New(
 	relType Type,
 	createdAt,
 	updatedAt fields.Timestamp,
-) (*Relation, error) {
+) *Relation {
 	return &Relation{
 		user1ID:   user1ID,
 		user2ID:   user2ID,
@@ -80,7 +80,23 @@ func New(
 		relType:   TypePending,
 		createdAt: createdAt,
 		updatedAt: updatedAt,
-	}, nil
+	}
+}
+
+func Reconstitute(
+	user1ID, user2ID, actorID, channelID fields.ID,
+	relType Type,
+	createdAt, updatedAt fields.Timestamp,
+) *Relation {
+	return &Relation{
+		user1ID:   user1ID,
+		user2ID:   user2ID,
+		actorID:   actorID,
+		channelID: channelID,
+		relType:   relType,
+		createdAt: createdAt,
+		updatedAt: updatedAt,
+	}
 }
 
 // -----------------------------------------------------------------------------

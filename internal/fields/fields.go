@@ -182,6 +182,13 @@ func (id ID) String() string       { return uuid.UUID(id).String() }
 func (id ID) IsValid() bool        { return uuid.UUID(id) != uuid.Nil }
 func (id ID) Equals(other ID) bool { return id == other }
 
+func (id ID) UUIDPtr() *uuid.UUID {
+	if !id.IsValid() {
+		return nil
+	}
+	return ptr.To(id.UUID())
+}
+
 func (id ID) StringPtr() *string {
 	if !id.IsValid() {
 		return nil

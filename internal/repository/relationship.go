@@ -2,229 +2,202 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/relation"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Relationship struct {
-	store db.Querier
+type RelationRepository struct {
+	store *db.Store
 }
 
-func NewRelationship(store db.Querier) *Relationship {
-	return &Relationship{store: store}
+func NewRelationRepository(store *db.Store) *RelationRepository {
+	return &RelationRepository{
+		store: store.WithEntity(db.EntityRelation),
+	}
 }
 
-// Delete removes a relationship aggregate given its participant IDs.
-func (r *Relationship) Delete(ctx context.Context, user1ID, user2ID uuid.UUID) error {
-	err := r.store.RelationshipDelete(ctx, db.RelationshipDeleteParams{
-		User1ID: db.UUID(user1ID),
-		User2ID: db.UUID(user2ID),
+func (r *RelationRepository) RelationDeleteByUser(ctx context.Context, user1ID, user2ID, actorID fields.ID) error {
+	err := r.store.RelationDeleteByUser(ctx, db.RelationDeleteByUserParams{
+		User1ID: db.ToUUID(user1ID.UUID()),
+		User2ID: db.ToUUID(user2ID.UUID()),
+		ActorID: db.ToUUID(actorID.UUID()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityRelationship)
+		return r.store.Err(err)
 	}
 
 	return nil
 }
 
-// DeleteVerified removes a relationship while verifying actor permissions (e.g., blocking safeguards).
-func (r *Relationship) DeleteVerified(ctx context.Context, user1ID, user2ID, actorID uuid.UUID) error {
-	err := r.store.RelationshipDeleteVerified(ctx, db.RelationshipDeleteVerifiedParams{
-		User1ID: db.UUID(user1ID),
-		User2ID: db.UUID(user2ID),
-		ActorID: db.UUID(actorID),
+func (r *RelationRepository) RelationGet(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
+	row, err := r.store.RelationGet(ctx, db.RelationGetParams{
+		User1ID: db.ToUUID(user1ID.UUID()),
+		User2ID: db.ToUUID(user2ID.UUID()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityRelationship)
+		return nil, r.store.Err(err)
 	}
 
-	return nil
+	return relationFromRow(row)
 }
 
-// Get fetches a single relationship aggregate by participants.
-func (r *Relationship) Get(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Relationship, error) {
-	row, err := r.store.RelationshipGet(ctx, db.RelationshipGetParams{
-		User1ID: db.UUID(user1ID),
-		User2ID: db.UUID(user2ID),
+func (r *RelationRepository) RelationGetByChannel(ctx context.Context, channelID fields.ID) (*relation.Relation, error) {
+	row, err := r.store.RelationGetByChannel(ctx, db.ToUUID(channelID.UUID()))
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationFromRow(row)
+}
+
+func (r *RelationRepository) RelationListTypeByUser(
+	ctx context.Context,
+	userID fields.ID,
+	relType relation.Type,
+	limit int32,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListTypeByUser(ctx, db.RelationListTypeByUserParams{
+		UserID:     db.ToUUID(userID.UUID()),
+		TypeVal:    int16(relType),
+		BatchLimit: limit,
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, r.store.Err(err)
 	}
 
-	return relationshipFromRow(row)
-}
-
-// GetByChannelID fetches a single relationship aggregate by its direct message channel ID.
-func (r *Relationship) GetByChannelID(ctx context.Context, channelID uuid.UUID) (*relationship.Relationship, error) {
-	row, err := r.store.RelationshipGetByChannelID(ctx, db.UUID(channelID))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+	relations := make([]*relation.Relation, 0, len(rows))
+	for _, row := range rows {
+		rel, err := relationFromListRow(userID, row)
+		if err != nil {
+			return nil, err
+		}
+		relations = append(relations, rel)
 	}
 
-	return relationshipFromGetByChannelIDRow(row)
+	return relations, nil
 }
 
-// GetForUpdate fetches a single relationship aggregate by participants and locks the row FOR UPDATE.
-func (r *Relationship) GetForUpdate(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Relationship, error) {
-	row, err := r.store.RelationshipGetForUpdate(ctx, db.RelationshipGetForUpdateParams{
-		User1ID: db.UUID(user1ID),
-		User2ID: db.UUID(user2ID),
+func (r *RelationRepository) RelationSave(ctx context.Context, rel *relation.Relation) (*relation.Relation, error) {
+	row, err := r.store.RelationSave(ctx, db.RelationSaveParams{
+		User1ID:   db.ToUUID(rel.User1ID().UUID()),
+		User2ID:   db.ToUUID(rel.User2ID().UUID()),
+		ActorID:   db.ToUUID(rel.ActorID().UUID()),
+		ChannelID: db.ToUUIDPtr(rel.ChannelID().UUIDPtr()),
+		Type:      rel.Type().Int16(),
+		CreatedAt: db.ToTimestamptz(rel.CreatedAt().Time()),
+		UpdatedAt: db.ToTimestamptz(rel.UpdatedAt().Time()),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, r.store.Err(err)
 	}
 
-	return relationshipFromRow(row)
+	return relationFromRow(row)
 }
 
-// GetPerspectiveByChannelID retrieves the UI projection for a user by DM channel ID.
-func (r *Relationship) GetPerspective(ctx context.Context, user1ID, user2ID uuid.UUID) (*relationship.Perspective, error) {
-	row, err := r.store.RelationshipPerspectiveGet(ctx, db.RelationshipPerspectiveGetParams{
-		UserID: db.UUID(user1ID),
-		PeerID: db.UUID(user2ID),
-	})
+// -----------------------------------------------------------------------------
+// Row Mappers
+// -----------------------------------------------------------------------------
+
+func relationFromRow(row db.Relation) (*relation.Relation, error) {
+	u1UUID := db.FromUUID[uuid.UUID](row.User1ID)
+	u2UUID := db.FromUUID[uuid.UUID](row.User2ID)
+
+	mapErr := func(msg, key string, val any, err error) *errs.Error {
+		return errs.Internal(msg).
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta(key, fmt.Sprintf("%v", val)).
+			Resource("Relation", fmt.Sprintf("%s:%s", u1UUID.String(), u2UUID.String()), "", "database row mapping")
+	}
+
+	user1ID, err := fields.ParseRequiredID("user1_id", u1UUID)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, mapErr("failed to parse user1_id from database", "user1_id", u1UUID.String(), err)
 	}
 
-	return perspectiveFromRow(row)
-}
-
-// GetPerspectiveByChannelID retrieves the UI projection for a user by DM channel ID.
-func (r *Relationship) GetPerspectiveByChannelID(ctx context.Context, userID, channelID uuid.UUID) (*relationship.Perspective, error) {
-	row, err := r.store.RelationshipPerspectiveGetByChannelID(ctx, db.RelationshipPerspectiveGetByChannelIDParams{
-		UserID:    db.UUID(userID),
-		ChannelID: db.UUID(channelID),
-	})
+	user2ID, err := fields.ParseRequiredID("user2_id", u2UUID)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, mapErr("failed to parse user2_id from database", "user2_id", u2UUID.String(), err)
 	}
 
-	return perspectiveFromRow(row)
-}
-
-// HasBlockBetweenUserAndPeers checks if a block relationship exists between a user and any of the provided peer IDs.
-func (r *Relationship) HasBlockBetweenUserAndPeers(ctx context.Context, userID uuid.UUID, peerIDs []uuid.UUID) (bool, error) {
-	if len(peerIDs) == 0 {
-		return false, nil
-	}
-
-	pgPeerIDs := make([]pgtype.UUID, len(peerIDs))
-	for i, id := range peerIDs {
-		pgPeerIDs[i] = db.UUID(id)
-	}
-
-	blocked, err := r.store.RelationshipHasBlockBetweenUserAndPeers(ctx, db.RelationshipHasBlockBetweenUserAndPeersParams{
-		UserID:  db.UUID(userID),
-		PeerIds: pgPeerIDs,
-	})
+	actorUUID := db.FromUUID[uuid.UUID](row.ActorID)
+	actorID, err := fields.ParseRequiredID("actor_id", actorUUID)
 	if err != nil {
-		return false, db.NewError(err, db.EntityRelationship)
+		return nil, mapErr("failed to parse actor_id from database", "actor_id", actorUUID.String(), err)
 	}
 
-	return blocked, nil
+	var channelID fields.ID
+	if row.ChannelID.Valid {
+		chUUID := db.FromUUID[uuid.UUID](row.ChannelID)
+		channelID, err = fields.ParseRequiredID("channel_id", chUUID)
+		if err != nil {
+			return nil, mapErr("failed to parse channel_id from database", "channel_id", chUUID.String(), err)
+		}
+	}
+
+	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
+	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
+
+	return relation.Reconstitute(
+		user1ID,
+		user2ID,
+		actorID,
+		channelID,
+		relation.Type(row.Type),
+		createdAt,
+		updatedAt,
+	), nil
 }
 
-// // ListPerspectives retrieves all relationship projections for a user, optionally filtered by relationship type.
-// func (r *Relationship) ListPerspectives(ctx context.Context, userID uuid.UUID, filterVariant *relationship.Variant) ([]relationship.Perspective, error) {
-// 	rows, err := r.store.RelationshipPerspectivesList(ctx, db.RelationshipPerspectivesListParams{
-// 		UserID:        db.UUID(userID),
-// 		FilterVariant: db.Int2Ptr(filterVariant),
-// 	})
-// 	if err != nil {
-// 		return nil, db.NewError(err, db.EntityRelationship)
-// 	}
+func relationFromListRow(userID fields.ID, row db.RelationListTypeByUserRow) (*relation.Relation, error) {
+	peerUUID := db.FromUUID[uuid.UUID](row.PeerID)
 
-// 	perspectives := make([]relationship.Perspective, len(rows))
-// 	for i, row := range rows {
-// 		p, err := perspectiveFromRow(row)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		perspectives[i] = *p
-// 	}
-
-// 	return perspectives, nil
-// }
-
-// Upsert creates or updates a relationship aggregate state.
-func (r *Relationship) Upsert(ctx context.Context, rel *relationship.Relationship) (*relationship.Relationship, error) {
-	var channelID *uuid.UUID
-	if rel.ChannelID() != nil {
-		id := rel.ChannelID().UUID()
-		channelID = &id
+	mapErr := func(msg, key string, val any, err error) *errs.Error {
+		return errs.Internal(msg).
+			Wrap(err).
+			Reason("CORRUPT_DATABASE_RECORD").
+			Meta(key, fmt.Sprintf("%v", val)).
+			Resource("Relation", fmt.Sprintf("%s:%s", userID.String(), peerUUID.String()), "", "database list row mapping")
 	}
 
-	row, err := r.store.RelationshipUpsert(ctx, db.RelationshipUpsertParams{
-		User1ID:   db.UUID(rel.User1ID().UUID()),
-		User2ID:   db.UUID(rel.User2ID().UUID()),
-		ActorID:   db.UUID(rel.ActorID().UUID()),
-		ChannelID: db.UUIDPtr(channelID),
-		CreatedAt: db.Timestamptz(rel.CreatedAt()),
-		UpdatedAt: db.Timestamptz(rel.UpdatedAt()),
-		Variant:   int16(rel.Variant()),
-	})
+	peerID, err := fields.ParseRequiredID("peer_id", peerUUID)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, mapErr("failed to parse peer_id from database list row", "peer_id", peerUUID.String(), err)
 	}
 
-	reconstituted, err := relationshipFromRow(row)
+	user1ID, user2ID := relation.SortUserIDs(userID, peerID)
+
+	actorUUID := db.FromUUID[uuid.UUID](row.ActorID)
+	actorID, err := fields.ParseRequiredID("actor_id", actorUUID)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityRelationship)
+		return nil, mapErr("failed to parse actor_id from database list row", "actor_id", actorUUID.String(), err)
 	}
 
-	return reconstituted, nil
-}
-
-// ============================================================================
-// Internal Domain Reconstitution Helpers
-// ============================================================================
-
-func relationshipFromRow(row db.Relationship) (*relationship.Relationship, error) {
-	return relationship.Reconstitute(
-		uuid.UUID(row.User1ID.Bytes),
-		uuid.UUID(row.User2ID.Bytes),
-		uuid.UUID(row.ActorID.Bytes),
-		db.UUIDPtrFromDB(row.ChannelID),
-		uint8(row.Variant),
-		row.CreatedAt.Time.UTC(),
-		row.UpdatedAt.Time.UTC(),
-	)
-}
-
-func relationshipFromGetByChannelIDRow(row db.Relationship) (*relationship.Relationship, error) {
-	return relationship.Reconstitute(
-		uuid.UUID(row.User1ID.Bytes),
-		uuid.UUID(row.User2ID.Bytes),
-		uuid.UUID(row.ActorID.Bytes),
-		db.UUIDPtrFromDB(row.ChannelID),
-		uint8(row.Variant),
-		row.CreatedAt.Time.UTC(),
-		row.UpdatedAt.Time.UTC(),
-	)
-}
-
-func perspectiveFromRow(row db.RelationshipPerspective) (*relationship.Perspective, error) {
-	var avatarURL *string
-	if row.AvatarUrl.Valid && row.AvatarUrl.String != "" {
-		avatarURL = &row.AvatarUrl.String
+	var channelID fields.ID
+	if row.ChannelID.Valid {
+		chUUID := db.FromUUID[uuid.UUID](row.ChannelID)
+		channelID, err = fields.ParseRequiredID("channel_id", chUUID)
+		if err != nil {
+			return nil, mapErr("failed to parse channel_id from database list row", "channel_id", chUUID.String(), err)
+		}
 	}
 
-	return relationship.ReconstitutePerspective(
-		uuid.UUID(row.UserID.Bytes),
-		uuid.UUID(row.PeerID.Bytes),
-		uuid.UUID(row.ActorID.Bytes),
-		db.UUIDPtrFromDB(row.ChannelID),
-		uint8(row.Variant),
-		row.IsInitiator,
-		row.CreatedAt.Time.UTC(),
-		row.UpdatedAt.Time.UTC(),
-		row.Username,
-		row.DisplayName.String,
-		avatarURL,
-	)
+	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
+	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
+
+	return relation.Reconstitute(
+		user1ID,
+		user2ID,
+		actorID,
+		channelID,
+		relation.Type(row.Type),
+		createdAt,
+		updatedAt,
+	), nil
 }

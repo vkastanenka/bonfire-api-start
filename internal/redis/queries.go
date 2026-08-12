@@ -102,6 +102,51 @@ func (q *Queries) Increment(ctx context.Context, key string, ttl time.Duration) 
 }
 
 // ============================================================================
+// Set Operations
+// ============================================================================
+
+func (q *Queries) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	if len(members) == 0 {
+		return nil
+	}
+	vals := make([]interface{}, len(members))
+	for i, m := range members {
+		payload, err := marshalValue(m)
+		if err != nil {
+			return err
+		}
+		vals[i] = payload
+	}
+	return q.getCmd(ctx).SAdd(ctx, key, vals...).Err()
+}
+
+func (q *Queries) SRem(ctx context.Context, key string, members ...interface{}) error {
+	if len(members) == 0 {
+		return nil
+	}
+	vals := make([]interface{}, len(members))
+	for i, m := range members {
+		payload, err := marshalValue(m)
+		if err != nil {
+			return err
+		}
+		vals[i] = payload
+	}
+	return q.getCmd(ctx).SRem(ctx, key, vals...).Err()
+}
+
+func (q *Queries) SIsMember(ctx context.Context, key string, member interface{}) (bool, error) {
+	if IsPipelined(ctx) {
+		return false, errors.New("cannot execute SIsMember inside a pipeline callback")
+	}
+	payload, err := marshalValue(member)
+	if err != nil {
+		return false, err
+	}
+	return q.getCmd(ctx).SIsMember(ctx, key, payload).Result()
+}
+
+// ============================================================================
 // Hash Operations
 // ============================================================================
 
@@ -142,6 +187,16 @@ func (q *Queries) HGet(ctx context.Context, key, field string, dest interface{})
 	}
 
 	return unmarshalValue(rawBytes, dest)
+}
+
+func (q *Queries) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	if IsPipelined(ctx) {
+		return nil, errors.New("cannot execute HMGet inside a pipeline callback")
+	}
+	return q.getCmd(ctx).HMGet(ctx, key, fields...).Result()
 }
 
 func (q *Queries) HDel(ctx context.Context, key string, fields ...string) error {

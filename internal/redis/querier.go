@@ -19,6 +19,7 @@ type Querier interface {
 	// Hashes
 	HSet(ctx context.Context, key string, field string, value interface{}) error
 	HGet(ctx context.Context, key, field string, dest interface{}) error
+	HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error)
 	HDel(ctx context.Context, key string, fields ...string) error
 	HGetAll(ctx context.Context, key string, dest *map[string]string) error
 
