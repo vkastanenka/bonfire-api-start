@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"bonfire-api/internal/presence"
@@ -11,49 +10,35 @@ import (
 	"github.com/google/uuid"
 )
 
-type PresenceStore interface {
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Get(ctx context.Context, key string, dest interface{}) error
-	MGet(ctx context.Context, keys ...string) ([]interface{}, error)
-}
-
 type Presence struct {
-	store PresenceStore
+	store *redis.Store
 	ttl   time.Duration
 }
 
-func NewPresence(store PresenceStore, ttl time.Duration) *Presence {
+func NewPresence(store *redis.Store, ttl time.Duration) *Presence {
 	return &Presence{
-		store: store,
+		store: store.WithScope(redis.ScopePresence),
 		ttl:   ttl,
 	}
 }
 
-func presenceKey(userID uuid.UUID) string {
-	return fmt.Sprintf("presence:%s", userID.String())
-}
-
-func (s *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
-	key := presenceKey(userID)
-	if err := s.store.Set(ctx, key, p.String(), s.ttl); err != nil {
-		return redis.NewError(err, redis.ScopePresence)
-	}
-	return nil
+func key(userID uuid.UUID) string {
+	return "user:" + userID.String() + ":presence"
 }
 
 func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
-	key := presenceKey(userID)
+	k := key(userID)
 
 	var raw string
-	err := s.store.Get(ctx, key, &raw)
-	if redis.IsNotFoundError(err) {
+	err := s.store.Get(ctx, k, &raw)
+	if redis.IsCacheMiss(err) {
 		return presence.PresenceOffline, nil
 	}
 	if err != nil {
-		return presence.PresenceUnknown, redis.NewError(err, redis.ScopePresence)
+		return presence.PresenceUnknown, err
 	}
 
-	p, err := presence.New(raw)
+	p, err := presence.Parse(raw)
 	if err != nil {
 		return presence.PresenceOffline, nil
 	}
@@ -68,12 +53,12 @@ func (s *Presence) GetPresenceBatch(ctx context.Context, userIDs []uuid.UUID) (m
 
 	keys := make([]string, len(userIDs))
 	for i, id := range userIDs {
-		keys[i] = presenceKey(id)
+		keys[i] = key(id)
 	}
 
 	vals, err := s.store.MGet(ctx, keys...)
 	if err != nil {
-		return nil, redis.NewError(err, redis.ScopePresence)
+		return nil, err
 	}
 
 	result := make(map[uuid.UUID]presence.Presence, len(userIDs))
@@ -87,7 +72,7 @@ func (s *Presence) GetPresenceBatch(ctx context.Context, userIDs []uuid.UUID) (m
 
 		switch v := val.(type) {
 		case string:
-			if p, err := presence.New(v); err == nil {
+			if p, err := presence.Parse(v); err == nil {
 				result[id] = p
 				continue
 			}
@@ -102,4 +87,9 @@ func (s *Presence) GetPresenceBatch(ctx context.Context, userIDs []uuid.UUID) (m
 	}
 
 	return result, nil
+}
+
+func (s *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
+	k := key(userID)
+	return s.store.Set(ctx, k, p.String(), s.ttl)
 }
