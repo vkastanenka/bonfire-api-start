@@ -317,7 +317,7 @@ func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (
 	), nil
 }
 
-// // func (s *Service) ListPerspectives(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
+// // func (s *Service) ListPeers(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
 // // 	if filter != nil && !filter.IsValid() {
 // // 		return nil, errs.InvalidArgument("invalid relationship status filter")
 // // 	}
