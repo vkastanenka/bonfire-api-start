@@ -26,11 +26,11 @@ func NewOutboxRepository(store *db.Store) *OutboxRepository {
 func (r *OutboxRepository) OutboxEventCreate(ctx context.Context, e *outbox.Event) error {
 	err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
 		ID:            db.ToUUID(e.ID().UUID()),
-		AggregateID:   db.ToUUIDPtr(e.ID().UUIDPtr()),
-		AggregateType: db.ToTextPtr(nil),
+		AggregateID:   db.ToUUIDPtr(e.AggregateID().UUIDPtr()),
+		AggregateType: db.ToTextPtr(e.AggregateType().StringPtr()),
 		EventType:     e.EventType().String(),
-		Payload:       e.Payload(),
-		TraceID:       db.ToTextPtr(nil),
+		Payload:       e.Payload().Raw(),
+		TraceID:       db.ToTextPtr(e.TraceID().StringPtr()),
 		CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
@@ -46,19 +46,15 @@ func (r *OutboxRepository) OutboxEventCreate(ctx context.Context, e *outbox.Even
 
 // OutboxEventCreateBatch bulk-inserts a set of domain events using pgx CopyFrom.
 func (r *OutboxRepository) OutboxEventCreateBatch(ctx context.Context, events []*outbox.Event) error {
-	if len(events) == 0 {
-		return nil
-	}
-
 	params := make([]db.OutboxEventCreateBatchParams, 0, len(events))
 	for _, e := range events {
 		params = append(params, db.OutboxEventCreateBatchParams{
 			ID:            db.ToUUID(e.ID().UUID()),
-			AggregateID:   db.ToUUIDPtr(nil),
-			AggregateType: db.ToTextPtr(nil),
+			AggregateID:   db.ToUUIDPtr(e.AggregateID().UUIDPtr()),
+			AggregateType: db.ToTextPtr(e.AggregateType().StringPtr()),
 			EventType:     e.EventType().String(),
-			Payload:       e.Payload(),
-			TraceID:       db.ToTextPtr(nil),
+			Payload:       e.Payload().Raw(),
+			TraceID:       db.ToTextPtr(e.TraceID().StringPtr()),
 			CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
 			UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
 			NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
@@ -213,9 +209,39 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 		return nil, mapErr("failed to parse outbox event id from database", "id", eventIDStr, err)
 	}
 
+	var aggregateID fields.ID
+	if row.AggregateID.Valid {
+		aggUUID := db.FromUUID[uuid.UUID](row.AggregateID)
+		aggregateID, err = fields.ParseRequiredID("aggregate_id", aggUUID)
+		if err != nil {
+			return nil, mapErr("failed to parse aggregate_id from database", "aggregate_id", aggUUID.String(), err)
+		}
+	}
+
+	var aggregateType outbox.AggregateType
+	if aggTypePtr := db.FromTextPtr[string](row.AggregateType); aggTypePtr != nil && *aggTypePtr != "" {
+		aggregateType, err = outbox.ParseAggregateType("aggregate_type", *aggTypePtr)
+		if err != nil {
+			return nil, mapErr("failed to parse aggregate_type from database", "aggregate_type", *aggTypePtr, err)
+		}
+	}
+
 	eventType, err := outbox.ParseEventType("event_type", row.EventType)
 	if err != nil {
 		return nil, mapErr("failed to parse outbox event type from database", "event_type", row.EventType, err)
+	}
+
+	payload, err := outbox.ParsePayload("payload", row.Payload)
+	if err != nil {
+		return nil, mapErr("failed to parse payload from database", "payload", string(row.Payload), err)
+	}
+
+	var traceID outbox.TraceID
+	if traceIDPtr := db.FromTextPtr[string](row.TraceID); traceIDPtr != nil && *traceIDPtr != "" {
+		traceID, err = outbox.ParseTraceID("trace_id", *traceIDPtr)
+		if err != nil {
+			return nil, mapErr("failed to parse trace_id from database", "trace_id", *traceIDPtr, err)
+		}
 	}
 
 	var lockedBy fields.ID
@@ -241,10 +267,13 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
 	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
 
-	return outbox.NewEvent(
+	return outbox.New(
 		id,
+		aggregateID,
+		aggregateType,
 		eventType,
-		row.Payload,
+		payload,
+		traceID,
 		processedAt,
 		row.Attempts,
 		row.MaxAttempts,
