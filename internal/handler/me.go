@@ -6,7 +6,7 @@ import (
 
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/relation"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 
@@ -14,13 +14,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type MeRelationshipService interface {
-	ListPerspectives(ctx context.Context, userID uuid.UUID, filter *relationship.Variant) ([]relationship.Perspective, error)
-	GetPerspective(ctx context.Context, userID, peerID uuid.UUID) (*relationship.Perspective, error)
+type MeRelationService interface {
+	GetPeers(ctx context.Context, userID uuid.UUID, peerIDs ...uuid.UUID) ([]relation.Peer, error)
 	SendFriendRequest(ctx context.Context, actorID, targetID uuid.UUID) error
 	AcceptFriendRequest(ctx context.Context, actorID, peerID uuid.UUID) error
 	Block(ctx context.Context, actorID, peerID uuid.UUID) error
-	DeleteVerified(ctx context.Context, actorID, peerID uuid.UUID) error
+	DeleteByUser(ctx context.Context, actorID, peerID uuid.UUID) error
 }
 
 type MeUserService interface {
@@ -45,16 +44,16 @@ type MePresenceService interface {
 }
 
 type Me struct {
-	relationships MeRelationshipService
-	users         MeUserService
-	sessions      MeSessionService
-	presence      MePresenceService
-	// channels      channel.Service
+	relations MeRelationService
+	users     MeUserService
+	sessions  MeSessionService
+	presence  MePresenceService
+	// channels channel.Service
 	bind *httpio.Bind
 }
 
 func NewMe(
-	r MeRelationshipService,
+	r MeRelationService,
 	u MeUserService,
 	s MeSessionService,
 	p MePresenceService,
@@ -62,20 +61,19 @@ func NewMe(
 	bind *httpio.Bind,
 ) *Me {
 	return &Me{
-		relationships: r,
-		users:         u,
-		sessions:      s,
-		presence:      p,
-		// channels:      c,
+		relations: r,
+		users:     u,
+		sessions:  s,
+		presence:  p,
+		// channels: c,
 		bind: bind,
 	}
 }
 
 type MeGetResponse struct {
-	Me            MeResponse                      `json:"me"`
-	Relationships []RelationshipResponse          `json:"relationships"`
-	Presences     map[uuid.UUID]presence.Presence `json:"presences"`
-	// Channels      []channel.PrivateChannelResponse `json:"channels"`
+	Me    MeResponse      `json:"me"`
+	Peers []relation.Peer `json:"peers"`
+	// Channels []channel.PrivateChannelResponse `json:"channels"`
 }
 
 func (h *Me) Get(w http.ResponseWriter, r *http.Request) error {
@@ -89,7 +87,7 @@ func (h *Me) Get(w http.ResponseWriter, r *http.Request) error {
 
 	var (
 		meUser *user.User
-		// relPersp []relationship.Perspective
+		peers  []relation.Peer
 		// privChannels []channel.PrivateChannel
 	)
 
@@ -99,40 +97,19 @@ func (h *Me) Get(w http.ResponseWriter, r *http.Request) error {
 		return err
 	})
 
-	// g.Go(func() error {
-	// 	var err error
-	// 	relPersp, err = h.relationships.ListPerspectives(gCtx, userID, nil)
-	// 	return err
-	// })
+	g.Go(func() error {
+		var err error
+		peers, err = h.relations.GetPeers(gCtx, userID)
+		return err
+	})
 
-	// if err := g.Wait(); err != nil {
-	// 	return err
-	// }
-
-	// peerIDs := make([]uuid.UUID, 0, len(relPersp)+1)
-	// peerIDs = append(peerIDs, userID)
-	// for _, p := range relPersp {
-	// 	peerIDs = append(peerIDs, p.PeerID())
-	// }
-
-	// presences, err := h.presence.GetBulk(ctx, peerIDs)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// relResponses := make([]RelationshipResponse, len(relPersp))
-	// for i, p := range relPersp {
-	// 	var peerPresence *presence.Presence
-	// 	if ps, ok := presences[p.PeerID()]; ok {
-	// 		peerPresence = &ps
-	// 	}
-	// 	relResponses[i] = ToRelationshipResponse(p, peerPresence)
-	// }
+	if err := g.Wait(); err != nil {
+		return err
+	}
 
 	httpio.RespondOK(w, r, MeGetResponse{
-		Me: ToMeResponse(*meUser),
-		// Relationships: relResponses,
-		// Presences:     presences,
+		Me:    ToMeResponse(*meUser),
+		Peers: peers,
 	})
 	return nil
 }
@@ -352,12 +329,11 @@ func (h *Me) SendFriendRequest(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.relationships.SendFriendRequest(ctx, actorID, path.ID); err != nil {
+	if err := h.relations.SendFriendRequest(ctx, actorID, path.ID); err != nil {
 		return err
 	}
 
-	h.respondWithPerspective(w, r, actorID, path.ID)
-	return nil
+	return h.respondWithPeer(w, r, actorID, path.ID)
 }
 
 type MeAcceptFriendRequestPath struct {
@@ -376,12 +352,11 @@ func (h *Me) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.relationships.AcceptFriendRequest(ctx, actorID, path.ID); err != nil {
+	if err := h.relations.AcceptFriendRequest(ctx, actorID, path.ID); err != nil {
 		return err
 	}
 
-	h.respondWithPerspective(w, r, actorID, path.ID)
-	return nil
+	return h.respondWithPeer(w, r, actorID, path.ID)
 }
 
 type MeBlockPath struct {
@@ -400,31 +375,30 @@ func (h *Me) Block(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.relationships.Block(ctx, actorID, path.ID); err != nil {
+	if err := h.relations.Block(ctx, actorID, path.ID); err != nil {
 		return err
 	}
 
-	h.respondWithPerspective(w, r, actorID, path.ID)
-	return nil
+	return h.respondWithPeer(w, r, actorID, path.ID)
 }
 
-type MeRemoveRelationshipPath struct {
+type MeRemoveRelationPath struct {
 	ID uuid.UUID `path:"id" validate:"required,uuid"`
 }
 
-func (h *Me) RemoveRelationship(w http.ResponseWriter, r *http.Request) error {
+func (h *Me) RemoveRelation(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	actorID, err := httpio.CtxGetUserID(ctx)
 	if err != nil {
 		return err
 	}
 
-	var path MeRemoveRelationshipPath
+	var path MeRemoveRelationPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	if err := h.relationships.DeleteVerified(ctx, actorID, path.ID); err != nil {
+	if err := h.relations.DeleteByUser(ctx, actorID, path.ID); err != nil {
 		return err
 	}
 
@@ -432,27 +406,24 @@ func (h *Me) RemoveRelationship(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *Me) respondWithPerspective(
+func (h *Me) respondWithPeer(
 	w http.ResponseWriter,
 	r *http.Request,
 	userID, peerID uuid.UUID,
 ) error {
 	ctx := r.Context()
 
-	perspective, err := h.relationships.GetPerspective(ctx, userID, peerID)
+	peers, err := h.relations.GetPeers(ctx, userID, peerID)
 	if err != nil {
 		return err
 	}
 
-	var peerPresence *presence.Presence
-	presences, err := h.presence.GetBulk(ctx, []uuid.UUID{peerID})
-	if err == nil {
-		if ps, ok := presences[peerID]; ok {
-			peerPresence = &ps
-		}
+	if len(peers) == 0 {
+		httpio.RespondNoContent(w)
+		return nil
 	}
 
-	httpio.RespondOK(w, r, ToRelationshipResponse(*perspective, peerPresence))
+	httpio.RespondOK(w, r, peers[0])
 	return nil
 }
 

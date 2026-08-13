@@ -68,10 +68,11 @@ func (app *Application) routes() http.Handler {
 			auth.Delete("/users/@me/sessions", httpio.ToHTTPErr(app.Handlers.Me.RevokeAllSessions))
 			auth.Delete("/users/@me/sessions/{id}", httpio.ToHTTPErr(app.Handlers.Me.RevokeSession))
 
+			// Relationship operations
 			auth.Post("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.SendFriendRequest))
 			auth.Post("/users/@me/relationships/{id}/accept", httpio.ToHTTPErr(app.Handlers.Me.AcceptFriendRequest))
 			auth.Post("/users/@me/relationships/{id}/block", httpio.ToHTTPErr(app.Handlers.Me.Block))
-			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.RemoveRelationship))
+			auth.Delete("/users/@me/relationships/{id}", httpio.ToHTTPErr(app.Handlers.Me.RemoveRelation))
 
 			auth.Post("/channels", httpio.ToHTTPErr(app.Handlers.Channel.Create))
 			// auth.Get("/channels/{channelId}", httpio.ToHTTPErr(app.Handlers.Channel.Get))

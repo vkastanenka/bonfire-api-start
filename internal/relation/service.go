@@ -171,109 +171,180 @@ func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID
 	return nil
 }
 
-// // Block places a block on a user, overriding any existing friend or pending state.
-// func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-// 	actorID, err := NewUserID(rawActorID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid actor id")
-// 	}
+// Block places a block on a user, overriding any existing friend or pending state.
+func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
 
-// 	peerID, err := NewUserID(rawPeerID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid peer id")
-// 	}
+	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	if err != nil {
+		return err
+	}
 
-// 	if actorID == peerID {
-// 		return errs.InvalidArgument("cannot block yourself")
-// 	}
+	if actorID.Equals(peerID) {
+		return errs.InvalidArgument("Relation ids cannot match.").
+			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
+	}
 
-// 	u1, u2 := sortUserIDs(actorID, peerID)
+	u1, u2 := SortUserIDs(actorID, peerID)
+	var updatedRel *Relation
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		var rel *Relation
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		res, blockErr := s.blockTx(txCtx, actorID, peerID, u1, u2)
+		if blockErr != nil {
+			return blockErr
+		}
+		updatedRel = res
+		return nil
+	})
 
-// 		fetchedRel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
-// 		if err != nil && !errs.IsNotFound(err) {
-// 			return err
-// 		}
+	if err != nil {
+		return err
+	}
 
-// 		if errs.IsNotFound(err) {
-// 			now := time.Now().UTC()
-// 			rel, err = Reconstitute(
-// 				u1.UUID(),
-// 				u2.UUID(),
-// 				actorID.UUID(),
-// 				nil, // rawChannelID (*uuid.UUID) - nil since VariantBlocked isn't VariantFriends
-// 				uint8(VariantBlocked),
-// 				now,
-// 				now,
-// 			)
-// 			if err != nil {
-// 				return errs.InvalidArgument(err.Error()).Wrap(err)
-// 			}
-// 		} else {
-// 			rel = fetchedRel
-// 			// If already blocked by the OTHER party, do nothing (don't overwrite their block ownership)
-// 			if rel.IsBlocked() && rel.ActorID() != actorID {
-// 				return nil
-// 			}
+	// Post-commit relation cache update
+	if updatedRel != nil {
+		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, updatedRel); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to transition relation cache",
+				"user1_id", u1.String(),
+				"user2_id", u2.String(),
+				"actor_id", actorID.String(),
+				"error", cacheErr,
+				"scope", "relation",
+			)
+		}
+	}
 
-// 			if err := rel.Block(actorID); err != nil {
-// 				return errs.InvalidArgument(err.Error()).Wrap(err)
-// 			}
-// 		}
+	return nil
+}
 
-// 		if err := s.repo.Upsert(txCtx, rel); err != nil {
-// 			return err
-// 		}
+// Private helper for transactional state mutation, entity persistence, and outbox event publishing.
+func (s *Service) blockTx(
+	ctx context.Context,
+	actorID, peerID, u1, u2 fields.ID,
+) (*Relation, error) {
+	now := fields.NewTimestampFromTime(time.Now())
 
-// 		// Emit outbox event for blocking
-// 		_, err = s.outbox.Publish(txCtx, EventUserBlocked, UserBlockedPayload{
-// 			ActorID:  actorID.UUID(),
-// 			TargetID: peerID.UUID(),
-// 		})
-// 		return err
-// 	})
-// }
+	fetchedRel, err := s.repo.GetForUpdate(ctx, u1, u2)
+	if err != nil && !errs.IsNotFound(err) {
+		return nil, err
+	}
 
-// // DeleteVerified verifies permissions before removing a friendship or request.
-// func (s *Service) DeleteVerified(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-// 	actorID, err := NewUserID(rawActorID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid actor id")
-// 	}
+	var rel *Relation
 
-// 	peerID, err := NewUserID(rawPeerID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid peer id")
-// 	}
+	if errs.IsNotFound(err) {
+		rel = New(
+			u1,
+			u2,
+			actorID,
+			fields.ID{},
+			TypeBlocked,
+			now,
+			now,
+		)
+	} else {
+		rel = fetchedRel
+		if rel.Type() == TypeBlocked && !rel.ActorID().Equals(actorID) {
+			return rel, nil
+		}
 
-// 	if actorID == peerID {
-// 		return errs.InvalidArgument("cannot target yourself").Wrap(ErrSelfRelation)
-// 	}
+		rel.Block(actorID, now)
+	}
 
-// 	u1, u2 := sortUserIDs(actorID, peerID)
+	savedRel, err := s.repo.Save(ctx, rel)
+	if err != nil {
+		return nil, err
+	}
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		err := s.repo.DeleteVerified(txCtx, u1.UUID(), u2.UUID(), actorID.UUID())
-// 		if err != nil {
-// 			if errs.IsNotFound(err) {
-// 				return errs.NotFound("relationship not found").Wrap(err)
-// 			}
-// 			if errors.Is(err, ErrRelationBlocked) {
-// 				return errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
-// 			}
-// 			return err
-// 		}
+	_, err = s.outbox.Publish(ctx, EventUserBlocked, UserBlockedPayload{
+		ActorID:  actorID.UUID(),
+		TargetID: peerID.UUID(),
+	})
+	if err != nil {
+		return nil, err
+	}
 
-// 		// Emit outbox event for removal (unfriend / cancel request)
-// 		_, err = s.outbox.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{
-// 			ActorID:  actorID.UUID(),
-// 			TargetID: peerID.UUID(),
-// 		})
-// 		return err
-// 	})
-// }
+	return savedRel, nil
+}
+
+// DeleteByUser verifies permissions before removing a friendship or friend request.
+func (s *Service) DeleteByUser(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
+
+	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	if err != nil {
+		return err
+	}
+
+	if actorID.Equals(peerID) {
+		return errs.InvalidArgument("Relation ids cannot match.").
+			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
+	}
+
+	u1, u2 := SortUserIDs(actorID, peerID)
+	var wasDeleted bool
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		deleted, deleteErr := s.deleteByUserTx(txCtx, actorID, peerID, u1, u2)
+		if deleteErr != nil {
+			return deleteErr
+		}
+		wasDeleted = deleted
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Post-commit relation cache eviction
+	if wasDeleted {
+		if cacheErr := s.cache.RemoveRelation(ctx, u1, u2); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to remove relation from cache",
+				"user1_id", u1.String(),
+				"user2_id", u2.String(),
+				"actor_id", actorID.String(),
+				"error", cacheErr,
+				"scope", "relation",
+			)
+		}
+	}
+
+	return nil
+}
+
+// Private helper for transactional deletion, permission checks, and outbox event publishing.
+func (s *Service) deleteByUserTx(
+	ctx context.Context,
+	actorID, peerID, u1, u2 fields.ID,
+) (bool, error) {
+	err := s.repo.DeleteByUser(ctx, u1, u2, actorID)
+	if err != nil {
+		if errs.IsNotFound(err) {
+			return false, errs.NotFound("relationship not found").Wrap(err)
+		}
+		// if errors.Is(err, ErrRelationBlocked) {
+		// 	return false, errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
+		// }
+		return false, err
+	}
+
+	// Emit outbox event for removal (unfriend / cancel request)
+	_, err = s.outbox.Publish(ctx, EventRelationRemoved, RelationRemovedPayload{
+		ActorID:  actorID.UUID(),
+		TargetID: peerID.UUID(),
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
 
 func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (*Peer, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
