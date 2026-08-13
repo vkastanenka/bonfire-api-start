@@ -1,104 +1,43 @@
--- name: OutboxEventAcquireBatch :many
-UPDATE
-    outbox_events
-SET
-    locked_by = @worker_id::uuid,
-    lease_expires_at = CURRENT_TIMESTAMP + make_interval(secs => @lease_duration_seconds::int),
-    updated_at = CURRENT_TIMESTAMP
-WHERE (id, created_at) IN (
+-- name: OutboxEventClaimPending :many
+WITH target_events AS (
     SELECT
-        id,
-        created_at
+        id
     FROM
         outbox_events
     WHERE
         processed_at IS NULL
         AND attempts < max_attempts
-        AND next_attempt_at <= CURRENT_TIMESTAMP
+        AND next_attempt_at <= @now::timestamptz
         AND (lease_expires_at IS NULL
-            OR lease_expires_at < CURRENT_TIMESTAMP)
+            OR lease_expires_at < @now::timestamptz)
     ORDER BY
         next_attempt_at ASC,
         id ASC
-    LIMIT @batch_size::int
+    LIMIT @limit_val::int
     FOR UPDATE
         SKIP LOCKED)
+UPDATE
+    outbox_events o
+SET
+    locked_by = @worker_id::uuid,
+    lease_expires_at = @lease_expires_at::timestamptz,
+    updated_at = @now::timestamptz
+FROM
+    target_events t
+WHERE
+    o.id = t.id
 RETURNING
-    id,
-    aggregate_id,
-    aggregate_type,
-    event_type,
-    payload,
-    trace_id,
-    created_at,
-    updated_at,
-    next_attempt_at,
-    lease_expires_at,
-    processed_at,
-    locked_by,
-    attempts,
-    max_attempts,
-    last_error;
+    o.*;
 
--- name: OutboxEventCreate :one
+-- name: OutboxEventCreate :exec
 INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES (@id::uuid, sqlc.narg('aggregate_id')::uuid, sqlc.narg('aggregate_type')::text, @event_type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int)
-RETURNING
-    id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, lease_expires_at, processed_at, locked_by, attempts, max_attempts, last_error;
+    VALUES (@id::uuid, sqlc.narg('aggregate_id')::uuid, sqlc.narg('aggregate_type')::text, @event_type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
 
 -- name: OutboxEventCreateBatch :copyfrom
 INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
 
--- name: OutboxEventListDeadLetter :many
-SELECT
-    id,
-    aggregate_id,
-    aggregate_type,
-    event_type,
-    payload,
-    trace_id,
-    created_at,
-    updated_at,
-    next_attempt_at,
-    attempts,
-    max_attempts,
-    last_error
-FROM
-    outbox_events
-WHERE
-    processed_at IS NULL
-    AND attempts >= max_attempts
-    AND (@cursor_id::uuid IS NULL
-        OR id < @cursor_id::uuid)
-ORDER BY
-    id DESC
-LIMIT @limit_val::int;
-
--- name: OutboxEventMarkFailed :one
-UPDATE
-    outbox_events
-SET
-    attempts = attempts + 1,
-    next_attempt_at = @next_attempt_at::timestamptz,
-    last_error = @last_error::text,
-    locked_by = NULL,
-    lease_expires_at = NULL,
-    updated_at = @updated_at::timestamptz
-WHERE
-    id = @id::uuid
-    AND created_at = @created_at::timestamptz
-    AND locked_by = @worker_id::uuid
-    AND processed_at IS NULL
-RETURNING
-    id,
-    created_at,
-    attempts,
-    next_attempt_at,
-    last_error,
-    updated_at;
-
--- name: OutboxEventMarkProcessed :one
+-- name: OutboxEventMarkProcessed :exec
 UPDATE
     outbox_events
 SET
@@ -108,14 +47,34 @@ SET
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid
-    AND created_at = @created_at::timestamptz
     AND locked_by = @worker_id::uuid
-    AND processed_at IS NULL
-RETURNING
-    id,
-    created_at,
-    processed_at,
-    updated_at;
+    AND processed_at IS NULL;
+
+-- name: OutboxEventMarkDeadLetter :exec
+UPDATE
+    outbox_events
+SET
+    attempts = attempts + 1,
+    next_attempt_at = @next_attempt_at::timestamptz,
+    last_error = sqlc.narg('last_error')::text,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND locked_by = @worker_id::uuid
+    AND processed_at IS NULL;
+
+-- name: OutboxEventRenewLease :exec
+UPDATE
+    outbox_events
+SET
+    lease_expires_at = @lease_expires_at::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND locked_by = @worker_id::uuid
+    AND processed_at IS NULL;
 
 -- name: OutboxEventReleaseLease :exec
 UPDATE
@@ -126,19 +85,24 @@ SET
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid
-    AND created_at = @created_at::timestamptz
     AND locked_by = @worker_id::uuid
     AND processed_at IS NULL;
 
--- name: OutboxEventRenewLease :exec
-UPDATE
-    outbox_events
-SET
-    lease_expires_at = CURRENT_TIMESTAMP + make_interval(secs => @lease_duration_seconds::int),
-    updated_at = CURRENT_TIMESTAMP
-WHERE
-    id = @id::uuid
-    AND created_at = @created_at::timestamptz
-    AND locked_by = @worker_id::uuid
-    AND processed_at IS NULL;
+-- name: OutboxEventDeleteProcessedBatch :execrows
+WITH targets AS (
+    SELECT
+        id
+    FROM
+        outbox_events
+    WHERE
+        processed_at IS NOT NULL
+        AND processed_at < @before::timestamptz
+    ORDER BY
+        processed_at ASC,
+        id ASC
+    LIMIT @limit_val::int
+    FOR UPDATE
+        SKIP LOCKED)
+DELETE FROM outbox_events o USING targets t
+WHERE o.id = t.id;
 

@@ -16,24 +16,23 @@ CREATE TABLE outbox_events(
     trace_id text DEFAULT NULL,
     payload jsonb NOT NULL,
     last_error text DEFAULT NULL,
-    CONSTRAINT outbox_events_pkey PRIMARY KEY (id, created_at),
+    CONSTRAINT outbox_events_pkey PRIMARY KEY (id),
     CONSTRAINT event_type_length CHECK (char_length(event_type) BETWEEN 1 AND 100),
     CONSTRAINT aggregate_type_length CHECK (aggregate_type IS NULL OR char_length(aggregate_type) BETWEEN 1 AND 100),
     CONSTRAINT trace_id_length CHECK (trace_id IS NULL OR char_length(trace_id) BETWEEN 1 AND 256),
     CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
-    CONSTRAINT payload_size_limit CHECK (pg_column_size(payload) < 102400),
+    CONSTRAINT payload_size_limit CHECK (octet_length(payload::text) < 102400),
     CONSTRAINT attempts_limit CHECK (attempts <= max_attempts),
     CONSTRAINT last_error_length CHECK (last_error IS NULL OR char_length(last_error) BETWEEN 1 AND 2000)
-)
-PARTITION BY RANGE (created_at);
+);
 
 CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at ASC, id ASC) INCLUDE (lease_expires_at)
 WHERE
     processed_at IS NULL AND attempts < max_attempts;
 
-CREATE INDEX idx_outbox_events_dead_letter ON outbox_events(id DESC)
+CREATE INDEX idx_outbox_events_cleanup ON outbox_events(processed_at ASC)
 WHERE
-    processed_at IS NULL AND attempts >= max_attempts;
+    processed_at IS NOT NULL;
 
 CREATE TABLE users(
     id uuid NOT NULL,

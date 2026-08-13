@@ -31,12 +31,12 @@ type Querier interface {
 	MessageReactionRemove(ctx context.Context, arg MessageReactionRemoveParams) error
 	MessageTogglePin(ctx context.Context, arg MessageTogglePinParams) (MessageTogglePinRow, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)
-	OutboxEventAcquireBatch(ctx context.Context, arg OutboxEventAcquireBatchParams) ([]OutboxEventAcquireBatchRow, error)
-	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) (OutboxEventCreateRow, error)
+	OutboxEventClaimPending(ctx context.Context, arg OutboxEventClaimPendingParams) ([]OutboxEvent, error)
+	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) error
 	OutboxEventCreateBatch(ctx context.Context, arg []OutboxEventCreateBatchParams) (int64, error)
-	OutboxEventListDeadLetter(ctx context.Context, arg OutboxEventListDeadLetterParams) ([]OutboxEventListDeadLetterRow, error)
-	OutboxEventMarkFailed(ctx context.Context, arg OutboxEventMarkFailedParams) (OutboxEventMarkFailedRow, error)
-	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) (OutboxEventMarkProcessedRow, error)
+	OutboxEventDeleteProcessedBatch(ctx context.Context, arg OutboxEventDeleteProcessedBatchParams) (int64, error)
+	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
+	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error
 	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error
