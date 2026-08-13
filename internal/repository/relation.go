@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
@@ -223,7 +225,7 @@ func (r *RelationRepository) ListCachedTypeByUser(
 		sfCtx := context.WithoutCancel(ctx)
 
 		val, sfErr, _ := r.sf.Do(sfKey, func() (any, error) {
-			// MUST fetch ALL relations (TypeUnknown / 0) to ensure complete hash backfill in Redis
+			// Fetch ALL relations (TypeUnknown / 0) to ensure complete hash backfill in Redis
 			allRelations, repoErr := r.ListTypeByUser(sfCtx, userID, relation.TypeUnknown, MaxType)
 			if repoErr != nil {
 				return nil, repoErr
@@ -259,7 +261,6 @@ func (r *RelationRepository) ListCachedTypeByUser(
 
 		fullMap := val.(map[uuid.UUID]relation.Type)
 
-		// Filter the backfilled complete map down to requested relType
 		relMap = make(map[uuid.UUID]relation.Type, len(fullMap))
 		for peerUUID, t := range fullMap {
 			if relType == relation.TypeUnknown || t == relType {
@@ -272,26 +273,35 @@ func (r *RelationRepository) ListCachedTypeByUser(
 		return []*relation.Relation{}, nil
 	}
 
-	// Extract peer IDs up to requested limit
+	// 1. Collect ALL candidate peer IDs (do NOT truncate here)
 	peerIDs := make([]fields.ID, 0, len(relMap))
 	for peerUUID := range relMap {
-		if limit > 0 && int32(len(peerIDs)) >= limit {
-			break
-		}
 		peerIDs = append(peerIDs, fields.ID(peerUUID))
 	}
 
-	// Hydrate full relation entities from individual entity cache/DB
+	// 2. Hydrate full relation entities from cache/DB batch
 	relationBatchMap, err := r.GetCachedBatch(ctx, userID, peerIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	relations := make([]*relation.Relation, 0, len(peerIDs))
-	for _, peerID := range peerIDs {
-		if rel, ok := relationBatchMap[peerID]; ok {
-			relations = append(relations, rel)
+	relations := make([]*relation.Relation, 0, len(relationBatchMap))
+	for _, rel := range relationBatchMap {
+		relations = append(relations, rel)
+	}
+
+	// 3. Sort deterministically by CreatedAt DESC
+	slices.SortFunc(relations, func(a, b *relation.Relation) int {
+		if cmp := b.CreatedAt().Time().Compare(a.CreatedAt().Time()); cmp != 0 {
+			return cmp
 		}
+		// Tie-breaker on Peer ID for absolute stability
+		return strings.Compare(a.PeerID(userID).String(), b.PeerID(userID).String())
+	})
+
+	// 4. Truncate by limit AFTER sorting
+	if limit > 0 && int32(len(relations)) > limit {
+		relations = relations[:limit]
 	}
 
 	return relations, nil

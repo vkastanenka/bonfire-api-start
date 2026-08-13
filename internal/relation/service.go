@@ -9,6 +9,8 @@ import (
 	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,7 +47,10 @@ type Repository interface {
 	DeleteByUser(ctx context.Context, user1ID fields.ID, user2ID fields.ID, actorID fields.ID) error
 	Get(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
 	GetByChannel(ctx context.Context, channelID fields.ID) (*Relation, error)
+	GetCached(ctx context.Context, u1 fields.ID, u2 fields.ID) (*Relation, error)
+	GetCachedBatch(ctx context.Context, u1 fields.ID, peers []fields.ID) (map[fields.ID]*Relation, error)
 	GetForUpdate(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
+	ListCachedTypeByUser(ctx context.Context, userID fields.ID, relType Type, limit int32) ([]*Relation, error)
 	ListTypeByUser(ctx context.Context, userID fields.ID, relType Type, limit int32) ([]*Relation, error)
 	Save(ctx context.Context, rel *Relation) (*Relation, error)
 }
@@ -63,8 +68,10 @@ type UserRepository interface {
 	Availability(ctx context.Context, email *user.Email, username *user.Username) (bool, bool, error)
 	Create(ctx context.Context, u *user.User) (*user.User, error)
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
+	GetBatch(ctx context.Context, u1 fields.ID, peers []fields.ID) (map[fields.ID]*Relation, []fields.ID, error)
 	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
 	GetCached(ctx context.Context, id fields.ID) (*user.User, error)
+	GetCachedBatch(ctx context.Context, ids []fields.ID, batchLimit int32) (map[fields.ID]*user.User, error)
 	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error)
 	Update(ctx context.Context, u *user.User) (*user.User, error)
 	UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error)
@@ -319,50 +326,118 @@ func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (
 	), nil
 }
 
-func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (*[]Peer, error) {
+func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) ([]*Peer, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse type
 	relType, err := Parse(rawType)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get from cache, ensure 1000 limit
-	peerIDs, err := s.cache.GetUserRelations(ctx, userID, peerType, maxPeerLimit)
+	// 1. Fetch relations (ListCachedTypeByUser sorts by CreatedAt DESC before applying limit)
+	relations, err := s.repo.ListCachedTypeByUser(ctx, userID, relType, maxPeerLimit)
 	if err != nil {
-		// 3. Fallback to repo if cache miss/failure (enforcing max 1000 limit)
-		peerIDs, err = s.relationshipRepo.GetPeerIDs(ctx, userID, peerType, maxPeerLimit)
-		if err != nil {
-			return nil, err
-		}
-
-		// Asynchronously backfill peer IDs cache on miss
-		go func(ids []fields.ID) {
-			_ = s.peerCache.SetPeerIDs(context.WithoutCancel(ctx), userID, peerType, ids)
-		}(peerIDs)
+		return nil, err
 	}
 
-	// Fallback to repo if miss, ensure 1000 limit
+	if len(relations) == 0 {
+		return []*Peer{}, nil
+	}
 
-	// Order ids by asc display_name
+	peerIDs := make([]fields.ID, len(relations))
+	peerUUIDs := make([]uuid.UUID, len(relations))
+	for i, rel := range relations {
+		peerID := rel.PeerID(userID)
+		peerIDs[i] = peerID
+		peerUUIDs[i] = peerID.UUID()
+	}
 
-	// Start goroutine
+	var (
+		usersMap    map[fields.ID]*user.User
+		presenceMap map[uuid.UUID]presence.Presence
+	)
 
-	// Get batch presences, fallback to offline if issues
+	// 2. Parallel Fan-Out
+	g, gCtx := errgroup.WithContext(ctx)
 
-	// Get batch users from cache
+	g.Go(func() error {
+		var uErr error
+		usersMap, uErr = s.user.GetCachedBatch(gCtx, peerIDs, int32(len(peerIDs)))
+		return uErr
+	})
 
-	// Fallback to db batch get for missing users from cache
+	g.Go(func() error {
+		var pErr error
+		presenceMap, pErr = s.presence.GetBatch(gCtx, peerUUIDs)
+		if pErr != nil {
+			slog.WarnContext(gCtx, "presence batch fetch failed, defaulting peers to offline",
+				"user_id", userID.String(),
+				"count", len(peerUUIDs),
+				"error", pErr,
+			)
+			// Default to nil so missing entries gracefully fall back to PresenceOffline
+			presenceMap = nil
+		}
+		return nil
+	})
 
-	// End goroutine
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 
-	// Build array of peers
+	// 3. Assemble Peers
+	peers := make([]*Peer, 0, len(relations))
+	for _, rel := range relations {
+		peerID := rel.PeerID(userID)
+		u, ok := usersMap[peerID]
+		if !ok || u == nil {
+			continue // Gracefully skip deleted/purged user profiles
+		}
 
-	// return
+		status := presence.PresenceOffline
+		if presenceMap != nil {
+			if p, found := presenceMap[peerID.UUID()]; found {
+				status = p
+			}
+		}
+
+		peers = append(peers, NewPeer(
+			peerID,
+			rel.ActorID(),
+			rel.ChannelID(),
+			u.AvatarURL(),
+			u.Username(),
+			u.DisplayName(),
+			rel.Type(),
+			status,
+		))
+	}
+
+	// 4. Sort peers alphabetically by display_name ascending (falling back to username)
+	slices.SortFunc(peers, func(a, b *Peer) int {
+		nameA := a.displayName.String()
+		if nameA == "" {
+			nameA = a.username.String()
+		}
+
+		nameB := b.displayName.String()
+		if nameB == "" {
+			nameB = b.username.String()
+		}
+
+		// Case-insensitive comparison fallback
+		if cmpVal := strings.Compare(strings.ToLower(nameA), strings.ToLower(nameB)); cmpVal != 0 {
+			return cmpVal
+		}
+
+		// Secondary tie-breaker on peer ID for strict stability
+		return strings.Compare(a.id.String(), b.id.String())
+	})
+
+	return peers, nil
 }
 
 // // func (s *Service) ListPeers(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
