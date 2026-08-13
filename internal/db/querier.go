@@ -36,6 +36,7 @@ type Querier interface {
 	OutboxEventCreateBatch(ctx context.Context, arg []OutboxEventCreateBatchParams) (int64, error)
 	OutboxEventDeleteProcessedBatch(ctx context.Context, arg OutboxEventDeleteProcessedBatchParams) (int64, error)
 	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
+	OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error
 	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error
 	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error

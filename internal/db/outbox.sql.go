@@ -177,6 +177,38 @@ const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :exec
 UPDATE
     outbox_events
 SET
+    attempts = max_attempts,
+    last_error = $1::text,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+    AND locked_by = $4::uuid
+    AND processed_at IS NULL
+`
+
+type OutboxEventMarkDeadLetterParams struct {
+	LastError pgtype.Text        `json:"last_error"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+	WorkerID  pgtype.UUID        `json:"worker_id"`
+}
+
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
+	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
+		arg.LastError,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.WorkerID,
+	)
+	return err
+}
+
+const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
+UPDATE
+    outbox_events
+SET
     attempts = attempts + 1,
     next_attempt_at = $1::timestamptz,
     last_error = $2::text,
@@ -189,7 +221,7 @@ WHERE
     AND processed_at IS NULL
 `
 
-type OutboxEventMarkDeadLetterParams struct {
+type OutboxEventMarkFailureParams struct {
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
 	LastError     pgtype.Text        `json:"last_error"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
@@ -197,8 +229,8 @@ type OutboxEventMarkDeadLetterParams struct {
 	WorkerID      pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
+func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error {
+	_, err := q.db.Exec(ctx, outboxEventMarkFailure,
 		arg.NextAttemptAt,
 		arg.LastError,
 		arg.UpdatedAt,

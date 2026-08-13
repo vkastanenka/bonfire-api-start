@@ -1,15 +1,18 @@
 package outbox
 
 import (
-	"bonfire-api/internal/fields"
-	"encoding/json"
 	"time"
+
+	"bonfire-api/internal/fields"
 )
 
 type Event struct {
 	id             fields.ID
+	aggregateID    fields.ID
+	aggregateType  AggregateType
 	eventType      EventType
-	payload        json.RawMessage
+	payload        Payload
+	traceID        TraceID
 	processedAt    fields.Timestamp
 	attempts       int32
 	maxAttempts    int32
@@ -26,8 +29,11 @@ type Event struct {
 // ============================================================================
 
 func (e *Event) ID() fields.ID                    { return e.id }
+func (e *Event) AggregateID() fields.ID           { return e.aggregateID }
+func (e *Event) AggregateType() AggregateType     { return e.aggregateType }
 func (e *Event) EventType() EventType             { return e.eventType }
-func (e *Event) Payload() json.RawMessage         { return e.payload }
+func (e *Event) Payload() Payload                 { return e.payload }
+func (e *Event) TraceID() TraceID                 { return e.traceID }
 func (e *Event) ProcessedAt() fields.Timestamp    { return e.processedAt }
 func (e *Event) Attempts() int32                  { return e.attempts }
 func (e *Event) MaxAttempts() int32               { return e.maxAttempts }
@@ -60,10 +66,14 @@ func (e *Event) CanProcess(now fields.Timestamp) bool {
 // Mappers
 // ============================================================================
 
-func NewEvent(
+// Reconstitute restores an OutboxEvent directly from persistence.
+func New(
 	id fields.ID,
+	aggregateID fields.ID,
+	aggregateType AggregateType,
 	eventType EventType,
-	payload json.RawMessage,
+	payload Payload,
+	traceID TraceID,
 	processedAt fields.Timestamp,
 	attempts int32,
 	maxAttempts int32,
@@ -76,8 +86,11 @@ func NewEvent(
 ) *Event {
 	return &Event{
 		id:             id,
+		aggregateID:    aggregateID,
+		aggregateType:  aggregateType,
 		eventType:      eventType,
 		payload:        payload,
+		traceID:        traceID,
 		processedAt:    processedAt,
 		attempts:       attempts,
 		maxAttempts:    maxAttempts,
@@ -98,7 +111,7 @@ func NewEvent(
 func (e *Event) Claim(workerID fields.ID, leaseExpiresAt fields.Timestamp, at fields.Timestamp) {
 	e.lockedBy = workerID
 	e.leaseExpiresAt = leaseExpiresAt
-	e.updatedAt = at
+	e.touch(at)
 }
 
 // MarkProcessed transitions the event to a completed state and clears locks.
@@ -106,7 +119,7 @@ func (e *Event) MarkProcessed(at fields.Timestamp) {
 	e.processedAt = at
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}
-	e.updatedAt = at
+	e.touch(at)
 }
 
 // MarkFailure increments attempts, calculates exponential backoff, and releases worker locks.
@@ -124,7 +137,7 @@ func (e *Event) MarkFailure(reason string, at fields.Timestamp) {
 	// Exponential backoff: 2^attempts seconds (e.g., 2s, 4s, 8s, 16s...)
 	backoffSec := time.Duration(1<<e.attempts) * time.Second
 	e.nextAttemptAt = fields.NewTimestampFromTime(at.Time().Add(backoffSec))
-	e.updatedAt = at
+	e.touch(at)
 }
 
 // MarkDeadLetter maxes out attempts and parks the event without scheduling future attempts.
@@ -139,18 +152,22 @@ func (e *Event) MarkDeadLetter(reason string, at fields.Timestamp) {
 		}
 	}
 
-	e.updatedAt = at
+	e.touch(at)
 }
 
 // RenewLease extends the worker's lock reservation time.
 func (e *Event) RenewLease(newLeaseExpiresAt fields.Timestamp, at fields.Timestamp) {
 	e.leaseExpiresAt = newLeaseExpiresAt
-	e.updatedAt = at
+	e.touch(at)
 }
 
 // ReleaseLease explicitly clears worker ownership without altering retry counts or errors.
 func (e *Event) ReleaseLease(at fields.Timestamp) {
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}
+	e.touch(at)
+}
+
+func (e *Event) touch(at fields.Timestamp) {
 	e.updatedAt = at
 }

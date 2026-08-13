@@ -1,3 +1,11 @@
+-- name: OutboxEventCreate :exec
+INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES (@id::uuid, sqlc.narg('aggregate_id')::uuid, sqlc.narg('aggregate_type')::text, @event_type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
+
+-- name: OutboxEventCreateBatch :copyfrom
+INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+
 -- name: OutboxEventClaimPending :many
 WITH target_events AS (
     SELECT
@@ -28,14 +36,6 @@ WHERE
     o.id = t.id
 RETURNING
     o.*;
-
--- name: OutboxEventCreate :exec
-INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES (@id::uuid, sqlc.narg('aggregate_id')::uuid, sqlc.narg('aggregate_type')::text, @event_type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
-
--- name: OutboxEventCreateBatch :copyfrom
-INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
 
 -- name: OutboxEventMarkProcessed :exec
 UPDATE

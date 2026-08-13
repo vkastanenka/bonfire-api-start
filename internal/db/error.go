@@ -18,7 +18,7 @@ const (
 	EntityChannelMember   Entity = "channel_member"
 	EntityMessage         Entity = "message"
 	EntityMessageReaction Entity = "message_reaction"
-	EntityOutboxEvents    Entity = "outbox_event"
+	EntityOutboxEvent     Entity = "outbox_event"
 	EntityRelation        Entity = "relation"
 	EntitySession         Entity = "session"
 	EntityUser            Entity = "user"

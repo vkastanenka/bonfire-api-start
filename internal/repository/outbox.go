@@ -2,294 +2,257 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
-	"time"
+	"fmt"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type OutboxStore interface {
-	OutboxEventCreate(ctx context.Context, arg db.OutboxEventCreateParams) (db.OutboxEvent, error)
-	OutboxEventGet(ctx context.Context, id pgtype.UUID) (db.OutboxEvent, error)
-	OutboxEventList(ctx context.Context, arg db.OutboxEventListParams) ([]db.OutboxEvent, error)
-	OutboxEventAcquireBatch(ctx context.Context, arg db.OutboxEventAcquireBatchParams) ([]db.OutboxEvent, error)
-	OutboxEventUpdate(ctx context.Context, arg db.OutboxEventUpdateParams) (db.OutboxEvent, error)
-	OutboxEventRenewLease(ctx context.Context, arg db.OutboxEventRenewLeaseParams) error
-	OutboxEventDelete(ctx context.Context, id pgtype.UUID) error
-	OutboxEventPurgeProcessed(ctx context.Context, retentionDays int32) error
+type OutboxRepository struct {
+	store *db.Store
 }
 
-type Outbox struct {
-	store OutboxStore
-}
-
-func NewOutbox(store OutboxStore) *Outbox {
-	return &Outbox{store: store}
-}
-
-// Publish creates and persists a new domain outbox event
-func (r *Outbox) Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error) {
-	var payloadBytes []byte
-	switch v := payload.(type) {
-	case []byte:
-		payloadBytes = v
-	default:
-		var err error
-		payloadBytes, err = json.Marshal(payload)
-		if err != nil {
-			return nil, errs.InvalidArgument("failed to marshal outbox event payload").Wrap(err)
-		}
+func NewOutboxRepository(store *db.Store) *OutboxRepository {
+	return &OutboxRepository{
+		store: store.WithEntity(db.EntityOutboxEvent),
 	}
-
-	event, err := outbox.New(variant, payloadBytes)
-	if err != nil {
-		return nil, errs.InvalidArgument("failed to instantiate outbox event").Wrap(err)
-	}
-
-	if err := r.Create(ctx, event); err != nil {
-		return nil, err
-	}
-
-	return event, nil
 }
 
-// func (r *Outbox) PublishBatch(ctx context.Context, items []BatchItem) ([]*outbox.Event, error) {
-// 	if len(items) == 0 {
-// 		return []*outbox.Event{}, nil
-// 	}
-
-// 	events := make([]*outbox.Event, 0, len(items))
-
-// 	for i, item := range items {
-// 		var payloadBytes []byte
-// 		switch v := item.Payload.(type) {
-// 		case []byte:
-// 			payloadBytes = v
-// 		default:
-// 			var err, jsonErr error
-// 			payloadBytes, jsonErr = json.Marshal(item.Payload)
-// 			if jsonErr != nil {
-// 				return nil, errs.InvalidArgument("failed to marshal outbox event payload at index %d", i).Wrap(jsonErr)
-// 			}
-// 		}
-
-// 		event, err := outbox.New(item.Variant, payloadBytes)
-// 		if err != nil {
-// 			return nil, errs.InvalidArgument("failed to instantiate outbox event at index %d", i).Wrap(err)
-// 		}
-
-// 		events = append(events, event)
-// 	}
-
-// 	if err := r.CreateBatch(ctx, events); err != nil {
-// 		return nil, err
-// 	}
-
-// 	return events, nil
-// }
-
-// Create persists a newly instantiated domain event with all initial state flags
-func (r *Outbox) Create(ctx context.Context, event *outbox.Event) error {
-	_, err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
-		ID:             db.UUID(event.ID().UUID()),
-		LockedBy:       db.UUIDPtr(event.LockedBy()),
-		CreatedAt:      db.Timestamptz(event.CreatedAt()),
-		UpdatedAt:      db.Timestamptz(event.UpdatedAt()),
-		NextAttemptAt:  db.Timestamptz(event.NextAttemptAt()),
-		LeaseExpiresAt: db.TimestamptzPtr(event.LeaseExpiresAt()),
-		ProcessedAt:    db.TimestamptzPtr(event.ProcessedAt()),
-		Attempts:       event.Attempts(),
-		MaxAttempts:    event.MaxAttempts(),
-		EventType:      event.EventType(),
-		LastError:      db.TextPtr(event.LastError()),
-		Payload:        event.Payload(),
+// OutboxEventCreate persists a single outbox domain event.
+func (r *OutboxRepository) OutboxEventCreate(ctx context.Context, e *outbox.Event) error {
+	err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
+		ID:            db.ToUUID(e.ID().UUID()),
+		AggregateID:   db.ToUUIDPtr(e.ID().UUIDPtr()),
+		AggregateType: db.ToTextPtr(nil),
+		EventType:     e.EventType().String(),
+		Payload:       e.Payload(),
+		TraceID:       db.ToTextPtr(nil),
+		CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
+		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
+		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
+		Attempts:      e.Attempts(),
+		MaxAttempts:   e.MaxAttempts(),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityOutboxEvent)
+		return r.store.Err(err)
 	}
+
 	return nil
 }
 
-func (r *Outbox) Get(ctx context.Context, id outbox.EventID) (*outbox.Event, error) {
-	row, err := r.store.OutboxEventGet(ctx, db.UUID(id.UUID()))
-	if err != nil {
-		return nil, db.NewError(err, db.EntityOutboxEvent)
+// OutboxEventCreateBatch bulk-inserts a set of domain events using pgx CopyFrom.
+func (r *OutboxRepository) OutboxEventCreateBatch(ctx context.Context, events []*outbox.Event) error {
+	if len(events) == 0 {
+		return nil
 	}
 
-	return outboxFromRow(row)
-}
-
-func (r *Outbox) Save(ctx context.Context, event *outbox.Event) error {
-	_, err := r.store.OutboxEventUpdate(ctx, db.OutboxEventUpdateParams{
-		ID:             db.UUID(event.ID().UUID()),
-		LockedBy:       db.UUIDPtr(event.LockedBy()),
-		LeaseExpiresAt: db.TimestamptzPtr(event.LeaseExpiresAt()),
-		ProcessedAt:    db.TimestamptzPtr(event.ProcessedAt()),
-		Attempts:       event.Attempts(),
-		MaxAttempts:    event.MaxAttempts(),
-		NextAttemptAt:  db.Timestamptz(event.NextAttemptAt()),
-		LastError:      db.TextPtr(event.LastError()),
-		UpdatedAt:      db.Timestamptz(event.UpdatedAt()),
-	})
-	if err != nil {
-		return db.NewError(err, db.EntityOutboxEvent)
+	params := make([]db.OutboxEventCreateBatchParams, 0, len(events))
+	for _, e := range events {
+		params = append(params, db.OutboxEventCreateBatchParams{
+			ID:            db.ToUUID(e.ID().UUID()),
+			AggregateID:   db.ToUUIDPtr(nil),
+			AggregateType: db.ToTextPtr(nil),
+			EventType:     e.EventType().String(),
+			Payload:       e.Payload(),
+			TraceID:       db.ToTextPtr(nil),
+			CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
+			UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
+			NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
+			Attempts:      e.Attempts(),
+			MaxAttempts:   e.MaxAttempts(),
+		})
 	}
+
+	_, err := r.store.OutboxEventCreateBatch(ctx, params)
+	if err != nil {
+		return r.store.Err(err)
+	}
+
 	return nil
 }
 
-// List executes pagination over outbox events
-func (r *Outbox) List(ctx context.Context, cursorID *outbox.EventID, limit int32) ([]*outbox.Event, error) {
-	var cursorUUID *uuid.UUID
-	if cursorID != nil {
-		u := cursorID.UUID()
-		cursorUUID = &u
-	}
-
-	rows, err := r.store.OutboxEventList(ctx, db.OutboxEventListParams{
-		CursorID:    db.UUIDPtr(cursorUUID),
-		ResultLimit: limit,
+// OutboxEventClaimPending acquires and locks available pending events for processing.
+func (r *OutboxRepository) OutboxEventClaimPending(
+	ctx context.Context,
+	workerID fields.ID,
+	leaseExpiresAt, now fields.Timestamp,
+	limitVal int32,
+) ([]*outbox.Event, error) {
+	rows, err := r.store.OutboxEventClaimPending(ctx, db.OutboxEventClaimPendingParams{
+		Now:            db.ToTimestamptz(now.Time()),
+		LimitVal:       limitVal,
+		WorkerID:       db.ToUUID(workerID.UUID()),
+		LeaseExpiresAt: db.ToTimestamptz(leaseExpiresAt.Time()),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityOutboxEvent)
+		return nil, r.store.Err(err)
 	}
 
-	events := make([]*outbox.Event, len(rows))
-	for i, row := range rows {
+	events := make([]*outbox.Event, 0, len(rows))
+	for _, row := range rows {
 		evt, err := outboxFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		events[i] = evt
+		events = append(events, evt)
 	}
 
 	return events, nil
 }
 
-// AcquireBatch locks available pending events for processing by workerID
-func (r *Outbox) AcquireBatch(ctx context.Context, workerID uuid.UUID, leaseDurationSec, batchSize int32) ([]*outbox.Event, error) {
-	rows, err := r.store.OutboxEventAcquireBatch(ctx, db.OutboxEventAcquireBatchParams{
-		WorkerID:             db.UUID(workerID),
-		LeaseDurationSeconds: leaseDurationSec,
-		BatchSize:            batchSize,
+// OutboxEventMarkProcessed updates the event status as completed and releases worker locks.
+func (r *OutboxRepository) OutboxEventMarkProcessed(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
+	err := r.store.OutboxEventMarkProcessed(ctx, db.OutboxEventMarkProcessedParams{
+		ProcessedAt: db.ToTimestamptz(e.ProcessedAt().Time()),
+		UpdatedAt:   db.ToTimestamptz(e.UpdatedAt().Time()),
+		ID:          db.ToUUID(e.ID().UUID()),
+		WorkerID:    db.ToUUID(workerID.UUID()),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityOutboxEvent)
+		return r.store.Err(err)
 	}
 
-	events := make([]*outbox.Event, len(rows))
-	for i, row := range rows {
-		evt, err := outboxFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		events[i] = evt
-	}
-
-	return events, nil
+	return nil
 }
 
-func (r *Outbox) MarkProcessed(ctx context.Context, id outbox.EventID) (*outbox.Event, error) {
-	event, err := r.Get(ctx, id)
+// OutboxEventMarkFailure updates attempt count, backoff schedule, and failure reason.
+func (r *OutboxRepository) OutboxEventMarkFailure(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
+	err := r.store.OutboxEventMarkFailure(ctx, db.OutboxEventMarkFailureParams{
+		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
+		LastError:     db.ToTextPtr(e.LastError().StringPtr()),
+		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
+		ID:            db.ToUUID(e.ID().UUID()),
+		WorkerID:      db.ToUUID(workerID.UUID()),
+	})
 	if err != nil {
-		return nil, err
+		return r.store.Err(err)
 	}
 
-	event.MarkProcessed(time.Now())
-
-	if err := r.Save(ctx, event); err != nil {
-		return nil, err
-	}
-
-	return event, nil
+	return nil
 }
 
-func (r *Outbox) RecordFailure(ctx context.Context, id outbox.EventID, lastError string) (*outbox.Event, error) {
-	event, err := r.Get(ctx, id)
+// OutboxEventMarkDeadLetter transitions an event to max attempts and records the error.
+func (r *OutboxRepository) OutboxEventMarkDeadLetter(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
+	err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
+		LastError: db.ToTextPtr(e.LastError().StringPtr()),
+		UpdatedAt: db.ToTimestamptz(e.UpdatedAt().Time()),
+		ID:        db.ToUUID(e.ID().UUID()),
+		WorkerID:  db.ToUUID(workerID.UUID()),
+	})
 	if err != nil {
-		return nil, err
+		return r.store.Err(err)
 	}
 
-	event.RecordFailure(lastError, time.Now())
-
-	if err := r.Save(ctx, event); err != nil {
-		return nil, err
-	}
-
-	return event, nil
+	return nil
 }
 
-func (r *Outbox) MarkDeadLetter(ctx context.Context, id outbox.EventID, reason string) (*outbox.Event, error) {
-	event, err := r.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	event.MarkDeadLetter(reason, time.Now())
-
-	if err := r.Save(ctx, event); err != nil {
-		return nil, err
-	}
-
-	return event, nil
-}
-
-// RenewLease extends lock duration for an in-flight worker job
-func (r *Outbox) RenewLease(ctx context.Context, id outbox.EventID, workerID uuid.UUID, leaseDurationSec int32) error {
+// OutboxEventRenewLease extends the worker lease reservation time on an in-flight event.
+func (r *OutboxRepository) OutboxEventRenewLease(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
 	err := r.store.OutboxEventRenewLease(ctx, db.OutboxEventRenewLeaseParams{
-		ID:                   db.UUID(id.UUID()),
-		WorkerID:             db.UUID(workerID),
-		LeaseDurationSeconds: leaseDurationSec,
+		LeaseExpiresAt: db.ToTimestamptz(e.LeaseExpiresAt().Time()),
+		UpdatedAt:      db.ToTimestamptz(e.UpdatedAt().Time()),
+		ID:             db.ToUUID(e.ID().UUID()),
+		WorkerID:       db.ToUUID(workerID.UUID()),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityOutboxEvent)
+		return r.store.Err(err)
 	}
+
 	return nil
 }
 
-// Delete permanently removes an event by ID
-func (r *Outbox) Delete(ctx context.Context, id outbox.EventID) error {
-	err := r.store.OutboxEventDelete(ctx, db.UUID(id.UUID()))
+// OutboxEventReleaseLease removes the active worker lock without changing attempt counts.
+func (r *OutboxRepository) OutboxEventReleaseLease(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
+	err := r.store.OutboxEventReleaseLease(ctx, db.OutboxEventReleaseLeaseParams{
+		UpdatedAt: db.ToTimestamptz(e.UpdatedAt().Time()),
+		ID:        db.ToUUID(e.ID().UUID()),
+		WorkerID:  db.ToUUID(workerID.UUID()),
+	})
 	if err != nil {
-		return db.NewError(err, db.EntityOutboxEvent)
+		return r.store.Err(err)
 	}
+
 	return nil
 }
 
-// PurgeProcessed cleans up processed events older than retention window
-func (r *Outbox) PurgeProcessed(ctx context.Context, retentionDays int32) error {
-	err := r.store.OutboxEventPurgeProcessed(ctx, retentionDays)
+// OutboxEventDeleteProcessedBatch deletes processed events prior to the target retention timestamp.
+func (r *OutboxRepository) OutboxEventDeleteProcessedBatch(ctx context.Context, before fields.Timestamp, limitVal int32) (int64, error) {
+	rowsAffected, err := r.store.OutboxEventDeleteProcessedBatch(ctx, db.OutboxEventDeleteProcessedBatchParams{
+		Before:   db.ToTimestamptz(before.Time()),
+		LimitVal: limitVal,
+	})
 	if err != nil {
-		return db.NewError(err, db.EntityOutboxEvent)
+		return 0, r.store.Err(err)
 	}
-	return nil
+
+	return rowsAffected, nil
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
-	id, err := outbox.NewEventID(uuid.UUID(row.ID.Bytes))
-	if err != nil {
-		return nil, errs.Internal("failed to parse outbox event ID from database").
+	eventID := db.FromUUID[uuid.UUID](row.ID)
+	eventIDStr := eventID.String()
+
+	mapErr := func(msg, key string, val any, err error) *errs.Error {
+		return errs.Internal(msg).
 			Wrap(err).
 			Reason("CORRUPT_DATABASE_RECORD").
-			Resource("OutboxEvent", uuid.UUID(row.ID.Bytes).String(), "", "database row mapping")
+			Meta(key, fmt.Sprintf("%v", val)).
+			Resource("OutboxEvent", eventIDStr, "", "database row mapping")
 	}
 
-	return outbox.Reconstitute(
+	id, err := fields.ParseRequiredID("id", eventID)
+	if err != nil {
+		return nil, mapErr("failed to parse outbox event id from database", "id", eventIDStr, err)
+	}
+
+	eventType, err := outbox.ParseEventType("event_type", row.EventType)
+	if err != nil {
+		return nil, mapErr("failed to parse outbox event type from database", "event_type", row.EventType, err)
+	}
+
+	var lockedBy fields.ID
+	if row.LockedBy.Valid {
+		lockedByUUID := db.FromUUID[uuid.UUID](row.LockedBy)
+		lockedBy, err = fields.ParseRequiredID("locked_by", lockedByUUID)
+		if err != nil {
+			return nil, mapErr("failed to parse locked_by from database", "locked_by", lockedByUUID.String(), err)
+		}
+	}
+
+	var lastError outbox.LastError
+	if lastErrPtr := db.FromTextPtr[string](row.LastError); lastErrPtr != nil && *lastErrPtr != "" {
+		lastError, err = outbox.ParseLastError("last_error", *lastErrPtr)
+		if err != nil {
+			return nil, mapErr("failed to parse last_error from database", "last_error", *lastErrPtr, err)
+		}
+	}
+
+	processedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.ProcessedAt))
+	nextAttemptAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.NextAttemptAt))
+	leaseExpiresAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.LeaseExpiresAt))
+	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
+	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
+
+	return outbox.NewEvent(
 		id,
-		row.EventType,
+		eventType,
 		row.Payload,
-		db.TimePtr(row.ProcessedAt),
+		processedAt,
 		row.Attempts,
 		row.MaxAttempts,
-		row.NextAttemptAt.Time.UTC(),
-		db.UUIDPtrFromDB(row.LockedBy),
-		db.TimePtr(row.LeaseExpiresAt),
-		db.StringPtr(row.LastError),
-		row.CreatedAt.Time.UTC(),
-		row.UpdatedAt.Time.UTC(),
+		nextAttemptAt,
+		lockedBy,
+		leaseExpiresAt,
+		lastError,
+		createdAt,
+		updatedAt,
 	), nil
 }
