@@ -50,12 +50,26 @@ WHERE
     AND locked_by = @worker_id::uuid
     AND processed_at IS NULL;
 
--- name: OutboxEventMarkDeadLetter :exec
+-- name: OutboxEventMarkFailure :exec
 UPDATE
     outbox_events
 SET
     attempts = attempts + 1,
     next_attempt_at = @next_attempt_at::timestamptz,
+    last_error = sqlc.narg('last_error')::text,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND locked_by = @worker_id::uuid
+    AND processed_at IS NULL;
+
+-- name: OutboxEventMarkDeadLetter :exec
+UPDATE
+    outbox_events
+SET
+    attempts = max_attempts,
     last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
     lease_expires_at = NULL,
