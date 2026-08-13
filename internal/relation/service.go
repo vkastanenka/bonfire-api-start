@@ -114,36 +114,62 @@ func NewService(
 	}
 }
 
-// // AcceptFriendRequest explicitly accepts a pending incoming friend request.
-// func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-// 	actorID, err := NewUserID(rawActorID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid actor id")
-// 	}
+// AcceptFriendRequest explicitly accepts a pending incoming friend request.
+func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
 
-// 	peerID, err := NewUserID(rawPeerID)
-// 	if err != nil {
-// 		return errs.InvalidArgument("invalid peer id")
-// 	}
+	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	if err != nil {
+		return err
+	}
 
-// 	if actorID == peerID {
-// 		return errs.InvalidArgument("cannot accept friend request from yourself")
-// 	}
+	if actorID.Equals(peerID) {
+		return errs.InvalidArgument("Relation ids cannot match.").
+			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
+	}
 
-// 	u1, u2 := sortUserIDs(actorID, peerID)
+	u1, u2 := SortUserIDs(actorID, peerID)
+	var updatedRel *Relation
 
-// 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-// 		rel, err := s.repo.GetForUpdate(txCtx, u1.UUID(), u2.UUID())
-// 		if err != nil {
-// 			if errs.IsNotFound(err) {
-// 				return errs.NotFound("no pending request to accept").Wrap(err)
-// 			}
-// 			return err
-// 		}
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.NotFound("no pending request to accept").Wrap(err)
+			}
+			return err
+		}
 
-// 		return s.acceptPendingRequestTx(txCtx, rel, actorID.UUID())
-// 	})
-// }
+		res, acceptErr := s.acceptPendingRequestTx(txCtx, actorID, rel)
+		if acceptErr != nil {
+			return acceptErr
+		}
+		updatedRel = res
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Post-commit relation cache update
+	if updatedRel != nil {
+		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, updatedRel); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to transition relation cache",
+				"user1_id", u1.String(),
+				"user2_id", u2.String(),
+				"actor_id", actorID.String(),
+				"error", cacheErr,
+				"scope", "relation",
+			)
+		}
+	}
+
+	return nil
+}
 
 // // Block places a block on a user, overriding any existing friend or pending state.
 // func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
@@ -440,22 +466,6 @@ func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType str
 	return peers, nil
 }
 
-// // func (s *Service) ListPeers(ctx context.Context, userID uuid.UUID, filter *Variant) ([]Perspective, error) {
-// // 	if filter != nil && !filter.IsValid() {
-// // 		return nil, errs.InvalidArgument("invalid relationship status filter")
-// // 	}
-
-// // 	perspectives, err := s.repo.ListPerspectives(ctx, userID, filter)
-// // 	if err != nil {
-// // 		if errs.IsNotFound(err) {
-// // 			return []Perspective{}, nil
-// // 		}
-// // 		return nil, err
-// // 	}
-
-// // 	return perspectives, nil
-// // }
-
 func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
@@ -543,65 +553,75 @@ func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawPeerID u
 
 // Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
 func (s *Service) acceptPendingRequestTx(ctx context.Context, actorID fields.ID, rel *Relation) (*Relation, error) {
-	// var channelID fields.ID
+	if rel.Type() != TypePending {
+		return nil, errs.InvalidArgument("relation is not pending")
+	}
 
-	// // 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
-	// if existingChID := rel.ChannelID(); existingChID.UUIDPtr() != nil {
-	// 	channelID = existingChID
-	// } else {
-	// 	// 2. Instantiate new 1:1 Direct Message Channel entity (TypeDirect)
-	// 	ch, err := channel.New(channel.TypeDirect, nil, nil)
-	// 	if err != nil {
-	// 		return errs.InvalidArgument("failed to construct DM channel").Wrap(err)
-	// 	}
+	if rel.ActorID().Equals(actorID) {
+		return nil, errs.PermissionDenied("cannot accept your own outgoing friend request")
+	}
 
-	// 	// 3. Persist Channel record inside current transaction
-	// 	createdCh, err := s.channel.Create(ctx, ch)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+	var channelID fields.ID
 
-	// 	// 4. Construct & batch-add members
-	// 	chUUID := createdCh.ID().UUID()
-	// 	u1ID := rel.User1ID().UUID()
-	// 	u2ID := rel.User2ID().UUID()
+	// 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
+	if existingChID := rel.ChannelID(); existingChID.UUIDPtr() != nil {
+		channelID = existingChID
+	} else {
+		// 2. Instantiate new 1:1 Direct Message Channel entity
+		ch, err := channel.New(channel.TypeDirect, nil, nil)
+		if err != nil {
+			return nil, err
+		}
 
-	// 	m1, err := channel.NewMember(chUUID, u1ID)
-	// 	if err != nil {
-	// 		return errs.InvalidArgument("invalid member 1").Wrap(err)
-	// 	}
+		// 3. Persist Channel record inside current transaction
+		createdCh, err := s.channel.Create(ctx, ch)
+		if err != nil {
+			return nil, err
+		}
 
-	// 	m2, err := channel.NewMember(chUUID, u2ID)
-	// 	if err != nil {
-	// 		return errs.InvalidArgument("invalid member 2").Wrap(err)
-	// 	}
+		// 4. Construct & batch-add members
+		chUUID := createdCh.ID().UUID()
+		u1ID := rel.User1ID().UUID()
+		u2ID := rel.User2ID().UUID()
 
-	// 	if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
-	// 		return err
-	// 	}
+		m1, err := channel.NewMember(chUUID, u1ID)
+		if err != nil {
+			return nil, err
+		}
 
-	// 	channelID = ChannelID(createdCh.ID())
-	// }
+		m2, err := channel.NewMember(chUUID, u2ID)
+		if err != nil {
+			return nil, err
+		}
 
-	// // 5. Transition relationship state to VariantFriends with the active channel ID
-	// if err := rel.Accept(actID, channelID); err != nil {
-	// 	if errors.Is(err, ErrCannotAccept) {
-	// 		return errs.PermissionDenied("cannot accept your own outgoing friend request").Wrap(err)
-	// 	}
-	// 	return errs.InvalidArgument(err.Error()).Wrap(err)
-	// }
+		if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
+			return nil, err
+		}
 
-	// // 6. Upsert updated relationship state
-	// if err := s.repo.Upsert(ctx, rel); err != nil {
-	// 	return err
-	// }
+		// channelID = createdCh.ID()
+	}
 
-	// // 7. Emit outbox event
-	// peerID := rel.GetPeerID(actID)
-	// _, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
-	// 	ActorID:   actorID,
-	// 	TargetID:  peerID.UUID(),
-	// 	ChannelID: channelID.UUID(),
-	// })
-	return nil, nil
+	now := fields.NewTimestampFromTime(time.Now())
+
+	// 5. Transition relationship state to TypeFriends with the active channel ID
+	rel.Accept(actorID, channelID, now)
+
+	// 6. Save updated relationship state
+	savedRel, err := s.repo.Save(ctx, rel)
+	if err != nil {
+		return nil, err
+	}
+
+	// 7. Emit outbox event
+	peerID := rel.PeerID(actorID)
+	_, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
+		ActorID:   actorID.UUID(),
+		TargetID:  peerID.UUID(),
+		ChannelID: channelID.UUID(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return savedRel, nil
 }
