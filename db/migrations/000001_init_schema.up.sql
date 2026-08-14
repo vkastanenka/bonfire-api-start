@@ -146,9 +146,25 @@ CREATE TABLE messages(
     CONSTRAINT forward_valid CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
 );
 
-CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at DESC, id DESC);
+CREATE INDEX idx_messages_author ON messages(author_id)
+WHERE
+    author_id IS NOT NULL;
 
-CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
+CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id)
+WHERE
+    reply_to_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_msg ON messages(forwarded_message_id)
+WHERE
+    forwarded_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_chan ON messages(forwarded_channel_id)
+WHERE
+    forwarded_channel_id IS NOT NULL;
+
+CREATE INDEX idx_messages_channel_created ON messages(channel_id, id DESC);
+
+CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC, id DESC)
 WHERE
     pinned_at IS NOT NULL;
 
