@@ -2,39 +2,52 @@
 INSERT INTO channels(id, created_at, updated_at, type, name, icon_url)
     VALUES (@id::uuid, @created_at::timestamptz, @updated_at::timestamptz, @type::smallint, sqlc.narg('name')::text, sqlc.narg('icon_url')::text)
 RETURNING
-    id, created_at, updated_at, type, name, icon_url;
-
--- name: ChannelDelete :exec
-DELETE FROM channels
-WHERE id = @id::uuid;
+    channels.*;
 
 -- name: ChannelGet :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    type,
-    name,
-    icon_url
+    channels.*
 FROM
     channels
 WHERE
     id = @id::uuid;
 
--- name: ChannelUpdate :one
+-- name: ChannelGetBatch :many
+SELECT
+    channels.*
+FROM
+    channels
+WHERE
+    id = ANY (@ids::uuid[])
+ORDER BY
+    id ASC;
+
+-- name: ChannelUpdateGroup :one
 UPDATE
     channels
 SET
-    name = COALESCE(sqlc.narg('name')::text, name),
-    icon_url = COALESCE(sqlc.narg('icon_url')::text, icon_url),
+    name = sqlc.narg('name')::text,
+    icon_url = sqlc.narg('icon_url')::text,
+    updated_at = @updated_at::timestamptz
+WHERE
+    id = @id::uuid
+    AND type = 2
+RETURNING
+    channels.*;
+
+-- name: ChannelUpdateLastMessage :one
+UPDATE
+    channels
+SET
+    last_message_id = @last_message_id::uuid,
+    last_message_at = @last_message_at::timestamptz,
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid
 RETURNING
-    id,
-    created_at,
-    updated_at,
-    type,
-    name,
-    icon_url;
+    channels.*;
+
+-- name: ChannelDelete :exec
+DELETE FROM channels
+WHERE id = @id::uuid;
 

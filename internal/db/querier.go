@@ -13,15 +13,15 @@ import (
 type Querier interface {
 	AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error
 	AttachmentDelete(ctx context.Context, attachmentID pgtype.UUID) error
-	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error)
+	ChannelCreate(ctx context.Context, arg ChannelCreateParams) (ChannelCreateRow, error)
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
-	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
+	ChannelGet(ctx context.Context, id pgtype.UUID) (ChannelGetRow, error)
 	ChannelMemberAddBatch(ctx context.Context, membersJson []byte) error
 	ChannelMemberCloseDM(ctx context.Context, arg ChannelMemberCloseDMParams) error
 	ChannelMemberOpenDM(ctx context.Context, arg ChannelMemberOpenDMParams) error
 	ChannelMemberTogglePinned(ctx context.Context, arg ChannelMemberTogglePinnedParams) error
 	ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error
-	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error)
+	ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (ChannelUpdateRow, error)
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)

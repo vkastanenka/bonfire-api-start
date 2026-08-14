@@ -104,8 +104,10 @@ WHERE
 
 CREATE TABLE channels(
     id uuid NOT NULL,
+    last_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_message_at timestamptz DEFAULT NULL,
     type smallint NOT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
@@ -146,21 +148,31 @@ CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
 WHERE
     pinned_at IS NOT NULL;
 
+ALTER TABLE channels
+    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
+
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
     user_id uuid NOT NULL,
+    last_read_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_read_message_id uuid DEFAULT NULL,
     pinned_at timestamptz DEFAULT NULL,
     muted_until timestamptz DEFAULT NULL,
+    mention_count int NOT NULL DEFAULT 0,
     is_visible boolean NOT NULL DEFAULT TRUE,
     CONSTRAINT channel_members_pkey PRIMARY KEY (channel_id, user_id),
     CONSTRAINT fk_channel_members_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT fk_channel_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_channel_members_last_read_message FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
+
+CREATE INDEX idx_channel_members_last_read_message ON channel_members(last_read_message_id)
+WHERE
+    last_read_message_id IS NOT NULL;
+
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, created_at DESC);
 
 CREATE TABLE message_attachments(
     id uuid NOT NULL,

@@ -37,8 +37,7 @@ FROM
 WHERE
     id = ANY (@ids::uuid[])
 ORDER BY
-    id ASC
-LIMIT @batch_limit::int;
+    id ASC;
 
 -- name: UserGetByEmail :one
 SELECT

@@ -11,12 +11,14 @@ import (
 )
 
 type Channel struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
+	ID            pgtype.UUID        `json:"id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	LastMessageAt pgtype.Timestamptz `json:"last_message_at"`
+	Type          int16              `json:"type"`
+	Name          pgtype.Text        `json:"name"`
+	IconUrl       pgtype.Text        `json:"icon_url"`
 }
 
 type ChannelMember struct {

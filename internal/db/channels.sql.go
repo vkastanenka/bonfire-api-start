@@ -27,7 +27,16 @@ type ChannelCreateParams struct {
 	IconUrl   pgtype.Text        `json:"icon_url"`
 }
 
-func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
+type ChannelCreateRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
+}
+
+func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (ChannelCreateRow, error) {
 	row := q.db.QueryRow(ctx, channelCreate,
 		arg.ID,
 		arg.CreatedAt,
@@ -36,7 +45,7 @@ func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (C
 		arg.Name,
 		arg.IconUrl,
 	)
-	var i Channel
+	var i ChannelCreateRow
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
@@ -72,9 +81,18 @@ WHERE
     id = $1::uuid
 `
 
-func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error) {
+type ChannelGetRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
+}
+
+func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (ChannelGetRow, error) {
 	row := q.db.QueryRow(ctx, channelGet, id)
-	var i Channel
+	var i ChannelGetRow
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
@@ -111,14 +129,23 @@ type ChannelUpdateParams struct {
 	ID        pgtype.UUID        `json:"id"`
 }
 
-func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (Channel, error) {
+type ChannelUpdateRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Type      int16              `json:"type"`
+	Name      pgtype.Text        `json:"name"`
+	IconUrl   pgtype.Text        `json:"icon_url"`
+}
+
+func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (ChannelUpdateRow, error) {
 	row := q.db.QueryRow(ctx, channelUpdate,
 		arg.Name,
 		arg.IconUrl,
 		arg.UpdatedAt,
 		arg.ID,
 	)
-	var i Channel
+	var i ChannelUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
