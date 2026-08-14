@@ -188,11 +188,11 @@ CREATE TABLE channel_members(
     CONSTRAINT fk_channel_members_last_read_message FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_channel_members_last_read_message ON channel_members(last_read_message_id)
+CREATE INDEX idx_channel_members_last_read_message_id ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
 
-CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, id DESC);
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, channel_id DESC);
 
 CREATE TABLE message_attachments(
     id uuid NOT NULL,
