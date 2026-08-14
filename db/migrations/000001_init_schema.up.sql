@@ -117,6 +117,10 @@ CREATE TABLE channels(
     CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048)
 );
 
+CREATE INDEX idx_channels_last_message ON channels(last_message_id)
+WHERE
+    last_message_id IS NOT NULL;
+
 CREATE TABLE messages(
     id uuid NOT NULL,
     channel_id uuid NOT NULL,
@@ -157,7 +161,7 @@ CREATE TABLE channel_members(
     last_read_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_read_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     pinned_at timestamptz DEFAULT NULL,
     muted_until timestamptz DEFAULT NULL,
     mention_count int NOT NULL DEFAULT 0,

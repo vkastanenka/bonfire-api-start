@@ -1,31 +1,49 @@
--- -- name: ChannelMemberAddBatch :exec
--- WITH input_data AS (
---     SELECT
---         *
---     FROM
---         jsonb_populate_recordset(NULL::channel_members, @members_json::jsonb))
--- INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, is_visible, pinned_at)
--- SELECT
---     channel_id,
---     user_id,
---     created_at,
---     updated_at,
---     last_read_at,
---     mention_count,
---     last_read_message_id,
---     is_visible,
---     pinned_at
--- FROM
---     input_data
--- ON CONFLICT (channel_id,
---     user_id)
---     DO UPDATE SET
---         updated_at = EXCLUDED.updated_at,
---         last_read_at = EXCLUDED.last_read_at,
---         mention_count = EXCLUDED.mention_count,
---         last_read_message_id = EXCLUDED.last_read_message_id,
---         is_visible = EXCLUDED.is_visible,
---         pinned_at = EXCLUDED.pinned_at;
+-- name: ChannelMemberCreateBatch :many
+INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
+SELECT
+    m.channel_id,
+    m.user_id,
+    m.last_read_message_id,
+    m.created_at,
+    m.updated_at,
+    m.last_read_message_at,
+    m.pinned_at,
+    m.muted_until,
+    m.mention_count,
+    m.is_visible
+FROM
+    UNNEST(@channel_ids::uuid[], @user_ids::uuid[], @last_read_message_ids::uuid[], @created_ats::timestamptz[], @updated_ats::timestamptz[], @last_read_message_ats::timestamptz[], @pinned_ats::timestamptz[], @muted_untils::timestamptz[], @mention_counts::int[], @is_visibles::boolean[]) AS m(channel_id,
+        user_id,
+        last_read_message_id,
+        created_at,
+        updated_at,
+        last_read_message_at,
+        pinned_at,
+        muted_until,
+        mention_count,
+        is_visible)
+ON CONFLICT (channel_id,
+    user_id)
+    DO UPDATE SET
+        last_read_message_id = EXCLUDED.last_read_message_id,
+        updated_at = EXCLUDED.updated_at,
+        last_read_message_at = EXCLUDED.last_read_message_at,
+        pinned_at = EXCLUDED.pinned_at,
+        muted_until = EXCLUDED.muted_until,
+        mention_count = EXCLUDED.mention_count,
+        is_visible = EXCLUDED.is_visible
+    RETURNING
+        channel_members.*;
+
+-- name: ChannelMemberGet :one
+SELECT
+    channel_members.*
+FROM
+    channel_members
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
 -- name: ChannelMemberGetBatchByChannelIDs :many
 SELECT
     channel_members.*
@@ -48,48 +66,71 @@ ORDER BY
     created_at DESC
 LIMIT @limit_val::int;
 
--- -- name: ChannelMemberTogglePinned :exec
--- UPDATE
---     channel_members
--- SET
---     pinned_at = CASE WHEN pinned_at IS NULL THEN
---         @pinned_at::timestamptz
---     ELSE
---         NULL
---     END,
---     updated_at = CURRENT_TIMESTAMP
--- WHERE
---     channel_id = @channel_id::uuid
---     AND user_id = @user_id::uuid;
--- -- name: ChannelMemberUpdateLastRead :exec
--- UPDATE
---     channel_members
--- SET
---     last_read_message_id = CASE WHEN @last_read_at::timestamptz > last_read_at THEN
---         COALESCE(sqlc.narg('last_read_message_id')::uuid, last_read_message_id)
---     ELSE
---         last_read_message_id
---     END,
---     last_read_at = GREATEST(last_read_at, @last_read_at::timestamptz),
---     updated_at = CURRENT_TIMESTAMP
--- WHERE
---     channel_id = @channel_id::uuid
---     AND user_id = @user_id::uuid;
--- -- name: ChannelMemberCloseDM :exec
--- UPDATE
---     channel_members
--- SET
---     is_visible = FALSE,
---     updated_at = @updated_at::timestamptz
--- WHERE
---     channel_id = @channel_id::uuid
---     AND user_id = @user_id::uuid;
--- -- name: ChannelMemberOpenDM :exec
--- UPDATE
---     channel_members
--- SET
---     is_visible = TRUE,
---     updated_at = @updated_at::timestamptz
--- WHERE
---     channel_id = @channel_id::uuid
---     AND user_id = @user_id::uuid;
+-- name: ChannelMemberUpdateLastReadMessage :one
+UPDATE
+    channel_members
+SET
+    last_read_message_id = @last_read_message_id::uuid,
+    last_read_message_at = @last_read_message_at::timestamptz,
+    mention_count = COALESCE(sqlc.narg('mention_count')::int, mention_count),
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid
+RETURNING
+    channel_members.*;
+
+-- name: ChannelMemberUpdatePinnedAt :one
+UPDATE
+    channel_members
+SET
+    pinned_at = sqlc.narg('pinned_at')::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid
+RETURNING
+    channel_members.*;
+
+-- name: ChannelMemberUpdateMutedUntil :one
+UPDATE
+    channel_members
+SET
+    muted_until = sqlc.narg('muted_until')::timestamptz,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid
+RETURNING
+    channel_members.*;
+
+-- name: ChannelMemberUpdateIsVisible :one
+UPDATE
+    channel_members
+SET
+    is_visible = @is_visible::boolean,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid
+RETURNING
+    channel_members.*;
+
+-- name: ChannelMemberIncrementBatchMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1,
+    is_visible = TRUE,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = ANY (@user_ids::uuid[])
+    AND (muted_until IS NULL
+        OR muted_until < CURRENT_TIMESTAMP);
+
+-- name: ChannelMemberDelete :exec
+DELETE FROM channel_members
+WHERE channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid;
+
