@@ -212,7 +212,7 @@ CREATE TABLE message_attachments(
     CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048)
 );
 
-CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id, created_at ASC);
+CREATE INDEX idx_message_attachments_message_id_id ON message_attachments(message_id, id ASC);
 
 CREATE TABLE message_reactions(
     message_id uuid NOT NULL,
@@ -225,7 +225,9 @@ CREATE TABLE message_reactions(
     CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64)
 );
 
-CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id, created_at ASC);
+CREATE INDEX idx_message_reactions_message_id_created ON message_reactions(message_id, created_at ASC);
+
+CREATE INDEX idx_message_reactions_user_id ON message_reactions(user_id);
 
 CREATE TABLE relations(
     user1_id uuid NOT NULL,
