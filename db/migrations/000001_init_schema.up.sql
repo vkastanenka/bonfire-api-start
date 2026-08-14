@@ -192,7 +192,7 @@ CREATE INDEX idx_channel_members_last_read_message ON channel_members(last_read_
 WHERE
     last_read_message_id IS NOT NULL;
 
-CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, created_at DESC);
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, id DESC);
 
 CREATE TABLE message_attachments(
     id uuid NOT NULL,

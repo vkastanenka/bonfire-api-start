@@ -63,7 +63,7 @@ WHERE
 ORDER BY
     (pinned_at IS NOT NULL) DESC,
     pinned_at DESC NULLS LAST,
-    created_at DESC
+    id DESC
 LIMIT @limit_val::int;
 
 -- name: ChannelMemberUpdateLastReadMessage :one
