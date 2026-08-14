@@ -50,7 +50,9 @@ SELECT
 FROM
     channel_members
 WHERE
-    channel_id = ANY (@channel_ids::uuid[]);
+    channel_id = ANY (@channel_ids::uuid[])
+ORDER BY
+    channel_id ASC;
 
 -- name: ChannelMemberListVisibleByUserID :many
 SELECT
