@@ -5,7 +5,6 @@ import (
 
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
 )
 
@@ -19,24 +18,38 @@ type ChannelName struct {
 	fields.Text
 }
 
-func ParseChannelName(raw *string) (*ChannelName, error) {
-	if raw == nil {
-		return nil, nil
-	}
+func NewChannelName(v string) ChannelName {
+	return ChannelName{Text: fields.NewText(v)}
+}
 
-	cleaned := sanitize.Text(ptr.From(raw))
+func ParseChannelName(raw string) (ChannelName, error) {
+	cleaned := sanitize.Text(raw)
 	if cleaned == "" {
-		return nil, nil
+		return ChannelName{}, nil
 	}
 
 	if utf8.RuneCountInString(cleaned) > channelNameMaxLength {
-		return nil, errs.InvalidArgument("Name too long.").
+		return ChannelName{}, errs.InvalidArgument("Name too long.").
 			Reason("NAME_TOO_LONG").
 			FieldViolation("name", "Name must be 100 characters or fewer.", "MAX_LENGTH_EXCEEDED").
 			Meta("domain", "channels")
 	}
 
-	return &ChannelName{Text: fields.NewText(cleaned)}, nil
+	return NewChannelName(cleaned), nil
+}
+
+func ParseRequiredChannelName(raw string) (ChannelName, error) {
+	name, err := ParseChannelName(raw)
+	if err != nil {
+		return ChannelName{}, err
+	}
+	if name.IsZero() {
+		return ChannelName{}, errs.InvalidArgument("Channel name is required.").
+			Reason("NAME_REQUIRED").
+			FieldViolation("name", "Field is required.", "REQUIRED").
+			Meta("domain", "channels")
+	}
+	return name, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -63,6 +76,10 @@ type ChannelType struct {
 	fields.Enum[ChannelTypeValue]
 }
 
+func NewChannelType(val ChannelTypeValue) ChannelType {
+	return ChannelType{Enum: fields.NewEnum(val, channelTypeSpec)}
+}
+
 func ErrChannelInvalidType() *errs.Error {
 	return errs.InvalidArgument("Invalid channel type.").
 		Reason("CHANNEL_TYPE_INVALID").
@@ -74,7 +91,7 @@ func ParseChannelType(raw int16) (ChannelType, error) {
 	if raw <= 0 || raw >= int16(channelTypeMax) {
 		return ChannelType{}, ErrChannelInvalidType()
 	}
-	return ChannelType{Enum: fields.NewEnum(ChannelTypeValue(raw), channelTypeSpec)}, nil
+	return NewChannelType(ChannelTypeValue(raw)), nil
 }
 
 func ParseChannelTypeString(s string) (ChannelType, error) {
@@ -82,7 +99,7 @@ func ParseChannelTypeString(s string) (ChannelType, error) {
 	if !ok || kind >= channelTypeMax {
 		return ChannelType{}, ErrChannelInvalidType()
 	}
-	return ChannelType{Enum: fields.NewEnum(kind, channelTypeSpec)}, nil
+	return NewChannelType(kind), nil
 }
 
 // -----------------------------------------------------------------------------
@@ -95,24 +112,38 @@ type MessageContent struct {
 	fields.Text
 }
 
-func ParseMessageContent(raw *string) (*MessageContent, error) {
-	if raw == nil {
-		return nil, nil
-	}
+func NewMessageContent(v string) MessageContent {
+	return MessageContent{Text: fields.NewText(v)}
+}
 
-	cleaned := sanitize.Text(ptr.From(raw))
+func ParseMessageContent(raw string) (MessageContent, error) {
+	cleaned := sanitize.Text(raw)
 	if cleaned == "" {
-		return nil, nil
+		return MessageContent{}, nil
 	}
 
 	if utf8.RuneCountInString(cleaned) > messageContentMaxLength {
-		return nil, errs.InvalidArgument("Content too long.").
+		return MessageContent{}, errs.InvalidArgument("Content too long.").
 			Reason("CONTENT_TOO_LONG").
 			FieldViolation("content", "Content must be 4000 characters or fewer.", "MAX_LENGTH_EXCEEDED").
 			Meta("domain", "messages")
 	}
 
-	return &MessageContent{Text: fields.NewText(cleaned)}, nil
+	return NewMessageContent(cleaned), nil
+}
+
+func ParseRequiredMessageContent(raw string) (MessageContent, error) {
+	content, err := ParseMessageContent(raw)
+	if err != nil {
+		return MessageContent{}, err
+	}
+	if content.IsZero() {
+		return MessageContent{}, errs.InvalidArgument("Message content is required.").
+			Reason("CONTENT_REQUIRED").
+			FieldViolation("content", "Field is required.", "REQUIRED").
+			Meta("domain", "messages")
+	}
+	return content, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -165,6 +196,10 @@ type MessageType struct {
 	fields.Enum[MessageTypeValue]
 }
 
+func NewMessageType(val MessageTypeValue) MessageType {
+	return MessageType{Enum: fields.NewEnum(val, messageTypeSpec)}
+}
+
 func ErrMessageInvalidType() *errs.Error {
 	return errs.InvalidArgument("Invalid message type.").
 		Reason("MESSAGE_TYPE_INVALID").
@@ -176,7 +211,7 @@ func ParseMessageType(raw int16) (MessageType, error) {
 	if raw <= 0 || raw >= int16(messageTypeMax) {
 		return MessageType{}, ErrMessageInvalidType()
 	}
-	return MessageType{Enum: fields.NewEnum(MessageTypeValue(raw), messageTypeSpec)}, nil
+	return NewMessageType(MessageTypeValue(raw)), nil
 }
 
 func ParseMessageTypeString(s string) (MessageType, error) {
@@ -184,7 +219,7 @@ func ParseMessageTypeString(s string) (MessageType, error) {
 	if !ok || kind >= messageTypeMax {
 		return MessageType{}, ErrMessageInvalidType()
 	}
-	return MessageType{Enum: fields.NewEnum(kind, messageTypeSpec)}, nil
+	return NewMessageType(kind), nil
 }
 
 // -----------------------------------------------------------------------------
@@ -193,30 +228,40 @@ func ParseMessageTypeString(s string) (MessageType, error) {
 
 const reactionEmojiMaxLength = 64
 
-var errReactionEmojiRequired = errs.InvalidArgument("Invalid value.").
-	Reason("EMOJI_REQUIRED").
-	FieldViolation("emoji", "Emoji cannot be empty.", "REQUIRED").Meta("domain", "reactions")
-
 type ReactionEmoji struct {
 	fields.Text
 }
 
-func ParseReactionEmoji(raw *string) (*ReactionEmoji, error) {
-	if raw == nil {
-		return nil, errReactionEmojiRequired
-	}
+func NewReactionEmoji(v string) ReactionEmoji {
+	return ReactionEmoji{Text: fields.NewText(v)}
+}
 
-	cleaned := sanitize.Text(ptr.From(raw))
+func ParseReactionEmoji(raw string) (ReactionEmoji, error) {
+	cleaned := sanitize.Text(raw)
 	if cleaned == "" {
-		return nil, errReactionEmojiRequired
+		return ReactionEmoji{}, nil
 	}
 
 	if utf8.RuneCountInString(cleaned) > reactionEmojiMaxLength {
-		return nil, errs.InvalidArgument("Emoji too long.").
+		return ReactionEmoji{}, errs.InvalidArgument("Emoji too long.").
 			Reason("EMOJI_TOO_LONG").
 			FieldViolation("emoji", "Emoji must be 64 characters or fewer.", "MAX_LENGTH_EXCEEDED").
 			Meta("domain", "reactions")
 	}
 
-	return &ReactionEmoji{Text: fields.NewText(cleaned)}, nil
+	return NewReactionEmoji(cleaned), nil
+}
+
+func ParseRequiredReactionEmoji(raw string) (ReactionEmoji, error) {
+	emoji, err := ParseReactionEmoji(raw)
+	if err != nil {
+		return ReactionEmoji{}, err
+	}
+	if emoji.IsZero() {
+		return ReactionEmoji{}, errs.InvalidArgument("Emoji is required.").
+			Reason("EMOJI_REQUIRED").
+			FieldViolation("emoji", "Emoji cannot be empty.", "REQUIRED").
+			Meta("domain", "reactions")
+	}
+	return emoji, nil
 }

@@ -145,26 +145,24 @@ func channelFromRow(row db.Channel) (*channel.Channel, error) {
 		return nil, mapErr("failed to parse channel type from database", "type", row.Type, err)
 	}
 
-	name, err := channel.ParseChannelName(db.FromTextPtr[string](row.Name))
+	name, err := channel.ParseChannelName(db.FromText[string](row.Name))
 	if err != nil {
 		return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
 	}
 
-	iconURL, err := fields.ParseURL("icon_url", db.FromTextPtr[string](row.IconURL))
+	iconURL, err := fields.ParseURL("icon_url", db.FromText[string](row.IconURL))
 	if err != nil {
 		return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
 	}
 
-	// lastMessageID, err := fields.ParseID("last_message_id", db.FromUUIDPtr[uuid.UUID](row.LastMessageID))
-	// if err != nil {
-	// 	return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
-	// }
+	lastMessageID, err := fields.ParseID("last_message_id", db.FromUUID[uuid.UUID](row.LastMessageID))
+	if err != nil {
+		return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
+	}
 
-	var lastMessageID fields.ID
-
-	lastMessageAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.LastMessageAt))
-	createdAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.CreatedAt))
-	updatedAt := fields.NewTimestampFromTime(db.FromTimestamptz(row.UpdatedAt))
+	lastMessageAt := fields.NewTimestamp(db.FromTimestamptz(row.LastMessageAt))
+	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
+	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
 
 	return channel.ParseChannel(
 		id,
