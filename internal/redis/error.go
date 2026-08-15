@@ -18,6 +18,7 @@ const (
 	ScopeChannel  Scope = "channel"
 	ScopeEvent    Scope = "event"
 	ScopeMessage  Scope = "message"
+	ScopeMember   Scope = "member"
 	ScopePresence Scope = "presence"
 	ScopeRelation Scope = "relation"
 	ScopeSession  Scope = "session"

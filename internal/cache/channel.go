@@ -1,169 +1,213 @@
 package cache
 
 import (
-	"bonfire-api/internal/redis"
 	"context"
+	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
+
 	"github.com/google/uuid"
-	goredis "github.com/redis/go-redis/v9"
 )
 
+func channelKey(id fields.ID) string {
+	return fmt.Sprintf("channel:%s", id.String())
+}
+
 type Channel struct {
-	store redis.Store
-	ttl   time.Duration
+	ID            uuid.UUID `json:"id"`
+	Type          int16     `json:"type"`
+	Name          string    `json:"name"`
+	IconURL       string    `json:"icon_url"`
+	LastMessageID uuid.UUID `json:"last_message_id"`
+	LastMessageAt time.Time `json:"last_message_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-type ChannelDTO struct {
-	ID            uuid.UUID  `redis:"id"`
-	Type          int16      `redis:"type"`
-	Name          *string    `redis:"name"`
-	IconURL       *string    `redis:"icon_url"`
-	MemberCount   int        `redis:"member_count"`
-	MemberIDs     string     `redis:"member_ids"`
-	LastMessageID *uuid.UUID `redis:"last_message_id"`
-	LastMessageAt *int64     `redis:"last_message_at"`
-	CreatedAt     int64      `redis:"created_at"` // Unix ms
-	UpdatedAt     int64      `redis:"updated_at"` // Unix ms
-}
-
-func NewChannel(store redis.Store, ttl time.Duration) *Channel {
-	return &Channel{store: store, ttl: ttl}
-}
-
-func channelKey(id uuid.UUID) string {
-	return fmt.Sprintf("channel:{%s}", id.String())
-}
-
-// Set populates or refreshes the shared channel metadata Hash with sliding TTL.
-func (c *Channel) Set(ctx context.Context, ch *ChannelDTO) error {
-	key := channelKey(ch.ID)
-
-	fields := map[string]interface{}{
-		"id":           ch.ID.String(),
-		"type":         strconv.Itoa(int(ch.Type)),
-		"member_count": strconv.Itoa(ch.MemberCount),
-		"member_ids":   ch.MemberIDs,
-		"created_at":   strconv.FormatInt(ch.CreatedAt, 10),
-		"updated_at":   strconv.FormatInt(ch.UpdatedAt, 10),
-	}
-
-	if ch.Name != nil {
-		fields["name"] = *ch.Name
-	}
-	if ch.IconURL != nil {
-		fields["icon_url"] = *ch.IconURL
-	}
-	if ch.LastMessageID != nil {
-		fields["last_message_id"] = ch.LastMessageID.String()
-	}
-	if ch.LastMessageAt != nil {
-		fields["last_message_at"] = strconv.FormatInt(*ch.LastMessageAt, 10)
-	}
-
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		pipe.HSet(ctx, key, fields)
-		pipe.Expire(ctx, key, c.ttl)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-
-	return nil
-}
-
-// Get fetches shared channel metadata and refreshes its sliding TTL on read.
-func (c *Channel) Get(ctx context.Context, channelID uuid.UUID) (*ChannelDTO, error) {
-	key := channelKey(channelID)
-
-	var hGetAllCmd *goredis.MapStringStringCmd
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		hGetAllCmd = pipe.HGetAll(ctx, key)
-		pipe.Expire(ctx, key, c.ttl)
-		return nil
-	})
-	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeChannel)
-	}
-
-	res, err := hGetAllCmd.Result()
-	if err != nil || len(res) == 0 {
-		return nil, nil // Cache Miss
-	}
-
-	return parseChannelDTO(res)
-}
-
-// TouchLastMessage updates last_message_id, last_message_at, and updated_at atomically on message dispatch.
-func (c *Channel) TouchLastMessage(ctx context.Context, channelID uuid.UUID, messageID uuid.UUID, timestamp int64) error {
-	key := channelKey(channelID)
-
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		pipe.HSet(ctx, key, map[string]interface{}{
-			"last_message_id": messageID.String(),
-			"last_message_at": strconv.FormatInt(timestamp, 10),
-			"updated_at":      strconv.FormatInt(timestamp, 10),
-		})
-		pipe.Expire(ctx, key, c.ttl)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-
-	return nil
-}
-
-// Helper to construct DTO from HGETALL map output
-func parseChannelDTO(m map[string]string) (*ChannelDTO, error) {
-	id, err := uuid.Parse(m["id"])
+func (c Channel) ToDomain() (*channel.Channel, error) {
+	id, err := fields.ParseRequiredID("id", c.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	typeInt, _ := strconv.ParseInt(m["type"], 10, 16)
-	memberCount, _ := strconv.Atoi(m["member_count"])
-	createdAt, _ := strconv.ParseInt(m["created_at"], 10, 64)
-	updatedAt, _ := strconv.ParseInt(m["updated_at"], 10, 64)
-
-	dto := &ChannelDTO{
-		ID:          id,
-		Type:        int16(typeInt),
-		MemberCount: memberCount,
-		MemberIDs:   m["member_ids"],
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+	chType, err := channel.ParseChannelType(c.Type)
+	if err != nil {
+		return nil, err
 	}
 
-	if val, ok := m["name"]; ok && val != "" {
-		dto.Name = &val
-	}
-	if val, ok := m["icon_url"]; ok && val != "" {
-		dto.IconURL = &val
-	}
-	if val, ok := m["last_message_id"]; ok && val != "" {
-		if msgID, pErr := uuid.Parse(val); pErr == nil {
-			dto.LastMessageID = &msgID
-		}
-	}
-	if val, ok := m["last_message_at"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			dto.LastMessageAt = &ts
-		}
+	name, err := channel.ParseChannelName(c.Name)
+	if err != nil {
+		return nil, err
 	}
 
-	return dto, nil
+	iconURL, err := fields.ParseURL("icon_url", c.IconURL)
+	if err != nil {
+		return nil, err
+	}
+
+	lastMessageID, err := fields.ParseID("last_message_id", c.LastMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	return channel.ParseChannel(
+		id,
+		chType,
+		name,
+		iconURL,
+		lastMessageID,
+		fields.NewTimestamp(c.LastMessageAt),
+		fields.NewTimestamp(c.CreatedAt),
+		fields.NewTimestamp(c.UpdatedAt),
+	), nil
 }
 
-// FormatMemberIDs converts a slice of member UUIDs into a CSV string for `member_ids`.
-func FormatMemberIDs(memberIDs []uuid.UUID) string {
-	strs := make([]string, len(memberIDs))
-	for i, id := range memberIDs {
-		strs[i] = id.String()
+func ParseChannel(ch *channel.Channel) Channel {
+	return Channel{
+		ID:            ch.ID().UUID(),
+		Type:          ch.Type().Int16(),
+		Name:          ch.Name().String(),
+		IconURL:       ch.IconURL().String(),
+		LastMessageID: ch.LastMessageID().UUID(),
+		LastMessageAt: ch.LastMessageAt().Time(),
+		CreatedAt:     ch.CreatedAt().Time(),
+		UpdatedAt:     ch.UpdatedAt().Time(),
 	}
-	return strings.Join(strs, ",")
+}
+
+type ChannelCache struct {
+	store *redis.Store
+	ttl   time.Duration
+}
+
+func NewChannelCache(store *redis.Store, ttl time.Duration) *ChannelCache {
+	return &ChannelCache{
+		store: store.WithScope(redis.ScopeChannel),
+		ttl:   ttl,
+	}
+}
+
+func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+	k := channelKey(id)
+
+	var raw string
+	err := c.store.Get(ctx, k, &raw)
+	if err != nil {
+		return nil, c.store.Err(err)
+	}
+	if raw == "" {
+		return nil, nil
+	}
+
+	var cached Channel
+	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+		return nil, err
+	}
+
+	return cached.ToDomain()
+}
+
+func (c *ChannelCache) GetBatch(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*channel.Channel, []fields.ID, error) {
+	if len(ids) == 0 {
+		return map[fields.ID]*channel.Channel{}, nil, nil
+	}
+
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = channelKey(id)
+	}
+
+	rawValues, err := c.store.MGet(ctx, keys...)
+	if err != nil {
+		return nil, nil, c.store.Err(err)
+	}
+
+	found := make(map[fields.ID]*channel.Channel, len(ids))
+	var missing []fields.ID
+
+	for i, raw := range rawValues {
+		id := ids[i]
+
+		if raw == nil || raw == "" {
+			missing = append(missing, id)
+			continue
+		}
+
+		rawStr, ok := raw.(string)
+		if !ok {
+			missing = append(missing, id)
+			continue
+		}
+
+		var cached Channel
+		if err := json.Unmarshal([]byte(rawStr), &cached); err != nil {
+			missing = append(missing, id)
+			continue
+		}
+
+		ch, err := cached.ToDomain()
+		if err != nil {
+			missing = append(missing, id)
+			continue
+		}
+
+		found[id] = ch
+	}
+
+	return found, missing, nil
+}
+
+func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
+	k := channelKey(ch.ID())
+	dto := ParseChannel(ch)
+
+	if err := c.store.Set(ctx, k, dto, c.ttl); err != nil {
+		return c.store.Err(err)
+	}
+
+	return nil
+}
+
+func (c *ChannelCache) SetBatch(ctx context.Context, channels []*channel.Channel) error {
+	if len(channels) == 0 {
+		return nil
+	}
+
+	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
+		for _, ch := range channels {
+			k := channelKey(ch.ID())
+			dto := ParseChannel(ch)
+
+			if err := c.store.Set(pipeCtx, k, dto, c.ttl); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (c *ChannelCache) Invalidate(ctx context.Context, id fields.ID) error {
+	return c.store.Delete(ctx, channelKey(id))
+}
+
+func (c *ChannelCache) InvalidateBatch(ctx context.Context, ids []fields.ID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
+		for _, id := range ids {
+			if err := c.store.Delete(pipeCtx, channelKey(id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

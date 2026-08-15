@@ -1,181 +1,214 @@
 package cache
 
 import (
-	"bonfire-api/internal/redis"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
+
 	"github.com/google/uuid"
-	goredis "github.com/redis/go-redis/v9"
 )
 
-var (
-	ErrBatchSizeExceeded = errors.New("channel member batch size exceeds maximum limit of 10")
-)
+func memberKey(channelID, userID fields.ID) string {
+	return fmt.Sprintf("member:%s:%s", channelID.String(), userID.String())
+}
 
-const MaxGroupMembers = 10
+type MemberKeyIDs struct {
+	ChannelID fields.ID
+	UserID    fields.ID
+}
 
-type ChannelMember struct {
-	store redis.Store
+type Member struct {
+	ChannelID         uuid.UUID `json:"channel_id"`
+	UserID            uuid.UUID `json:"user_id"`
+	LastReadMessageID uuid.UUID `json:"last_read_message_id"`
+	LastReadMessageAt time.Time `json:"last_read_message_at"`
+	PinnedAt          time.Time `json:"pinned_at"`
+	MutedUntil        time.Time `json:"muted_until"`
+	MentionCount      int32     `json:"mention_count"`
+	IsVisible         bool      `json:"is_visible"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+func (m Member) ToDomain() (*channel.Member, error) {
+	channelID, err := fields.ParseRequiredID("channel_id", m.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	userID, err := fields.ParseRequiredID("user_id", m.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	lastReadMessageID, err := fields.ParseID("last_read_message_id", m.LastReadMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	return channel.ParseMember(
+		channelID,
+		userID,
+		lastReadMessageID,
+		fields.NewTimestamp(m.LastReadMessageAt),
+		fields.NewTimestamp(m.PinnedAt),
+		fields.NewTimestamp(m.MutedUntil),
+		m.MentionCount,
+		m.IsVisible,
+		fields.NewTimestamp(m.CreatedAt),
+		fields.NewTimestamp(m.UpdatedAt),
+	), nil
+}
+
+func ParseMember(m *channel.Member) Member {
+	return Member{
+		ChannelID:         m.ChannelID().UUID(),
+		UserID:            m.UserID().UUID(),
+		LastReadMessageID: m.LastReadMessageID().UUID(),
+		LastReadMessageAt: m.LastReadMessageAt().Time(),
+		PinnedAt:          m.PinnedAt().Time(),
+		MutedUntil:        m.MutedUntil().Time(),
+		MentionCount:      m.MentionCount(),
+		IsVisible:         m.IsVisible(),
+		CreatedAt:         m.CreatedAt().Time(),
+		UpdatedAt:         m.UpdatedAt().Time(),
+	}
+}
+
+type MemberCache struct {
+	store *redis.Store
 	ttl   time.Duration
 }
 
-type ChannelMemberDTO struct {
-	ChannelID         uuid.UUID  `redis:"channel_id"`
-	UserID            uuid.UUID  `redis:"user_id"`
-	LastReadAt        int64      `redis:"last_read_at"` // Unix ms
-	LastReadMessageID *uuid.UUID `redis:"last_read_message_id"`
-	PinnedAt          *int64     `redis:"pinned_at"`   // Unix ms
-	MutedUntil        *int64     `redis:"muted_until"` // Unix ms
-	IsVisible         bool       `redis:"is_visible"`
-	CreatedAt         int64      `redis:"created_at"` // Unix ms
-	UpdatedAt         int64      `redis:"updated_at"` // Unix ms
+func NewMemberCache(store *redis.Store, ttl time.Duration) *MemberCache {
+	return &MemberCache{
+		store: store.WithScope(redis.ScopeMember),
+		ttl:   ttl,
+	}
 }
 
-func NewChannelMember(store redis.Store, ttl time.Duration) *ChannelMember {
-	return &ChannelMember{store: store, ttl: ttl}
+func (c *MemberCache) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
+	k := memberKey(channelID, userID)
+
+	var raw string
+	err := c.store.Get(ctx, k, &raw)
+	if err != nil {
+		return nil, c.store.Err(err)
+	}
+	if raw == "" {
+		return nil, nil
+	}
+
+	var cached Member
+	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+		return nil, err
+	}
+
+	return cached.ToDomain()
 }
 
-func channelMemberKey(channelID, userID uuid.UUID) string {
-	return fmt.Sprintf("channel:{%s}:member:%s", channelID.String(), userID.String())
+func (c *MemberCache) GetBatch(
+	ctx context.Context,
+	keys []MemberKeyIDs,
+) (map[MemberKeyIDs]*channel.Member, []MemberKeyIDs, error) {
+	if len(keys) == 0 {
+		return map[MemberKeyIDs]*channel.Member{}, nil, nil
+	}
+
+	redisKeys := make([]string, len(keys))
+	for i, k := range keys {
+		redisKeys[i] = memberKey(k.ChannelID, k.UserID)
+	}
+
+	rawValues, err := c.store.MGet(ctx, redisKeys...)
+	if err != nil {
+		return nil, nil, c.store.Err(err)
+	}
+
+	found := make(map[MemberKeyIDs]*channel.Member, len(keys))
+	var missing []MemberKeyIDs
+
+	for i, raw := range rawValues {
+		keyIDs := keys[i]
+
+		if raw == nil || raw == "" {
+			missing = append(missing, keyIDs)
+			continue
+		}
+
+		rawStr, ok := raw.(string)
+		if !ok {
+			missing = append(missing, keyIDs)
+			continue
+		}
+
+		var cached Member
+		if err := json.Unmarshal([]byte(rawStr), &cached); err != nil {
+			missing = append(missing, keyIDs)
+			continue
+		}
+
+		mem, err := cached.ToDomain()
+		if err != nil {
+			missing = append(missing, keyIDs)
+			continue
+		}
+
+		found[keyIDs] = mem
+	}
+
+	return found, missing, nil
 }
 
-// SetBatch populates or refreshes multiple per-user channel member state Hashes,
-// strictly enforced up to the maximum Group DM size of 10 members.
-func (c *ChannelMember) SetBatch(ctx context.Context, members []*ChannelMemberDTO) error {
+func (c *MemberCache) Set(ctx context.Context, mem *channel.Member) error {
+	k := memberKey(mem.ChannelID(), mem.UserID())
+	dto := ParseMember(mem)
+
+	if err := c.store.Set(ctx, k, dto, c.ttl); err != nil {
+		return c.store.Err(err)
+	}
+
+	return nil
+}
+
+func (c *MemberCache) SetBatch(ctx context.Context, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil
 	}
 
-	if len(members) > MaxGroupMembers {
-		return fmt.Errorf("%w: received %d members", ErrBatchSizeExceeded, len(members))
-	}
+	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
+		for _, mem := range members {
+			k := memberKey(mem.ChannelID(), mem.UserID())
+			dto := ParseMember(mem)
 
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		for _, member := range members {
-			if member == nil {
-				continue
+			if err := c.store.Set(pipeCtx, k, dto, c.ttl); err != nil {
+				return err
 			}
-
-			key := channelMemberKey(member.ChannelID, member.UserID)
-
-			fields := map[string]interface{}{
-				"channel_id":   member.ChannelID.String(),
-				"user_id":      member.UserID.String(),
-				"last_read_at": strconv.FormatInt(member.LastReadAt, 10),
-				"is_visible":   strconv.FormatBool(member.IsVisible),
-				"created_at":   strconv.FormatInt(member.CreatedAt, 10),
-				"updated_at":   strconv.FormatInt(member.UpdatedAt, 10),
-			}
-
-			if member.LastReadMessageID != nil {
-				fields["last_read_message_id"] = member.LastReadMessageID.String()
-			}
-			if member.PinnedAt != nil {
-				fields["pinned_at"] = strconv.FormatInt(*member.PinnedAt, 10)
-			}
-			if member.MutedUntil != nil {
-				fields["muted_until"] = strconv.FormatInt(*member.MutedUntil, 10)
-			}
-
-			pipe.HSet(ctx, key, fields)
-			pipe.Expire(ctx, key, c.ttl)
 		}
 		return nil
 	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-
-	return nil
 }
 
-// Get fetches shared channel metadata and refreshes its sliding TTL on read.
-func (c *ChannelMember) Get(ctx context.Context, channelID, userID uuid.UUID) (*ChannelMemberDTO, error) {
-	key := channelMemberKey(channelID, userID)
+func (c *MemberCache) Invalidate(ctx context.Context, channelID, userID fields.ID) error {
+	return c.store.Delete(ctx, memberKey(channelID, userID))
+}
 
-	var hGetAllCmd *goredis.MapStringStringCmd
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		hGetAllCmd = pipe.HGetAll(ctx, key)
-		pipe.Expire(ctx, key, c.ttl)
+func (c *MemberCache) InvalidateBatch(ctx context.Context, keys []MemberKeyIDs) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
+		for _, k := range keys {
+			if err := c.store.Delete(pipeCtx, memberKey(k.ChannelID, k.UserID)); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
-	if err != nil {
-		return nil, redis.NewError(err, redis.ScopeChannel)
-	}
-
-	res, err := hGetAllCmd.Result()
-	if err != nil || len(res) == 0 {
-		return nil, nil // Cache Miss
-	}
-
-	return parseChannelMemberDTO(res)
-}
-
-// TouchLastRead updates last_read_at, last_read_message_id, and updated_at when a user reads messages in a channel.
-func (c *ChannelMember) TouchLastRead(ctx context.Context, channelID, userID, messageID uuid.UUID, readAt int64) error {
-	key := channelMemberKey(channelID, userID)
-
-	err := c.store.ExecPipelineFunc(ctx, func(pipe goredis.Pipeliner) error {
-		pipe.HSet(ctx, key, map[string]interface{}{
-			"last_read_message_id": messageID.String(),
-			"last_read_at":         strconv.FormatInt(readAt, 10),
-			"updated_at":           strconv.FormatInt(readAt, 10),
-		})
-		pipe.Expire(ctx, key, c.ttl)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-
-	return nil
-}
-
-// Helper to construct ChannelMemberDTO from HGETALL map output
-func parseChannelMemberDTO(m map[string]string) (*ChannelMemberDTO, error) {
-	channelID, err := uuid.Parse(m["channel_id"])
-	if err != nil {
-		return nil, err
-	}
-
-	userID, err := uuid.Parse(m["user_id"])
-	if err != nil {
-		return nil, err
-	}
-
-	lastReadAt, _ := strconv.ParseInt(m["last_read_at"], 10, 64)
-	isVisible, _ := strconv.ParseBool(m["is_visible"])
-	createdAt, _ := strconv.ParseInt(m["created_at"], 10, 64)
-	updatedAt, _ := strconv.ParseInt(m["updated_at"], 10, 64)
-
-	dto := &ChannelMemberDTO{
-		ChannelID:  channelID,
-		UserID:     userID,
-		LastReadAt: lastReadAt,
-		IsVisible:  isVisible,
-		CreatedAt:  createdAt,
-		UpdatedAt:  updatedAt,
-	}
-
-	if val, ok := m["last_read_message_id"]; ok && val != "" {
-		if msgID, pErr := uuid.Parse(val); pErr == nil {
-			dto.LastReadMessageID = &msgID
-		}
-	}
-	if val, ok := m["pinned_at"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			dto.PinnedAt = &ts
-		}
-	}
-	if val, ok := m["muted_until"]; ok && val != "" {
-		if ts, pErr := strconv.ParseInt(val, 10, 64); pErr == nil {
-			dto.MutedUntil = &ts
-		}
-	}
-
-	return dto, nil
 }
