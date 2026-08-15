@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/redis"
 
 	redisdriver "github.com/redis/go-redis/v9"
@@ -56,7 +57,9 @@ func (c *JSONCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 
 		var item T
 		if err := json.Unmarshal(data, &item); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal cached %s: %w", c.scope, err)
+			return nil, errs.Internal("failed to unmarshal cached item").
+				Meta("scope", c.scope.String()).
+				Wrap(err)
 		}
 
 		return &item, nil
