@@ -10,6 +10,7 @@ import (
 	"bonfire-api/internal/redis"
 
 	redisdriver "github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -26,6 +27,7 @@ type JSONCache[K comparable, T any] struct {
 	client       redisdriver.Cmdable
 	scope        redis.Scope
 	keyFn        KeyFunc[K]
+	sfg          singleflight.Group
 	maxBatchSize int
 }
 
@@ -42,27 +44,33 @@ func NewJSONCache[K comparable, T any](
 	}
 }
 
-// Get fetches a single item by key.
 func (c *JSONCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 	redisKey := c.keyFn(key)
 
-	opCtx, cancel := context.WithTimeout(ctx, defaultSingleTimeout)
-	defer cancel()
+	val, err, _ := c.sfg.Do(redisKey, func() (any, error) {
+		data, err := c.client.Get(ctx, redisKey).Bytes()
+		if errors.Is(err, redisdriver.Nil) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, redis.NewError(err, c.scope)
+		}
 
-	bytes, err := c.client.Get(opCtx, redisKey).Bytes()
-	if errors.Is(err, redisdriver.Nil) {
+		var item T
+		if err := json.Unmarshal(data, &item); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal cached %s: %w", c.scope, err)
+		}
+
+		return &item, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if val == nil {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, redis.NewError(err, c.scope)
-	}
 
-	var item T
-	if err := json.Unmarshal(bytes, &item); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cached %s: %w", c.scope, err)
-	}
-
-	return &item, nil
+	return val.(*T), nil
 }
 
 // GetBatch fetches multiple items using chunked MGet operations.
