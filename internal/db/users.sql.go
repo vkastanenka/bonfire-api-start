@@ -61,7 +61,7 @@ type UserCreateParams struct {
 	PasswordHash           string             `json:"password_hash"`
 	Phone                  pgtype.Text        `json:"phone"`
 	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
+	AvatarURL              pgtype.Text        `json:"avatar_url"`
 	BannerColor            pgtype.Text        `json:"banner_color"`
 	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
 	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
@@ -81,7 +81,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		arg.PasswordHash,
 		arg.Phone,
 		arg.Bio,
-		arg.AvatarUrl,
+		arg.AvatarURL,
 		arg.BannerColor,
 		arg.PreferredPresence,
 		arg.PreferredPresenceUntil,
@@ -107,7 +107,7 @@ func (q *Queries) UserCreate(ctx context.Context, arg UserCreateParams) (User, e
 		&i.PasswordHash,
 		&i.Phone,
 		&i.Bio,
-		&i.AvatarUrl,
+		&i.AvatarURL,
 		&i.BannerColor,
 	)
 	return i, err
@@ -140,7 +140,7 @@ func (q *Queries) UserGet(ctx context.Context, id pgtype.UUID) (User, error) {
 		&i.PasswordHash,
 		&i.Phone,
 		&i.Bio,
-		&i.AvatarUrl,
+		&i.AvatarURL,
 		&i.BannerColor,
 	)
 	return i, err
@@ -181,7 +181,7 @@ func (q *Queries) UserGetBatch(ctx context.Context, ids []pgtype.UUID) ([]User, 
 			&i.PasswordHash,
 			&i.Phone,
 			&i.Bio,
-			&i.AvatarUrl,
+			&i.AvatarURL,
 			&i.BannerColor,
 		); err != nil {
 			return nil, err
@@ -221,7 +221,7 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 		&i.PasswordHash,
 		&i.Phone,
 		&i.Bio,
-		&i.AvatarUrl,
+		&i.AvatarURL,
 		&i.BannerColor,
 	)
 	return i, err
@@ -269,7 +269,7 @@ func (q *Queries) UserGetDeleteScheduledBatch(ctx context.Context, arg UserGetDe
 			&i.PasswordHash,
 			&i.Phone,
 			&i.Bio,
-			&i.AvatarUrl,
+			&i.AvatarURL,
 			&i.BannerColor,
 		); err != nil {
 			return nil, err
@@ -314,7 +314,7 @@ type UserUpdateParams struct {
 	PasswordHash           string             `json:"password_hash"`
 	Phone                  pgtype.Text        `json:"phone"`
 	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
+	AvatarURL              pgtype.Text        `json:"avatar_url"`
 	BannerColor            pgtype.Text        `json:"banner_color"`
 	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
 	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
@@ -333,7 +333,7 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, e
 		arg.PasswordHash,
 		arg.Phone,
 		arg.Bio,
-		arg.AvatarUrl,
+		arg.AvatarURL,
 		arg.BannerColor,
 		arg.PreferredPresence,
 		arg.PreferredPresenceUntil,
@@ -358,7 +358,7 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, e
 		&i.PasswordHash,
 		&i.Phone,
 		&i.Bio,
-		&i.AvatarUrl,
+		&i.AvatarURL,
 		&i.BannerColor,
 	)
 	return i, err
@@ -436,7 +436,7 @@ func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User
 			&i.PasswordHash,
 			&i.Phone,
 			&i.Bio,
-			&i.AvatarUrl,
+			&i.AvatarURL,
 			&i.BannerColor,
 		); err != nil {
 			return nil, err

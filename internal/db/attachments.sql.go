@@ -55,7 +55,7 @@ func (q *Queries) AttachmentCreateBatch(ctx context.Context, payload []byte) ([]
 			&i.Height,
 			&i.FileName,
 			&i.ContentType,
-			&i.Url,
+			&i.URL,
 		); err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func (q *Queries) AttachmentGetBatchByMessageIDs(ctx context.Context, messageIds
 			&i.Height,
 			&i.FileName,
 			&i.ContentType,
-			&i.Url,
+			&i.URL,
 		); err != nil {
 			return nil, err
 		}

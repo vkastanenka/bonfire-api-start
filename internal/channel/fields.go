@@ -16,7 +16,7 @@ import (
 const channelNameMaxLength = 100
 
 type ChannelName struct {
-	value fields.Text
+	fields.Text
 }
 
 func ParseChannelName(raw *string) (*ChannelName, error) {
@@ -36,7 +36,7 @@ func ParseChannelName(raw *string) (*ChannelName, error) {
 			Meta("domain", "channels")
 	}
 
-	return &ChannelName{value: fields.NewText(cleaned)}, nil
+	return &ChannelName{Text: fields.NewText(cleaned)}, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -92,7 +92,7 @@ func ParseChannelTypeString(s string) (ChannelType, error) {
 const messageContentMaxLength = 4000
 
 type MessageContent struct {
-	value fields.Text
+	fields.Text
 }
 
 func ParseMessageContent(raw *string) (*MessageContent, error) {
@@ -112,7 +112,7 @@ func ParseMessageContent(raw *string) (*MessageContent, error) {
 			Meta("domain", "messages")
 	}
 
-	return &MessageContent{value: fields.NewText(cleaned)}, nil
+	return &MessageContent{Text: fields.NewText(cleaned)}, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -198,7 +198,7 @@ var errReactionEmojiRequired = errs.InvalidArgument("Invalid value.").
 	FieldViolation("emoji", "Emoji cannot be empty.", "REQUIRED").Meta("domain", "reactions")
 
 type ReactionEmoji struct {
-	value fields.Text
+	fields.Text
 }
 
 func ParseReactionEmoji(raw *string) (*ReactionEmoji, error) {
@@ -218,5 +218,5 @@ func ParseReactionEmoji(raw *string) (*ReactionEmoji, error) {
 			Meta("domain", "reactions")
 	}
 
-	return &ReactionEmoji{value: fields.NewText(cleaned)}, nil
+	return &ReactionEmoji{Text: fields.NewText(cleaned)}, nil
 }

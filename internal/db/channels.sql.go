@@ -24,7 +24,7 @@ type ChannelCreateParams struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	Type      int16              `json:"type"`
 	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
+	IconURL   pgtype.Text        `json:"icon_url"`
 }
 
 func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
@@ -34,7 +34,7 @@ func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (C
 		arg.UpdatedAt,
 		arg.Type,
 		arg.Name,
-		arg.IconUrl,
+		arg.IconURL,
 	)
 	var i Channel
 	err := row.Scan(
@@ -45,7 +45,7 @@ func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (C
 		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
-		&i.IconUrl,
+		&i.IconURL,
 	)
 	return i, err
 }
@@ -80,7 +80,7 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, erro
 		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
-		&i.IconUrl,
+		&i.IconURL,
 	)
 	return i, err
 }
@@ -113,7 +113,7 @@ func (q *Queries) ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Cha
 			&i.LastMessageAt,
 			&i.Type,
 			&i.Name,
-			&i.IconUrl,
+			&i.IconURL,
 		); err != nil {
 			return nil, err
 		}
@@ -141,7 +141,7 @@ RETURNING
 
 type ChannelUpdateGroupParams struct {
 	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
+	IconURL   pgtype.Text        `json:"icon_url"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 }
@@ -149,7 +149,7 @@ type ChannelUpdateGroupParams struct {
 func (q *Queries) ChannelUpdateGroup(ctx context.Context, arg ChannelUpdateGroupParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelUpdateGroup,
 		arg.Name,
-		arg.IconUrl,
+		arg.IconURL,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -162,7 +162,7 @@ func (q *Queries) ChannelUpdateGroup(ctx context.Context, arg ChannelUpdateGroup
 		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
-		&i.IconUrl,
+		&i.IconURL,
 	)
 	return i, err
 }
@@ -203,7 +203,7 @@ func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdat
 		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
-		&i.IconUrl,
+		&i.IconURL,
 	)
 	return i, err
 }
