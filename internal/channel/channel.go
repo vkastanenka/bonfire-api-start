@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bonfire-api/internal/fields"
 	"errors"
 	"time"
 
@@ -12,26 +13,28 @@ var (
 )
 
 type Channel struct {
-	id            ID
+	id            fields.ID
 	chType        Type
-	name          *Name
-	iconURL       *IconURL
-	lastMessageID *MessageID
-	createdAt     time.Time
-	updatedAt     time.Time
+	name          Name
+	iconURL       fields.URL
+	lastMessageID fields.ID
+	lastMessageAt fields.Timestamp
+	createdAt     fields.Timestamp
+	updatedAt     fields.Timestamp
 }
 
 // -----------------------------------------------------------------------------
 // Getters
 // -----------------------------------------------------------------------------
 
-func (c *Channel) ID() ID                    { return c.id }
-func (c *Channel) Type() Type                { return c.chType }
-func (c *Channel) Name() *Name               { return c.name }
-func (c *Channel) IconURL() *IconURL         { return c.iconURL }
-func (c *Channel) LastMessageID() *MessageID { return c.lastMessageID }
-func (c *Channel) CreatedAt() time.Time      { return c.createdAt }
-func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
+func (c *Channel) ID() fields.ID                   { return c.id }
+func (c *Channel) Type() Type                      { return c.chType }
+func (c *Channel) Name() Name                      { return c.name }
+func (c *Channel) IconURL() fields.URL             { return c.iconURL }
+func (c *Channel) LastMessageID() fields.ID        { return c.lastMessageID }
+func (c *Channel) LastMessageAt() fields.Timestamp { return c.lastMessageAt }
+func (c *Channel) CreatedAt() fields.Timestamp     { return c.createdAt }
+func (c *Channel) UpdatedAt() fields.Timestamp     { return c.updatedAt }
 
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods

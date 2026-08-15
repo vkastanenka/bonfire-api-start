@@ -2,11 +2,14 @@ package fields
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
 
@@ -200,6 +203,127 @@ func (id *ID) UnmarshalText(text []byte) error {
 	var err error
 	*id, err = UnmarshalText(text, "id", ParseIDFromString)
 	return err
+}
+
+// -----------------------------------------------------------------------------
+// SystemMetadata
+// -----------------------------------------------------------------------------
+
+type SystemMetadata struct {
+	value map[string]any
+}
+
+const (
+	MaxSystemMetadataBytes = 16 * 1024
+	MaxMetadataDepth       = 5
+)
+
+// ParseSystemMetadata validates and constructs a SystemMetadata instance from raw JSON bytes.
+func ParseSystemMetadata(domain string, raw []byte) (*SystemMetadata, error) {
+	// 1. Fast-path nil or empty payload check
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+
+	// 2. Enforce byte length bounds before parsing to avoid CPU/Memory waste
+	if len(trimmed) > MaxSystemMetadataBytes {
+		return nil, errs.InvalidArgument("System metadata payload is too large.").
+			Reason("METADATA_TOO_LARGE").
+			FieldViolation("system_metadata", fmt.Sprintf("Metadata must be %d bytes or fewer.", MaxSystemMetadataBytes), "MAX_SIZE_EXCEEDED").
+			Meta("domain", domain)
+	}
+
+	// 3. Strict object check: System metadata MUST be a JSON Object `{...}`, not an array `[...]` or primitive
+	if !bytes.HasPrefix(trimmed, []byte("{")) || !bytes.HasSuffix(trimmed, []byte("}")) {
+		return nil, errs.InvalidArgument("Invalid system metadata format.").
+			Reason("INVALID_METADATA_FORMAT").
+			FieldViolation("system_metadata", "System metadata must be a JSON object.", "INVALID_TYPE").
+			Meta("domain", domain)
+	}
+
+	// 4. Single-pass unmarshal using a strictly configured decoder
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+
+	var val map[string]any
+	if err := decoder.Decode(&val); err != nil {
+		return nil, errs.InvalidArgument("Invalid JSON payload.").
+			Reason("MALFORMED_JSON").
+			FieldViolation("system_metadata", "System metadata must be valid JSON.", "MALFORMED_JSON").
+			Meta("domain", domain)
+	}
+
+	// 5. Check if the object had keys after stripping empty structures `{}`
+	if len(val) == 0 {
+		return nil, nil
+	}
+
+	// 6. Deep safety inspection (Nesting depth + Primitive sanitation)
+	if err := validateDepthAndTypes(domain, val, 1); err != nil {
+		return nil, err
+	}
+
+	return &SystemMetadata{value: val}, nil
+}
+
+// ParseSystemMetadataFromString wraps ParseSystemMetadata for raw string inputs.
+func ParseSystemMetadataFromString(domain string, raw *string) (*SystemMetadata, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	return ParseSystemMetadata(domain, []byte(*raw))
+}
+
+// ParseSystemMetadataFromMap validates and constructs a SystemMetadata instance from an already parsed map.
+func ParseSystemMetadataFromMap(domain string, raw map[string]any) (*SystemMetadata, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, errs.InvalidArgument("Invalid system metadata structure.").
+			Reason("MALFORMED_JSON").
+			FieldViolation("system_metadata", "Failed to process metadata map.", "INVALID_STRUCTURE").
+			Meta("domain", domain)
+	}
+
+	return ParseSystemMetadata(domain, b)
+}
+
+// Value returns a copy of the underlying map structure.
+func (m *SystemMetadata) Value() map[string]any {
+	if m == nil || m.value == nil {
+		return nil
+	}
+	return m.value
+}
+
+// EncodeJSON marshals the inner payload back to a standard JSON byte array for SQL insertion.
+func (m *SystemMetadata) EncodeJSON() ([]byte, error) {
+	if m == nil || len(m.value) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(m.value)
+}
+
+func validateDepthAndTypes(domain string, curr map[string]any, depth int) error {
+	if depth > MaxMetadataDepth {
+		return errs.InvalidArgument("System metadata nesting is too deep.").
+			Reason("METADATA_NESTING_EXCEEDED").
+			FieldViolation("system_metadata", fmt.Sprintf("Nesting level cannot exceed %d.", MaxMetadataDepth), "MAX_DEPTH_EXCEEDED").
+			Meta("domain", "messages")
+	}
+
+	for _, v := range curr {
+		if childMap, ok := v.(map[string]any); ok {
+			if err := validateDepthAndTypes(domain, childMap, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // ============================================================================
