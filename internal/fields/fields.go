@@ -403,6 +403,17 @@ func (j JSON) ValuePtr() *map[string]any {
 	return ptr.To(j.value)
 }
 
+func (j JSON) Bytes() []byte {
+	if j.IsZero() {
+		return nil
+	}
+	b, err := j.MarshalJSON()
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func (j JSON) IsZero() bool  { return len(j.value) == 0 }
 func (j JSON) IsValid() bool { return !j.IsZero() }
 

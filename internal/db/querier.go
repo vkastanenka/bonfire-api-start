@@ -34,7 +34,7 @@ type Querier interface {
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
 	MessageListAfterByChannelID(ctx context.Context, arg MessageListAfterByChannelIDParams) ([]Message, error)
-	MessageListAroundByChannelID(ctx context.Context, arg MessageListAroundByChannelIDParams) ([]MessageListAroundByChannelIDRow, error)
+	MessageListAroundByChannelID(ctx context.Context, arg MessageListAroundByChannelIDParams) ([]Message, error)
 	MessageListBeforeByChannelID(ctx context.Context, arg MessageListBeforeByChannelIDParams) ([]Message, error)
 	MessageListPinnedByChannelID(ctx context.Context, arg MessageListPinnedByChannelIDParams) ([]Message, error)
 	MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error)

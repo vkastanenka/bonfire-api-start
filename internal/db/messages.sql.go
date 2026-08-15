@@ -161,7 +161,7 @@ func (q *Queries) MessageListAfterByChannelID(ctx context.Context, arg MessageLi
 const messageListAroundByChannelID = `-- name: MessageListAroundByChannelID :many
 WITH before_read AS (
     SELECT
-        id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+        id
     FROM
         messages
     WHERE
@@ -173,7 +173,7 @@ WITH before_read AS (
 ),
 after_read AS (
     SELECT
-        id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+        id
     FROM
         messages
     WHERE
@@ -182,21 +182,25 @@ after_read AS (
     ORDER BY
         id ASC
     LIMIT $4::int
-)
-SELECT
-    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
-FROM (
+),
+target_ids AS (
     SELECT
-        id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+        id
     FROM
         before_read
     UNION ALL
     SELECT
-        id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+        id
     FROM
-        after_read) combined
+        after_read
+)
+SELECT
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+FROM
+    messages
+    JOIN target_ids ON messages.id = target_ids.id
 ORDER BY
-    id ASC
+    messages.id ASC
 `
 
 type MessageListAroundByChannelIDParams struct {
@@ -206,23 +210,7 @@ type MessageListAroundByChannelIDParams struct {
 	AfterLimit        int32       `json:"after_limit"`
 }
 
-type MessageListAroundByChannelIDRow struct {
-	ID                 pgtype.UUID        `json:"id"`
-	ChannelID          pgtype.UUID        `json:"channel_id"`
-	AuthorID           pgtype.UUID        `json:"author_id"`
-	ReplyToMessageID   pgtype.UUID        `json:"reply_to_message_id"`
-	ForwardedMessageID pgtype.UUID        `json:"forwarded_message_id"`
-	ForwardedChannelID pgtype.UUID        `json:"forwarded_channel_id"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	EditedAt           pgtype.Timestamptz `json:"edited_at"`
-	PinnedAt           pgtype.Timestamptz `json:"pinned_at"`
-	Type               int16              `json:"type"`
-	Content            pgtype.Text        `json:"content"`
-	SystemMetadata     []byte             `json:"system_metadata"`
-}
-
-func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageListAroundByChannelIDParams) ([]MessageListAroundByChannelIDRow, error) {
+func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageListAroundByChannelIDParams) ([]Message, error) {
 	rows, err := q.db.Query(ctx, messageListAroundByChannelID,
 		arg.ChannelID,
 		arg.LastReadMessageID,
@@ -233,9 +221,9 @@ func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageL
 		return nil, err
 	}
 	defer rows.Close()
-	var items []MessageListAroundByChannelIDRow
+	var items []Message
 	for rows.Next() {
-		var i MessageListAroundByChannelIDRow
+		var i Message
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChannelID,
