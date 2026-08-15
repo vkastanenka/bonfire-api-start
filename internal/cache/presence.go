@@ -4,41 +4,39 @@ import (
 	"context"
 	"time"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 
-	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-type Presence struct {
-	store *redis.Store
-	ttl   time.Duration
-}
-
-func NewPresence(store *redis.Store, ttl time.Duration) *Presence {
-	return &Presence{
-		store: store.WithScope(redis.ScopePresence),
-		ttl:   ttl,
-	}
-}
-
-func key(userID uuid.UUID) string {
+func presenceKey(userID fields.ID) string {
 	return "user:" + userID.String() + ":presence"
 }
 
-func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
-	k := key(userID)
+type PresenceCache struct {
+	*ScopeCache[fields.ID, string]
+	ttl time.Duration
+}
 
-	var raw string
-	err := s.store.Get(ctx, k, &raw)
-	if redis.IsCacheMiss(err) {
+func NewPresenceCache(client redisdriver.Cmdable, ttl time.Duration) *PresenceCache {
+	return &PresenceCache{
+		ScopeCache: NewScopeCache[fields.ID, string](client, redis.ScopePresence, presenceKey),
+		ttl:        ttl,
+	}
+}
+
+func (c *PresenceCache) Get(ctx context.Context, userID fields.ID) (presence.Presence, error) {
+	val, err := c.ScopeCache.Get(ctx, userID)
+	if err != nil || val == nil {
+		if err != nil {
+			return presence.PresenceUnknown, err
+		}
 		return presence.PresenceOffline, nil
 	}
-	if err != nil {
-		return presence.PresenceUnknown, err
-	}
 
-	p, err := presence.Parse(raw)
+	p, err := presence.Parse(*val)
 	if err != nil {
 		return presence.PresenceOffline, nil
 	}
@@ -46,50 +44,48 @@ func (s *Presence) GetPresence(ctx context.Context, userID uuid.UUID) (presence.
 	return p, nil
 }
 
-func (s *Presence) GetPresenceBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error) {
-	if len(userIDs) == 0 {
-		return make(map[uuid.UUID]presence.Presence), nil
-	}
-
-	keys := make([]string, len(userIDs))
-	for i, id := range userIDs {
-		keys[i] = key(id)
-	}
-
-	vals, err := s.store.MGet(ctx, keys...)
+func (c *PresenceCache) GetBatch(
+	ctx context.Context,
+	userIDs []fields.ID,
+) (map[fields.ID]presence.Presence, error) {
+	dtos, _, err := c.ScopeCache.GetBatch(ctx, userIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[uuid.UUID]presence.Presence, len(userIDs))
-	for i, val := range vals {
-		id := userIDs[i]
-
-		if val == nil {
+	result := make(map[fields.ID]presence.Presence, len(userIDs))
+	for _, id := range userIDs {
+		val, found := dtos[id]
+		if !found || val == nil {
 			result[id] = presence.PresenceOffline
 			continue
 		}
 
-		switch v := val.(type) {
-		case string:
-			if p, err := presence.Parse(v); err == nil {
-				result[id] = p
-				continue
-			}
-		case []byte:
-			if p, err := presence.ParseBytes(v); err == nil {
-				result[id] = p
-				continue
-			}
+		p, err := presence.Parse(*val)
+		if err != nil {
+			result[id] = presence.PresenceOffline
+			continue
 		}
 
-		result[id] = presence.PresenceOffline
+		result[id] = p
 	}
 
 	return result, nil
 }
 
-func (s *Presence) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
-	k := key(userID)
-	return s.store.Set(ctx, k, p.String(), s.ttl)
+func (c *PresenceCache) Set(ctx context.Context, userID fields.ID, p presence.Presence) error {
+	return c.ScopeCache.Set(ctx, userID, p.String(), c.ttl)
+}
+
+func (c *PresenceCache) SetBatch(ctx context.Context, items map[fields.ID]presence.Presence) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	dtos := make(map[fields.ID]string, len(items))
+	for id, p := range items {
+		dtos[id] = p.String()
+	}
+
+	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
 }

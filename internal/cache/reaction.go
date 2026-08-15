@@ -19,7 +19,6 @@ type ReactionKeyIDs struct {
 	Emoji     channel.ReactionEmoji
 }
 
-// reactionKey converts a composite ReactionKeyIDs struct into a unique Redis key.
 func reactionKey(k ReactionKeyIDs) string {
 	return fmt.Sprintf("reaction:%s:%s:%s", k.MessageID.String(), k.UserID.String(), k.Emoji.String())
 }
@@ -65,14 +64,14 @@ func ParseReaction(r *channel.Reaction) Reaction {
 }
 
 type ReactionCache struct {
-	store *JSONCache[ReactionKeyIDs, Reaction]
-	ttl   time.Duration
+	*ScopeCache[ReactionKeyIDs, Reaction]
+	ttl time.Duration
 }
 
 func NewReactionCache(client redisdriver.Cmdable, ttl time.Duration) *ReactionCache {
 	return &ReactionCache{
-		store: NewJSONCache[ReactionKeyIDs, Reaction](client, redis.ScopeReaction, reactionKey),
-		ttl:   ttl,
+		ScopeCache: NewScopeCache[ReactionKeyIDs, Reaction](client, redis.ScopeReaction, reactionKey),
+		ttl:        ttl,
 	}
 }
 
@@ -87,7 +86,7 @@ func (c *ReactionCache) Get(
 		Emoji:     emoji,
 	}
 
-	dto, err := c.store.Get(ctx, key)
+	dto, err := c.ScopeCache.Get(ctx, key)
 	if err != nil || dto == nil {
 		return nil, err
 	}
@@ -99,7 +98,7 @@ func (c *ReactionCache) GetBatch(
 	ctx context.Context,
 	keys []ReactionKeyIDs,
 ) (map[ReactionKeyIDs]*channel.Reaction, []ReactionKeyIDs, error) {
-	dtos, missing, err := c.store.GetBatch(ctx, keys)
+	dtos, missing, err := c.ScopeCache.GetBatch(ctx, keys)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,7 +132,7 @@ func (c *ReactionCache) Set(ctx context.Context, r *channel.Reaction) error {
 		Emoji:     r.Emoji(),
 	}
 
-	return c.store.Set(ctx, key, ParseReaction(r), c.ttl)
+	return c.ScopeCache.Set(ctx, key, ParseReaction(r), c.ttl)
 }
 
 func (c *ReactionCache) SetBatch(ctx context.Context, reactions []*channel.Reaction) error {
@@ -151,23 +150,5 @@ func (c *ReactionCache) SetBatch(ctx context.Context, reactions []*channel.React
 		dtos[key] = ParseReaction(r)
 	}
 
-	return c.store.SetBatch(ctx, dtos, c.ttl)
-}
-
-func (c *ReactionCache) Invalidate(
-	ctx context.Context,
-	messageID, userID fields.ID,
-	emoji channel.ReactionEmoji,
-) error {
-	key := ReactionKeyIDs{
-		MessageID: messageID,
-		UserID:    userID,
-		Emoji:     emoji,
-	}
-
-	return c.store.Invalidate(ctx, key)
-}
-
-func (c *ReactionCache) InvalidateBatch(ctx context.Context, keys []ReactionKeyIDs) error {
-	return c.store.InvalidateBatch(ctx, keys)
+	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
 }
