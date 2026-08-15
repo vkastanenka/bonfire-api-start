@@ -11,44 +11,88 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const messageReactionAdd = `-- name: MessageReactionAdd :exec
+const reactionCreate = `-- name: ReactionCreate :one
 INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
     VALUES ($1::uuid, $2::uuid, $3::text, $4::timestamptz)
-ON CONFLICT (message_id, user_id, emoji)
-    DO NOTHING
+RETURNING
+    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
 `
 
-type MessageReactionAddParams struct {
+type ReactionCreateParams struct {
 	MessageID pgtype.UUID        `json:"message_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
 	Emoji     string             `json:"emoji"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) MessageReactionAdd(ctx context.Context, arg MessageReactionAddParams) error {
-	_, err := q.db.Exec(ctx, messageReactionAdd,
+func (q *Queries) ReactionCreate(ctx context.Context, arg ReactionCreateParams) (MessageReaction, error) {
+	row := q.db.QueryRow(ctx, reactionCreate,
 		arg.MessageID,
 		arg.UserID,
 		arg.Emoji,
 		arg.CreatedAt,
 	)
-	return err
+	var i MessageReaction
+	err := row.Scan(
+		&i.MessageID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Emoji,
+	)
+	return i, err
 }
 
-const messageReactionRemove = `-- name: MessageReactionRemove :exec
+const reactionDelete = `-- name: ReactionDelete :exec
 DELETE FROM message_reactions
 WHERE message_id = $1::uuid
     AND user_id = $2::uuid
     AND emoji = $3::text
 `
 
-type MessageReactionRemoveParams struct {
+type ReactionDeleteParams struct {
 	MessageID pgtype.UUID `json:"message_id"`
 	UserID    pgtype.UUID `json:"user_id"`
 	Emoji     string      `json:"emoji"`
 }
 
-func (q *Queries) MessageReactionRemove(ctx context.Context, arg MessageReactionRemoveParams) error {
-	_, err := q.db.Exec(ctx, messageReactionRemove, arg.MessageID, arg.UserID, arg.Emoji)
+func (q *Queries) ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error {
+	_, err := q.db.Exec(ctx, reactionDelete, arg.MessageID, arg.UserID, arg.Emoji)
 	return err
+}
+
+const reactionGetBatchByMessageIDs = `-- name: ReactionGetBatchByMessageIDs :many
+SELECT
+    message_id, user_id, created_at, emoji
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+ORDER BY
+    message_id,
+    created_at ASC
+`
+
+func (q *Queries) ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchByMessageIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageReaction
+	for rows.Next() {
+		var i MessageReaction
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.Emoji,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

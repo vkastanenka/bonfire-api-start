@@ -11,140 +11,416 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const channelMemberAddBatch = `-- name: ChannelMemberAddBatch :exec
-WITH input_data AS (
-    SELECT
-        jsonb_populate_recordset
-    FROM
-        jsonb_populate_recordset(NULL::channel_members, $1::jsonb))
-INSERT INTO channel_members(channel_id, user_id, created_at, updated_at, last_read_at, mention_count, last_read_message_id, is_visible, pinned_at)
+const channelMemberCreateBatch = `-- name: ChannelMemberCreateBatch :many
+INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
 SELECT
     channel_id,
     user_id,
+    last_read_message_id,
     created_at,
     updated_at,
-    last_read_at,
+    last_read_message_at,
+    pinned_at,
+    muted_until,
     mention_count,
-    last_read_message_id,
-    is_visible,
-    pinned_at
+    is_visible
 FROM
-    input_data
+    jsonb_to_recordset($1::jsonb) AS x(channel_id uuid,
+        user_id uuid,
+        last_read_message_id uuid,
+        created_at timestamptz,
+        updated_at timestamptz,
+        last_read_message_at timestamptz,
+        pinned_at timestamptz,
+        muted_until timestamptz,
+        mention_count integer,
+        is_visible boolean)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
-        updated_at = EXCLUDED.updated_at,
-        last_read_at = EXCLUDED.last_read_at,
-        mention_count = EXCLUDED.mention_count,
         last_read_message_id = EXCLUDED.last_read_message_id,
-        is_visible = EXCLUDED.is_visible,
-        pinned_at = EXCLUDED.pinned_at
+        updated_at = EXCLUDED.updated_at,
+        last_read_message_at = EXCLUDED.last_read_message_at,
+        pinned_at = EXCLUDED.pinned_at,
+        muted_until = EXCLUDED.muted_until,
+        mention_count = EXCLUDED.mention_count,
+        is_visible = EXCLUDED.is_visible
+    RETURNING
+        channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible
 `
 
-func (q *Queries) ChannelMemberAddBatch(ctx context.Context, membersJson []byte) error {
-	_, err := q.db.Exec(ctx, channelMemberAddBatch, membersJson)
+func (q *Queries) ChannelMemberCreateBatch(ctx context.Context, payload []byte) ([]ChannelMember, error) {
+	rows, err := q.db.Query(ctx, channelMemberCreateBatch, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMember
+	for rows.Next() {
+		var i ChannelMember
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastReadMessageAt,
+			&i.PinnedAt,
+			&i.MutedUntil,
+			&i.MentionCount,
+			&i.IsVisible,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelMemberDelete = `-- name: ChannelMemberDelete :exec
+DELETE FROM channel_members
+WHERE channel_id = $1::uuid
+    AND user_id = $2::uuid
+`
+
+type ChannelMemberDeleteParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberDelete(ctx context.Context, arg ChannelMemberDeleteParams) error {
+	_, err := q.db.Exec(ctx, channelMemberDelete, arg.ChannelID, arg.UserID)
 	return err
 }
 
-const channelMemberCloseDM = `-- name: ChannelMemberCloseDM :exec
-UPDATE
+const channelMemberGet = `-- name: ChannelMemberGet :one
+SELECT
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+FROM
     channel_members
-SET
-    is_visible = FALSE,
-    updated_at = $1::timestamptz
 WHERE
-    channel_id = $2::uuid
-    AND user_id = $3::uuid
+    channel_id = $1::uuid
+    AND user_id = $2::uuid
 `
 
-type ChannelMemberCloseDMParams struct {
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
+type ChannelMemberGetParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	UserID    pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberCloseDM(ctx context.Context, arg ChannelMemberCloseDMParams) error {
-	_, err := q.db.Exec(ctx, channelMemberCloseDM, arg.UpdatedAt, arg.ChannelID, arg.UserID)
-	return err
+func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberGet, arg.ChannelID, arg.UserID)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastReadMessageAt,
+		&i.PinnedAt,
+		&i.MutedUntil,
+		&i.MentionCount,
+		&i.IsVisible,
+	)
+	return i, err
 }
 
-const channelMemberOpenDM = `-- name: ChannelMemberOpenDM :exec
+const channelMemberGetBatchByChannelIDs = `-- name: ChannelMemberGetBatchByChannelIDs :many
+SELECT
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+FROM
+    channel_members
+WHERE
+    channel_id = ANY ($1::uuid[])
+ORDER BY
+    channel_id ASC
+`
+
+func (q *Queries) ChannelMemberGetBatchByChannelIDs(ctx context.Context, channelIds []pgtype.UUID) ([]ChannelMember, error) {
+	rows, err := q.db.Query(ctx, channelMemberGetBatchByChannelIDs, channelIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMember
+	for rows.Next() {
+		var i ChannelMember
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastReadMessageAt,
+			&i.PinnedAt,
+			&i.MutedUntil,
+			&i.MentionCount,
+			&i.IsVisible,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelMemberIncrementBatchMentionCount = `-- name: ChannelMemberIncrementBatchMentionCount :exec
 UPDATE
     channel_members
 SET
+    mention_count = mention_count + 1,
     is_visible = TRUE,
     updated_at = $1::timestamptz
 WHERE
     channel_id = $2::uuid
-    AND user_id = $3::uuid
+    AND user_id = ANY ($3::uuid[])
+    AND (muted_until IS NULL
+        OR muted_until < CURRENT_TIMESTAMP)
 `
 
-type ChannelMemberOpenDMParams struct {
+type ChannelMemberIncrementBatchMentionCountParams struct {
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserIds   []pgtype.UUID      `json:"user_ids"`
+}
+
+func (q *Queries) ChannelMemberIncrementBatchMentionCount(ctx context.Context, arg ChannelMemberIncrementBatchMentionCountParams) error {
+	_, err := q.db.Exec(ctx, channelMemberIncrementBatchMentionCount, arg.UpdatedAt, arg.ChannelID, arg.UserIds)
+	return err
+}
+
+const channelMemberListVisibleByUserID = `-- name: ChannelMemberListVisibleByUserID :many
+SELECT
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+FROM
+    channel_members
+WHERE
+    user_id = $1::uuid
+    AND is_visible = TRUE
+ORDER BY
+    (pinned_at IS NOT NULL) DESC,
+    pinned_at DESC NULLS LAST,
+    channel_id DESC
+LIMIT $2::int
+`
+
+type ChannelMemberListVisibleByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) ChannelMemberListVisibleByUserID(ctx context.Context, arg ChannelMemberListVisibleByUserIDParams) ([]ChannelMember, error) {
+	rows, err := q.db.Query(ctx, channelMemberListVisibleByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMember
+	for rows.Next() {
+		var i ChannelMember
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastReadMessageAt,
+			&i.PinnedAt,
+			&i.MutedUntil,
+			&i.MentionCount,
+			&i.IsVisible,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelMemberUpdateIsVisible = `-- name: ChannelMemberUpdateIsVisible :one
+UPDATE
+    channel_members
+SET
+    is_visible = $1::boolean,
+    updated_at = $2::timestamptz
+WHERE
+    channel_id = $3::uuid
+    AND user_id = $4::uuid
+RETURNING
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+`
+
+type ChannelMemberUpdateIsVisibleParams struct {
+	IsVisible bool               `json:"is_visible"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ChannelID pgtype.UUID        `json:"channel_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberOpenDM(ctx context.Context, arg ChannelMemberOpenDMParams) error {
-	_, err := q.db.Exec(ctx, channelMemberOpenDM, arg.UpdatedAt, arg.ChannelID, arg.UserID)
-	return err
+func (q *Queries) ChannelMemberUpdateIsVisible(ctx context.Context, arg ChannelMemberUpdateIsVisibleParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberUpdateIsVisible,
+		arg.IsVisible,
+		arg.UpdatedAt,
+		arg.ChannelID,
+		arg.UserID,
+	)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastReadMessageAt,
+		&i.PinnedAt,
+		&i.MutedUntil,
+		&i.MentionCount,
+		&i.IsVisible,
+	)
+	return i, err
 }
 
-const channelMemberTogglePinned = `-- name: ChannelMemberTogglePinned :exec
+const channelMemberUpdateLastReadMessage = `-- name: ChannelMemberUpdateLastReadMessage :one
 UPDATE
     channel_members
 SET
-    pinned_at = CASE WHEN pinned_at IS NULL THEN
-        $1::timestamptz
-    ELSE
-        NULL
-    END,
-    updated_at = CURRENT_TIMESTAMP
+    last_read_message_id = $1::uuid,
+    last_read_message_at = $2::timestamptz,
+    mention_count = COALESCE($3::int, mention_count),
+    updated_at = $4::timestamptz
 WHERE
-    channel_id = $2::uuid
-    AND user_id = $3::uuid
+    channel_id = $5::uuid
+    AND user_id = $6::uuid
+RETURNING
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
 `
 
-type ChannelMemberTogglePinnedParams struct {
-	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
-}
-
-func (q *Queries) ChannelMemberTogglePinned(ctx context.Context, arg ChannelMemberTogglePinnedParams) error {
-	_, err := q.db.Exec(ctx, channelMemberTogglePinned, arg.PinnedAt, arg.ChannelID, arg.UserID)
-	return err
-}
-
-const channelMemberUpdateLastRead = `-- name: ChannelMemberUpdateLastRead :exec
-UPDATE
-    channel_members
-SET
-    last_read_message_id = CASE WHEN $1::timestamptz > last_read_at THEN
-        COALESCE($2::uuid, last_read_message_id)
-    ELSE
-        last_read_message_id
-    END,
-    last_read_at = GREATEST(last_read_at, $1::timestamptz),
-    updated_at = CURRENT_TIMESTAMP
-WHERE
-    channel_id = $3::uuid
-    AND user_id = $4::uuid
-`
-
-type ChannelMemberUpdateLastReadParams struct {
-	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
+type ChannelMemberUpdateLastReadMessageParams struct {
 	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
+	MentionCount      pgtype.Int4        `json:"mention_count"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberUpdateLastRead(ctx context.Context, arg ChannelMemberUpdateLastReadParams) error {
-	_, err := q.db.Exec(ctx, channelMemberUpdateLastRead,
-		arg.LastReadAt,
+func (q *Queries) ChannelMemberUpdateLastReadMessage(ctx context.Context, arg ChannelMemberUpdateLastReadMessageParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberUpdateLastReadMessage,
 		arg.LastReadMessageID,
+		arg.LastReadMessageAt,
+		arg.MentionCount,
+		arg.UpdatedAt,
 		arg.ChannelID,
 		arg.UserID,
 	)
-	return err
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastReadMessageAt,
+		&i.PinnedAt,
+		&i.MutedUntil,
+		&i.MentionCount,
+		&i.IsVisible,
+	)
+	return i, err
+}
+
+const channelMemberUpdateMutedUntil = `-- name: ChannelMemberUpdateMutedUntil :one
+UPDATE
+    channel_members
+SET
+    muted_until = $1::timestamptz,
+    updated_at = $2::timestamptz
+WHERE
+    channel_id = $3::uuid
+    AND user_id = $4::uuid
+RETURNING
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+`
+
+type ChannelMemberUpdateMutedUntilParams struct {
+	MutedUntil pgtype.Timestamptz `json:"muted_until"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ChannelID  pgtype.UUID        `json:"channel_id"`
+	UserID     pgtype.UUID        `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberUpdateMutedUntil(ctx context.Context, arg ChannelMemberUpdateMutedUntilParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberUpdateMutedUntil,
+		arg.MutedUntil,
+		arg.UpdatedAt,
+		arg.ChannelID,
+		arg.UserID,
+	)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastReadMessageAt,
+		&i.PinnedAt,
+		&i.MutedUntil,
+		&i.MentionCount,
+		&i.IsVisible,
+	)
+	return i, err
+}
+
+const channelMemberUpdatePinnedAt = `-- name: ChannelMemberUpdatePinnedAt :one
+UPDATE
+    channel_members
+SET
+    pinned_at = $1::timestamptz,
+    updated_at = $2::timestamptz
+WHERE
+    channel_id = $3::uuid
+    AND user_id = $4::uuid
+RETURNING
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+`
+
+type ChannelMemberUpdatePinnedAtParams struct {
+	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberUpdatePinnedAt(ctx context.Context, arg ChannelMemberUpdatePinnedAtParams) (ChannelMember, error) {
+	row := q.db.QueryRow(ctx, channelMemberUpdatePinnedAt,
+		arg.PinnedAt,
+		arg.UpdatedAt,
+		arg.ChannelID,
+		arg.UserID,
+	)
+	var i ChannelMember
+	err := row.Scan(
+		&i.ChannelID,
+		&i.UserID,
+		&i.LastReadMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastReadMessageAt,
+		&i.PinnedAt,
+		&i.MutedUntil,
+		&i.MentionCount,
+		&i.IsVisible,
+	)
+	return i, err
 }

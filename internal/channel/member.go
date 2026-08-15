@@ -1,8 +1,8 @@
 package channel
 
 import (
+	"bonfire-api/internal/fields"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,65 +20,36 @@ var (
 )
 
 // -----------------------------------------------------------------------------
-// Value Objects
-// -----------------------------------------------------------------------------
-
-// DMVisibility defines visibility states for DM/Group DM channels.
-type DMVisibility smallint
-
-type smallint = int16
-
-const (
-	DMVisibilityHidden  DMVisibility = 0
-	DMVisibilityVisible DMVisibility = 1
-)
-
-func NewDMVisibility(val int16) (DMVisibility, error) {
-	v := DMVisibility(val)
-	if !v.IsValid() {
-		return 0, fmt.Errorf("%w: %d", ErrInvalidDMVisibility, val)
-	}
-	return v, nil
-}
-
-func (v DMVisibility) IsValid() bool {
-	return v == DMVisibilityHidden || v == DMVisibilityVisible
-}
-
-func (v DMVisibility) Raw() int16 {
-	return int16(v)
-}
-
-// -----------------------------------------------------------------------------
 // Domain Entities
 // -----------------------------------------------------------------------------
 
-// Member represents a user's membership, visibility, and read state within a channel.
 type Member struct {
-	channelID         ID
-	userID            UserID
-	lastReadMessageID *MessageID
+	channelID         fields.ID
+	userID            fields.ID
+	lastReadMessageID fields.ID
+	lastReadMessageAt fields.Timestamp
+	pinnedAt          fields.Timestamp
+	mutedUntil        fields.Timestamp
 	mentionCount      int32
-	lastReadAt        time.Time
-	pinnedAt          *time.Time
-	dmVisibility      DMVisibility
-	createdAt         time.Time
-	updatedAt         time.Time
+	isVisible         bool
+	createdAt         fields.Timestamp
+	updatedAt         fields.Timestamp
 }
 
 // -----------------------------------------------------------------------------
 // Getters
 // -----------------------------------------------------------------------------
 
-func (m *Member) ChannelID() ID                 { return m.channelID }
-func (m *Member) UserID() UserID                { return m.userID }
-func (m *Member) LastReadMessageID() *MessageID { return m.lastReadMessageID }
-func (m *Member) MentionCount() int32           { return m.mentionCount }
-func (m *Member) LastReadAt() time.Time         { return m.lastReadAt }
-func (m *Member) PinnedAt() *time.Time          { return m.pinnedAt }
-func (m *Member) DMVisibility() DMVisibility    { return m.dmVisibility }
-func (m *Member) CreatedAt() time.Time          { return m.createdAt }
-func (m *Member) UpdatedAt() time.Time          { return m.updatedAt }
+func (m *Member) ChannelID() fields.ID                { return m.channelID }
+func (m *Member) UserID() fields.ID                   { return m.userID }
+func (m *Member) LastReadMessageID() fields.ID        { return m.lastReadMessageID }
+func (m *Member) LastReadMessageAt() fields.Timestamp { return m.lastReadMessageAt }
+func (m *Member) PinnedAt() fields.Timestamp          { return m.pinnedAt }
+func (m *Member) MutedUntil() fields.Timestamp        { return m.mutedUntil }
+func (m *Member) MentionCount() int32                 { return m.mentionCount }
+func (m *Member) IsVisible() bool                     { return m.isVisible }
+func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
+func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
 
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods

@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bonfire-api/internal/fields"
 	"errors"
 	"time"
 
@@ -17,22 +18,21 @@ var (
 	ErrInvalidReactionCount      = errors.New("reaction count cannot be negative")
 )
 
-// Reaction represents an individual emoji reaction on a message by a user.
 type Reaction struct {
-	messageID MessageID
-	userID    UserID
-	emoji     Emoji
-	createdAt time.Time
+	messageID fields.ID
+	userID    fields.ID
+	emoji     ReactionEmoji
+	createdAt fields.Timestamp
 }
 
 // -----------------------------------------------------------------------------
 // Getters
 // -----------------------------------------------------------------------------
 
-func (r *Reaction) MessageID() MessageID { return r.messageID }
-func (r *Reaction) UserID() UserID       { return r.userID }
-func (r *Reaction) Emoji() Emoji         { return r.emoji }
-func (r *Reaction) CreatedAt() time.Time { return r.createdAt }
+func (r *Reaction) MessageID() fields.ID        { return r.messageID }
+func (r *Reaction) UserID() fields.ID           { return r.userID }
+func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
+func (r *Reaction) CreatedAt() fields.Timestamp { return r.createdAt }
 
 // -----------------------------------------------------------------------------
 // Constructors / Factory Methods

@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bonfire-api/internal/fields"
 	"encoding/json"
 	"errors"
 	"time"
@@ -17,33 +18,39 @@ var (
 	ErrMessageContentOrMediaReq = errors.New("message must contain either content or attachments")
 )
 
-// Message represents a user or system post within a channel.
 type Message struct {
-	id               MessageID
-	channelID        ID
-	authorID         *UserID
-	replyToMessageID *MessageID
-	content          *Content
-	pinnedAt         *time.Time
-	createdAt        time.Time
-	updatedAt        time.Time
-	editedAt         *time.Time
+	id                 fields.ID
+	channelID          fields.ID
+	authorID           fields.ID
+	msgType            MessageType
+	content            MessageContent
+	systemMetadata     fields.JSON
+	replyToMessageID   fields.ID
+	forwardedMessageID fields.ID
+	forwardedChannelID fields.ID
+	pinnedAt           fields.Timestamp
+	createdAt          fields.Timestamp
+	updatedAt          fields.Timestamp
+	editedAt           fields.Timestamp
 }
 
 // -----------------------------------------------------------------------------
 // Getters
 // -----------------------------------------------------------------------------
 
-func (m *Message) ID() MessageID                { return m.id }
-func (m *Message) ChannelID() ID                { return m.channelID }
-func (m *Message) AuthorID() *UserID            { return m.authorID }
-func (m *Message) ReplyToMessageID() *MessageID { return m.replyToMessageID }
-func (m *Message) Content() *Content            { return m.content }
-func (m *Message) PinnedAt() *time.Time         { return m.pinnedAt }
-func (m *Message) IsPinned() bool               { return m.pinnedAt != nil }
-func (m *Message) CreatedAt() time.Time         { return m.createdAt }
-func (m *Message) UpdatedAt() time.Time         { return m.updatedAt }
-func (m *Message) EditedAt() *time.Time         { return m.editedAt }
+func (m *Message) ID() fields.ID                 { return m.id }
+func (m *Message) ChannelID() fields.ID          { return m.channelID }
+func (m *Message) AuthorID() fields.ID           { return m.authorID }
+func (m *Message) Type() MessageType             { return m.msgType }
+func (m *Message) Content() MessageContent       { return m.content }
+func (m *Message) SystemMetadata() fields.JSON   { return m.systemMetadata }
+func (m *Message) ReplyToMessageID() fields.ID   { return m.replyToMessageID }
+func (m *Message) ForwardedMessageID() fields.ID { return m.forwardedMessageID }
+func (m *Message) ForwardedChannelID() fields.ID { return m.forwardedChannelID }
+func (m *Message) PinnedAt() fields.Timestamp    { return m.pinnedAt }
+func (m *Message) CreatedAt() fields.Timestamp   { return m.createdAt }
+func (m *Message) UpdatedAt() fields.Timestamp   { return m.updatedAt }
+func (m *Message) EditedAt() fields.Timestamp    { return m.editedAt }
 
 func (m *Message) CreatedAtPtr() *time.Time {
 	if m == nil {

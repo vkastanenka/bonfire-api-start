@@ -155,16 +155,10 @@ WHERE
     id = ANY ($1::uuid[])
 ORDER BY
     id ASC
-LIMIT $2::int
 `
 
-type UserGetBatchParams struct {
-	Ids        []pgtype.UUID `json:"ids"`
-	BatchLimit int32         `json:"batch_limit"`
-}
-
-func (q *Queries) UserGetBatch(ctx context.Context, arg UserGetBatchParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, userGetBatch, arg.Ids, arg.BatchLimit)
+func (q *Queries) UserGetBatch(ctx context.Context, ids []pgtype.UUID) ([]User, error) {
+	rows, err := q.db.Query(ctx, userGetBatch, ids)
 	if err != nil {
 		return nil, err
 	}

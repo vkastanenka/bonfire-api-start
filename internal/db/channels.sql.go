@@ -15,7 +15,7 @@ const channelCreate = `-- name: ChannelCreate :one
 INSERT INTO channels(id, created_at, updated_at, type, name, icon_url)
     VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::smallint, $5::text, $6::text)
 RETURNING
-    id, created_at, updated_at, type, name, icon_url
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
 `
 
 type ChannelCreateParams struct {
@@ -27,16 +27,7 @@ type ChannelCreateParams struct {
 	IconUrl   pgtype.Text        `json:"icon_url"`
 }
 
-type ChannelCreateRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
-}
-
-func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (ChannelCreateRow, error) {
+func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelCreate,
 		arg.ID,
 		arg.CreatedAt,
@@ -45,11 +36,13 @@ func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (C
 		arg.Name,
 		arg.IconUrl,
 	)
-	var i ChannelCreateRow
+	var i Channel
 	err := row.Scan(
 		&i.ID,
+		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
 		&i.IconUrl,
@@ -69,34 +62,22 @@ func (q *Queries) ChannelDelete(ctx context.Context, id pgtype.UUID) error {
 
 const channelGet = `-- name: ChannelGet :one
 SELECT
-    id,
-    created_at,
-    updated_at,
-    type,
-    name,
-    icon_url
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
 FROM
     channels
 WHERE
     id = $1::uuid
 `
 
-type ChannelGetRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
-}
-
-func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (ChannelGetRow, error) {
+func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelGet, id)
-	var i ChannelGetRow
+	var i Channel
 	err := row.Scan(
 		&i.ID,
+		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
 		&i.IconUrl,
@@ -104,52 +85,122 @@ func (q *Queries) ChannelGet(ctx context.Context, id pgtype.UUID) (ChannelGetRow
 	return i, err
 }
 
-const channelUpdate = `-- name: ChannelUpdate :one
+const channelGetBatch = `-- name: ChannelGetBatch :many
+SELECT
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
+FROM
+    channels
+WHERE
+    id = ANY ($1::uuid[])
+ORDER BY
+    id ASC
+`
+
+func (q *Queries) ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Channel, error) {
+	rows, err := q.db.Query(ctx, channelGetBatch, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Channel
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.ID,
+			&i.LastMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastMessageAt,
+			&i.Type,
+			&i.Name,
+			&i.IconUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelUpdateGroup = `-- name: ChannelUpdateGroup :one
 UPDATE
     channels
 SET
-    name = COALESCE($1::text, name),
-    icon_url = COALESCE($2::text, icon_url),
+    name = $1::text,
+    icon_url = $2::text,
     updated_at = $3::timestamptz
 WHERE
     id = $4::uuid
+    AND type = 2
 RETURNING
-    id,
-    created_at,
-    updated_at,
-    type,
-    name,
-    icon_url
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
 `
 
-type ChannelUpdateParams struct {
+type ChannelUpdateGroupParams struct {
 	Name      pgtype.Text        `json:"name"`
 	IconUrl   pgtype.Text        `json:"icon_url"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 }
 
-type ChannelUpdateRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
-}
-
-func (q *Queries) ChannelUpdate(ctx context.Context, arg ChannelUpdateParams) (ChannelUpdateRow, error) {
-	row := q.db.QueryRow(ctx, channelUpdate,
+func (q *Queries) ChannelUpdateGroup(ctx context.Context, arg ChannelUpdateGroupParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelUpdateGroup,
 		arg.Name,
 		arg.IconUrl,
 		arg.UpdatedAt,
 		arg.ID,
 	)
-	var i ChannelUpdateRow
+	var i Channel
 	err := row.Scan(
 		&i.ID,
+		&i.LastMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastMessageAt,
+		&i.Type,
+		&i.Name,
+		&i.IconUrl,
+	)
+	return i, err
+}
+
+const channelUpdateLastMessage = `-- name: ChannelUpdateLastMessage :one
+UPDATE
+    channels
+SET
+    last_message_id = $1::uuid,
+    last_message_at = $2::timestamptz,
+    updated_at = $3::timestamptz
+WHERE
+    id = $4::uuid
+RETURNING
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
+`
+
+type ChannelUpdateLastMessageParams struct {
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	LastMessageAt pgtype.Timestamptz `json:"last_message_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID            pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelUpdateLastMessage,
+		arg.LastMessageID,
+		arg.LastMessageAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastMessageAt,
 		&i.Type,
 		&i.Name,
 		&i.IconUrl,

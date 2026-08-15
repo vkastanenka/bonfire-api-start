@@ -24,12 +24,13 @@ type Channel struct {
 type ChannelMember struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
 	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	MutedUntil        pgtype.Timestamptz `json:"muted_until"`
+	MentionCount      int32              `json:"mention_count"`
 	IsVisible         bool               `json:"is_visible"`
 }
 

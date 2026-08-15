@@ -11,35 +11,60 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const attachmentCreateBatch = `-- name: AttachmentCreateBatch :exec
-WITH input_data AS (
-    SELECT
-        jsonb_populate_recordset
-    FROM
-        jsonb_populate_recordset(NULL::message_attachments, $2::jsonb))
-INSERT INTO message_attachments(id, message_id, file_name, file_size, content_type, url, width, height, created_at)
+const attachmentCreateBatch = `-- name: AttachmentCreateBatch :many
+INSERT INTO message_attachments(id, message_id, created_at, file_size, width, height, file_name, content_type, url)
 SELECT
     id,
-    COALESCE(message_id, $1::uuid),
-    file_name,
+    message_id,
+    created_at,
     file_size,
-    content_type,
-    url,
     width,
     height,
-    created_at
+    file_name,
+    content_type,
+    url
 FROM
-    input_data
+    jsonb_to_recordset($1::jsonb) AS x(id uuid,
+        message_id uuid,
+        created_at timestamptz,
+        file_size bigint,
+        width integer,
+        height integer,
+        file_name text,
+        content_type text,
+        url text)
+RETURNING
+    id, message_id, created_at, file_size, width, height, file_name, content_type, url
 `
 
-type AttachmentCreateBatchParams struct {
-	MessageID       pgtype.UUID `json:"message_id"`
-	AttachmentsJson []byte      `json:"attachments_json"`
-}
-
-func (q *Queries) AttachmentCreateBatch(ctx context.Context, arg AttachmentCreateBatchParams) error {
-	_, err := q.db.Exec(ctx, attachmentCreateBatch, arg.MessageID, arg.AttachmentsJson)
-	return err
+func (q *Queries) AttachmentCreateBatch(ctx context.Context, payload []byte) ([]MessageAttachment, error) {
+	rows, err := q.db.Query(ctx, attachmentCreateBatch, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageAttachment
+	for rows.Next() {
+		var i MessageAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.CreatedAt,
+			&i.FileSize,
+			&i.Width,
+			&i.Height,
+			&i.FileName,
+			&i.ContentType,
+			&i.Url,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const attachmentDelete = `-- name: AttachmentDelete :exec
@@ -50,4 +75,46 @@ WHERE id = $1::uuid
 func (q *Queries) AttachmentDelete(ctx context.Context, attachmentID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, attachmentDelete, attachmentID)
 	return err
+}
+
+const attachmentGetBatchByMessageIDs = `-- name: AttachmentGetBatchByMessageIDs :many
+SELECT
+    id, message_id, created_at, file_size, width, height, file_name, content_type, url
+FROM
+    message_attachments
+WHERE
+    message_id = ANY ($1::uuid[])
+ORDER BY
+    message_id,
+    id ASC
+`
+
+func (q *Queries) AttachmentGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageAttachment, error) {
+	rows, err := q.db.Query(ctx, attachmentGetBatchByMessageIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageAttachment
+	for rows.Next() {
+		var i MessageAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.CreatedAt,
+			&i.FileSize,
+			&i.Width,
+			&i.Height,
+			&i.FileName,
+			&i.ContentType,
+			&i.Url,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

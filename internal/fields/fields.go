@@ -278,20 +278,20 @@ func (id *ID) UnmarshalText(text []byte) error {
 }
 
 // -----------------------------------------------------------------------------
-// SystemMetadata
+// JSON
 // -----------------------------------------------------------------------------
 
-type SystemMetadata struct {
+type JSON struct {
 	value map[string]any
 }
 
 const (
-	MaxSystemMetadataBytes = 16 * 1024
-	MaxMetadataDepth       = 5
+	MaxJSONBytes     = 16 * 1024
+	MaxMetadataDepth = 5
 )
 
-// ParseSystemMetadata validates and constructs a SystemMetadata instance from raw JSON bytes.
-func ParseSystemMetadata(domain string, raw []byte) (*SystemMetadata, error) {
+// ParseJSON validates and constructs a JSON instance from raw JSON bytes.
+func ParseJSON(domain string, raw []byte) (*JSON, error) {
 	// 1. Fast-path nil or empty payload check
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -299,10 +299,10 @@ func ParseSystemMetadata(domain string, raw []byte) (*SystemMetadata, error) {
 	}
 
 	// 2. Enforce byte length bounds before parsing to avoid CPU/Memory waste
-	if len(trimmed) > MaxSystemMetadataBytes {
+	if len(trimmed) > MaxJSONBytes {
 		return nil, errs.InvalidArgument("System metadata payload is too large.").
 			Reason("METADATA_TOO_LARGE").
-			FieldViolation("system_metadata", fmt.Sprintf("Metadata must be %d bytes or fewer.", MaxSystemMetadataBytes), "MAX_SIZE_EXCEEDED").
+			FieldViolation("system_metadata", fmt.Sprintf("Metadata must be %d bytes or fewer.", MaxJSONBytes), "MAX_SIZE_EXCEEDED").
 			Meta("domain", domain)
 	}
 
@@ -335,19 +335,19 @@ func ParseSystemMetadata(domain string, raw []byte) (*SystemMetadata, error) {
 		return nil, err
 	}
 
-	return &SystemMetadata{value: val}, nil
+	return &JSON{value: val}, nil
 }
 
-// ParseSystemMetadataFromString wraps ParseSystemMetadata for raw string inputs.
-func ParseSystemMetadataFromString(domain string, raw *string) (*SystemMetadata, error) {
+// ParseJSONFromString wraps ParseJSON for raw string inputs.
+func ParseJSONFromString(domain string, raw *string) (*JSON, error) {
 	if raw == nil {
 		return nil, nil
 	}
-	return ParseSystemMetadata(domain, []byte(*raw))
+	return ParseJSON(domain, []byte(*raw))
 }
 
-// ParseSystemMetadataFromMap validates and constructs a SystemMetadata instance from an already parsed map.
-func ParseSystemMetadataFromMap(domain string, raw map[string]any) (*SystemMetadata, error) {
+// ParseJSONFromMap validates and constructs a JSON instance from an already parsed map.
+func ParseJSONFromMap(domain string, raw map[string]any) (*JSON, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -360,11 +360,11 @@ func ParseSystemMetadataFromMap(domain string, raw map[string]any) (*SystemMetad
 			Meta("domain", domain)
 	}
 
-	return ParseSystemMetadata(domain, b)
+	return ParseJSON(domain, b)
 }
 
 // Value returns a copy of the underlying map structure.
-func (m *SystemMetadata) Value() map[string]any {
+func (m *JSON) Value() map[string]any {
 	if m == nil || m.value == nil {
 		return nil
 	}
@@ -372,7 +372,7 @@ func (m *SystemMetadata) Value() map[string]any {
 }
 
 // EncodeJSON marshals the inner payload back to a standard JSON byte array for SQL insertion.
-func (m *SystemMetadata) EncodeJSON() ([]byte, error) {
+func (m *JSON) EncodeJSON() ([]byte, error) {
 	if m == nil || len(m.value) == 0 {
 		return nil, nil
 	}
