@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
 func channelKey(id fields.ID) string {
@@ -80,84 +80,48 @@ func ParseChannel(ch *channel.Channel) Channel {
 }
 
 type ChannelCache struct {
-	store *redis.Store
+	store *JSONCache[fields.ID, Channel]
 	ttl   time.Duration
 }
 
-func NewChannelCache(store *redis.Store, ttl time.Duration) *ChannelCache {
+func NewChannelCache(client redisdriver.Cmdable, ttl time.Duration) *ChannelCache {
 	return &ChannelCache{
-		store: store.WithScope(redis.ScopeChannel),
+		store: NewJSONCache[fields.ID, Channel](client, redis.ScopeChannel, channelKey),
 		ttl:   ttl,
 	}
 }
 
 func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
-	k := channelKey(id)
-
-	var raw string
-	err := c.store.Get(ctx, k, &raw)
-	if err != nil {
-		return nil, c.store.Err(err)
-	}
-	if raw == "" {
-		return nil, nil
-	}
-
-	var cached Channel
-	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+	dto, err := c.store.Get(ctx, id)
+	if err != nil || dto == nil {
 		return nil, err
 	}
 
-	return cached.ToDomain()
+	return dto.ToDomain()
 }
 
 func (c *ChannelCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Channel, []fields.ID, error) {
-	if len(ids) == 0 {
-		return map[fields.ID]*channel.Channel{}, nil, nil
-	}
-
-	keys := make([]string, len(ids))
-	for i, id := range ids {
-		keys[i] = channelKey(id)
-	}
-
-	rawValues, err := c.store.MGet(ctx, keys...)
+	dtos, missing, err := c.store.GetBatch(ctx, ids)
 	if err != nil {
-		return nil, nil, c.store.Err(err)
+		return nil, nil, err
 	}
 
-	found := make(map[fields.ID]*channel.Channel, len(ids))
-	var missing []fields.ID
-
-	for i, raw := range rawValues {
-		id := ids[i]
-
-		if raw == nil || raw == "" {
+	found := make(map[fields.ID]*channel.Channel, len(dtos))
+	for id, dto := range dtos {
+		if dto == nil {
 			missing = append(missing, id)
 			continue
 		}
 
-		rawStr, ok := raw.(string)
-		if !ok {
-			missing = append(missing, id)
-			continue
-		}
-
-		var cached Channel
-		if err := json.Unmarshal([]byte(rawStr), &cached); err != nil {
-			missing = append(missing, id)
-			continue
-		}
-
-		ch, err := cached.ToDomain()
+		ch, err := dto.ToDomain()
 		if err != nil {
+			// Malformed cache hit: mark as missing so callers fall back to DB safely
 			missing = append(missing, id)
 			continue
 		}
-
 		found[id] = ch
 	}
 
@@ -165,49 +129,28 @@ func (c *ChannelCache) GetBatch(
 }
 
 func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
-	k := channelKey(ch.ID())
-	dto := ParseChannel(ch)
-
-	if err := c.store.Set(ctx, k, dto, c.ttl); err != nil {
-		return c.store.Err(err)
+	if ch == nil {
+		return nil
 	}
-
-	return nil
+	return c.store.Set(ctx, ch.ID(), ParseChannel(ch), c.ttl)
 }
 
 func (c *ChannelCache) SetBatch(ctx context.Context, channels []*channel.Channel) error {
-	if len(channels) == 0 {
-		return nil
+	dtos := make(map[fields.ID]Channel, len(channels))
+	for _, ch := range channels {
+		if ch == nil {
+			continue
+		}
+		dtos[ch.ID()] = ParseChannel(ch)
 	}
 
-	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
-		for _, ch := range channels {
-			k := channelKey(ch.ID())
-			dto := ParseChannel(ch)
-
-			if err := c.store.Set(pipeCtx, k, dto, c.ttl); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return c.store.SetBatch(ctx, dtos, c.ttl)
 }
 
 func (c *ChannelCache) Invalidate(ctx context.Context, id fields.ID) error {
-	return c.store.Delete(ctx, channelKey(id))
+	return c.store.Invalidate(ctx, id)
 }
 
 func (c *ChannelCache) InvalidateBatch(ctx context.Context, ids []fields.ID) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
-		for _, id := range ids {
-			if err := c.store.Delete(pipeCtx, channelKey(id)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return c.store.InvalidateBatch(ctx, ids)
 }

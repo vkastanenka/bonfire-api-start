@@ -16,18 +16,18 @@ type Event struct {
 	Payload string
 }
 
-type CacheSub struct {
+type Subscription struct {
 	pubsub *redis.PubSub
 	ch     chan Event
 	done   chan struct{}
 	once   sync.Once
 }
 
-func (s *CacheSub) Channel() <-chan Event {
+func (s *Subscription) Channel() <-chan Event {
 	return s.ch
 }
 
-func (s *CacheSub) Unsubscribe(ctx context.Context) error {
+func (s *Subscription) Unsubscribe() error {
 	var err error
 	s.once.Do(func() {
 		close(s.done)
@@ -35,16 +35,17 @@ func (s *CacheSub) Unsubscribe(ctx context.Context) error {
 	})
 
 	if err != nil {
-		return NewError(err, ScopeEvent)
+		return NewError(err, ScopeOutboxEvent)
 	}
 	return nil
 }
 
-func (s *CacheSub) Close() error {
-	return s.Unsubscribe(context.Background())
+func (s *Subscription) Close() error {
+	return s.Unsubscribe()
 }
 
-func (s *Store) Publish(ctx context.Context, channel string, message interface{}) error {
+// Publish accepts any redis.Cmdable (Client, Pipeline, Tx)
+func Publish(ctx context.Context, client redis.Cmdable, channel string, message interface{}) error {
 	var payload []byte
 	var err error
 
@@ -56,28 +57,29 @@ func (s *Store) Publish(ctx context.Context, channel string, message interface{}
 	default:
 		payload, err = json.Marshal(v)
 		if err != nil {
-			return NewError(err, ScopeEvent)
+			return NewError(err, ScopeOutboxEvent)
 		}
 	}
 
-	if err := s.client.Publish(ctx, channel, payload).Err(); err != nil {
-		return NewError(err, ScopeEvent)
+	if err := client.Publish(ctx, channel, payload).Err(); err != nil {
+		return NewError(err, ScopeOutboxEvent)
 	}
 	return nil
 }
 
-func (s *Store) Subscribe(ctx context.Context, channel string) (*CacheSub, error) {
-	pb := s.client.Subscribe(ctx, channel)
+// Subscribe requires *redis.Client directly because PubSub manages socket state
+func Subscribe(ctx context.Context, client *redis.Client, scope Scope, channels ...string) (*Subscription, error) {
+	pb := client.Subscribe(ctx, channels...)
 
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if _, err := pb.Receive(subCtx); err != nil {
 		_ = pb.Close()
-		return nil, NewError(err, ScopeEvent)
+		return nil, NewError(err, scope)
 	}
 
-	sub := &CacheSub{
+	sub := &Subscription{
 		pubsub: pb,
 		ch:     make(chan Event, defaultChannelBuffer),
 		done:   make(chan struct{}),
@@ -87,18 +89,18 @@ func (s *Store) Subscribe(ctx context.Context, channel string) (*CacheSub, error
 	return sub, nil
 }
 
-func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (*CacheSub, error) {
-	pb := s.client.PSubscribe(ctx, patterns...)
+func PSubscribe(ctx context.Context, client *redis.Client, scope Scope, patterns ...string) (*Subscription, error) {
+	pb := client.PSubscribe(ctx, patterns...)
 
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if _, err := pb.Receive(subCtx); err != nil {
 		_ = pb.Close()
-		return nil, NewError(err, ScopeEvent)
+		return nil, NewError(err, scope)
 	}
 
-	sub := &CacheSub{
+	sub := &Subscription{
 		pubsub: pb,
 		ch:     make(chan Event, defaultChannelBuffer),
 		done:   make(chan struct{}),
@@ -108,7 +110,7 @@ func (s *Store) PSubscribe(ctx context.Context, patterns ...string) (*CacheSub, 
 	return sub, nil
 }
 
-func (s *CacheSub) listen() {
+func (s *Subscription) listen() {
 	defer close(s.ch)
 	redisCh := s.pubsub.Channel()
 

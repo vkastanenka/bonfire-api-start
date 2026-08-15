@@ -11,14 +11,13 @@ import (
 	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-// messageKey generates a Redis key unique to a message entity.
 func messageKey(id fields.ID) string {
 	return fmt.Sprintf("message:%s", id.String())
 }
 
-// Message is the serializable DTO for Redis caching.
 type Message struct {
 	ID                 uuid.UUID       `json:"id"`
 	ChannelID          uuid.UUID       `json:"channel_id"`
@@ -35,7 +34,6 @@ type Message struct {
 	EditedAt           time.Time       `json:"edited_at"`
 }
 
-// ToDomain converts the cached DTO back into the rich channel.Message domain entity.
 func (m Message) ToDomain() (*channel.Message, error) {
 	id, err := fields.ParseRequiredID("id", m.ID)
 	if err != nil {
@@ -129,84 +127,47 @@ func ParseMessage(m *channel.Message) (Message, error) {
 }
 
 type MessageCache struct {
-	store *redis.Store
+	store *JSONCache[fields.ID, Message]
 	ttl   time.Duration
 }
 
-func NewMessageCache(store *redis.Store, ttl time.Duration) *MessageCache {
+func NewMessageCache(client redisdriver.Cmdable, ttl time.Duration) *MessageCache {
 	return &MessageCache{
-		store: store.WithScope(redis.ScopeMessage),
+		store: NewJSONCache[fields.ID, Message](client, redis.ScopeMessage, messageKey),
 		ttl:   ttl,
 	}
 }
 
 func (c *MessageCache) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	k := messageKey(id)
-
-	var raw string
-	err := c.store.Get(ctx, k, &raw)
-	if err != nil {
-		return nil, c.store.Err(err)
-	}
-	if raw == "" {
-		return nil, nil
-	}
-
-	var cached Message
-	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+	dto, err := c.store.Get(ctx, id)
+	if err != nil || dto == nil {
 		return nil, err
 	}
 
-	return cached.ToDomain()
+	return dto.ToDomain()
 }
 
 func (c *MessageCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Message, []fields.ID, error) {
-	if len(ids) == 0 {
-		return map[fields.ID]*channel.Message{}, nil, nil
-	}
-
-	redisKeys := make([]string, len(ids))
-	for i, id := range ids {
-		redisKeys[i] = messageKey(id)
-	}
-
-	rawValues, err := c.store.MGet(ctx, redisKeys...)
+	dtos, missing, err := c.store.GetBatch(ctx, ids)
 	if err != nil {
-		return nil, nil, c.store.Err(err)
+		return nil, nil, err
 	}
 
-	found := make(map[fields.ID]*channel.Message, len(ids))
-	var missing []fields.ID
-
-	for i, raw := range rawValues {
-		id := ids[i]
-
-		if raw == nil || raw == "" {
+	found := make(map[fields.ID]*channel.Message, len(dtos))
+	for id, dto := range dtos {
+		if dto == nil {
 			missing = append(missing, id)
 			continue
 		}
 
-		rawStr, ok := raw.(string)
-		if !ok {
-			missing = append(missing, id)
-			continue
-		}
-
-		var cached Message
-		if err := json.Unmarshal([]byte(rawStr), &cached); err != nil {
-			missing = append(missing, id)
-			continue
-		}
-
-		msg, err := cached.ToDomain()
+		msg, err := dto.ToDomain()
 		if err != nil {
 			missing = append(missing, id)
 			continue
 		}
-
 		found[id] = msg
 	}
 
@@ -214,59 +175,39 @@ func (c *MessageCache) GetBatch(
 }
 
 func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
-	k := messageKey(msg.ID())
+	if msg == nil {
+		return nil
+	}
+
 	dto, err := ParseMessage(msg)
 	if err != nil {
 		return err
 	}
 
-	if err := c.store.Set(ctx, k, dto, c.ttl); err != nil {
-		return c.store.Err(err)
-	}
-
-	return nil
+	return c.store.Set(ctx, msg.ID(), dto, c.ttl)
 }
 
 func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message) error {
-	if len(messages) == 0 {
-		return nil
-	}
+	dtos := make(map[fields.ID]Message, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
 
-	dtos := make([]Message, len(messages))
-	for i, msg := range messages {
 		dto, err := ParseMessage(msg)
 		if err != nil {
 			return err
 		}
-		dtos[i] = dto
+		dtos[msg.ID()] = dto
 	}
 
-	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
-		for _, dto := range dtos {
-			k := messageKey(fields.NewID(dto.ID))
-			if err := c.store.Set(pipeCtx, k, dto, c.ttl); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return c.store.SetBatch(ctx, dtos, c.ttl)
 }
 
 func (c *MessageCache) Invalidate(ctx context.Context, id fields.ID) error {
-	return c.store.Delete(ctx, messageKey(id))
+	return c.store.Invalidate(ctx, id)
 }
 
 func (c *MessageCache) InvalidateBatch(ctx context.Context, ids []fields.ID) error {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	return c.store.ExecPipeline(ctx, func(pipeCtx context.Context) error {
-		for _, id := range ids {
-			if err := c.store.Delete(pipeCtx, messageKey(id)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return c.store.InvalidateBatch(ctx, ids)
 }
