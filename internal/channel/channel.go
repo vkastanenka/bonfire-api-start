@@ -14,8 +14,8 @@ var (
 
 type Channel struct {
 	id            fields.ID
-	chType        Type
-	name          Name
+	chType        ChannelType
+	name          ChannelName
 	iconURL       fields.URL
 	lastMessageID fields.ID
 	lastMessageAt fields.Timestamp
@@ -28,8 +28,8 @@ type Channel struct {
 // -----------------------------------------------------------------------------
 
 func (c *Channel) ID() fields.ID                   { return c.id }
-func (c *Channel) Type() Type                      { return c.chType }
-func (c *Channel) Name() Name                      { return c.name }
+func (c *Channel) Type() ChannelType               { return c.chType }
+func (c *Channel) Name() ChannelName               { return c.name }
 func (c *Channel) IconURL() fields.URL             { return c.iconURL }
 func (c *Channel) LastMessageID() fields.ID        { return c.lastMessageID }
 func (c *Channel) LastMessageAt() fields.Timestamp { return c.lastMessageAt }

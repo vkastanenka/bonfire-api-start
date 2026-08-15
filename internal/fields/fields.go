@@ -110,6 +110,78 @@ func (t Text) MarshalText() ([]byte, error) {
 }
 
 // ============================================================================
+// Enum
+// ============================================================================
+
+type EnumSpec struct {
+	Domain string
+	Max    uint8
+	Names  []string
+	Bytes  [][]byte
+}
+
+type Enum[T ~uint8] struct {
+	Value uint8
+	Desc  *EnumSpec
+}
+
+func NewEnum[T ~uint8](val T, desc *EnumSpec) Enum[T] {
+	return Enum[T]{Value: uint8(val), Desc: desc}
+}
+
+func (e Enum[T]) IsValid() bool {
+	return e.Value > 0 && e.Value < e.Desc.Max
+}
+
+func (e Enum[T]) Raw() T {
+	return T(e.Value)
+}
+
+func (e Enum[T]) Int16() int16 {
+	return int16(e.Value)
+}
+
+func (e Enum[T]) Int16Ptr() *int16 {
+	if !e.IsValid() {
+		return nil
+	}
+	return ptr.To(int16(e.Value))
+}
+
+func (e Enum[T]) String() string {
+	if e.IsValid() && int(e.Value) < len(e.Desc.Names) {
+		return e.Desc.Names[e.Value]
+	}
+	if len(e.Desc.Names) > 0 {
+		return e.Desc.Names[0]
+	}
+	return "UNKNOWN"
+}
+
+func (e Enum[T]) MarshalText() ([]byte, error) {
+	if e.IsValid() && int(e.Value) < len(e.Desc.Bytes) {
+		return e.Desc.Bytes[e.Value], nil
+	}
+	if len(e.Desc.Bytes) > 0 {
+		return e.Desc.Bytes[0], nil
+	}
+	return []byte("UNKNOWN"), nil
+}
+
+func ParseEnumString[T ~uint8](s string, desc *EnumSpec) (T, bool) {
+	str := strings.TrimSpace(s)
+	if str == "" {
+		return 0, false
+	}
+	for i := 1; i < len(desc.Names); i++ {
+		if strings.EqualFold(desc.Names[i], str) {
+			return T(i), true
+		}
+	}
+	return 0, false
+}
+
+// ============================================================================
 // HexColor
 // ============================================================================
 

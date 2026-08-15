@@ -1,10 +1,6 @@
 package channel
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"bonfire-api/internal/errs"
@@ -14,14 +10,16 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Name
+// Channel Name
 // -----------------------------------------------------------------------------
 
-type Name struct {
+const channelNameMaxLength = 100
+
+type ChannelName struct {
 	value fields.Text
 }
 
-func ParseName(raw *string) (*Name, error) {
+func ParseChannelName(raw *string) (*ChannelName, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -31,19 +29,67 @@ func ParseName(raw *string) (*Name, error) {
 		return nil, nil
 	}
 
-	if utf8.RuneCountInString(cleaned) > 100 {
+	if utf8.RuneCountInString(cleaned) > channelNameMaxLength {
 		return nil, errs.InvalidArgument("Name too long.").
 			Reason("NAME_TOO_LONG").
 			FieldViolation("name", "Name must be 100 characters or fewer.", "MAX_LENGTH_EXCEEDED").
 			Meta("domain", "channels")
 	}
 
-	return &Name{value: fields.NewText(cleaned)}, nil
+	return &ChannelName{value: fields.NewText(cleaned)}, nil
+}
+
+// -----------------------------------------------------------------------------
+// Channel Type
+// -----------------------------------------------------------------------------
+
+type ChannelTypeValue uint8
+
+const (
+	ChannelTypeUnknown ChannelTypeValue = iota
+	ChannelTypeDirect
+	ChannelTypeGroup
+	channelTypeMax
+)
+
+var channelTypeSpec = &fields.EnumSpec{
+	Domain: "CHANNEL_TYPE",
+	Max:    uint8(channelTypeMax),
+	Names:  []string{"UNKNOWN", "DIRECT", "GROUP"},
+	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("DIRECT"), []byte("GROUP")},
+}
+
+type ChannelType struct {
+	fields.Enum[ChannelTypeValue]
+}
+
+func ErrChannelInvalidType() *errs.Error {
+	return errs.InvalidArgument("Invalid channel type.").
+		Reason("CHANNEL_TYPE_INVALID").
+		FieldViolation("type", "Must be one of: DIRECT, GROUP.", "INVALID_ENUM_VALUE").
+		Meta("domain", "channels")
+}
+
+func ParseChannelType(raw int16) (ChannelType, error) {
+	if raw <= 0 || raw >= int16(channelTypeMax) {
+		return ChannelType{}, ErrChannelInvalidType()
+	}
+	return ChannelType{Enum: fields.NewEnum(ChannelTypeValue(raw), channelTypeSpec)}, nil
+}
+
+func ParseChannelTypeString(s string) (ChannelType, error) {
+	kind, ok := fields.ParseEnumString[ChannelTypeValue](s, channelTypeSpec)
+	if !ok || kind >= channelTypeMax {
+		return ChannelType{}, ErrChannelInvalidType()
+	}
+	return ChannelType{Enum: fields.NewEnum(kind, channelTypeSpec)}, nil
 }
 
 // -----------------------------------------------------------------------------
 // Message Content
 // -----------------------------------------------------------------------------
+
+const messageContentMaxLength = 4000
 
 type MessageContent struct {
 	value fields.Text
@@ -59,7 +105,7 @@ func ParseMessageContent(raw *string) (*MessageContent, error) {
 		return nil, nil
 	}
 
-	if utf8.RuneCountInString(cleaned) > 4000 {
+	if utf8.RuneCountInString(cleaned) > messageContentMaxLength {
 		return nil, errs.InvalidArgument("Content too long.").
 			Reason("CONTENT_TOO_LONG").
 			FieldViolation("content", "Content must be 4000 characters or fewer.", "MAX_LENGTH_EXCEEDED").
@@ -70,108 +116,107 @@ func ParseMessageContent(raw *string) (*MessageContent, error) {
 }
 
 // -----------------------------------------------------------------------------
-// Emoji (Reaction / Expression Value Object)
+// Message Type
 // -----------------------------------------------------------------------------
 
-var (
-	ErrEmojiEmpty   = errors.New("emoji cannot be empty")
-	ErrEmojiTooLong = errors.New("emoji cannot exceed 32 characters")
-)
-
-type Emoji struct {
-	value string
-}
-
-func NewEmoji(raw string) (Emoji, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return Emoji{}, ErrEmojiEmpty
-	}
-	if utf8.RuneCountInString(s) > 32 {
-		return Emoji{}, ErrEmojiTooLong
-	}
-	return Emoji{value: s}, nil
-}
-
-func (e Emoji) String() string { return e.value }
-func (e Emoji) IsValid() bool  { return e.value != "" }
-
-// -----------------------------------------------------------------------------
-// Type
-// -----------------------------------------------------------------------------
-
-var ErrInvalidType = errors.New("invalid channel type")
-
-type Type int16
+type MessageTypeValue uint8
 
 const (
-	TypeUnknown Type = 0
-	TypeDirect  Type = 1
-	TypeGroup   Type = 2
-	typeMax
+	MessageTypeUnknown MessageTypeValue = iota
+	MessageTypeDefault
+	MessageTypeReply
+	MessageTypeForward
+	MessageTypeMemberAdd
+	MessageTypeMemberRemove
+	MessageTypeNameChange
+	MessageTypeIconChange
+	MessageTypePin
+	messageTypeMax
 )
 
-var typeNames = [...]string{
-	TypeUnknown: "UNKNOWN",
-	TypeDirect:  "DIRECT",
-	TypeGroup:   "GROUP",
+var messageTypeSpec = &fields.EnumSpec{
+	Domain: "MESSAGE_TYPE",
+	Max:    uint8(messageTypeMax),
+	Names: []string{
+		"UNKNOWN",
+		"DEFAULT",
+		"REPLY",
+		"FORWARD",
+		"MEMBER_ADD",
+		"MEMBER_REMOVE",
+		"NAME_CHANGE",
+		"ICON_CHANGE",
+		"PIN",
+	},
+	Bytes: [][]byte{
+		[]byte("UNKNOWN"),
+		[]byte("DEFAULT"),
+		[]byte("REPLY"),
+		[]byte("FORWARD"),
+		[]byte("MEMBER_ADD"),
+		[]byte("MEMBER_REMOVE"),
+		[]byte("NAME_CHANGE"),
+		[]byte("ICON_CHANGE"),
+		[]byte("PIN"),
+	},
 }
 
-var typeBytes = [...][]byte{
-	TypeUnknown: []byte("UNKNOWN"),
-	TypeDirect:  []byte("DIRECT"),
-	TypeGroup:   []byte("GROUP"),
+type MessageType struct {
+	fields.Enum[MessageTypeValue]
 }
 
-func ParseType(raw int16) (Type, error) {
-	t := Type(raw)
-	if !t.IsValid() {
-		return TypeUnknown, ErrInvalidType
-	}
-	return t, nil
+func ErrMessageInvalidType() *errs.Error {
+	return errs.InvalidArgument("Invalid message type.").
+		Reason("MESSAGE_TYPE_INVALID").
+		FieldViolation("type", "Must be a valid message type.", "INVALID_ENUM_VALUE").
+		Meta("domain", "messages")
 }
 
-func ParseTypeBytes(b []byte) (Type, error) {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return TypeUnknown, ErrInvalidType
+func ParseMessageType(raw int16) (MessageType, error) {
+	if raw <= 0 || raw >= int16(messageTypeMax) {
+		return MessageType{}, ErrMessageInvalidType()
 	}
-
-	for i := 1; i < int(typeMax); i++ {
-		if bytes.EqualFold(typeBytes[i], b) {
-			return Type(i), nil
-		}
-	}
-	return TypeUnknown, ErrInvalidType
+	return MessageType{Enum: fields.NewEnum(MessageTypeValue(raw), messageTypeSpec)}, nil
 }
 
-func (t Type) IsValid() bool {
-	return t > TypeUnknown && t < typeMax
+func ParseMessageTypeString(s string) (MessageType, error) {
+	kind, ok := fields.ParseEnumString[MessageTypeValue](s, messageTypeSpec)
+	if !ok || kind >= messageTypeMax {
+		return MessageType{}, ErrMessageInvalidType()
+	}
+	return MessageType{Enum: fields.NewEnum(kind, messageTypeSpec)}, nil
 }
 
-func (t Type) String() string {
-	if t.IsValid() {
-		return typeNames[t]
-	}
-	return fmt.Sprintf("TYPE_%d", t)
+// -----------------------------------------------------------------------------
+// Reaction Emoji
+// -----------------------------------------------------------------------------
+
+const reactionEmojiMaxLength = 64
+
+var errReactionEmojiRequired = errs.InvalidArgument("Invalid value.").
+	Reason("EMOJI_REQUIRED").
+	FieldViolation("emoji", "Emoji cannot be empty.", "REQUIRED").Meta("domain", "reactions")
+
+type ReactionEmoji struct {
+	value fields.Text
 }
 
-func (t Type) MarshalText() ([]byte, error) {
-	if t.IsValid() {
-		return typeBytes[t], nil
+func ParseReactionEmoji(raw *string) (*ReactionEmoji, error) {
+	if raw == nil {
+		return nil, errReactionEmojiRequired
 	}
-	return typeBytes[TypeUnknown], nil
-}
 
-func (t *Type) UnmarshalText(text []byte) error {
-	if len(text) == 0 {
-		*t = TypeUnknown
-		return nil
+	cleaned := sanitize.Text(ptr.From(raw))
+	if cleaned == "" {
+		return nil, errReactionEmojiRequired
 	}
-	parsed, err := ParseTypeBytes(text)
-	if err != nil {
-		return err
+
+	if utf8.RuneCountInString(cleaned) > reactionEmojiMaxLength {
+		return nil, errs.InvalidArgument("Emoji too long.").
+			Reason("EMOJI_TOO_LONG").
+			FieldViolation("emoji", "Emoji must be 64 characters or fewer.", "MAX_LENGTH_EXCEEDED").
+			Meta("domain", "reactions")
 	}
-	*t = parsed
-	return nil
+
+	return &ReactionEmoji{value: fields.NewText(cleaned)}, nil
 }
