@@ -74,77 +74,40 @@ func (c *JSONCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 	return val.(*T), nil
 }
 
-// GetBatch fetches multiple items using chunked MGet operations.
-func (c *JSONCache[K, T]) GetBatch(
-	ctx context.Context,
-	keys []K,
-) (map[K]*T, []K, error) {
-	if len(keys) == 0 {
-		return map[K]*T{}, nil, nil
-	}
-
-	uniqueKeys := deduplicateKeys(keys)
-	found := make(map[K]*T, len(uniqueKeys))
+func (c *JSONCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
+	found := make(map[K]*T, len(keys))
 	var missing []K
 
-	for i := 0; i < len(uniqueKeys); i += c.maxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+	for i := 0; i < len(keys); i += c.maxBatchSize {
+		end := min(i+c.maxBatchSize, len(keys))
+		chunk := keys[i:end]
+
+		redisKeys := make([]string, len(chunk))
+		for j, k := range chunk {
+			redisKeys[j] = c.keyFn(k)
 		}
 
-		end := i + c.maxBatchSize
-		if end > len(uniqueKeys) {
-			end = len(uniqueKeys)
-		}
-		chunk := uniqueKeys[i:end]
-
-		err := func() error {
-			pipeCtx, cancel := context.WithTimeout(ctx, defaultBatchTimeout)
-			defer cancel()
-
-			redisKeys := make([]string, len(chunk))
-			for j, k := range chunk {
-				redisKeys[j] = c.keyFn(k)
-			}
-
-			vals, err := c.client.MGet(pipeCtx, redisKeys...).Result()
-			if err != nil && !errors.Is(err, redisdriver.Nil) {
-				return redis.NewError(err, c.scope)
-			}
-
-			for j, val := range vals {
-				key := chunk[j]
-
-				if val == nil {
-					missing = append(missing, key)
-					continue
-				}
-
-				var rawBytes []byte
-				switch v := val.(type) {
-				case string:
-					rawBytes = []byte(v)
-				case []byte:
-					rawBytes = v
-				default:
-					missing = append(missing, key)
-					continue
-				}
-
-				item := new(T)
-				if err := json.Unmarshal(rawBytes, item); err != nil {
-					// Fall back gracefully to DB if unmarshaling fails for a key
-					missing = append(missing, key)
-					continue
-				}
-
-				found[key] = item
-			}
-			return nil
-		}()
-
+		vals, err := c.client.MGet(ctx, redisKeys...).Result()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, redis.NewError(err, c.scope)
+		}
+
+		for j, raw := range vals {
+			key := chunk[j]
+
+			strVal, ok := raw.(string)
+			if !ok || strVal == "" {
+				missing = append(missing, key)
+				continue
+			}
+
+			var item T
+			if err := json.Unmarshal([]byte(strVal), &item); err != nil {
+				missing = append(missing, key)
+				continue
+			}
+
+			found[key] = &item
 		}
 	}
 
