@@ -16,7 +16,7 @@ func (r *Reaction) UserID() fields.ID           { return r.userID }
 func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
 func (r *Reaction) CreatedAt() fields.Timestamp { return r.createdAt }
 
-func NewReaction(
+func ParseReaction(
 	messageID fields.ID,
 	userID fields.ID,
 	emoji ReactionEmoji,
