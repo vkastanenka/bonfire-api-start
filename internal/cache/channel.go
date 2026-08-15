@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"bonfire-api/internal/channel"
@@ -14,7 +13,7 @@ import (
 )
 
 func channelKey(id fields.ID) string {
-	return fmt.Sprintf("channel:%s", id.String())
+	return "channel:" + id.String()
 }
 
 type Channel struct {

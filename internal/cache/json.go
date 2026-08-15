@@ -19,10 +19,8 @@ const (
 	defaultBatchTimeout  = 3 * time.Second
 )
 
-// KeyFunc maps a key type K into its Redis string representation.
 type KeyFunc[K comparable] func(key K) string
 
-// JSONCache manages type-safe JSON caching in Redis with automatic chunking and timeouts.
 type JSONCache[K comparable, T any] struct {
 	client       redisdriver.Cmdable
 	scope        redis.Scope

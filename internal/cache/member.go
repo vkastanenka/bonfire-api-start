@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"bonfire-api/internal/channel"
@@ -19,7 +18,7 @@ type MemberKeyIDs struct {
 }
 
 func memberKey(k MemberKeyIDs) string {
-	return fmt.Sprintf("member:%s:%s", k.ChannelID.String(), k.UserID.String())
+	return "member:" + k.ChannelID.String() + ":" + k.UserID.String()
 }
 
 type Member struct {
