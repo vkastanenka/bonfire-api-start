@@ -87,7 +87,7 @@ type MemberCache struct {
 
 func NewMemberCache(store *redis.Store, ttl time.Duration) *MemberCache {
 	return &MemberCache{
-		store: store.WithScope(redis.ScopeMember),
+		store: store.WithScope(redis.ScopeChannelMember),
 		ttl:   ttl,
 	}
 }
