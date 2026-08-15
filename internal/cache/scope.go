@@ -14,39 +14,37 @@ import (
 )
 
 const (
-	JSONMaxBatchSize  = 500
-	JSONSingleTimeout = 500 * time.Millisecond
-	JSONBatchTimeout  = 3 * time.Second
+	ScopeMaxBatchSize  = 500
+	ScopeSingleTimeout = 500 * time.Millisecond
+	ScopeBatchTimeout  = 3 * time.Second
 )
 
 type KeyFunc[K comparable] func(key K) string
 
-type JSONCache[K comparable, T any] struct {
-	client       redisdriver.Cmdable
-	scope        redis.Scope
-	keyFn        KeyFunc[K]
-	sfg          singleflight.Group
-	maxBatchSize int
+type ScopeCache[K comparable, T any] struct {
+	client redisdriver.Cmdable
+	scope  redis.Scope
+	keyFn  KeyFunc[K]
+	sfg    singleflight.Group
 }
 
-func NewJSONCache[K comparable, T any](
+func NewScopeCache[K comparable, T any](
 	client redisdriver.Cmdable,
 	scope redis.Scope,
 	keyFn KeyFunc[K],
-) *JSONCache[K, T] {
-	return &JSONCache[K, T]{
-		client:       client,
-		scope:        scope,
-		keyFn:        keyFn,
-		maxBatchSize: JSONMaxBatchSize,
+) *ScopeCache[K, T] {
+	return &ScopeCache[K, T]{
+		client: client,
+		scope:  scope,
+		keyFn:  keyFn,
 	}
 }
 
-func (c *JSONCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
+func (c *ScopeCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 	redisKey := c.keyFn(key)
 
 	val, err, _ := c.sfg.Do(redisKey, func() (any, error) {
-		opCtx, cancel := context.WithTimeout(ctx, JSONSingleTimeout)
+		opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
 		defer cancel()
 
 		data, err := c.client.Get(opCtx, redisKey).Bytes()
@@ -76,7 +74,7 @@ func (c *JSONCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 	return val.(*T), nil
 }
 
-func (c *JSONCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
+func (c *ScopeCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
 	if len(keys) == 0 {
 		return make(map[K]*T), nil, nil
 	}
@@ -84,12 +82,12 @@ func (c *JSONCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K
 	found := make(map[K]*T, len(keys))
 	var missing []K
 
-	for i := 0; i < len(keys); i += c.maxBatchSize {
+	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 
-		end := min(i+c.maxBatchSize, len(keys))
+		end := min(i+ScopeMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		redisKeys := make([]string, len(chunk))
@@ -98,7 +96,7 @@ func (c *JSONCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K
 		}
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, JSONBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
 			defer cancel()
 
 			vals, err := c.client.MGet(opCtx, redisKeys...).Result()
@@ -134,7 +132,7 @@ func (c *JSONCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K
 	return found, missing, nil
 }
 
-func (c *JSONCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Duration) error {
+func (c *ScopeCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Duration) error {
 	redisKey := c.keyFn(key)
 
 	bytes, err := json.Marshal(item)
@@ -144,7 +142,7 @@ func (c *JSONCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Durat
 			Wrap(err)
 	}
 
-	opCtx, cancel := context.WithTimeout(ctx, JSONSingleTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
 	defer cancel()
 
 	if err := c.client.Set(opCtx, redisKey, bytes, ttl).Err(); err != nil {
@@ -154,7 +152,7 @@ func (c *JSONCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Durat
 	return nil
 }
 
-func (c *JSONCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.Duration) error {
+func (c *ScopeCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.Duration) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -164,16 +162,16 @@ func (c *JSONCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.
 		keys = append(keys, k)
 	}
 
-	for i := 0; i < len(keys); i += c.maxBatchSize {
+	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+c.maxBatchSize, len(keys))
+		end := min(i+ScopeMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, JSONBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
 			defer cancel()
 
 			pipe := c.client.Pipeline()
@@ -201,10 +199,10 @@ func (c *JSONCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.
 	return nil
 }
 
-func (c *JSONCache[K, T]) Delete(ctx context.Context, key K) error {
+func (c *ScopeCache[K, T]) Delete(ctx context.Context, key K) error {
 	redisKey := c.keyFn(key)
 
-	opCtx, cancel := context.WithTimeout(ctx, JSONSingleTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
 	defer cancel()
 
 	if err := c.client.Del(opCtx, redisKey).Err(); err != nil {
@@ -213,17 +211,17 @@ func (c *JSONCache[K, T]) Delete(ctx context.Context, key K) error {
 	return nil
 }
 
-func (c *JSONCache[K, T]) DeleteBatch(ctx context.Context, keys []K) error {
-	for i := 0; i < len(keys); i += c.maxBatchSize {
+func (c *ScopeCache[K, T]) DeleteBatch(ctx context.Context, keys []K) error {
+	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+c.maxBatchSize, len(keys))
+		end := min(i+ScopeMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, JSONBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
 			defer cancel()
 
 			redisKeys := make([]string, len(chunk))
