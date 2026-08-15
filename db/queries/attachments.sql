@@ -1,27 +1,27 @@
 -- name: AttachmentCreateBatch :many
 INSERT INTO message_attachments(id, message_id, created_at, file_size, width, height, file_name, content_type, url)
 SELECT
-    m.id,
-    m.message_id,
-    m.created_at,
-    m.file_size,
-    m.width,
-    m.height,
-    m.file_name,
-    m.content_type,
-    m.url
+    id,
+    message_id,
+    created_at,
+    file_size,
+    width,
+    height,
+    file_name,
+    content_type,
+    url
 FROM
-    UNNEST(@ids::uuid[], @message_ids::uuid[], @created_ats::timestamptz[], @file_sizes::bigint[], @widths::integer[], @heights::integer[], @file_names::text[], @content_types::text[], @urls::text[]) AS m(id,
-        message_id,
-        created_at,
-        file_size,
-        width,
-        height,
-        file_name,
-        content_type,
-        url)
+    jsonb_to_recordset(@payload::jsonb) AS x(id uuid,
+        message_id uuid,
+        created_at timestamptz,
+        file_size bigint,
+        width integer,
+        height integer,
+        file_name text,
+        content_type text,
+        url text)
 RETURNING
-    message_attachments.*;
+    *;
 
 -- name: AttachmentGetBatchByMessageIDs :many
 SELECT

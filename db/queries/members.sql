@@ -1,27 +1,27 @@
 -- name: ChannelMemberCreateBatch :many
 INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
 SELECT
-    m.channel_id,
-    m.user_id,
-    m.last_read_message_id,
-    m.created_at,
-    m.updated_at,
-    m.last_read_message_at,
-    m.pinned_at,
-    m.muted_until,
-    m.mention_count,
-    m.is_visible
+    channel_id,
+    user_id,
+    last_read_message_id,
+    created_at,
+    updated_at,
+    last_read_message_at,
+    pinned_at,
+    muted_until,
+    mention_count,
+    is_visible
 FROM
-    UNNEST(@channel_ids::uuid[], @user_ids::uuid[], @last_read_message_ids::uuid[], @created_ats::timestamptz[], @updated_ats::timestamptz[], @last_read_message_ats::timestamptz[], @pinned_ats::timestamptz[], @muted_untils::timestamptz[], @mention_counts::int[], @is_visibles::boolean[]) AS m(channel_id,
-        user_id,
-        last_read_message_id,
-        created_at,
-        updated_at,
-        last_read_message_at,
-        pinned_at,
-        muted_until,
-        mention_count,
-        is_visible)
+    jsonb_to_recordset(@payload::jsonb) AS x(channel_id uuid,
+        user_id uuid,
+        last_read_message_id uuid,
+        created_at timestamptz,
+        updated_at timestamptz,
+        last_read_message_at timestamptz,
+        pinned_at timestamptz,
+        muted_until timestamptz,
+        mention_count integer,
+        is_visible boolean)
 ON CONFLICT (channel_id,
     user_id)
     DO UPDATE SET
@@ -33,7 +33,7 @@ ON CONFLICT (channel_id,
         mention_count = EXCLUDED.mention_count,
         is_visible = EXCLUDED.is_visible
     RETURNING
-        channel_members.*;
+        *;
 
 -- name: ChannelMemberGet :one
 SELECT
