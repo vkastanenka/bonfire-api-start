@@ -15,7 +15,7 @@ WHERE
 -- name: MessageListAroundByChannelID :many
 WITH before_read AS (
     SELECT
-        *
+        id
     FROM
         messages
     WHERE
@@ -27,7 +27,7 @@ WITH before_read AS (
 ),
 after_read AS (
     SELECT
-        *
+        id
     FROM
         messages
     WHERE
@@ -36,21 +36,25 @@ after_read AS (
     ORDER BY
         id ASC
     LIMIT @after_limit::int
-)
-SELECT
-    *
-FROM (
+),
+target_ids AS (
     SELECT
-        *
+        id
     FROM
         before_read
     UNION ALL
     SELECT
-        *
+        id
     FROM
-        after_read) combined
+        after_read
+)
+SELECT
+    messages.*
+FROM
+    messages
+    JOIN target_ids ON messages.id = target_ids.id
 ORDER BY
-    id ASC;
+    messages.id ASC;
 
 -- name: MessageListBeforeByChannelID :many
 SELECT
