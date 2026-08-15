@@ -22,7 +22,7 @@ func NewChannelRepository(store *db.Store) *ChannelRepository {
 	}
 }
 
-func (r *ChannelRepository) ChannelCreate(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
+func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
 	row, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
 		ID:        db.ToUUID(ch.ID().UUID()),
 		CreatedAt: db.ToTimestamptz(ch.CreatedAt().Time()),
@@ -38,7 +38,7 @@ func (r *ChannelRepository) ChannelCreate(ctx context.Context, ch *channel.Chann
 	return channelFromRow(row)
 }
 
-func (r *ChannelRepository) ChannelGet(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
 	row, err := r.store.ChannelGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -47,7 +47,7 @@ func (r *ChannelRepository) ChannelGet(ctx context.Context, id fields.ID) (*chan
 	return channelFromRow(row)
 }
 
-func (r *ChannelRepository) ChannelGetBatch(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
+func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
 	if len(ids) == 0 {
 		return []*channel.Channel{}, nil
 	}
@@ -74,7 +74,7 @@ func (r *ChannelRepository) ChannelGetBatch(ctx context.Context, ids []fields.ID
 	return channels, nil
 }
 
-func (r *ChannelRepository) ChannelUpdateGroup(
+func (r *ChannelRepository) UpdateGroup(
 	ctx context.Context,
 	id fields.ID,
 	name channel.ChannelName,
@@ -94,7 +94,7 @@ func (r *ChannelRepository) ChannelUpdateGroup(
 	return channelFromRow(row)
 }
 
-func (r *ChannelRepository) ChannelUpdateLastMessage(
+func (r *ChannelRepository) UpdateLastMessage(
 	ctx context.Context,
 	id fields.ID,
 	lastMessageID fields.ID,
@@ -114,7 +114,7 @@ func (r *ChannelRepository) ChannelUpdateLastMessage(
 	return channelFromRow(row)
 }
 
-func (r *ChannelRepository) ChannelDelete(ctx context.Context, id fields.ID) error {
+func (r *ChannelRepository) Delete(ctx context.Context, id fields.ID) error {
 	err := r.store.ChannelDelete(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return r.store.Err(err)

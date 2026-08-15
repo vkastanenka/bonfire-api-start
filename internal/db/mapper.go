@@ -35,6 +35,25 @@ func ToInt2Ptr[T Integer](v *T) pgtype.Int2 {
 	}
 }
 
+// Int4 converts any integer value (including custom enums) into pgtype.Int4.
+func ToInt4[T Integer](v T) pgtype.Int4 {
+	return pgtype.Int4{
+		Int32: int32(v),
+		Valid: true,
+	}
+}
+
+// Int4Ptr converts a pointer to any integer type into pgtype.Int4.
+func ToInt4Ptr[T Integer](v *T) pgtype.Int4 {
+	if v == nil {
+		return pgtype.Int4{Valid: false}
+	}
+	return pgtype.Int4{
+		Int32: int32(*v),
+		Valid: true,
+	}
+}
+
 // Text converts a string or fmt.Stringer into pgtype.Text.
 func ToText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
@@ -123,6 +142,24 @@ func FromInt2Ptr[T Integer](i pgtype.Int2) *T {
 		return nil
 	}
 	v := T(i.Int16)
+	return &v
+}
+
+// FromInt4 converts pgtype.Int4 into any integer type or custom enum, returning zero if NULL.
+func FromInt4[T Integer](i pgtype.Int4) T {
+	if !i.Valid {
+		var zero T
+		return zero
+	}
+	return T(i.Int32)
+}
+
+// FromInt4Ptr converts pgtype.Int4 into a pointer to any integer type, returning nil if NULL.
+func FromInt4Ptr[T Integer](i pgtype.Int4) *T {
+	if !i.Valid {
+		return nil
+	}
+	v := T(i.Int32)
 	return &v
 }
 
