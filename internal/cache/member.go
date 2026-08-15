@@ -80,20 +80,20 @@ func ParseMember(m *channel.Member) Member {
 }
 
 type MemberCache struct {
-	store *JSONCache[MemberKeyIDs, Member]
-	ttl   time.Duration
+	*ScopeCache[MemberKeyIDs, Member]
+	ttl time.Duration
 }
 
 func NewMemberCache(client redisdriver.Cmdable, ttl time.Duration) *MemberCache {
 	return &MemberCache{
-		store: NewJSONCache[MemberKeyIDs, Member](client, redis.ScopeMember, memberKey),
-		ttl:   ttl,
+		ScopeCache: NewScopeCache[MemberKeyIDs, Member](client, redis.ScopeMember, memberKey),
+		ttl:        ttl,
 	}
 }
 
 func (c *MemberCache) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
 	key := MemberKeyIDs{ChannelID: channelID, UserID: userID}
-	dto, err := c.store.Get(ctx, key)
+	dto, err := c.ScopeCache.Get(ctx, key)
 	if err != nil || dto == nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (c *MemberCache) GetBatch(
 	ctx context.Context,
 	keys []MemberKeyIDs,
 ) (map[MemberKeyIDs]*channel.Member, []MemberKeyIDs, error) {
-	dtos, missing, err := c.store.GetBatch(ctx, keys)
+	dtos, missing, err := c.ScopeCache.GetBatch(ctx, keys)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,7 +133,7 @@ func (c *MemberCache) Set(ctx context.Context, mem *channel.Member) error {
 		return nil
 	}
 	key := MemberKeyIDs{ChannelID: mem.ChannelID(), UserID: mem.UserID()}
-	return c.store.Set(ctx, key, ParseMember(mem), c.ttl)
+	return c.ScopeCache.Set(ctx, key, ParseMember(mem), c.ttl)
 }
 
 func (c *MemberCache) SetBatch(ctx context.Context, members []*channel.Member) error {
@@ -146,13 +146,5 @@ func (c *MemberCache) SetBatch(ctx context.Context, members []*channel.Member) e
 		dtos[key] = ParseMember(mem)
 	}
 
-	return c.store.SetBatch(ctx, dtos, c.ttl)
-}
-
-func (c *MemberCache) Invalidate(ctx context.Context, channelID, userID fields.ID) error {
-	return c.store.Invalidate(ctx, MemberKeyIDs{ChannelID: channelID, UserID: userID})
-}
-
-func (c *MemberCache) InvalidateBatch(ctx context.Context, keys []MemberKeyIDs) error {
-	return c.store.InvalidateBatch(ctx, keys)
+	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func messageKey(id fields.ID) string {
-	return fmt.Sprintf("message:%s", id.String())
+	return "message:" + id.String()
 }
 
 type Message struct {
@@ -74,10 +74,10 @@ func (m Message) ToDomain() (*channel.Message, error) {
 
 	var sysMeta fields.JSON
 	if len(m.SystemMetadata) > 0 {
-		var err error
-		sysMeta, err = fields.ParseJSON("system_metadata", m.SystemMetadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse system metadata: %w", err)
+		var parseErr error
+		sysMeta, parseErr = fields.ParseJSON("system_metadata", m.SystemMetadata)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse system metadata: %w", parseErr)
 		}
 	}
 
@@ -127,19 +127,19 @@ func ParseMessage(m *channel.Message) (Message, error) {
 }
 
 type MessageCache struct {
-	store *JSONCache[fields.ID, Message]
-	ttl   time.Duration
+	*ScopeCache[fields.ID, Message]
+	ttl time.Duration
 }
 
 func NewMessageCache(client redisdriver.Cmdable, ttl time.Duration) *MessageCache {
 	return &MessageCache{
-		store: NewJSONCache[fields.ID, Message](client, redis.ScopeMessage, messageKey),
-		ttl:   ttl,
+		ScopeCache: NewScopeCache[fields.ID, Message](client, redis.ScopeMessage, messageKey),
+		ttl:        ttl,
 	}
 }
 
 func (c *MessageCache) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	dto, err := c.store.Get(ctx, id)
+	dto, err := c.ScopeCache.Get(ctx, id)
 	if err != nil || dto == nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (c *MessageCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Message, []fields.ID, error) {
-	dtos, missing, err := c.store.GetBatch(ctx, ids)
+	dtos, missing, err := c.ScopeCache.GetBatch(ctx, ids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -184,7 +184,7 @@ func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 		return err
 	}
 
-	return c.store.Set(ctx, msg.ID(), dto, c.ttl)
+	return c.ScopeCache.Set(ctx, msg.ID(), dto, c.ttl)
 }
 
 func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message) error {
@@ -201,13 +201,5 @@ func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message
 		dtos[msg.ID()] = dto
 	}
 
-	return c.store.SetBatch(ctx, dtos, c.ttl)
-}
-
-func (c *MessageCache) Invalidate(ctx context.Context, id fields.ID) error {
-	return c.store.Invalidate(ctx, id)
-}
-
-func (c *MessageCache) InvalidateBatch(ctx context.Context, ids []fields.ID) error {
-	return c.store.InvalidateBatch(ctx, ids)
+	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
 }
