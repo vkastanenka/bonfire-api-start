@@ -12,13 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
-type ChannelRepository struct {
-	store *db.Store
+type ChannelCache interface {
+	Delete(ctx context.Context, key fields.ID) error
+	DeleteBatch(ctx context.Context, keys []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*channel.Channel, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
+	Set(ctx context.Context, ch *channel.Channel) error
+	SetBatch(ctx context.Context, channels []*channel.Channel) error
 }
 
-func NewChannelRepository(store *db.Store) *ChannelRepository {
+type ChannelRepository struct {
+	store *db.Store
+	cache ChannelCache
+}
+
+func NewChannelRepository(store *db.Store, cache ChannelCache) *ChannelRepository {
 	return &ChannelRepository{
 		store: store.WithEntity(db.EntityChannel),
+		cache: cache,
 	}
 }
 
@@ -39,15 +50,69 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 }
 
 func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+	ch, err := r.cache.Get(ctx, id)
+	if err == nil && ch != nil {
+		return ch, nil
+	}
+
 	row, err := r.store.ChannelGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return channelFromRow(row)
+	ch, err = channelFromRow(row)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = r.cache.Set(ctx, ch)
+
+	return ch, nil
 }
 
 func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
+	if len(ids) == 0 {
+		return []*channel.Channel{}, nil
+	}
+
+	cachedMap, missingIDs, err := r.cache.GetBatch(ctx, ids)
+	if err != nil {
+		return r.fetchBatchFromDB(ctx, ids)
+	}
+
+	if len(missingIDs) == 0 {
+		result := make([]*channel.Channel, len(ids))
+		for i, id := range ids {
+			result[i] = cachedMap[id]
+		}
+		return result, nil
+	}
+
+	dbChannels, err := r.fetchBatchFromDB(ctx, missingIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = r.cache.SetBatch(ctx, dbChannels)
+
+	dbMap := make(map[fields.ID]*channel.Channel, len(dbChannels))
+	for _, ch := range dbChannels {
+		dbMap[ch.ID()] = ch
+	}
+
+	result := make([]*channel.Channel, len(ids))
+	for i, id := range ids {
+		if ch, found := cachedMap[id]; found && ch != nil {
+			result[i] = ch
+		} else if ch, found := dbMap[id]; found && ch != nil {
+			result[i] = ch
+		}
+	}
+
+	return result, nil
+}
+
+func (r *ChannelRepository) fetchBatchFromDB(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
 	if len(ids) == 0 {
 		return []*channel.Channel{}, nil
 	}
