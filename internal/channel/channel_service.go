@@ -5,9 +5,10 @@ import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 	"context"
 	"fmt"
-	"os/user"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -205,23 +206,22 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 	return nil
 }
 
-// Get
-func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (any, error) {
+func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
 	// Parse inputs
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// 1. Get batch channel members grouped by channel ID
 	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	members := memberMap[channelID]
@@ -236,26 +236,22 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 	}
 
 	if currentMember == nil {
-		return nil, errs.PermissionDenied("You are not a member of this channel.")
+		return nil, nil, nil, errs.PermissionDenied("You are not a member of this channel.")
 	}
 
 	// 2. Get batch channel by ID
 	channelMap, err := s.repo.GetBatch(ctx, []fields.ID{channelID})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	ch, ok := channelMap[channelID]
 	if !ok || ch == nil {
-		return nil, errs.NotFound("Channel not found.")
+		return nil, nil, nil, errs.NotFound("Channel not found.")
 	}
 
-	var (
-		messages    []*Message
-		reactionMap map[fields.ID][]*Reaction
-	)
-
 	// 3. Get batch messages around anchor
+	var messages []*Message
 	if ch.LastMessageID().IsValid() {
 		beforeLimit := MessageListBeforeLimit
 		afterLimit := MessageListAfterLimit
@@ -275,11 +271,12 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 			afterLimit,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
 	// 4. Get batch message reactions grouped by message ID
+	reactionMap := make(map[fields.ID][]*Reaction)
 	if len(messages) > 0 {
 		messageIDs := make([]fields.ID, len(messages))
 		for i, msg := range messages {
@@ -288,27 +285,22 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 
 		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctx, messageIDs)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-	} else {
-		reactionMap = make(map[fields.ID][]*Reaction)
 	}
 
 	// 5. Collect unique User IDs for user hydration and presence checks
 	userIDMap := make(map[fields.ID]struct{})
-
 	for _, m := range members {
 		if id := m.UserID(); id.IsValid() {
 			userIDMap[id] = struct{}{}
 		}
 	}
-
 	for _, msg := range messages {
 		if id := msg.AuthorID(); id.IsValid() {
 			userIDMap[id] = struct{}{}
 		}
 	}
-
 	for _, rxList := range reactionMap {
 		for _, r := range rxList {
 			if id := r.UserID(); id.IsValid() {
@@ -322,37 +314,112 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		userIDs = append(userIDs, id)
 	}
 
-	var (
-		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]presence.Presence
-	)
+	// 6 & 7. Get batch users and presences
+	userMap := make(map[fields.ID]*user.User)
+	presenceMap := make(map[fields.ID]presence.Presence)
 
-	// 6. Get batch users
 	if len(userIDs) > 0 {
 		userMap, err = s.userRepo.GetBatch(ctx, userIDs)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-	} else {
-		userMap = make(map[fields.ID]*user.User)
-	}
 
-	// 7. Get batch user presences
-	if len(userIDs) > 0 {
 		presenceMap, err = s.presenceCache.GetBatch(ctx, userIDs)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-	} else {
-		presenceMap = make(map[fields.ID]presence.Presence)
 	}
 
-	// Hydrate members with user data and user presence
+	// 8. Hydrate views
+	memberViews := s.hydrateMembers(members, userMap, presenceMap)
+	messageViews := s.hydrateMessages(messages, reactionMap, userMap, userID)
 
-	// Hydrate messages with user data and reactions
+	return ch, memberViews, messageViews, nil
+}
 
-	// Return
-	return nil, nil
+func (s *ChannelService) hydrateMembers(
+	members []*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []MemberView {
+	views := make([]MemberView, 0, len(members))
+	for _, m := range members {
+		u, ok := userMap[m.UserID()]
+		if !ok || u == nil {
+			continue
+		}
+
+		p, ok := presenceMap[m.UserID()]
+		if !ok {
+			p = presence.New(presence.PresenceOffline)
+		}
+
+		views = append(views, MemberView{
+			id:          m.UserID(),
+			displayName: u.DisplayName(),
+			avatarURL:   u.AvatarURL(),
+			presence:    p,
+		})
+	}
+	return views
+}
+
+func (s *ChannelService) hydrateMessages(
+	messages []*Message,
+	reactionMap map[fields.ID][]*Reaction,
+	userMap map[fields.ID]*user.User,
+	currentUserID fields.ID,
+) []MessageView {
+	views := make([]MessageView, 0, len(messages))
+	for _, msg := range messages {
+		u, ok := userMap[msg.AuthorID()]
+		if !ok || u == nil {
+			u = &user.User{}
+		}
+
+		rxList := reactionMap[msg.ID()]
+		emojiCounts := make(map[ReactionEmoji][]*Reaction)
+		for _, r := range rxList {
+			emojiCounts[r.Emoji()] = append(emojiCounts[r.Emoji()], r)
+		}
+
+		reactionsView := make([]ReactionView, 0, len(emojiCounts))
+		for emoji, list := range emojiCounts {
+			isReacted := false
+			for _, r := range list {
+				if r.UserID() == currentUserID {
+					isReacted = true
+					break
+				}
+			}
+			reactionsView = append(reactionsView, ReactionView{
+				emoji:     emoji,
+				count:     len(list),
+				isReacted: isReacted,
+			})
+		}
+
+		sort.Slice(reactionsView, func(i, j int) bool {
+			return reactionsView[i].emoji.String() < reactionsView[j].emoji.String()
+		})
+
+		views = append(views, MessageView{
+			id:                 msg.ID(),
+			authorID:           msg.AuthorID(),
+			displayName:        u.DisplayName(),
+			avatarURL:          u.AvatarURL(),
+			msgType:            msg.Type(),
+			content:            msg.Content(),
+			systemMetadata:     msg.SystemMetadata(),
+			replyToMessageID:   msg.ReplyToMessageID(),
+			forwardedMessageID: msg.ForwardedMessageID(),
+			forwardedChannelID: msg.ForwardedChannelID(),
+			createdAt:          msg.CreatedAt(),
+			editedAt:           msg.EditedAt(),
+			reactions:          reactionsView,
+		})
+	}
+	return views
 }
 
 // Get User Sidebar
