@@ -256,3 +256,11 @@ CREATE UNIQUE INDEX idx_relations_channel_id ON relations(channel_id)
 WHERE
     channel_id IS NOT NULL;
 
+CREATE INDEX idx_relations_user1_blocks ON relations(user1_id, user2_id)
+WHERE
+    type = 3;
+
+CREATE INDEX idx_relations_user2_blocks ON relations(user2_id, user1_id)
+WHERE
+    type = 3;
+

@@ -70,3 +70,17 @@ ON CONFLICT (user1_id, user2_id)
     RETURNING
         relations.*;
 
+-- name: RelationHasIncomingBlock :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            relations
+        WHERE ((user1_id = @actor_id::uuid
+                AND user2_id = ANY (@peer_ids::uuid[]))
+            OR (user2_id = @actor_id::uuid
+                AND user1_id = ANY (@peer_ids::uuid[])))
+        AND type = 3
+        AND actor_id != @actor_id::uuid);
+
