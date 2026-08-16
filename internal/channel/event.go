@@ -7,16 +7,19 @@ import (
 )
 
 const (
+	EventChannelCreated     = "channel.created"
+	EventChannelUpdated     = "channel.updated"
+	EventChannelDeleted     = "channel.deleted"
 	EventMessageCreated     = "channel.message_created"
 	EventMessageUpdated     = "channel.message_updated"
 	EventMessageDeleted     = "channel.message_deleted"
 	EventMessagePinned      = "channel.message_pinned"
 	EventReactionAdded      = "channel.reaction_added"
 	EventReactionRemoved    = "channel.reaction_removed"
-	EventChannelUpdated     = "channel.updated"
-	EventChannelDeleted     = "channel.deleted"
 	EventChannelReadUpdated = "channel.read_updated"
 )
+
+type ChannelCreated struct {}
 
 type DeletedPayload struct {
 	ChannelID uuid.UUID `json:"channelId"`

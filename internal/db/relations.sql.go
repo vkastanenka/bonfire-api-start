@@ -115,6 +115,33 @@ func (q *Queries) RelationGetForUpdate(ctx context.Context, arg RelationGetForUp
 	return i, err
 }
 
+const relationHasIncomingBlock = `-- name: RelationHasIncomingBlock :one
+SELECT
+    EXISTS (
+        SELECT
+            1
+        FROM
+            relations
+        WHERE ((user1_id = $1::uuid
+                AND user2_id = ANY ($2::uuid[]))
+            OR (user2_id = $1::uuid
+                AND user1_id = ANY ($2::uuid[])))
+        AND type = 3
+        AND actor_id != $1::uuid)
+`
+
+type RelationHasIncomingBlockParams struct {
+	ActorID pgtype.UUID   `json:"actor_id"`
+	PeerIds []pgtype.UUID `json:"peer_ids"`
+}
+
+func (q *Queries) RelationHasIncomingBlock(ctx context.Context, arg RelationHasIncomingBlockParams) (bool, error) {
+	row := q.db.QueryRow(ctx, relationHasIncomingBlock, arg.ActorID, arg.PeerIds)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const relationListTypeByUser = `-- name: RelationListTypeByUser :many
 SELECT
     (

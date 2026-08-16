@@ -217,6 +217,27 @@ func ParseRequiredID(fieldName string, raw uuid.UUID) (ID, error) {
 	return id, nil
 }
 
+func ParseIDs(fieldName string, raws []uuid.UUID) ([]ID, error) {
+	if len(raws) == 0 {
+		return []ID{}, nil
+	}
+
+	ids := make([]ID, 0, len(raws))
+
+	for i, raw := range raws {
+		id, err := ParseID(fmt.Sprintf("%s[%d]", fieldName, i), raw)
+		if err != nil {
+			return nil, err
+		}
+		if id.IsZero() {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, nil
+}
+
 func ParseIDFromString(fieldName, raw string) (ID, error) {
 	s := sanitize.Text(raw)
 	if s == "" {

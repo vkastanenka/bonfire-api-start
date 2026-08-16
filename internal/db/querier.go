@@ -55,6 +55,7 @@ type Querier interface {
 	RelationGet(ctx context.Context, arg RelationGetParams) (Relation, error)
 	RelationGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relation, error)
 	RelationGetForUpdate(ctx context.Context, arg RelationGetForUpdateParams) (Relation, error)
+	RelationHasIncomingBlock(ctx context.Context, arg RelationHasIncomingBlockParams) (bool, error)
 	RelationListTypeByUser(ctx context.Context, arg RelationListTypeByUserParams) ([]RelationListTypeByUserRow, error)
 	RelationSave(ctx context.Context, arg RelationSaveParams) (Relation, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)

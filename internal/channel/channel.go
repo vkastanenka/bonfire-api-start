@@ -4,6 +4,10 @@ import (
 	"bonfire-api/internal/fields"
 )
 
+const ChannelMinMembers = 1
+const ChannelMaxMembers = 10
+const ChannelMaxPeers = 9
+
 type Channel struct {
 	id            fields.ID
 	chType        ChannelType

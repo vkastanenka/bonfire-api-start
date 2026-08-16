@@ -24,7 +24,7 @@ type MemberCache interface {
 	Get(ctx context.Context, id fields.ID) (*Member, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Member, []fields.ID, error)
 	Set(ctx context.Context, ch *Member) error
-	SetBatch(ctx context.Context, channels []*Member) error
+	SetBatch(ctx context.Context, members []*Member) error
 }
 
 type MemberService struct {

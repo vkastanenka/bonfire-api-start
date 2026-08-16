@@ -79,7 +79,7 @@ type TypingStore interface {
 	SetTyping(ctx context.Context, channelID, userID uuid.UUID) error
 }
 
-type Tx interface {
+type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
@@ -146,7 +146,7 @@ func (s *Service) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawMemb
 				peerUUIDs = append(peerUUIDs, id.UUID())
 			}
 		}
-		hasBlock, err := s.relationship.HasBlockBetweenUserAndPeers(ctx, actorID.UUID(), peerUUIDs)
+		hasBlock, err := s.relationship.HasIncomingBlock(ctx, actorID.UUID(), peerUUIDs)
 		if err != nil {
 			return nil, err
 		}
