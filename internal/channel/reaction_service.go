@@ -11,7 +11,7 @@ import (
 type ReactionRepository interface {
 	Create(ctx context.Context, rx *Reaction) (*Reaction, error)
 	Delete(ctx context.Context, messageID fields.ID, userID fields.ID, emoji ReactionEmoji) error
-	GetBatchByMessageIDs(ctx context.Context, messageIDs []fields.ID) ([]*Reaction, error)
+	GetBatchByMessageIDs(ctx context.Context, messageIDs []fields.ID) (map[fields.ID][]*Reaction, error)
 }
 
 type ReactionCache interface {

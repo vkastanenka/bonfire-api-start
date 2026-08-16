@@ -70,9 +70,9 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 	return ch, nil
 }
 
-func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
+func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, error) {
 	if len(ids) == 0 {
-		return []*channel.Channel{}, nil
+		return make(map[fields.ID]*channel.Channel), nil
 	}
 
 	cachedMap, missingIDs, err := r.cache.GetBatch(ctx, ids)
@@ -81,40 +81,35 @@ func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) ([]*c
 	}
 
 	if len(missingIDs) == 0 {
-		result := make([]*channel.Channel, len(ids))
-		for i, id := range ids {
-			result[i] = cachedMap[id]
-		}
-		return result, nil
+		return cachedMap, nil
 	}
 
-	dbChannels, err := r.fetchBatchFromDB(ctx, missingIDs)
+	dbMap, err := r.fetchBatchFromDB(ctx, missingIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = r.cache.SetBatch(ctx, dbChannels)
-
-	dbMap := make(map[fields.ID]*channel.Channel, len(dbChannels))
-	for _, ch := range dbChannels {
-		dbMap[ch.ID()] = ch
-	}
-
-	result := make([]*channel.Channel, len(ids))
-	for i, id := range ids {
-		if ch, found := cachedMap[id]; found && ch != nil {
-			result[i] = ch
-		} else if ch, found := dbMap[id]; found && ch != nil {
-			result[i] = ch
+	if len(dbMap) > 0 {
+		dbChannels := make([]*channel.Channel, 0, len(dbMap))
+		for _, ch := range dbMap {
+			dbChannels = append(dbChannels, ch)
 		}
+		_ = r.cache.SetBatch(ctx, dbChannels)
 	}
 
-	return result, nil
+	for id, ch := range dbMap {
+		cachedMap[id] = ch
+	}
+
+	return cachedMap, nil
 }
 
-func (r *ChannelRepository) fetchBatchFromDB(ctx context.Context, ids []fields.ID) ([]*channel.Channel, error) {
+func (r *ChannelRepository) fetchBatchFromDB(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*channel.Channel, error) {
 	if len(ids) == 0 {
-		return []*channel.Channel{}, nil
+		return make(map[fields.ID]*channel.Channel), nil
 	}
 
 	uuidSlice := make([]uuid.UUID, len(ids))
@@ -127,16 +122,16 @@ func (r *ChannelRepository) fetchBatchFromDB(ctx context.Context, ids []fields.I
 		return nil, r.store.Err(err)
 	}
 
-	channels := make([]*channel.Channel, 0, len(rows))
+	channelMap := make(map[fields.ID]*channel.Channel, len(rows))
 	for _, row := range rows {
 		ch, err := channelFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		channels = append(channels, ch)
+		channelMap[ch.ID()] = ch
 	}
 
-	return channels, nil
+	return channelMap, nil
 }
 
 func (r *ChannelRepository) UpdateGroup(

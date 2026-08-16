@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/pkg/ptr"
 	"context"
 	"fmt"
+	"os/user"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +16,7 @@ type ChannelRepository interface {
 	Create(ctx context.Context, ch *Channel) (*Channel, error)
 	Delete(ctx context.Context, id fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
-	GetBatch(ctx context.Context, ids []fields.ID) ([]*Channel, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Channel, error)
 	UpdateGroup(ctx context.Context, id fields.ID, name ChannelName, iconURL fields.URL, updatedAt fields.Timestamp) (*Channel, error)
 	UpdateLastMessage(ctx context.Context, id fields.ID, lastMessageID fields.ID, lastMessageAt fields.Timestamp, updatedAt fields.Timestamp) (*Channel, error)
 }
@@ -33,14 +34,28 @@ type RelationRepository interface {
 	HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) (bool, error)
 }
 
+type UserRepository interface {
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
+}
+
+type UserCache interface {
+	SetBatch(ctx context.Context, users []*user.User) error
+}
+
 type ChannelService struct {
-	repo         ChannelRepository
-	cache        ChannelCache
-	memberRepo   MemberRepository
-	memberCache  MemberCache
-	outboxRepo   OutboxRepository
-	relationRepo RelationRepository
-	tx           TX
+	repo          ChannelRepository
+	cache         ChannelCache
+	memberRepo    MemberRepository
+	memberCache   MemberCache
+	messageRepo   MessageRepository
+	messageCache  MessageCache
+	reactionRepo  ReactionRepository
+	reactionCache ReactionCache
+	userRepo      UserRepository
+	userCache     UserCache
+	outboxRepo    OutboxRepository
+	relationRepo  RelationRepository
+	tx            TX
 }
 
 func NewChannelService(
@@ -48,18 +63,30 @@ func NewChannelService(
 	cache ChannelCache,
 	memberRepo MemberRepository,
 	memberCache MemberCache,
+	messageRepo MessageRepository,
+	messageCache MessageCache,
+	reactionRepo ReactionRepository,
+	reactionCache ReactionCache,
+	userRepo UserRepository,
+	userCache UserCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
-		repo:         repo,
-		cache:        cache,
-		memberRepo:   memberRepo,
-		memberCache:  memberCache,
-		outboxRepo:   outboxRepo,
-		relationRepo: relationRepo,
-		tx:           tx,
+		repo:          repo,
+		cache:         cache,
+		memberRepo:    memberRepo,
+		memberCache:   memberCache,
+		messageRepo:   messageRepo,
+		messageCache:  messageCache,
+		reactionRepo:  reactionRepo,
+		reactionCache: reactionCache,
+		userRepo:      userRepo,
+		userCache:     userCache,
+		outboxRepo:    outboxRepo,
+		relationRepo:  relationRepo,
+		tx:            tx,
 	}
 }
 
@@ -171,14 +198,149 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 }
 
 // Get
+func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (any, error) {
+	// Parse inputs
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Get batch channel members grouped by channel ID
+	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	if err != nil {
+		return nil, err
+	}
+
+	members := memberMap[channelID]
+
+	// Validate channel membership & capture the current member item
+	var currentMember *Member
+	for _, m := range members {
+		if m.UserID() == userID {
+			currentMember = m
+			break
+		}
+	}
+
+	if currentMember == nil {
+		return nil, errs.PermissionDenied("You are not a member of this channel.")
+	}
+
+	// 2. Get batch channel by ID
+	channelMap, err := s.repo.GetBatch(ctx, []fields.ID{channelID})
+	if err != nil {
+		return nil, err
+	}
+
+	ch, ok := channelMap[channelID]
+	if !ok || ch == nil {
+		return nil, errs.NotFound("Channel not found.")
+	}
+
+	var (
+		messages    []*Message
+		reactionMap map[fields.ID][]*Reaction
+		userMap     map[fields.ID]*user.User
+	)
+
+	// 3. Get batch messages around anchor
+	if ch.LastMessageID().IsValid() {
+		beforeLimit := MessageListBeforeLimit
+		afterLimit := MessageListAfterLimit
+
+		anchorMessageID := currentMember.LastReadMessageID()
+		if !anchorMessageID.IsValid() || anchorMessageID.Equals(ch.LastMessageID()) {
+			anchorMessageID = ch.LastMessageID()
+			beforeLimit = MessageListLimit
+			afterLimit = 0
+		}
+
+		messages, err = s.messageRepo.ListAroundByChannelID(
+			ctx,
+			channelID,
+			anchorMessageID,
+			beforeLimit,
+			afterLimit,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 4. Get batch message reactions grouped by message ID
+	if len(messages) > 0 {
+		messageIDs := make([]fields.ID, len(messages))
+		for i, msg := range messages {
+			messageIDs[i] = msg.ID()
+		}
+
+		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctx, messageIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		reactionMap = make(map[fields.ID][]*Reaction)
+	}
+
+	// 5. Collect unique User IDs for user hydration
+	userIDMap := make(map[fields.ID]struct{})
+
+	// Collect user IDs from channel members
+	for _, m := range members {
+		if id := m.UserID(); id.IsValid() {
+			userIDMap[id] = struct{}{}
+		}
+	}
+
+	// Collect user IDs from message authors
+	for _, msg := range messages {
+		if id := msg.AuthorID(); id.IsValid() {
+			userIDMap[id] = struct{}{}
+		}
+	}
+
+	// Collect user IDs from reaction reactors
+	for _, rxList := range reactionMap {
+		for _, r := range rxList {
+			if id := r.UserID(); id.IsValid() {
+				userIDMap[id] = struct{}{}
+			}
+		}
+	}
+
+	// 6. Get batch users
+	if len(userIDMap) > 0 {
+		userIDs := make([]fields.ID, 0, len(userIDMap))
+		for id := range userIDMap {
+			userIDs = append(userIDs, id)
+		}
+
+		userMap, err = s.userRepo.GetBatch(ctx, userIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		userMap = make(map[fields.ID]*user.User)
+	}
+
+	// Get batch user presences
+
+	// Hydrate members with user data and user presence
+
+	// Hydrate messages with user data and reactions
+
+	// Return
+	return nil, nil
+}
 
 // Get User Sidebar
 
 func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
-	if rawName == nil && rawIconURL == nil {
-		return nil, errs.InvalidArgument("No fields provided for update.")
-	}
-
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err

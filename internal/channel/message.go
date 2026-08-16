@@ -4,6 +4,12 @@ import (
 	"bonfire-api/internal/fields"
 )
 
+const (
+	MessageListLimit       int32 = 25
+	MessageListBeforeLimit int32 = 5
+	MessageListAfterLimit  int32 = 20
+)
+
 type Message struct {
 	id                 fields.ID
 	channelID          fields.ID

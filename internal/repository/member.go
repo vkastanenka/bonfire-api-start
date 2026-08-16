@@ -91,9 +91,12 @@ func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID)
 	return memberFromRow(row)
 }
 
-func (r *MemberRepository) GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) ([]*channel.Member, error) {
+func (r *MemberRepository) GetBatchByChannelIDs(
+	ctx context.Context,
+	channelIDs []fields.ID,
+) (map[fields.ID][]*channel.Member, error) {
 	if len(channelIDs) == 0 {
-		return []*channel.Member{}, nil
+		return make(map[fields.ID][]*channel.Member), nil
 	}
 
 	uuidSlice := make([]uuid.UUID, len(channelIDs))
@@ -106,16 +109,18 @@ func (r *MemberRepository) GetBatchByChannelIDs(ctx context.Context, channelIDs 
 		return nil, r.store.Err(err)
 	}
 
-	members := make([]*channel.Member, 0, len(rows))
+	memberMap := make(map[fields.ID][]*channel.Member, len(channelIDs))
 	for _, row := range rows {
 		m, err := memberFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		members = append(members, m)
+
+		chanID := m.ChannelID()
+		memberMap[chanID] = append(memberMap[chanID], m)
 	}
 
-	return members, nil
+	return memberMap, nil
 }
 
 func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, error) {

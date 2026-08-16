@@ -9,7 +9,7 @@ type MemberRepository interface {
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
-	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) ([]*Member, error)
+	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	IncrementBatchMentionCount(ctx context.Context, channelID fields.ID, userIDs []fields.ID, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*Member, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)

@@ -36,9 +36,12 @@ func (r *ReactionRepository) Create(ctx context.Context, rx *channel.Reaction) (
 	return reactionFromRow(row)
 }
 
-func (r *ReactionRepository) GetBatchByMessageIDs(ctx context.Context, messageIDs []fields.ID) ([]*channel.Reaction, error) {
+func (r *ReactionRepository) GetBatchByMessageIDs(
+	ctx context.Context,
+	messageIDs []fields.ID,
+) (map[fields.ID][]*channel.Reaction, error) {
 	if len(messageIDs) == 0 {
-		return []*channel.Reaction{}, nil
+		return make(map[fields.ID][]*channel.Reaction), nil
 	}
 
 	uuidSlice := make([]uuid.UUID, len(messageIDs))
@@ -51,16 +54,18 @@ func (r *ReactionRepository) GetBatchByMessageIDs(ctx context.Context, messageID
 		return nil, r.store.Err(err)
 	}
 
-	reactions := make([]*channel.Reaction, 0, len(rows))
+	reactionMap := make(map[fields.ID][]*channel.Reaction, len(messageIDs))
 	for _, row := range rows {
 		rx, err := reactionFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		reactions = append(reactions, rx)
+
+		msgID := rx.MessageID()
+		reactionMap[msgID] = append(reactionMap[msgID], rx)
 	}
 
-	return reactions, nil
+	return reactionMap, nil
 }
 
 func (r *ReactionRepository) Delete(ctx context.Context, messageID, userID fields.ID, emoji channel.ReactionEmoji) error {
