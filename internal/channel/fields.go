@@ -200,7 +200,7 @@ func NewMessageType(val MessageTypeValue) MessageType {
 	return MessageType{Enum: fields.NewEnum(val, messageTypeSpec)}
 }
 
-func ErrMessageInvalidType() *errs.Error {
+func ErrMessageTypeInvalid() *errs.Error {
 	return errs.InvalidArgument("Invalid message type.").
 		Reason("MESSAGE_TYPE_INVALID").
 		FieldViolation("type", "Must be a valid message type.", "INVALID_ENUM_VALUE").
@@ -209,7 +209,7 @@ func ErrMessageInvalidType() *errs.Error {
 
 func ParseMessageType(raw int16) (MessageType, error) {
 	if raw <= 0 || raw >= int16(messageTypeMax) {
-		return MessageType{}, ErrMessageInvalidType()
+		return MessageType{}, ErrMessageTypeInvalid()
 	}
 	return NewMessageType(MessageTypeValue(raw)), nil
 }
@@ -217,7 +217,7 @@ func ParseMessageType(raw int16) (MessageType, error) {
 func ParseMessageTypeString(s string) (MessageType, error) {
 	kind, ok := fields.ParseEnumString[MessageTypeValue](s, messageTypeSpec)
 	if !ok || kind >= messageTypeMax {
-		return MessageType{}, ErrMessageInvalidType()
+		return MessageType{}, ErrMessageTypeInvalid()
 	}
 	return NewMessageType(kind), nil
 }

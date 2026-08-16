@@ -1,23 +1,21 @@
 package presence
 
 import (
-	"bytes"
-	"strings"
-	"unsafe"
-
 	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 )
 
-func ErrPresenceInvalid() *errs.Error {
-	return errs.InvalidArgument("Invalid presence status.").
+func ErrInvalid() *errs.Error {
+	return errs.InvalidArgument("Invalid presence.").
 		Reason("PRESENCE_INVALID").
-		FieldViolation("presence", "Must be one of: online, offline, idle, busy, dnd, invisible.", "INVALID_ENUM_VALUE")
+		FieldViolation("presence", "Must be one of UNKNOWN, ONLINE, OFFLINE, IDLE, BUSY, DND, or INVISIBLE.", "INVALID_ENUM_VALUE").
+		Meta("domain", "presence")
 }
 
-type Presence uint8
+type PresenceValue uint8
 
 const (
-	PresenceUnknown Presence = iota
+	PresenceUnknown PresenceValue = iota
 	PresenceOnline
 	PresenceOffline
 	PresenceIdle
@@ -27,125 +25,48 @@ const (
 	presenceMax
 )
 
-var presenceNames = [...]string{
-	PresenceUnknown:   "unknown",
-	PresenceOnline:    "online",
-	PresenceOffline:   "offline",
-	PresenceIdle:      "idle",
-	PresenceBusy:      "busy",
-	PresenceDND:       "dnd",
-	PresenceInvisible: "invisible",
+var presenceSpec = &fields.EnumSpec{
+	Domain: "PRESENCE",
+	Max:    uint8(presenceMax),
+	Names: []string{
+		"UNKNOWN",
+		"ONLINE",
+		"OFFLINE",
+		"IDLE",
+		"BUSY",
+		"DND",
+		"INVISIBLE",
+	},
+	Bytes: [][]byte{
+		[]byte("UNKNOWN"),
+		[]byte("ONLINE"),
+		[]byte("OFFLINE"),
+		[]byte("IDLE"),
+		[]byte("BUSY"),
+		[]byte("DND"),
+		[]byte("INVISIBLE"),
+	},
 }
 
-var presenceBytes = [...][]byte{
-	PresenceUnknown:   []byte("unknown"),
-	PresenceOnline:    []byte("online"),
-	PresenceOffline:   []byte("offline"),
-	PresenceIdle:      []byte("idle"),
-	PresenceBusy:      []byte("busy"),
-	PresenceDND:       []byte("dnd"),
-	PresenceInvisible: []byte("invisible"),
+type Presence struct {
+	fields.Enum[PresenceValue]
 }
 
-func Parse(raw string) (Presence, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return PresenceUnknown, ErrPresenceInvalid()
-	}
-
-	switch s {
-	case "online":
-		return PresenceOnline, nil
-	case "offline":
-		return PresenceOffline, nil
-	case "idle":
-		return PresenceIdle, nil
-	case "busy":
-		return PresenceBusy, nil
-	case "dnd":
-		return PresenceDND, nil
-	case "invisible":
-		return PresenceInvisible, nil
-	}
-
-	switch strings.ToLower(s) {
-	case "online":
-		return PresenceOnline, nil
-	case "offline":
-		return PresenceOffline, nil
-	case "idle":
-		return PresenceIdle, nil
-	case "busy":
-		return PresenceBusy, nil
-	case "dnd":
-		return PresenceDND, nil
-	case "invisible":
-		return PresenceInvisible, nil
-	default:
-		return PresenceUnknown, ErrPresenceInvalid()
-	}
+func New(val PresenceValue) Presence {
+	return Presence{Enum: fields.NewEnum(val, presenceSpec)}
 }
 
-func ParseBytes(b []byte) (Presence, error) {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return PresenceUnknown, ErrPresenceInvalid()
+func Parse(raw int16) (Presence, error) {
+	if raw <= 0 || raw >= int16(presenceMax) {
+		return Presence{}, ErrInvalid()
 	}
-
-	s := unsafe.String(unsafe.SliceData(b), len(b))
-	return Parse(s)
+	return New(PresenceValue(raw)), nil
 }
 
-func (p Presence) IsValid() bool {
-	return p > PresenceUnknown && p < presenceMax
-}
-
-func (p Presence) String() string {
-	if p.IsValid() {
-		return presenceNames[p]
+func ParseString(s string) (Presence, error) {
+	kind, ok := fields.ParseEnumString[PresenceValue](s, presenceSpec)
+	if !ok || kind >= presenceMax {
+		return Presence{}, ErrInvalid()
 	}
-	return presenceNames[PresenceUnknown]
-}
-
-func (p Presence) Int16() int16 {
-	return int16(p)
-}
-
-func (p Presence) Int16Ptr() *int16 {
-	if !p.IsValid() {
-		return nil
-	}
-	v := p.Int16()
-	return &v
-}
-
-func FromInt16(v int16) (Presence, error) {
-	if v < 0 || v >= int16(presenceMax) {
-		return PresenceUnknown, ErrPresenceInvalid()
-	}
-	p := Presence(v)
-	if p == PresenceUnknown {
-		return PresenceUnknown, ErrPresenceInvalid()
-	}
-	return p, nil
-}
-
-func (p Presence) MarshalText() ([]byte, error) {
-	if p.IsValid() {
-		return presenceBytes[p], nil
-	}
-	return presenceBytes[PresenceUnknown], nil
-}
-
-func (p *Presence) UnmarshalText(text []byte) error {
-	if len(text) == 0 {
-		*p = PresenceUnknown
-		return nil
-	}
-	parsed, err := ParseBytes(text)
-	if err != nil {
-		return err
-	}
-	*p = parsed
-	return nil
+	return New(kind), nil
 }

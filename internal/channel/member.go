@@ -2,6 +2,8 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 )
 
 type Member struct {
@@ -15,6 +17,13 @@ type Member struct {
 	isVisible         bool
 	createdAt         fields.Timestamp
 	updatedAt         fields.Timestamp
+}
+
+type MemberView struct {
+	id          fields.ID
+	displayName user.DisplayName
+	avatarURL   fields.URL
+	presence    presence.Presence
 }
 
 func (m *Member) ChannelID() fields.ID                { return m.channelID }

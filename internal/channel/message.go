@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 )
 
 const (
@@ -24,6 +25,22 @@ type Message struct {
 	createdAt          fields.Timestamp
 	updatedAt          fields.Timestamp
 	editedAt           fields.Timestamp
+}
+
+type MessageView struct {
+	id                 fields.ID
+	authorID           fields.ID
+	displayName        user.DisplayName
+	avatarURL          fields.URL
+	msgType            MessageType
+	content            MessageContent
+	systemMetadata     fields.JSON
+	replyToMessageID   fields.ID
+	forwardedMessageID fields.ID
+	forwardedChannelID fields.ID
+	createdAt          fields.Timestamp
+	editedAt           fields.Timestamp
+	reactions          []ReactionView
 }
 
 func (m *Message) ID() fields.ID                 { return m.id }

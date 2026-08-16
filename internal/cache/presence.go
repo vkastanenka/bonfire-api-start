@@ -16,29 +16,29 @@ func presenceKey(userID fields.ID) string {
 }
 
 type PresenceCache struct {
-	*ScopeCache[fields.ID, string]
+	*ScopeCache[fields.ID, int16]
 	ttl time.Duration
 }
 
 func NewPresenceCache(client redisdriver.Cmdable, ttl time.Duration) *PresenceCache {
 	return &PresenceCache{
-		ScopeCache: NewScopeCache[fields.ID, string](client, redis.ScopePresence, presenceKey),
+		ScopeCache: NewScopeCache[fields.ID, int16](client, redis.ScopePresence, presenceKey),
 		ttl:        ttl,
 	}
 }
 
 func (c *PresenceCache) Get(ctx context.Context, userID fields.ID) (presence.Presence, error) {
 	val, err := c.ScopeCache.Get(ctx, userID)
-	if err != nil || val == nil {
-		if err != nil {
-			return presence.PresenceUnknown, err
-		}
-		return presence.PresenceOffline, nil
+	if err != nil {
+		return presence.New(presence.PresenceUnknown), err
+	}
+	if val == nil {
+		return presence.New(presence.PresenceOffline), nil
 	}
 
 	p, err := presence.Parse(*val)
 	if err != nil {
-		return presence.PresenceOffline, nil
+		return presence.New(presence.PresenceOffline), nil
 	}
 
 	return p, nil
@@ -57,13 +57,13 @@ func (c *PresenceCache) GetBatch(
 	for _, id := range userIDs {
 		val, found := dtos[id]
 		if !found || val == nil {
-			result[id] = presence.PresenceOffline
+			result[id] = presence.New(presence.PresenceOffline)
 			continue
 		}
 
 		p, err := presence.Parse(*val)
 		if err != nil {
-			result[id] = presence.PresenceOffline
+			result[id] = presence.New(presence.PresenceOffline)
 			continue
 		}
 
@@ -74,7 +74,7 @@ func (c *PresenceCache) GetBatch(
 }
 
 func (c *PresenceCache) Set(ctx context.Context, userID fields.ID, p presence.Presence) error {
-	return c.ScopeCache.Set(ctx, userID, p.String(), c.ttl)
+	return c.ScopeCache.Set(ctx, userID, p.Int16(), c.ttl)
 }
 
 func (c *PresenceCache) SetBatch(ctx context.Context, items map[fields.ID]presence.Presence) error {
@@ -82,9 +82,9 @@ func (c *PresenceCache) SetBatch(ctx context.Context, items map[fields.ID]presen
 		return nil
 	}
 
-	dtos := make(map[fields.ID]string, len(items))
+	dtos := make(map[fields.ID]int16, len(items))
 	for id, p := range items {
-		dtos[id] = p.String()
+		dtos[id] = p.Int16()
 	}
 
 	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)

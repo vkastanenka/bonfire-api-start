@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence"
 	"context"
 	"fmt"
 	"os/user"
@@ -42,6 +43,10 @@ type UserCache interface {
 	SetBatch(ctx context.Context, users []*user.User) error
 }
 
+type PresenceCache interface {
+	GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
+}
+
 type ChannelService struct {
 	repo          ChannelRepository
 	cache         ChannelCache
@@ -55,6 +60,7 @@ type ChannelService struct {
 	userCache     UserCache
 	outboxRepo    OutboxRepository
 	relationRepo  RelationRepository
+	presenceCache PresenceCache
 	tx            TX
 }
 
@@ -71,6 +77,7 @@ func NewChannelService(
 	userCache UserCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
+	presenceCache PresenceCache,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
@@ -86,6 +93,7 @@ func NewChannelService(
 		userCache:     userCache,
 		outboxRepo:    outboxRepo,
 		relationRepo:  relationRepo,
+		presenceCache: presenceCache,
 		tx:            tx,
 	}
 }
@@ -245,7 +253,6 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 	var (
 		messages    []*Message
 		reactionMap map[fields.ID][]*Reaction
-		userMap     map[fields.ID]*user.User
 	)
 
 	// 3. Get batch messages around anchor
@@ -287,24 +294,21 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		reactionMap = make(map[fields.ID][]*Reaction)
 	}
 
-	// 5. Collect unique User IDs for user hydration
+	// 5. Collect unique User IDs for user hydration and presence checks
 	userIDMap := make(map[fields.ID]struct{})
 
-	// Collect user IDs from channel members
 	for _, m := range members {
 		if id := m.UserID(); id.IsValid() {
 			userIDMap[id] = struct{}{}
 		}
 	}
 
-	// Collect user IDs from message authors
 	for _, msg := range messages {
 		if id := msg.AuthorID(); id.IsValid() {
 			userIDMap[id] = struct{}{}
 		}
 	}
 
-	// Collect user IDs from reaction reactors
 	for _, rxList := range reactionMap {
 		for _, r := range rxList {
 			if id := r.UserID(); id.IsValid() {
@@ -313,13 +317,18 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		}
 	}
 
-	// 6. Get batch users
-	if len(userIDMap) > 0 {
-		userIDs := make([]fields.ID, 0, len(userIDMap))
-		for id := range userIDMap {
-			userIDs = append(userIDs, id)
-		}
+	userIDs := make([]fields.ID, 0, len(userIDMap))
+	for id := range userIDMap {
+		userIDs = append(userIDs, id)
+	}
 
+	var (
+		userMap     map[fields.ID]*user.User
+		presenceMap map[fields.ID]presence.Presence
+	)
+
+	// 6. Get batch users
+	if len(userIDs) > 0 {
 		userMap, err = s.userRepo.GetBatch(ctx, userIDs)
 		if err != nil {
 			return nil, err
@@ -328,7 +337,15 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		userMap = make(map[fields.ID]*user.User)
 	}
 
-	// Get batch user presences
+	// 7. Get batch user presences
+	if len(userIDs) > 0 {
+		presenceMap, err = s.presenceCache.GetBatch(ctx, userIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		presenceMap = make(map[fields.ID]presence.Presence)
+	}
 
 	// Hydrate members with user data and user presence
 

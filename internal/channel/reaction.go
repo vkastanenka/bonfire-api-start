@@ -11,6 +11,12 @@ type Reaction struct {
 	createdAt fields.Timestamp
 }
 
+type ReactionView struct {
+	emoji     ReactionEmoji
+	count     int
+	isReacted bool
+}
+
 func (r *Reaction) MessageID() fields.ID        { return r.messageID }
 func (r *Reaction) UserID() fields.ID           { return r.userID }
 func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
