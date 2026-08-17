@@ -63,7 +63,7 @@ FROM
     messages
 WHERE
     channel_id = @channel_id::uuid
-    AND id < @before_id::uuid
+    AND id < @cursor_id::uuid
 ORDER BY
     id DESC
 LIMIT @limit_val::int;
@@ -75,7 +75,7 @@ FROM
     messages
 WHERE
     channel_id = @channel_id::uuid
-    AND id > @after_id::uuid
+    AND id > @cursor_id::uuid
 ORDER BY
     id ASC
 LIMIT @limit_val::int;

@@ -145,6 +145,19 @@ WHERE
     AND (muted_until IS NULL
         OR muted_until < CURRENT_TIMESTAMP);
 
+-- name: ChannelMemberIncrementPeersMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1,
+    is_visible = TRUE,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id != @user_id::uuid
+    AND (muted_until IS NULL
+        OR muted_until < CURRENT_TIMESTAMP);
+
 -- name: ChannelMemberDelete :exec
 DELETE FROM channel_members
 WHERE channel_id = @channel_id::uuid
