@@ -19,7 +19,7 @@ type MessageRepository interface {
 	ListAfterByChannelID(ctx context.Context, channelID fields.ID, msgCursorID fields.ID, limit int32) ([]*Message, error)
 	ListAroundByChannelID(ctx context.Context, channelID fields.ID, lastReadMessageID fields.ID, beforeLimit int32, afterLimit int32) ([]*Message, error)
 	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, msgCursorID fields.ID, limit int32) ([]*Message, error)
-	ListPinnedByChannelID(ctx context.Context, channelID fields.ID, limit int32) ([]*Message, error)
+	ListPinnedByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, cursorPinnedAt fields.Timestamp, limit int32) ([]*Message, error)
 	UpdateContent(ctx context.Context, id fields.ID, content MessageContent, editedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
 	UpdatePinnedAt(ctx context.Context, id fields.ID, pinnedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
 }
@@ -34,16 +34,18 @@ type MessageCache interface {
 }
 
 type MessageService struct {
-	repo         MessageRepository
-	cache        MessageCache
-	channelRepo  ChannelRepository
-	channelCache ChannelCache
-	memberRepo   MemberRepository
-	memberCache  MemberCache
-	userRepo     UserRepository
-	userCache    UserCache
-	outboxRepo   OutboxRepository
-	tx           TX
+	repo          MessageRepository
+	cache         MessageCache
+	channelRepo   ChannelRepository
+	channelCache  ChannelCache
+	memberRepo    MemberRepository
+	memberCache   MemberCache
+	userRepo      UserRepository
+	userCache     UserCache
+	reactionRepo  ReactionRepository
+	reactionCache ReactionCache
+	outboxRepo    OutboxRepository
+	tx            TX
 }
 
 func NewMessageService(
@@ -53,20 +55,24 @@ func NewMessageService(
 	channelCache ChannelCache,
 	memberRepo MemberRepository,
 	memberCache MemberCache,
+	reactionRepo ReactionRepository,
+	reactionCache ReactionCache,
 	userRepo UserRepository,
 	userCache UserCache,
 	tx TX,
 ) *MessageService {
 	return &MessageService{
-		repo:         repo,
-		cache:        cache,
-		channelRepo:  channelRepo,
-		channelCache: channelCache,
-		memberRepo:   memberRepo,
-		memberCache:  memberCache,
-		userRepo:     userRepo,
-		userCache:    userCache,
-		tx:           tx,
+		repo:          repo,
+		cache:         cache,
+		channelRepo:   channelRepo,
+		channelCache:  channelCache,
+		memberRepo:    memberRepo,
+		memberCache:   memberCache,
+		reactionRepo:  reactionRepo,
+		reactionCache: reactionCache,
+		userRepo:      userRepo,
+		userCache:     userCache,
+		tx:            tx,
 	}
 }
 
@@ -220,7 +226,7 @@ func (s *MessageService) Create(
 }
 
 // ListBefore fetches older messages when scrolling up
-func (s *ChannelService) ListBefore(
+func (s *MessageService) ListBefore(
 	ctx context.Context,
 	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
 ) ([]MessageView, error) {
@@ -246,7 +252,7 @@ func (s *ChannelService) ListBefore(
 	}
 
 	// 2. Fetch older messages
-	messages, err := s.messageRepo.ListBeforeByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
+	messages, err := s.repo.ListBeforeByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +306,7 @@ func (s *ChannelService) ListBefore(
 }
 
 // ListAfter fetches newer messages when scrolling down or catching up
-func (s *ChannelService) ListAfter(
+func (s *MessageService) ListAfter(
 	ctx context.Context,
 	rawUserID, rawChannelID, rawAfterID uuid.UUID,
 ) ([]MessageView, error) {
@@ -326,7 +332,7 @@ func (s *ChannelService) ListAfter(
 	}
 
 	// 2. Fetch newer messages
-	messages, err := s.messageRepo.ListAfterByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
+	messages, err := s.repo.ListAfterByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +385,93 @@ func (s *ChannelService) ListAfter(
 	return HydrateMessages(messages, reactionMap, userMap, userID), nil
 }
 
-// List pinned at
+// ListPinned fetches pinned messages for a channel
+func (s *ChannelService) ListPinned(
+	ctx context.Context,
+	rawActorID, rawChannelID uuid.UUID,
+	rawCursorID *uuid.UUID,
+	rawCursorPinnedAt *time.Time,
+) ([]MessagePinnedView, error) {
+	if (rawCursorID == nil) != (rawCursorPinnedAt == nil) {
+		return nil, errs.InvalidArgument("Both cursor_id and cursor_pinned_at must be provided together.")
+	}
+
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	cursorID, err := fields.ParseID("cursor_id", ptr.From(rawCursorID))
+	if err != nil {
+		return nil, err
+	}
+
+	cursorPinnedAt := fields.NewTimestamp(ptr.From(rawCursorPinnedAt))
+
+	// 1. Authorization: Verify user is a member of the channel
+	_, err = s.memberRepo.Get(ctx, channelID, actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Fetch pinned messages (using a reasonable default limit like 50 or MessageListLimit)
+	messages, err := s.messageRepo.ListPinnedByChannelID(
+		ctx,
+		channelID,
+		cursorID,
+		cursorPinnedAt,
+		MessageListLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(messages) == 0 {
+		return []MessagePinnedView{}, nil
+	}
+
+	// 3. Collect author IDs for hydration
+	userIDMap := make(map[fields.ID]struct{}, len(messages))
+	for _, msg := range messages {
+		if id := msg.AuthorID(); id.IsValid() {
+			userIDMap[id] = struct{}{}
+		}
+	}
+	userIDs := make([]fields.ID, 0, len(userIDMap))
+	for id := range userIDMap {
+		userIDs = append(userIDs, id)
+	}
+
+	// 4. Batch fetch users
+	userMap, err := s.userRepo.GetBatch(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Hydrate and map to MessagePinnedView
+	pinnedViews := make([]MessagePinnedView, 0, len(messages))
+	for _, msg := range messages {
+		u, ok := userMap[msg.AuthorID()]
+		if !ok || u == nil {
+			u = &user.User{}
+		}
+
+		pinnedViews = append(pinnedViews, MessagePinnedView{
+			id:          msg.ID(),
+			avatarURL:   u.AvatarURL(),
+			displayName: u.DisplayName(),
+			content:     msg.Content(),
+			createdAt:   msg.CreatedAt(),
+		})
+	}
+
+	return pinnedViews, nil
+}
 
 // Update content
 

@@ -120,12 +120,12 @@ LIMIT $3::int
 
 type MessageListAfterByChannelIDParams struct {
 	ChannelID pgtype.UUID `json:"channel_id"`
-	AfterID   pgtype.UUID `json:"after_id"`
+	CursorID  pgtype.UUID `json:"cursor_id"`
 	LimitVal  int32       `json:"limit_val"`
 }
 
 func (q *Queries) MessageListAfterByChannelID(ctx context.Context, arg MessageListAfterByChannelIDParams) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListAfterByChannelID, arg.ChannelID, arg.AfterID, arg.LimitVal)
+	rows, err := q.db.Query(ctx, messageListAfterByChannelID, arg.ChannelID, arg.CursorID, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -264,12 +264,12 @@ LIMIT $3::int
 
 type MessageListBeforeByChannelIDParams struct {
 	ChannelID pgtype.UUID `json:"channel_id"`
-	BeforeID  pgtype.UUID `json:"before_id"`
+	CursorID  pgtype.UUID `json:"cursor_id"`
 	LimitVal  int32       `json:"limit_val"`
 }
 
 func (q *Queries) MessageListBeforeByChannelID(ctx context.Context, arg MessageListBeforeByChannelIDParams) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListBeforeByChannelID, arg.ChannelID, arg.BeforeID, arg.LimitVal)
+	rows, err := q.db.Query(ctx, messageListBeforeByChannelID, arg.ChannelID, arg.CursorID, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -310,19 +310,30 @@ FROM
 WHERE
     channel_id = $1::uuid
     AND pinned_at IS NOT NULL
+    AND ($2::uuid IS NULL
+        OR (pinned_at,
+            id) <($3::timestamptz,
+            $2::uuid))
 ORDER BY
     pinned_at DESC,
     id DESC
-LIMIT $2::int
+LIMIT $4::int
 `
 
 type MessageListPinnedByChannelIDParams struct {
-	ChannelID pgtype.UUID `json:"channel_id"`
-	LimitVal  int32       `json:"limit_val"`
+	ChannelID      pgtype.UUID        `json:"channel_id"`
+	CursorID       pgtype.UUID        `json:"cursor_id"`
+	CursorPinnedAt pgtype.Timestamptz `json:"cursor_pinned_at"`
+	LimitVal       int32              `json:"limit_val"`
 }
 
 func (q *Queries) MessageListPinnedByChannelID(ctx context.Context, arg MessageListPinnedByChannelIDParams) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListPinnedByChannelID, arg.ChannelID, arg.LimitVal)
+	rows, err := q.db.Query(ctx, messageListPinnedByChannelID,
+		arg.ChannelID,
+		arg.CursorID,
+		arg.CursorPinnedAt,
+		arg.LimitVal,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -88,6 +88,10 @@ FROM
 WHERE
     channel_id = @channel_id::uuid
     AND pinned_at IS NOT NULL
+    AND (@cursor_id::uuid IS NULL
+        OR (pinned_at,
+            id) <(@cursor_pinned_at::timestamptz,
+            @cursor_id::uuid))
 ORDER BY
     pinned_at DESC,
     id DESC

@@ -43,6 +43,14 @@ type MessageView struct {
 	reactions          []ReactionView
 }
 
+type MessagePinnedView struct {
+	id          fields.ID
+	avatarURL   fields.URL
+	displayName user.DisplayName
+	content     MessageContent
+	createdAt   fields.Timestamp
+}
+
 func (m *Message) ID() fields.ID                 { return m.id }
 func (m *Message) ChannelID() fields.ID          { return m.channelID }
 func (m *Message) AuthorID() fields.ID           { return m.authorID }

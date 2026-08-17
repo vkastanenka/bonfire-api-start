@@ -77,7 +77,7 @@ func (r *MessageRepository) ListBeforeByChannelID(
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
-		BeforeID:  db.ToUUID(cursorID.UUID()),
+		CursorID:  db.ToUUID(cursorID.UUID()),
 		LimitVal:  limit,
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func (r *MessageRepository) ListAfterByChannelID(
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
-		AfterID:   db.ToUUID(cursorID.UUID()),
+		CursorID:  db.ToUUID(cursorID.UUID()),
 		LimitVal:  limit,
 	})
 	if err != nil {
@@ -107,11 +107,15 @@ func (r *MessageRepository) ListAfterByChannelID(
 func (r *MessageRepository) ListPinnedByChannelID(
 	ctx context.Context,
 	channelID fields.ID,
+	cursorID fields.ID,
+	cursorPinnedAt fields.Timestamp,
 	limit int32,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListPinnedByChannelID(ctx, db.MessageListPinnedByChannelIDParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		LimitVal:  limit,
+		ChannelID:      db.ToUUID(channelID.UUID()),
+		CursorID:       db.ToUUIDPtr(cursorID.UUIDPtr()),
+		CursorPinnedAt: db.ToTimestamptzPtr(cursorPinnedAt.TimePtr()),
+		LimitVal:       limit,
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
