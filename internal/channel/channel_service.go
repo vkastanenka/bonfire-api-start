@@ -20,6 +20,7 @@ type ChannelRepository interface {
 	Create(ctx context.Context, ch *Channel) (*Channel, error)
 	Delete(ctx context.Context, id fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
+	GetForUpdate(ctx context.Context, id fields.ID) (*Channel, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Channel, error)
 	UpdateGroup(ctx context.Context, id fields.ID, name ChannelName, iconURL fields.URL, updatedAt fields.Timestamp) (*Channel, error)
 	UpdateLastMessage(ctx context.Context, id fields.ID, lastMessageID fields.ID, lastMessageAt fields.Timestamp, updatedAt fields.Timestamp) (*Channel, error)
@@ -103,7 +104,7 @@ func NewChannelService(
 
 func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, rawMemberIDs []uuid.UUID) error {
 	if len(rawMemberIDs) > ChannelMaxPeers {
-		return errs.InvalidArgument(fmt.Sprintf("Member list cannot exceed %d items.", ChannelMaxPeers))
+		return errs.InvalidArgument(fmt.Sprintf("Peer list cannot exceed %d items.", ChannelMaxPeers))
 	}
 
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
@@ -187,7 +188,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreated{})
+		_, err = s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{})
 		if err != nil {
 			return err
 		}

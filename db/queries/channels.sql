@@ -12,6 +12,15 @@ FROM
 WHERE
     id = @id::uuid;
 
+-- name: ChannelGetForUpdate :one
+SELECT
+    channels.*
+FROM
+    channels
+WHERE
+    id = @id::uuid
+FOR UPDATE;
+
 -- name: ChannelGetBatch :many
 SELECT
     channels.*
