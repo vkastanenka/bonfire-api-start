@@ -17,6 +17,7 @@ type MemberRepository interface {
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	IncrementBatchMentionCount(ctx context.Context, channelID fields.ID, userIDs []fields.ID, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*Member, error)
+	CountByChannel(ctx context.Context, channelID fields.ID) (int64, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)
 	UpdateLastReadMessage(ctx context.Context, channelID fields.ID, userID fields.ID, lastReadMessageID fields.ID, lastReadMessageAt fields.Timestamp, updatedAt fields.Timestamp, mentionCount *int32) (*Member, error)
 	UpdateMutedUntil(ctx context.Context, channelID fields.ID, userID fields.ID, mutedUntil fields.Timestamp, updatedAt fields.Timestamp) (*Member, error)
@@ -62,7 +63,12 @@ func NewMemberService(
 	}
 }
 
-func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID uuid.UUID, rawMemberIDs []uuid.UUID) error {
+func (s *MemberService) AddMembers(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID uuid.UUID,
+	rawMemberIDs []uuid.UUID,
+) error {
 	if len(rawMemberIDs) == 0 {
 		return errs.InvalidArgument("Member list cannot be empty.")
 	}
@@ -118,9 +124,6 @@ func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
-		}
-		if ch == nil {
-			return errs.NotFound("Channel not found.")
 		}
 
 		// Fetch existing channel members within tx
@@ -245,6 +248,67 @@ func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID
 	return nil
 }
 
+func (s *MemberService) CloseDirect(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID uuid.UUID,
+) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return err
+	}
+
+	ch, err := s.channelRepo.Get(ctx, channelID)
+	if err != nil {
+		return err
+	}
+
+	if ch.Type() != NewChannelType(ChannelTypeDirect) {
+		return errs.InvalidArgument("Only direct channels can be closed or hidden.").
+			Reason("INVALID_CHANNEL_TYPE")
+	}
+
+	now := fields.NewTimestamp(time.Now())
+	isVisible := false
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		member, err := s.repo.UpdateIsVisible(
+			txCtx,
+			channelID,
+			actorID,
+			isVisible,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		if member == nil {
+			return errs.NotFound("Member not found in channel.")
+		}
+
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMemberUpdateUpdateVisibility,
+			MemberUpdateVisibilitytPayload{},
+		)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *MemberService) UpdateLastReadMessage(
 	ctx context.Context,
 	rawActorID,
@@ -351,7 +415,11 @@ func (s *MemberService) UpdatePinnedAt(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventMemberPinned, MemberUpdatePinnedAtPayload{})
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMemberUpdatePinnedAt,
+			MemberUpdatePinnedAtPayload{},
+		)
 		if err != nil {
 			return err
 		}
@@ -366,8 +434,121 @@ func (s *MemberService) UpdatePinnedAt(
 	return updatedMember, nil
 }
 
-// Update is visible
+func (s *MemberService) UpdateMutedUntil(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID uuid.UUID,
+	rawMutedUntil *time.Time,
+) (*Member, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
 
-// Update muted until
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
 
-// Delete
+	var mutedUntil fields.Timestamp
+	if rawMutedUntil != nil {
+		mutedUntil = fields.NewTimestamp(*rawMutedUntil)
+	}
+
+	now := fields.NewTimestamp(time.Now())
+	var updatedMember *Member
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		member, err := s.repo.UpdateMutedUntil(
+			txCtx,
+			channelID,
+			actorID,
+			mutedUntil,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		if member == nil {
+			return errs.NotFound("Member not found in channel.")
+		}
+
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMemberUpdateMutedUntil,
+			MemberUpdateMutedUntilPayload{},
+		)
+		if err != nil {
+			return err
+		}
+
+		updatedMember = member
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedMember, nil
+}
+
+func (s *MemberService) LeaveGroup(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID uuid.UUID,
+) error {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return err
+	}
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
+		if err != nil {
+			return err
+		}
+
+		if ch.Type() == NewChannelType(ChannelTypeDirect) {
+			return errs.InvalidArgument("Cannot leave a direct message channel.")
+		}
+
+		err = s.repo.Delete(txCtx, channelID, actorID)
+		if err != nil {
+			return err
+		}
+
+		remainingCount, err := s.repo.CountByChannel(txCtx, channelID)
+		if err != nil {
+			return err
+		}
+
+		if remainingCount == 0 {
+			err = s.channelRepo.Delete(txCtx, channelID)
+			if err != nil {
+				return err
+			}
+			// Optional: Publish channel deleted event
+		} else {
+			_, err = s.outboxRepo.Publish(
+				txCtx,
+				EventMemberDelete,
+				MemberDeletePayload{},
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

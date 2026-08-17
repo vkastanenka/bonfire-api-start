@@ -68,6 +68,26 @@ ORDER BY
     channel_id DESC
 LIMIT @limit_val::int;
 
+-- name: ChannelMemberCountByChannel :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    channel_members
+WHERE
+    channel_id = @channel_id::uuid;
+
+-- name: ChannelMemberUpdateIsVisible :one
+UPDATE
+    channel_members
+SET
+    is_visible = @is_visible::boolean,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+    AND user_id = @user_id::uuid
+RETURNING
+    channel_members.*;
+
 -- name: ChannelMemberUpdateLastReadMessage :one
 UPDATE
     channel_members
@@ -105,18 +125,6 @@ UPDATE
     channel_members
 SET
     muted_until = sqlc.narg('muted_until')::timestamptz,
-    updated_at = @updated_at::timestamptz
-WHERE
-    channel_id = @channel_id::uuid
-    AND user_id = @user_id::uuid
-RETURNING
-    channel_members.*;
-
--- name: ChannelMemberUpdateIsVisible :one
-UPDATE
-    channel_members
-SET
-    is_visible = @is_visible::boolean,
     updated_at = @updated_at::timestamptz
 WHERE
     channel_id = @channel_id::uuid

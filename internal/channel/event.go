@@ -1,18 +1,24 @@
 package channel
 
 const (
-	EventChannelCreated              = "channel.created"
-	EventChannelUpdated              = "channel.updated"
-	EventMemberUpdateLastReadMessage = "channel.member_update_last_read_message"
-	EventMemberPinned                = "channel.member_pinned_at"
-	EventMembersAdded                = "channel.members_added"
+	EventChannelCreated               = "channel.created"
+	EventChannelUpdated               = "channel.updated"
+	EventMemberUpdateUpdateVisibility = "channel.member_update_visibility"
+	EventMemberUpdateLastReadMessage  = "channel.member_update_last_read_message"
+	EventMemberUpdatePinnedAt         = "channel.member_update_pinned_at"
+	EventMemberUpdateMutedUntil       = "channel.member_update_muted_until"
+	EventMemberDelete                 = "channel.member_delete"
+	EventMembersAdded                 = "channel.members_added"
 )
 
 type ChannelCreatedPayload struct{}
 type ChannelUpdatedPayload struct{}
 
+type MemberUpdateVisibilitytPayload struct{}
 type MemberUpdateLastReadMessagePayload struct{}
 type MemberUpdatePinnedAtPayload struct{}
+type MemberUpdateMutedUntilPayload struct{}
+type MemberDeletePayload struct{}
 type MembersAddedPayload struct{}
 
 // type DeletedPayload struct {

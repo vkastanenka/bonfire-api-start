@@ -144,6 +144,15 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID field
 	return members, nil
 }
 
+func (r *MemberRepository) CountByChannel(ctx context.Context, channelID fields.ID) (int64, error) {
+	count, err := r.store.ChannelMemberCountByChannel(ctx, db.ToUUID(channelID.UUID()))
+	if err != nil {
+		return 0, r.store.Err(err)
+	}
+
+	return count, nil
+}
+
 func (r *MemberRepository) UpdateLastReadMessage(
 	ctx context.Context,
 	channelID, userID, lastReadMessageID fields.ID,
