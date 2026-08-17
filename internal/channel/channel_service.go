@@ -40,6 +40,7 @@ type RelationRepository interface {
 }
 
 type UserRepository interface {
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
 }
 
@@ -358,8 +359,8 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 	}
 
 	// Hydrate Views
-	memberViews := s.hydrateMembers(members, userMap, presenceMap)
-	messageViews := s.hydrateMessages(messages, reactionMap, userMap, userID)
+	memberViews := HydrateMembers(members, userMap, presenceMap)
+	messageViews := HydrateMessages(messages, reactionMap, userMap, userID)
 
 	// ==========================================
 	// CACHING ARCHITECTURE CHECKLIST FOR Get()
@@ -386,7 +387,7 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 	return ch, memberViews, messageViews, nil
 }
 
-func (s *ChannelService) hydrateMembers(
+func HydrateMembers(
 	members []*Member,
 	userMap map[fields.ID]*user.User,
 	presenceMap map[fields.ID]presence.Presence,
@@ -413,7 +414,59 @@ func (s *ChannelService) hydrateMembers(
 	return views
 }
 
-func (s *ChannelService) hydrateMessages(
+func HydrateMessage(
+	msg *Message,
+	reactions []*Reaction,
+	author *user.User,
+	currentUserID fields.ID,
+) MessageView {
+	if author == nil {
+		author = &user.User{}
+	}
+
+	emojiCounts := make(map[ReactionEmoji][]*Reaction)
+	for _, r := range reactions {
+		emojiCounts[r.Emoji()] = append(emojiCounts[r.Emoji()], r)
+	}
+
+	reactionsView := make([]ReactionView, 0, len(emojiCounts))
+	for emoji, list := range emojiCounts {
+		isReacted := false
+		for _, r := range list {
+			if r.UserID() == currentUserID {
+				isReacted = true
+				break
+			}
+		}
+		reactionsView = append(reactionsView, ReactionView{
+			emoji:     emoji,
+			count:     len(list),
+			isReacted: isReacted,
+		})
+	}
+
+	sort.Slice(reactionsView, func(i, j int) bool {
+		return reactionsView[i].emoji.String() < reactionsView[j].emoji.String()
+	})
+
+	return MessageView{
+		id:                 msg.ID(),
+		authorID:           msg.AuthorID(),
+		displayName:        author.DisplayName(),
+		avatarURL:          author.AvatarURL(),
+		msgType:            msg.Type(),
+		content:            msg.Content(),
+		systemMetadata:     msg.SystemMetadata(),
+		replyToMessageID:   msg.ReplyToMessageID(),
+		forwardedMessageID: msg.ForwardedMessageID(),
+		forwardedChannelID: msg.ForwardedChannelID(),
+		createdAt:          msg.CreatedAt(),
+		editedAt:           msg.EditedAt(),
+		reactions:          reactionsView,
+	}
+}
+
+func HydrateMessages(
 	messages []*Message,
 	reactionMap map[fields.ID][]*Reaction,
 	userMap map[fields.ID]*user.User,
@@ -421,52 +474,12 @@ func (s *ChannelService) hydrateMessages(
 ) []MessageView {
 	views := make([]MessageView, 0, len(messages))
 	for _, msg := range messages {
-		u, ok := userMap[msg.AuthorID()]
-		if !ok || u == nil {
-			u = &user.User{}
-		}
-
-		rxList := reactionMap[msg.ID()]
-		emojiCounts := make(map[ReactionEmoji][]*Reaction)
-		for _, r := range rxList {
-			emojiCounts[r.Emoji()] = append(emojiCounts[r.Emoji()], r)
-		}
-
-		reactionsView := make([]ReactionView, 0, len(emojiCounts))
-		for emoji, list := range emojiCounts {
-			isReacted := false
-			for _, r := range list {
-				if r.UserID() == currentUserID {
-					isReacted = true
-					break
-				}
-			}
-			reactionsView = append(reactionsView, ReactionView{
-				emoji:     emoji,
-				count:     len(list),
-				isReacted: isReacted,
-			})
-		}
-
-		sort.Slice(reactionsView, func(i, j int) bool {
-			return reactionsView[i].emoji.String() < reactionsView[j].emoji.String()
-		})
-
-		views = append(views, MessageView{
-			id:                 msg.ID(),
-			authorID:           msg.AuthorID(),
-			displayName:        u.DisplayName(),
-			avatarURL:          u.AvatarURL(),
-			msgType:            msg.Type(),
-			content:            msg.Content(),
-			systemMetadata:     msg.SystemMetadata(),
-			replyToMessageID:   msg.ReplyToMessageID(),
-			forwardedMessageID: msg.ForwardedMessageID(),
-			forwardedChannelID: msg.ForwardedChannelID(),
-			createdAt:          msg.CreatedAt(),
-			editedAt:           msg.EditedAt(),
-			reactions:          reactionsView,
-		})
+		views = append(views, HydrateMessage(
+			msg,
+			reactionMap[msg.ID()],
+			userMap[msg.AuthorID()],
+			currentUserID,
+		))
 	}
 	return views
 }
@@ -726,6 +739,9 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelI
 		if err != nil {
 			return err
 		}
+
+		// TODO: Create system message for name change if not null
+		// TODO: Create system message for icon change if not null
 
 		updatedChannel = channelRow
 		return nil

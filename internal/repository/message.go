@@ -72,12 +72,12 @@ func (r *MessageRepository) ListAroundByChannelID(
 
 func (r *MessageRepository) ListBeforeByChannelID(
 	ctx context.Context,
-	channelID, beforeID fields.ID,
+	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
-		BeforeID:  db.ToUUID(beforeID.UUID()),
+		BeforeID:  db.ToUUID(cursorID.UUID()),
 		LimitVal:  limit,
 	})
 	if err != nil {
@@ -89,12 +89,12 @@ func (r *MessageRepository) ListBeforeByChannelID(
 
 func (r *MessageRepository) ListAfterByChannelID(
 	ctx context.Context,
-	channelID, afterID fields.ID,
+	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
-		AfterID:   db.ToUUID(afterID.UUID()),
+		AfterID:   db.ToUUID(cursorID.UUID()),
 		LimitVal:  limit,
 	})
 	if err != nil {

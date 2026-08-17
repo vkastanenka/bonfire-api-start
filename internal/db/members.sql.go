@@ -212,6 +212,31 @@ func (q *Queries) ChannelMemberIncrementBatchMentionCount(ctx context.Context, a
 	return err
 }
 
+const channelMemberIncrementPeersMentionCount = `-- name: ChannelMemberIncrementPeersMentionCount :exec
+UPDATE
+    channel_members
+SET
+    mention_count = mention_count + 1,
+    is_visible = TRUE,
+    updated_at = $1::timestamptz
+WHERE
+    channel_id = $2::uuid
+    AND user_id != $3::uuid
+    AND (muted_until IS NULL
+        OR muted_until < CURRENT_TIMESTAMP)
+`
+
+type ChannelMemberIncrementPeersMentionCountParams struct {
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ChannelID pgtype.UUID        `json:"channel_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+}
+
+func (q *Queries) ChannelMemberIncrementPeersMentionCount(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountParams) error {
+	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCount, arg.UpdatedAt, arg.ChannelID, arg.UserID)
+	return err
+}
+
 const channelMemberListVisibleByUserID = `-- name: ChannelMemberListVisibleByUserID :many
 SELECT
     channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible

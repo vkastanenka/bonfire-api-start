@@ -16,6 +16,7 @@ type MemberRepository interface {
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	IncrementBatchMentionCount(ctx context.Context, channelID fields.ID, userIDs []fields.ID, updatedAt fields.Timestamp) error
+	IncrementPeersMentionCount(ctx context.Context, channelID fields.ID, excludeUserID fields.ID, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*Member, error)
 	CountByChannel(ctx context.Context, channelID fields.ID) (int64, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)
@@ -228,6 +229,8 @@ func (s *MemberService) AddMembers(
 		if err != nil {
 			return err
 		}
+
+		// TODO: Create system message that user have been added by actor
 
 		// Publish outbox event (If upgraded to group, notify with the new group channel ID)
 		_, err = s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
@@ -543,6 +546,8 @@ func (s *MemberService) LeaveGroup(
 				return err
 			}
 		}
+
+		// TODO: Send system message that user left
 
 		return nil
 	})

@@ -256,6 +256,24 @@ func (r *MemberRepository) IncrementBatchMentionCount(
 	return nil
 }
 
+func (r *MemberRepository) IncrementPeersMentionCount(
+	ctx context.Context,
+	channelID fields.ID,
+	excludeUserID fields.ID,
+	updatedAt fields.Timestamp,
+) error {
+	err := r.store.ChannelMemberIncrementPeersMentionCount(ctx, db.ChannelMemberIncrementPeersMentionCountParams{
+		ChannelID: db.ToUUID(channelID.UUID()),
+		UserID:    db.ToUUID(excludeUserID.UUID()),
+		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+	})
+	if err != nil {
+		return r.store.Err(err)
+	}
+
+	return nil
+}
+
 func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.ID) error {
 	err := r.store.ChannelMemberDelete(ctx, db.ChannelMemberDeleteParams{
 		ChannelID: db.ToUUID(channelID.UUID()),

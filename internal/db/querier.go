@@ -25,6 +25,7 @@ type Querier interface {
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
 	ChannelMemberGetBatchByChannelIDs(ctx context.Context, channelIds []pgtype.UUID) ([]ChannelMember, error)
 	ChannelMemberIncrementBatchMentionCount(ctx context.Context, arg ChannelMemberIncrementBatchMentionCountParams) error
+	ChannelMemberIncrementPeersMentionCount(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountParams) error
 	ChannelMemberListVisibleByUserID(ctx context.Context, arg ChannelMemberListVisibleByUserIDParams) ([]ChannelMember, error)
 	ChannelMemberUpdateIsVisible(ctx context.Context, arg ChannelMemberUpdateIsVisibleParams) (ChannelMember, error)
 	ChannelMemberUpdateLastReadMessage(ctx context.Context, arg ChannelMemberUpdateLastReadMessageParams) (ChannelMember, error)
