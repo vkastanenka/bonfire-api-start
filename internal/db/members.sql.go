@@ -296,11 +296,17 @@ UPDATE
 SET
     last_read_message_id = $1::uuid,
     last_read_message_at = $2::timestamptz,
-    mention_count = COALESCE($3::int, mention_count),
+    mention_count = CASE WHEN $3::int IS NOT NULL THEN
+        $3::int
+    ELSE
+        mention_count
+    END,
     updated_at = $4::timestamptz
 WHERE
     channel_id = $5::uuid
     AND user_id = $6::uuid
+    AND (last_read_message_at IS NULL
+        OR $2::timestamptz >= last_read_message_at)
 RETURNING
     channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
 `

@@ -18,6 +18,7 @@ type Querier interface {
 	ChannelDelete(ctx context.Context, id pgtype.UUID) error
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
 	ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Channel, error)
+	ChannelGetForUpdate(ctx context.Context, id pgtype.UUID) (Channel, error)
 	ChannelMemberCreateBatch(ctx context.Context, payload []byte) ([]ChannelMember, error)
 	ChannelMemberDelete(ctx context.Context, arg ChannelMemberDeleteParams) error
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)

@@ -113,7 +113,6 @@ func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID
 	now := fields.NewTimestamp(time.Now())
 
 	// 3. Execute Transaction
-	// 3. Execute Transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Lock channel for update to avoid race conditions on group size
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
@@ -246,12 +245,132 @@ func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID
 	return nil
 }
 
+func (s *MemberService) UpdateLastReadMessage(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID,
+	rawLastReadMessageID uuid.UUID,
+	rawLastReadAt time.Time,
+) (*Member, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	lastReadMessageID, err := fields.ParseRequiredID("last_read_message_id", rawLastReadMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	ch, err := s.channelRepo.Get(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	var mentionCount *int32
+
+	if ch.LastMessageID().Equals(lastReadMessageID) {
+		zero := int32(0)
+		mentionCount = &zero
+	}
+
+	var updatedMember *Member
+	lastReadMessageAt := fields.NewTimestamp(rawLastReadAt)
+	now := fields.NewTimestamp(time.Now())
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		member, err := s.repo.UpdateLastReadMessage(
+			txCtx,
+			channelID,
+			actorID,
+			lastReadMessageID,
+			lastReadMessageAt,
+			now,
+			mentionCount,
+		)
+		if err != nil {
+			return err
+		}
+		if member == nil {
+			return errs.NotFound("Member not found in channel.")
+		}
+
+		_, err = s.outboxRepo.Publish(txCtx, EventMemberUpdateLastReadMessage, MemberUpdateLastReadMessagePayload{})
+		if err != nil {
+			return err
+		}
+
+		updatedMember = member
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedMember, nil
+}
+
+func (s *MemberService) UpdatePinnedAt(
+	ctx context.Context,
+	rawActorID,
+	rawChannelID uuid.UUID,
+	rawPinnedAt *time.Time,
+) (*Member, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	var pinnedAt fields.Timestamp
+	if rawPinnedAt != nil {
+		pinnedAt = fields.NewTimestamp(*rawPinnedAt)
+	}
+
+	now := fields.NewTimestamp(time.Now())
+	var updatedMember *Member
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		member, err := s.repo.UpdatePinnedAt(
+			txCtx,
+			channelID,
+			actorID,
+			pinnedAt,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		if member == nil {
+			return errs.NotFound("Member not found in channel.")
+		}
+
+		_, err = s.outboxRepo.Publish(txCtx, EventMemberPinned, MemberUpdatePinnedAtPayload{})
+		if err != nil {
+			return err
+		}
+
+		updatedMember = member
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedMember, nil
+}
+
 // Update is visible
 
-// Update last read message
-
 // Update muted until
-
-// Update pinned at
 
 // Delete

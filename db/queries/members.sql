@@ -74,11 +74,17 @@ UPDATE
 SET
     last_read_message_id = @last_read_message_id::uuid,
     last_read_message_at = @last_read_message_at::timestamptz,
-    mention_count = COALESCE(sqlc.narg('mention_count')::int, mention_count),
+    mention_count = CASE WHEN sqlc.narg('mention_count')::int IS NOT NULL THEN
+        sqlc.narg('mention_count')::int
+    ELSE
+        mention_count
+    END,
     updated_at = @updated_at::timestamptz
 WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid
+    AND (last_read_message_at IS NULL
+        OR @last_read_message_at::timestamptz >= last_read_message_at)
 RETURNING
     channel_members.*;
 

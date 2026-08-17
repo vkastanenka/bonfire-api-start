@@ -1,14 +1,18 @@
 package channel
 
 const (
-	EventChannelCreated = "channel.created"
-	EventChannelUpdated = "channel.updated"
-	EventMembersAdded   = "channel.members_added"
+	EventChannelCreated              = "channel.created"
+	EventChannelUpdated              = "channel.updated"
+	EventMemberUpdateLastReadMessage = "channel.member_update_last_read_message"
+	EventMemberPinned                = "channel.member_pinned_at"
+	EventMembersAdded                = "channel.members_added"
 )
 
 type ChannelCreatedPayload struct{}
 type ChannelUpdatedPayload struct{}
 
+type MemberUpdateLastReadMessagePayload struct{}
+type MemberUpdatePinnedAtPayload struct{}
 type MembersAddedPayload struct{}
 
 // type DeletedPayload struct {

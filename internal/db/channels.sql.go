@@ -125,6 +125,32 @@ func (q *Queries) ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Cha
 	return items, nil
 }
 
+const channelGetForUpdate = `-- name: ChannelGetForUpdate :one
+SELECT
+    channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
+FROM
+    channels
+WHERE
+    id = $1::uuid
+FOR UPDATE
+`
+
+func (q *Queries) ChannelGetForUpdate(ctx context.Context, id pgtype.UUID) (Channel, error) {
+	row := q.db.QueryRow(ctx, channelGetForUpdate, id)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.LastMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastMessageAt,
+		&i.Type,
+		&i.Name,
+		&i.IconURL,
+	)
+	return i, err
+}
+
 const channelUpdateGroup = `-- name: ChannelUpdateGroup :one
 UPDATE
     channels
