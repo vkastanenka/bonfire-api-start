@@ -10,7 +10,9 @@ import (
 
 type ReactionRepository interface {
 	Create(ctx context.Context, rx *Reaction) (*Reaction, error)
+	CountByEmoji(ctx context.Context, messageID fields.ID, emoji ReactionEmoji) (int, error)
 	Delete(ctx context.Context, messageID fields.ID, userID fields.ID, emoji ReactionEmoji) error
+	Get(ctx context.Context, messageID fields.ID, userID fields.ID, emoji ReactionEmoji) (*Reaction, error)
 	GetBatchByMessageIDs(ctx context.Context, messageIDs []fields.ID) (map[fields.ID][]*Reaction, error)
 }
 

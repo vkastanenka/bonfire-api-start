@@ -36,6 +36,23 @@ func (r *ReactionRepository) Create(ctx context.Context, rx *channel.Reaction) (
 	return reactionFromRow(row)
 }
 
+func (r *ReactionRepository) Get(
+	ctx context.Context,
+	messageID, userID fields.ID,
+	emoji channel.ReactionEmoji,
+) (*channel.Reaction, error) {
+	row, err := r.store.ReactionGet(ctx, db.ReactionGetParams{
+		MessageID: db.ToUUID(messageID.UUID()),
+		UserID:    db.ToUUID(userID.UUID()),
+		Emoji:     emoji.String(),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return reactionFromRow(row)
+}
+
 func (r *ReactionRepository) GetBatchByMessageIDs(
 	ctx context.Context,
 	messageIDs []fields.ID,
@@ -66,6 +83,22 @@ func (r *ReactionRepository) GetBatchByMessageIDs(
 	}
 
 	return reactionMap, nil
+}
+
+func (r *ReactionRepository) CountByEmoji(
+	ctx context.Context,
+	messageID fields.ID,
+	emoji channel.ReactionEmoji,
+) (int, error) {
+	count, err := r.store.ReactionCountByEmoji(ctx, db.ReactionCountByEmojiParams{
+		MessageID: db.ToUUID(messageID.UUID()),
+		Emoji:     emoji.String(),
+	})
+	if err != nil {
+		return 0, r.store.Err(err)
+	}
+
+	return int(count), nil
 }
 
 func (r *ReactionRepository) Delete(ctx context.Context, messageID, userID fields.ID, emoji channel.ReactionEmoji) error {

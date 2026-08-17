@@ -679,4 +679,84 @@ func (s *MessageService) Delete(
 	return nil
 }
 
-// Handle reaction
+// ToggleReaction adds or removes a user's reaction on a message
+func (s *MessageService) ToggleReaction(
+	ctx context.Context,
+	rawActorID, rawMessageID uuid.UUID,
+	rawEmoji string,
+) (*ReactionView, error) {
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	messageID, err := fields.ParseRequiredID("message_id", rawMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	emoji, err := ParseReactionEmoji(rawEmoji)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Fetch target message to resolve ChannelID & verify existence
+	msg, err := s.repo.Get(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Authorization: Verify user is a member of the channel
+	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Check if user already reacted with this emoji
+	existingRx, err := s.reactionRepo.Get(ctx, messageID, actorID, emoji)
+	if err != nil && !errs.IsNotFound(err) {
+		return nil, err
+	}
+
+	wasReacted := existingRx != nil
+	willBeReacted := !wasReacted
+
+	// 4. Execute Write Transaction
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		now := fields.NewTimestamp(time.Now())
+
+		if wasReacted {
+			if txErr := s.reactionRepo.Delete(txCtx, messageID, actorID, emoji); txErr != nil {
+				return txErr
+			}
+		} else {
+			// Add reaction
+			rx := ParseReaction(messageID, actorID, emoji, now)
+			if _, txErr := s.reactionRepo.Create(txCtx, rx); txErr != nil {
+				return txErr
+			}
+		}
+		// Publish real-time event
+		_, txErr := s.outboxRepo.Publish(
+			txCtx,
+			EventReactionToggle,
+			ReactionTogglePayload{},
+		)
+		return txErr
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := s.reactionRepo.CountByEmoji(ctx, messageID, emoji)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Return precise, lightweight view
+	return &ReactionView{
+		emoji:     emoji,
+		count:     count,
+		isReacted: willBeReacted,
+	}, nil
+}

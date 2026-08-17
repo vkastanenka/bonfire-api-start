@@ -51,8 +51,10 @@ type Querier interface {
 	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error
 	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
+	ReactionCountByEmoji(ctx context.Context, arg ReactionCountByEmojiParams) (int64, error)
 	ReactionCreate(ctx context.Context, arg ReactionCreateParams) (MessageReaction, error)
 	ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error
+	ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error)
 	ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error)
 	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error
 	RelationGet(ctx context.Context, arg RelationGetParams) (Relation, error)

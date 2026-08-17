@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const reactionCountByEmoji = `-- name: ReactionCountByEmoji :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    message_reactions
+WHERE
+    message_id = $1::uuid
+    AND emoji = $2::text
+`
+
+type ReactionCountByEmojiParams struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionCountByEmoji(ctx context.Context, arg ReactionCountByEmojiParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reactionCountByEmoji, arg.MessageID, arg.Emoji)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const reactionCreate = `-- name: ReactionCreate :one
 INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
     VALUES ($1::uuid, $2::uuid, $3::text, $4::timestamptz)
@@ -58,6 +80,35 @@ type ReactionDeleteParams struct {
 func (q *Queries) ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error {
 	_, err := q.db.Exec(ctx, reactionDelete, arg.MessageID, arg.UserID, arg.Emoji)
 	return err
+}
+
+const reactionGet = `-- name: ReactionGet :one
+SELECT
+    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
+FROM
+    message_reactions
+WHERE
+    message_id = $1::uuid
+    AND user_id = $2::uuid
+    AND emoji = $3::text
+`
+
+type ReactionGetParams struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error) {
+	row := q.db.QueryRow(ctx, reactionGet, arg.MessageID, arg.UserID, arg.Emoji)
+	var i MessageReaction
+	err := row.Scan(
+		&i.MessageID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Emoji,
+	)
+	return i, err
 }
 
 const reactionGetBatchByMessageIDs = `-- name: ReactionGetBatchByMessageIDs :many
