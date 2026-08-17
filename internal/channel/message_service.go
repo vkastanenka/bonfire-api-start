@@ -560,8 +560,8 @@ func (s *MessageService) UpdateContent(
 		// 7. Publish Outbox Event for real-time consumers (using txCtx)
 		_, txErr = s.outboxRepo.Publish(
 			txCtx,
-			EventMessageContentUpdated,
-			MessageContentUpdatedPayload{},
+			EventMessageUpdateContent,
+			MessageUpdateContentPayload{},
 		)
 		if txErr != nil {
 			return txErr
@@ -578,7 +578,79 @@ func (s *MessageService) UpdateContent(
 	return &view, nil
 }
 
-// Update pinned at
+// UpdatePinnedAt pins or unpins a message in a channel
+func (s *MessageService) UpdatePinnedAt(
+	ctx context.Context,
+	rawActorID, rawMessageID uuid.UUID,
+	isPinned bool,
+) (*Message, error) {
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	messageID, err := fields.ParseRequiredID("message_id", rawMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	msg, err := s.repo.Get(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	var message *Message
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		now := fields.NewTimestamp(time.Now())
+
+		pinnedAt := fields.NewTimestamp(time.Time{})
+		if isPinned {
+			pinnedAt = now
+		}
+
+		message, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
+		if err != nil {
+			return err
+		}
+
+		// if isPinned {
+		// 	// e.g., create system message: "[User] pinned a message to this channel."
+		// 	systemMetadata := NewPinnedSystemMetadata(actorID, messageID)
+		// 	_, txErr = s.repo.CreateSystemMessage(
+		// 		txCtx,
+		// 		msg.ChannelID(),
+		// 		MessageTypeSystemPinned,
+		// 		systemMetadata,
+		// 		now,
+		// 	)
+		// 	if txErr != nil {
+		// 		return txErr
+		// 	}
+		// }
+
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMessageUpdatePinnedAt,
+			MessageUpdatePinnedAtPayload{},
+		)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
 
 // Delete
 

@@ -4,27 +4,29 @@ const (
 	EventChannelCreated               = "channel.created"
 	EventChannelUpdated               = "channel.updated"
 	EventMemberUpdateUpdateVisibility = "channel.member_update_visibility"
+	EventMembersAdded                 = "channel.members_added"
 	EventMemberUpdateLastReadMessage  = "channel.member_update_last_read_message"
 	EventMemberUpdatePinnedAt         = "channel.member_update_pinned_at"
 	EventMemberUpdateMutedUntil       = "channel.member_update_muted_until"
 	EventMemberDelete                 = "channel.member_delete"
-	EventMembersAdded                 = "channel.members_added"
 	EventMessageCreated               = "channel.message_created"
-	EventMessageContentUpdated        = "channel.message_content_updated"
+	EventMessageUpdateContent         = "channel.message_update_content"
+	EventMessageUpdatePinnedAt        = "channel.message_update_pinned_at"
 )
 
 type ChannelCreatedPayload struct{}
 type ChannelUpdatedPayload struct{}
 
+type MembersAddedPayload struct{}
 type MemberUpdateVisibilitytPayload struct{}
 type MemberUpdateLastReadMessagePayload struct{}
 type MemberUpdatePinnedAtPayload struct{}
 type MemberUpdateMutedUntilPayload struct{}
 type MemberDeletePayload struct{}
-type MembersAddedPayload struct{}
 
 type MessageCreatedPayload struct{}
-type MessageContentUpdatedPayload struct{}
+type MessageUpdateContentPayload struct{}
+type MessageUpdatePinnedAtPayload struct{}
 
 // type DeletedPayload struct {
 // 	ChannelID uuid.UUID `json:"channelId"`
