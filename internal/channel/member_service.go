@@ -293,7 +293,7 @@ func (s *MemberService) UpdateLastReadMessage(
 	rawActorID,
 	rawChannelID,
 	rawLastReadMessageID uuid.UUID,
-	rawLastReadAt time.Time,
+	rawLastReadAt time.Time, // TODO: Remove, handle in service
 ) (*Member, error) {
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {

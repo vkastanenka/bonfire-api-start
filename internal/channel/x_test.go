@@ -1,9 +1,6 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
 	"context"
 	"time"
 
@@ -16,7 +13,6 @@ type channelService interface {
 	GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([]ChannelSidebarView, error)
 	ListPinned(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawCursorID *uuid.UUID, rawCursorPinnedAt *time.Time) ([]MessagePinnedView, error)
 	UpdateGroup(ctx context.Context, rawUserID uuid.UUID, rawChannelID uuid.UUID, rawName *string, rawIconURL *string) (*Channel, error)
-	hydrateSidebarViews(channels []*Channel, membershipMap map[fields.ID]*Member, peerMembersMap map[fields.ID][]*Member, userMap map[fields.ID]*user.User, presenceMap map[fields.ID]presence.Presence) []ChannelSidebarView
 }
 
 type memberService interface {
@@ -37,5 +33,3 @@ type messageService interface {
 	UpdateContent(ctx context.Context, rawActorID uuid.UUID, rawMessageID uuid.UUID, rawContent string) (*Message, error)
 	UpdatePinnedAt(ctx context.Context, rawActorID uuid.UUID, rawMessageID uuid.UUID, isPinned bool) (*Message, error)
 }
-
-// TODO: Add mark unread
