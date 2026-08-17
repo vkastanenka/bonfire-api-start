@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type ChannelRepository interface {
@@ -207,7 +208,6 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 }
 
 func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
-	// Parse inputs
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -218,7 +218,7 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		return nil, nil, nil, err
 	}
 
-	// 1. Get batch channel members grouped by channel ID
+	// 1. Members (Required first for authorization & message anchor ID)
 	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
 	if err != nil {
 		return nil, nil, nil, err
@@ -226,7 +226,6 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 
 	members := memberMap[channelID]
 
-	// Validate channel membership & capture the current member item
 	var currentMember *Member
 	for _, m := range members {
 		if m.UserID() == userID {
@@ -239,58 +238,57 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		return nil, nil, nil, errs.PermissionDenied("You are not a member of this channel.")
 	}
 
-	// 2. Get batch channel by ID
-	channelMap, err := s.repo.GetBatch(ctx, []fields.ID{channelID})
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	// --- PHASE 1: Concurrent Channel + Messages fetch ---
+	var (
+		ch       *Channel
+		messages []*Message
+	)
 
-	ch, ok := channelMap[channelID]
-	if !ok || ch == nil {
-		return nil, nil, nil, errs.NotFound("Channel not found.")
-	}
+	g1, ctx1 := errgroup.WithContext(ctx)
 
-	// 3. Get batch messages around anchor
-	var messages []*Message
-	if ch.LastMessageID().IsValid() {
+	// Fetch Channel
+	g1.Go(func() error {
+		channelMap, err := s.repo.GetBatch(ctx1, []fields.ID{channelID})
+		if err != nil {
+			return err
+		}
+		var ok bool
+		ch, ok = channelMap[channelID]
+		if !ok || ch == nil {
+			return errs.NotFound("Channel not found.")
+		}
+		return nil
+	})
+
+	// Fetch Messages
+	g1.Go(func() error {
+		anchorMessageID := currentMember.LastReadMessageID()
 		beforeLimit := MessageListBeforeLimit
 		afterLimit := MessageListAfterLimit
 
-		anchorMessageID := currentMember.LastReadMessageID()
-		if !anchorMessageID.IsValid() || anchorMessageID.Equals(ch.LastMessageID()) {
-			anchorMessageID = ch.LastMessageID()
+		// Default anchor fallback logic
+		if !anchorMessageID.IsValid() {
 			beforeLimit = MessageListLimit
 			afterLimit = 0
 		}
 
+		var err error
 		messages, err = s.messageRepo.ListAroundByChannelID(
-			ctx,
+			ctx1,
 			channelID,
 			anchorMessageID,
 			beforeLimit,
 			afterLimit,
 		)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+		return err
+	})
+
+	if err := g1.Wait(); err != nil {
+		return nil, nil, nil, err
 	}
 
-	// 4. Get batch message reactions grouped by message ID
-	reactionMap := make(map[fields.ID][]*Reaction)
-	if len(messages) > 0 {
-		messageIDs := make([]fields.ID, len(messages))
-		for i, msg := range messages {
-			messageIDs[i] = msg.ID()
-		}
-
-		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctx, messageIDs)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
-	// 5. Collect unique User IDs for user hydration and presence checks
-	userIDMap := make(map[fields.ID]struct{})
+	// Collect known User IDs from Members & Messages
+	userIDMap := make(map[fields.ID]struct{}, len(members)+len(messages))
 	for _, m := range members {
 		if id := m.UserID(); id.IsValid() {
 			userIDMap[id] = struct{}{}
@@ -301,36 +299,63 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 			userIDMap[id] = struct{}{}
 		}
 	}
-	for _, rxList := range reactionMap {
-		for _, r := range rxList {
-			if id := r.UserID(); id.IsValid() {
-				userIDMap[id] = struct{}{}
-			}
-		}
-	}
 
 	userIDs := make([]fields.ID, 0, len(userIDMap))
 	for id := range userIDMap {
 		userIDs = append(userIDs, id)
 	}
 
-	// 6 & 7. Get batch users and presences
-	userMap := make(map[fields.ID]*user.User)
-	presenceMap := make(map[fields.ID]presence.Presence)
+	// --- PHASE 2: Concurrent Reactions, Users, & Presence fetches ---
+	var (
+		reactionMap map[fields.ID][]*Reaction
+		userMap     map[fields.ID]*user.User
+		presenceMap map[fields.ID]presence.Presence
+	)
 
-	if len(userIDs) > 0 {
-		userMap, err = s.userRepo.GetBatch(ctx, userIDs)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+	g2, ctx2 := errgroup.WithContext(ctx)
 
-		presenceMap, err = s.presenceCache.GetBatch(ctx, userIDs)
-		if err != nil {
-			return nil, nil, nil, err
+	// Fetch Reactions
+	g2.Go(func() error {
+		if len(messages) == 0 {
+			reactionMap = make(map[fields.ID][]*Reaction)
+			return nil
 		}
+		messageIDs := make([]fields.ID, len(messages))
+		for i, msg := range messages {
+			messageIDs[i] = msg.ID()
+		}
+		var err error
+		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctx2, messageIDs)
+		return err
+	})
+
+	// Fetch Users
+	g2.Go(func() error {
+		if len(userIDs) == 0 {
+			userMap = make(map[fields.ID]*user.User)
+			return nil
+		}
+		var err error
+		userMap, err = s.userRepo.GetBatch(ctx2, userIDs)
+		return err
+	})
+
+	// Fetch Presences (Redis/Cache)
+	g2.Go(func() error {
+		if len(userIDs) == 0 {
+			presenceMap = make(map[fields.ID]presence.Presence)
+			return nil
+		}
+		var err error
+		presenceMap, err = s.presenceCache.GetBatch(ctx2, userIDs)
+		return err
+	})
+
+	if err := g2.Wait(); err != nil {
+		return nil, nil, nil, err
 	}
 
-	// 8. Hydrate views
+	// Hydrate Views
 	memberViews := s.hydrateMembers(members, userMap, presenceMap)
 	messageViews := s.hydrateMessages(messages, reactionMap, userMap, userID)
 
