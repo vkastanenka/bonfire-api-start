@@ -478,7 +478,7 @@ func (s *MessageService) UpdateContent(
 	ctx context.Context,
 	rawActorID, rawMessageID uuid.UUID,
 	rawContent string,
-) (*MessageView, error) {
+) (*Message, error) {
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
 	if err != nil {
 		return nil, err
@@ -515,67 +515,32 @@ func (s *MessageService) UpdateContent(
 		return nil, err
 	}
 
-	// 4. Concurrent fetch of Author User profile and Message Reactions for hydration
-	var (
-		author    *user.User
-		reactions []*Reaction
-	)
-
-	g, ctxGrp := errgroup.WithContext(ctx)
-
-	// Fetch author user details (actorID == authorID)
-	g.Go(func() error {
-		var uErr error
-		author, uErr = s.userRepo.Get(ctxGrp, actorID)
-		return uErr
-	})
-
-	// Fetch reactions attached to this message
-	g.Go(func() error {
-		reactionMap, rErr := s.reactionRepo.GetBatchByMessageIDs(ctxGrp, []fields.ID{messageID})
-		if rErr != nil {
-			return rErr
-		}
-		reactions = reactionMap[messageID]
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	// 5. Execute Write Transaction
+	// 4. Execute Write Transaction
 	var updatedMsg *Message
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		now := fields.NewTimestamp(time.Now())
 		var txErr error
 
-		// 6. Update message in DB (using txCtx)
+		// Update message content in DB
 		updatedMsg, txErr = s.repo.UpdateContent(txCtx, messageID, content, now, now)
 		if txErr != nil {
 			return txErr
 		}
 
-		// 7. Publish Outbox Event for real-time consumers (using txCtx)
+		// Publish Outbox Event for WS broadcast to other users
 		_, txErr = s.outboxRepo.Publish(
 			txCtx,
 			EventMessageUpdateContent,
 			MessageUpdateContentPayload{},
 		)
-		if txErr != nil {
-			return txErr
-		}
-
-		return nil
+		return txErr
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// 8. Hydrate single message view for response
-	view := HydrateMessage(updatedMsg, reactions, author, actorID)
-	return &view, nil
+	return updatedMsg, nil
 }
 
 // UpdatePinnedAt pins or unpins a message in a channel
@@ -652,6 +617,66 @@ func (s *MessageService) UpdatePinnedAt(
 	return message, nil
 }
 
-// Delete
+// Delete soft-deletes or hard-deletes a message if the actor is authorized
+func (s *MessageService) Delete(
+	ctx context.Context,
+	rawActorID, rawMessageID uuid.UUID,
+) error {
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return err
+	}
+
+	messageID, err := fields.ParseRequiredID("message_id", rawMessageID)
+	if err != nil {
+		return err
+	}
+
+	// 1. Fetch existing message
+	msg, err := s.repo.Get(ctx, messageID)
+	if err != nil {
+		return err
+	}
+
+	// 2. Authorization: Ensure actor is the author
+	// (Note: Add channel moderator/admin checks here if permitted)
+	if !msg.AuthorID().Equals(actorID) {
+		return errs.PermissionDenied("Actor is not authorized to delete this message.")
+	}
+
+	// 3. Authorization: Verify user is still a member of the channel
+	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
+	if err != nil {
+		return err
+	}
+
+	// 4. Execute Write Transaction
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Delete message in DB (using txCtx)
+		if txErr := s.repo.Delete(txCtx, messageID); txErr != nil {
+			return txErr
+		}
+
+		// Publish Outbox Event for real-time WS broadcast
+		_, txErr := s.outboxRepo.Publish(
+			txCtx,
+			EventMessageDelete,
+			MessageDeletePayload{},
+		)
+		if txErr != nil {
+			return txErr
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// 5. Invalidate caches outside transaction
+	// s.cache.Delete(ctx, messageID)
+
+	return nil
+}
 
 // Handle reaction
