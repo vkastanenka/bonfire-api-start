@@ -350,9 +350,6 @@ func (s *MemberService) UpdatePinnedAt(
 		if err != nil {
 			return err
 		}
-		if member == nil {
-			return errs.NotFound("Member not found in channel.")
-		}
 
 		_, err = s.outboxRepo.Publish(txCtx, EventMemberPinned, MemberUpdatePinnedAtPayload{})
 		if err != nil {
