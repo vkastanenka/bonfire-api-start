@@ -4,6 +4,16 @@ INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
 RETURNING
     message_reactions.*;
 
+-- name: ReactionGet :one
+SELECT
+    message_reactions.*
+FROM
+    message_reactions
+WHERE
+    message_id = @message_id::uuid
+    AND user_id = @user_id::uuid
+    AND emoji = @emoji::text;
+
 -- name: ReactionGetBatchByMessageIDs :many
 SELECT
     *
@@ -14,6 +24,15 @@ WHERE
 ORDER BY
     message_id,
     created_at ASC;
+
+-- name: ReactionCountByEmoji :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    message_reactions
+WHERE
+    message_id = @message_id::uuid
+    AND emoji = @emoji::text;
 
 -- name: ReactionDelete :exec
 DELETE FROM message_reactions
