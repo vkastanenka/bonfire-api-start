@@ -12,8 +12,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-
-
 type MessageService struct {
 	repo          MessageRepository
 	cache         MessageCache

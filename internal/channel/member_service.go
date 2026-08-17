@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
-
 type MemberService struct {
 	repo         MemberRepository
 	cache        MemberCache
@@ -415,7 +413,7 @@ func (s *MemberService) UpdatePinnedAt(
 	return updatedMember, nil
 }
 
-func (s *MemberService) UpdateMutedUntil(
+func (s *MemberService) UpdateGroupMutedUntil(
 	ctx context.Context,
 	rawActorID,
 	rawChannelID uuid.UUID,
@@ -438,6 +436,8 @@ func (s *MemberService) UpdateMutedUntil(
 
 	now := fields.NewTimestamp(time.Now())
 	var updatedMember *Member
+
+	// TODO: Ensure channel type is type 2
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		member, err := s.repo.UpdateMutedUntil(
