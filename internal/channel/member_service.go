@@ -213,7 +213,7 @@ func (s *MemberService) AddMembers(ctx context.Context, rawActorID, rawChannelID
 				fields.Timestamp{},
 				fields.Timestamp{},
 				fields.Timestamp{},
-				0,
+				1,
 				true,
 				now,
 				now,
