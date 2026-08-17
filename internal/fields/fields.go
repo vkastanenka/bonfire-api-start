@@ -272,6 +272,9 @@ func (id ID) String() string       { return uuid.UUID(id).String() }
 func (id ID) IsZero() bool         { return uuid.UUID(id) == uuid.Nil }
 func (id ID) IsValid() bool        { return !id.IsZero() }
 func (id ID) Equals(other ID) bool { return id == other }
+func (id ID) Compare(other ID) int {
+	return bytes.Compare(id[:], other[:])
+}
 
 func (id ID) UUIDPtr() *uuid.UUID {
 	if id.IsZero() {
@@ -607,6 +610,26 @@ func (t Timestamp) UnixPtr() *int64 {
 		return nil
 	}
 	return ptr.To(t.Unix())
+}
+
+func (t Timestamp) After(other Timestamp) bool {
+	if t.IsZero() {
+		return false
+	}
+	if other.IsZero() {
+		return true
+	}
+	return t.value.After(other.value)
+}
+
+func (t Timestamp) Before(other Timestamp) bool {
+	if t.IsZero() {
+		return !other.IsZero()
+	}
+	if other.IsZero() {
+		return false
+	}
+	return t.value.Before(other.value)
 }
 
 func (t Timestamp) HasPassed(now time.Time) bool {

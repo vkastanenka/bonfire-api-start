@@ -2,12 +2,15 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 )
 
 const (
-	ChannelMinMembers = 1
-	ChannelMaxMembers = 10
-	ChannelMaxPeers   = 9
+	ChannelMinMembers      = 1
+	ChannelMaxMembers      = 10
+	ChannelMaxPeers        = 9
+	ChannelMaxSidebarItems = 100
 )
 
 type Channel struct {
@@ -19,6 +22,28 @@ type Channel struct {
 	lastMessageAt fields.Timestamp
 	createdAt     fields.Timestamp
 	updatedAt     fields.Timestamp
+}
+
+type ChannelSidebarPeerView struct {
+	id          fields.ID
+	displayName user.DisplayName
+	avatarURL   fields.URL
+	presence    presence.Presence
+}
+
+type ChannelSidebarView struct {
+	id                fields.ID
+	chType            ChannelType
+	name              ChannelName
+	iconURL           fields.URL
+	lastMessageID     fields.ID
+	lastMessageAt     fields.Timestamp
+	lastReadMessageID fields.ID
+	pinnedAt          fields.Timestamp
+	mutedUntil        fields.Timestamp
+	mentionCount      int32
+	peers             []ChannelSidebarPeerView
+	memberTotal       int16
 }
 
 func (c *Channel) ID() fields.ID                   { return c.id }
