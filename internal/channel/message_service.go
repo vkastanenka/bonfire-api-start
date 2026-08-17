@@ -473,7 +473,110 @@ func (s *ChannelService) ListPinned(
 	return pinnedViews, nil
 }
 
-// Update content
+// UpdateContent updates a message's text if the actor is the author
+func (s *MessageService) UpdateContent(
+	ctx context.Context,
+	rawActorID, rawMessageID uuid.UUID,
+	rawContent string,
+) (*MessageView, error) {
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	messageID, err := fields.ParseRequiredID("message_id", rawMessageID)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := ParseMessageContent(rawContent)
+	if err != nil {
+		return nil, err
+	}
+
+	if content.Len() == 0 {
+		return nil, errs.InvalidArgument("Content must have at least 1 character.")
+	}
+
+	// 1. Fetch existing message
+	msg, err := s.repo.Get(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Authorization: Ensure actor is the author
+	if !msg.AuthorID().Equals(actorID) {
+		return nil, errs.PermissionDenied("Actor is not the author of the message.")
+	}
+
+	// 3. Authorization: Verify user is still a member of the channel
+	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Concurrent fetch of Author User profile and Message Reactions for hydration
+	var (
+		author    *user.User
+		reactions []*Reaction
+	)
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	// Fetch author user details (actorID == authorID)
+	g.Go(func() error {
+		var uErr error
+		author, uErr = s.userRepo.Get(ctxGrp, actorID)
+		return uErr
+	})
+
+	// Fetch reactions attached to this message
+	g.Go(func() error {
+		reactionMap, rErr := s.reactionRepo.GetBatchByMessageIDs(ctxGrp, []fields.ID{messageID})
+		if rErr != nil {
+			return rErr
+		}
+		reactions = reactionMap[messageID]
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// 5. Execute Write Transaction
+	var updatedMsg *Message
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		now := fields.NewTimestamp(time.Now())
+		var txErr error
+
+		// 6. Update message in DB (using txCtx)
+		updatedMsg, txErr = s.repo.UpdateContent(txCtx, messageID, content, now, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		// 7. Publish Outbox Event for real-time consumers (using txCtx)
+		_, txErr = s.outboxRepo.Publish(
+			txCtx,
+			EventMessageContentUpdated,
+			MessageContentUpdatedPayload{},
+		)
+		if txErr != nil {
+			return txErr
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. Hydrate single message view for response
+	view := HydrateMessage(updatedMsg, reactions, author, actorID)
+	return &view, nil
+}
 
 // Update pinned at
 

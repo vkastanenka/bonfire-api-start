@@ -10,6 +10,7 @@ const (
 	EventMemberDelete                 = "channel.member_delete"
 	EventMembersAdded                 = "channel.members_added"
 	EventMessageCreated               = "channel.message_created"
+	EventMessageContentUpdated        = "channel.message_content_updated"
 )
 
 type ChannelCreatedPayload struct{}
@@ -23,6 +24,7 @@ type MemberDeletePayload struct{}
 type MembersAddedPayload struct{}
 
 type MessageCreatedPayload struct{}
+type MessageContentUpdatedPayload struct{}
 
 // type DeletedPayload struct {
 // 	ChannelID uuid.UUID `json:"channelId"`
