@@ -13,9 +13,7 @@ import (
 )
 
 const (
-	KeyMaxBatchSize  = 500
-	KeySingleTimeout = 500 * time.Millisecond
-	KeyBatchTimeout  = 3 * time.Second
+	KeyMaxBatchSize = 500
 )
 
 type KeyFunc[K comparable] func(key K) string
@@ -161,10 +159,6 @@ func (c *KeyCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Durati
 }
 
 func (c *KeyCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.Duration) error {
-	if len(items) == 0 {
-		return nil
-	}
-
 	keys := make([]K, 0, len(items))
 	for k := range items {
 		keys = append(keys, k)
@@ -178,29 +172,19 @@ func (c *KeyCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.D
 		end := min(i+KeyMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
-		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
-			defer cancel()
-
-			pipe := c.client.Pipeline()
-			for _, k := range chunk {
-				bytes, err := json.Marshal(items[k])
-				if err != nil {
-					return errs.Internal("Failed to marshal cached json.").
-						Meta("scope", c.scope.String()).
-						Wrap(err)
-				}
-				pipe.Set(opCtx, c.keyFn(k), bytes, ttl)
+		pipe := c.client.Pipeline()
+		for _, k := range chunk {
+			bytes, err := json.Marshal(items[k])
+			if err != nil {
+				return errs.Internal("Failed to marshal cached json.").
+					Meta("scope", c.scope.String()).
+					Wrap(err)
 			}
+			pipe.Set(ctx, c.keyFn(k), bytes, ttl)
+		}
 
-			if _, err := pipe.Exec(opCtx); err != nil {
-				return redis.NewError(err, c.scope)
-			}
-			return nil
-		}()
-
-		if err != nil {
-			return err
+		if _, err := pipe.Exec(ctx); err != nil {
+			return redis.NewError(err, c.scope)
 		}
 	}
 
@@ -210,12 +194,10 @@ func (c *KeyCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.D
 func (c *KeyCache[K, T]) Delete(ctx context.Context, key K) error {
 	redisKey := c.keyFn(key)
 
-	opCtx, cancel := context.WithTimeout(ctx, KeySingleTimeout)
-	defer cancel()
-
-	if err := c.client.Del(opCtx, redisKey).Err(); err != nil {
+	if err := c.client.Del(ctx, redisKey).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
+
 	return nil
 }
 
@@ -228,37 +210,15 @@ func (c *KeyCache[K, T]) DeleteBatch(ctx context.Context, keys []K) error {
 		end := min(i+KeyMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
-		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
-			defer cancel()
+		redisKeys := make([]string, len(chunk))
+		for j, k := range chunk {
+			redisKeys[j] = c.keyFn(k)
+		}
 
-			redisKeys := make([]string, len(chunk))
-			for j, k := range chunk {
-				redisKeys[j] = c.keyFn(k)
-			}
-
-			if err := c.client.Del(opCtx, redisKeys...).Err(); err != nil {
-				return redis.NewError(err, c.scope)
-			}
-			return nil
-		}()
-
-		if err != nil {
-			return err
+		if err := c.client.Del(ctx, redisKeys...).Err(); err != nil {
+			return redis.NewError(err, c.scope)
 		}
 	}
 
 	return nil
-}
-
-func deduplicateKeys[K comparable](keys []K) []K {
-	unique := make([]K, 0, len(keys))
-	seen := make(map[K]struct{}, len(keys))
-	for _, k := range keys {
-		if _, exists := seen[k]; !exists {
-			seen[k] = struct{}{}
-			unique = append(unique, k)
-		}
-	}
-	return unique
 }
