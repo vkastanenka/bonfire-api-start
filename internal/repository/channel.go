@@ -16,8 +16,6 @@ import (
 )
 
 type ChannelCache interface {
-	Delete(ctx context.Context, key fields.ID) error
-	DeleteBatch(ctx context.Context, keys []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*channel.Channel, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
 	Set(ctx context.Context, ch *channel.Channel) error
@@ -194,8 +192,8 @@ func (r *ChannelRepository) UpdateLastMessage(
 ) (*channel.Channel, error) {
 	row, err := r.store.ChannelUpdateLastMessage(ctx, db.ChannelUpdateLastMessageParams{
 		ID:            db.ToUUID(id.UUID()),
-		LastMessageID: db.ToUUID(lastMessageID.UUID()),
-		LastMessageAt: db.ToTimestamptz(lastMessageAt.Time()),
+		LastMessageID: db.ToUUIDPtr(lastMessageID.UUIDPtr()),
+		LastMessageAt: db.ToTimestamptzPtr(lastMessageAt.TimePtr()),
 		UpdatedAt:     db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {

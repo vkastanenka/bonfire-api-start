@@ -596,6 +596,7 @@ func (s *MessageService) UpdatePinnedAt(
 	return message, nil
 }
 
+// TODO: Handle first message in channel deletes
 // Delete soft-deletes or hard-deletes a message if the actor is authorized
 func (s *MessageService) Delete(
 	ctx context.Context,

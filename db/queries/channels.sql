@@ -46,8 +46,8 @@ RETURNING
 UPDATE
     channels
 SET
-    last_message_id = @last_message_id::uuid,
-    last_message_at = @last_message_at::timestamptz,
+    last_message_id = sqlc.narg('last_message_id')::uuid,
+    last_message_at = sqlc.narg('last_message_at')::timestamptz,
     updated_at = @updated_at::timestamptz
 WHERE
     id = @id::uuid
