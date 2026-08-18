@@ -79,19 +79,19 @@ func ParseChannel(ch *channel.Channel) Channel {
 }
 
 type ChannelCache struct {
-	*ScopeCache[fields.ID, Channel]
+	*KeyCache[fields.ID, Channel]
 	ttl time.Duration
 }
 
 func NewChannelCache(client redisdriver.Cmdable, ttl time.Duration) *ChannelCache {
 	return &ChannelCache{
-		ScopeCache: NewScopeCache[fields.ID, Channel](client, redis.ScopeChannel, channelKey),
-		ttl:        ttl,
+		KeyCache: NewKeyCache[fields.ID, Channel](client, redis.ScopeChannel, channelKey),
+		ttl:      ttl,
 	}
 }
 
 func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
-	dto, err := c.ScopeCache.Get(ctx, id)
+	dto, err := c.KeyCache.Get(ctx, id)
 	if err != nil || dto == nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (c *ChannelCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Channel, []fields.ID, error) {
-	dtos, missing, err := c.ScopeCache.GetBatch(ctx, ids)
+	dtos, missing, err := c.KeyCache.GetBatch(ctx, ids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,7 +130,7 @@ func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
 	if ch == nil {
 		return nil
 	}
-	return c.ScopeCache.Set(ctx, ch.ID(), ParseChannel(ch), c.ttl)
+	return c.KeyCache.Set(ctx, ch.ID(), ParseChannel(ch), c.ttl)
 }
 
 func (c *ChannelCache) SetBatch(ctx context.Context, channels []*channel.Channel) error {
@@ -142,5 +142,5 @@ func (c *ChannelCache) SetBatch(ctx context.Context, channels []*channel.Channel
 		dtos[ch.ID()] = ParseChannel(ch)
 	}
 
-	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
+	return c.KeyCache.SetBatch(ctx, dtos, c.ttl)
 }

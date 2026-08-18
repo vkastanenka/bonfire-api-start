@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"bonfire-api/internal/errs"
@@ -14,67 +13,54 @@ import (
 )
 
 const (
-	ScopeMaxBatchSize  = 500
-	ScopeSingleTimeout = 500 * time.Millisecond
-	ScopeBatchTimeout  = 3 * time.Second
+	KeyMaxBatchSize  = 500
+	KeySingleTimeout = 500 * time.Millisecond
+	KeyBatchTimeout  = 3 * time.Second
 )
 
 type KeyFunc[K comparable] func(key K) string
 
-type ScopeCache[K comparable, T any] struct {
+type KeyCache[K comparable, T any] struct {
 	client redisdriver.Cmdable
 	scope  redis.Scope
 	keyFn  KeyFunc[K]
 	sfg    singleflight.Group
 }
 
-func NewScopeCache[K comparable, T any](
+func NewKeyCache[K comparable, T any](
 	client redisdriver.Cmdable,
 	scope redis.Scope,
 	keyFn KeyFunc[K],
-) *ScopeCache[K, T] {
-	return &ScopeCache[K, T]{
+) *KeyCache[K, T] {
+	return &KeyCache[K, T]{
 		client: client,
 		scope:  scope,
 		keyFn:  keyFn,
 	}
 }
 
-func (c *ScopeCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
+func (c *KeyCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 	redisKey := c.keyFn(key)
 
-	val, err, _ := c.sfg.Do(redisKey, func() (any, error) {
-		opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
-		defer cancel()
-
-		data, err := c.client.Get(opCtx, redisKey).Bytes()
-		if errors.Is(err, redisdriver.Nil) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, redis.NewError(err, c.scope)
-		}
-
-		var item T
-		if err := json.Unmarshal(data, &item); err != nil {
-			return nil, errs.Internal("Failed to unmarshal cached item.").
-				Meta("scope", c.scope.String()).
-				Wrap(err)
-		}
-
-		return &item, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if val == nil {
+	data, err := c.client.Get(ctx, redisKey).Bytes()
+	if redis.IsCacheMiss(err) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, redis.NewError(err, c.scope)
+	}
 
-	return val.(*T), nil
+	var item T
+	if err := json.Unmarshal(data, &item); err != nil {
+		return nil, errs.Internal("Failed to unmarshal cached item.").
+			Meta("scope", c.scope.String()).
+			Wrap(err)
+	}
+
+	return &item, nil
 }
 
-func (c *ScopeCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
+func (c *KeyCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
 	if len(keys) == 0 {
 		return make(map[K]*T), nil, nil
 	}
@@ -82,12 +68,12 @@ func (c *ScopeCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []
 	found := make(map[K]*T, len(keys))
 	var missing []K
 
-	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
+	for i := 0; i < len(keys); i += KeyMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 
-		end := min(i+ScopeMaxBatchSize, len(keys))
+		end := min(i+KeyMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		redisKeys := make([]string, len(chunk))
@@ -96,7 +82,7 @@ func (c *ScopeCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []
 		}
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
 			defer cancel()
 
 			vals, err := c.client.MGet(opCtx, redisKeys...).Result()
@@ -132,7 +118,7 @@ func (c *ScopeCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []
 	return found, missing, nil
 }
 
-func (c *ScopeCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Duration) error {
+func (c *KeyCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Duration) error {
 	redisKey := c.keyFn(key)
 
 	bytes, err := json.Marshal(item)
@@ -142,7 +128,7 @@ func (c *ScopeCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Dura
 			Wrap(err)
 	}
 
-	opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, KeySingleTimeout)
 	defer cancel()
 
 	if err := c.client.Set(opCtx, redisKey, bytes, ttl).Err(); err != nil {
@@ -152,7 +138,7 @@ func (c *ScopeCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Dura
 	return nil
 }
 
-func (c *ScopeCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.Duration) error {
+func (c *KeyCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time.Duration) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -162,16 +148,16 @@ func (c *ScopeCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time
 		keys = append(keys, k)
 	}
 
-	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
+	for i := 0; i < len(keys); i += KeyMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+ScopeMaxBatchSize, len(keys))
+		end := min(i+KeyMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
 			defer cancel()
 
 			pipe := c.client.Pipeline()
@@ -199,10 +185,10 @@ func (c *ScopeCache[K, T]) SetBatch(ctx context.Context, items map[K]T, ttl time
 	return nil
 }
 
-func (c *ScopeCache[K, T]) Delete(ctx context.Context, key K) error {
+func (c *KeyCache[K, T]) Delete(ctx context.Context, key K) error {
 	redisKey := c.keyFn(key)
 
-	opCtx, cancel := context.WithTimeout(ctx, ScopeSingleTimeout)
+	opCtx, cancel := context.WithTimeout(ctx, KeySingleTimeout)
 	defer cancel()
 
 	if err := c.client.Del(opCtx, redisKey).Err(); err != nil {
@@ -211,17 +197,17 @@ func (c *ScopeCache[K, T]) Delete(ctx context.Context, key K) error {
 	return nil
 }
 
-func (c *ScopeCache[K, T]) DeleteBatch(ctx context.Context, keys []K) error {
-	for i := 0; i < len(keys); i += ScopeMaxBatchSize {
+func (c *KeyCache[K, T]) DeleteBatch(ctx context.Context, keys []K) error {
+	for i := 0; i < len(keys); i += KeyMaxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+ScopeMaxBatchSize, len(keys))
+		end := min(i+KeyMaxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
+			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
 			defer cancel()
 
 			redisKeys := make([]string, len(chunk))
