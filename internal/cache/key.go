@@ -153,10 +153,7 @@ func (c *KeyCache[K, T]) Set(ctx context.Context, key K, item T, ttl time.Durati
 			Wrap(err)
 	}
 
-	opCtx, cancel := context.WithTimeout(ctx, KeySingleTimeout)
-	defer cancel()
-
-	if err := c.client.Set(opCtx, redisKey, bytes, ttl).Err(); err != nil {
+	if err := c.client.Set(ctx, redisKey, bytes, ttl).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
 
