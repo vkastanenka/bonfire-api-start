@@ -65,7 +65,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 		)
 	}
 
-	sfKey := "channel:get:" + id.String()
+	sfKey := "channel:" + id.String()
 	sfCtx := context.WithoutCancel(ctx)
 
 	val, err, _ := r.sf.Do(sfKey, func() (any, error) {

@@ -152,8 +152,6 @@ FROM
     channel_members
 WHERE
     channel_id = ANY ($1::uuid[])
-ORDER BY
-    channel_id ASC
 `
 
 func (q *Queries) ChannelMemberGetBatchByChannelIDs(ctx context.Context, channelIds []pgtype.UUID) ([]ChannelMember, error) {
@@ -187,32 +185,7 @@ func (q *Queries) ChannelMemberGetBatchByChannelIDs(ctx context.Context, channel
 	return items, nil
 }
 
-const channelMemberIncrementBatchMentionCount = `-- name: ChannelMemberIncrementBatchMentionCount :exec
-UPDATE
-    channel_members
-SET
-    mention_count = mention_count + 1,
-    is_visible = TRUE,
-    updated_at = $1::timestamptz
-WHERE
-    channel_id = $2::uuid
-    AND user_id = ANY ($3::uuid[])
-    AND (muted_until IS NULL
-        OR muted_until < CURRENT_TIMESTAMP)
-`
-
-type ChannelMemberIncrementBatchMentionCountParams struct {
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserIds   []pgtype.UUID      `json:"user_ids"`
-}
-
-func (q *Queries) ChannelMemberIncrementBatchMentionCount(ctx context.Context, arg ChannelMemberIncrementBatchMentionCountParams) error {
-	_, err := q.db.Exec(ctx, channelMemberIncrementBatchMentionCount, arg.UpdatedAt, arg.ChannelID, arg.UserIds)
-	return err
-}
-
-const channelMemberIncrementPeersMentionCount = `-- name: ChannelMemberIncrementPeersMentionCount :exec
+const channelMemberIncrementPeersMentionCountByChannelID = `-- name: ChannelMemberIncrementPeersMentionCountByChannelID :exec
 UPDATE
     channel_members
 SET
@@ -223,17 +196,17 @@ WHERE
     channel_id = $2::uuid
     AND user_id != $3::uuid
     AND (muted_until IS NULL
-        OR muted_until < CURRENT_TIMESTAMP)
+        OR muted_until < $1::timestamptz)
 `
 
-type ChannelMemberIncrementPeersMentionCountParams struct {
+type ChannelMemberIncrementPeersMentionCountByChannelIDParams struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ChannelID pgtype.UUID        `json:"channel_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberIncrementPeersMentionCount(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountParams) error {
-	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCount, arg.UpdatedAt, arg.ChannelID, arg.UserID)
+func (q *Queries) ChannelMemberIncrementPeersMentionCountByChannelID(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountByChannelIDParams) error {
+	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCountByChannelID, arg.UpdatedAt, arg.ChannelID, arg.UserID)
 	return err
 }
 
@@ -346,7 +319,8 @@ SET
 WHERE
     channel_id = $5::uuid
     AND user_id = $6::uuid
-    AND (last_read_message_at IS NULL
+    AND ($2::timestamptz IS NULL
+        OR last_read_message_at IS NULL
         OR $2::timestamptz >= last_read_message_at)
 RETURNING
     channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible

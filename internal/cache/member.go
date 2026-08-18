@@ -17,11 +17,11 @@ type MemberKeyIDs struct {
 	UserID    fields.ID
 }
 
-func memberKey(k MemberKeyIDs) string {
+func MemberKey(k MemberKeyIDs) string {
 	return "member:" + k.ChannelID.String() + ":" + k.UserID.String()
 }
 
-func channelMembersKey(channelID fields.ID) string {
+func ChannelMembersKey(channelID fields.ID) string {
 	return "channel:" + channelID.String() + ":members"
 }
 
@@ -91,7 +91,7 @@ type MemberCache struct {
 
 func NewMemberCache(client redisdriver.Cmdable, ttl time.Duration) *MemberCache {
 	return &MemberCache{
-		ScopeCache: NewScopeCache[MemberKeyIDs, Member](client, redis.ScopeMember, memberKey),
+		ScopeCache: NewScopeCache[MemberKeyIDs, Member](client, redis.ScopeMember, MemberKey),
 		client:     client,
 		ttl:        ttl,
 	}
@@ -142,7 +142,7 @@ func (c *MemberCache) GetByChannelID(
 	ctx context.Context,
 	channelID fields.ID,
 ) (members []*channel.Member, hitSetMiss bool, err error) {
-	setKey := channelMembersKey(channelID)
+	setKey := ChannelMembersKey(channelID)
 
 	opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
 	defer cancel()
@@ -212,7 +212,7 @@ func (c *MemberCache) Set(ctx context.Context, mem *channel.Member) error {
 	}
 
 	// 2. Add to channel set index
-	setKey := channelMembersKey(mem.ChannelID())
+	setKey := ChannelMembersKey(mem.ChannelID())
 	pipe.SAdd(opCtx, setKey, mem.UserID().String())
 	pipe.Expire(opCtx, setKey, c.ttl)
 
@@ -249,7 +249,7 @@ func (c *MemberCache) SetBatch(ctx context.Context, members []*channel.Member) e
 
 	pipe := c.client.Pipeline()
 	for cid, userIDs := range channelUserMap {
-		setKey := channelMembersKey(cid)
+		setKey := ChannelMembersKey(cid)
 		pipe.SAdd(opCtx, setKey, userIDs...)
 		pipe.Expire(opCtx, setKey, c.ttl)
 	}
@@ -267,8 +267,8 @@ func (c *MemberCache) RemoveMember(ctx context.Context, channelID, userID fields
 	defer cancel()
 
 	pipe := c.client.Pipeline()
-	setKey := channelMembersKey(channelID)
-	memKey := memberKey(MemberKeyIDs{ChannelID: channelID, UserID: userID})
+	setKey := ChannelMembersKey(channelID)
+	memKey := MemberKey(MemberKeyIDs{ChannelID: channelID, UserID: userID})
 
 	pipe.SRem(opCtx, setKey, userID.String())
 	pipe.Del(opCtx, memKey)

@@ -4,30 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
+
+type MemberCache interface {
+	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
+	// GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
+	Set(ctx context.Context, ch *channel.Member) error
+	SetBatch(ctx context.Context, members []*channel.Member) error
+}
 
 type MemberRepository struct {
 	store *db.Store
+	cache MemberCache
+	sf    singleflight.Group
 }
 
-func NewMemberRepository(store *db.Store) *MemberRepository {
+func NewMemberRepository(store *db.Store, cache MemberCache) *MemberRepository {
 	return &MemberRepository{
 		store: store.WithEntity(db.EntityChannelMember),
+		cache: cache,
 	}
 }
 
 func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.Member) ([]*channel.Member, error) {
-	if len(members) == 0 {
-		return []*channel.Member{}, nil
-	}
-
 	type memberPayload struct {
 		ChannelID         uuid.UUID  `json:"channel_id"`
 		UserID            uuid.UUID  `json:"user_id"`
@@ -59,7 +68,9 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 
 	jsonBytes, err := json.Marshal(payloads)
 	if err != nil {
-		return nil, errs.Internal("failed to marshal batch member creation payload").Wrap(err)
+		return nil, errs.Internal("failed to marshal create batch payload").
+			Meta("scope", redis.ScopeMember.String()).
+			Wrap(err)
 	}
 
 	rows, err := r.store.ChannelMemberCreateBatch(ctx, jsonBytes)
@@ -67,30 +78,67 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 		return nil, r.store.Err(err)
 	}
 
-	result := make([]*channel.Member, 0, len(rows))
-	for _, row := range rows {
+	result := make([]*channel.Member, len(rows))
+	for i, row := range rows {
 		m, err := memberFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, m)
+		result[i] = m
 	}
 
 	return result, nil
 }
 
 func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
-	row, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
-	})
-	if err != nil {
-		return nil, r.store.Err(err)
+	member, err := r.cache.Get(ctx, channelID, userID)
+	if err == nil && member != nil {
+		return member, nil
 	}
 
-	return memberFromRow(row)
-}
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed, falling back to database",
+			"channel_id", channelID.String(),
+			"user_id", userID.String(),
+			"error", err,
+			"scope", redis.ScopeMember,
+		)
+	}
 
+	sfKey := "member:" + channelID.String() + ":" + userID.String()
+	sfCtx := context.WithoutCancel(ctx)
+
+	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
+		row, err := r.store.ChannelMemberGet(sfCtx, db.ChannelMemberGetParams{
+			ChannelID: db.ToUUID(channelID.UUID()),
+			UserID:    db.ToUUID(userID.UUID()),
+		})
+		if err != nil {
+			return nil, r.store.Err(err)
+		}
+
+		dbMember, err := memberFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+
+		if cacheErr := r.cache.Set(sfCtx, dbMember); cacheErr != nil {
+			slog.WarnContext(sfCtx, "failed to backfill cache",
+				"channel_id", channelID.String(),
+				"user_id", userID.String(),
+				"error", cacheErr,
+				"scope", redis.ScopeMember,
+			)
+		}
+
+		return dbMember, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return val.(*channel.Member), nil
+}
 func (r *MemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
 	channelIDs []fields.ID,

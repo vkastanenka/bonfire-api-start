@@ -92,8 +92,6 @@ FROM
     channels
 WHERE
     id = ANY ($1::uuid[])
-ORDER BY
-    id ASC
 `
 
 func (q *Queries) ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Channel, error) {
