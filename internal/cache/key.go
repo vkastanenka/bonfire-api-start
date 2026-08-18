@@ -62,7 +62,7 @@ func (c *KeyCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 
 func (c *KeyCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
 	if len(keys) == 0 {
-		return make(map[K]*T), nil, nil
+		return map[K]*T{}, nil, nil
 	}
 
 	found := make(map[K]*T, len(keys))
@@ -81,38 +81,63 @@ func (c *KeyCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K,
 			redisKeys[j] = c.keyFn(k)
 		}
 
-		err := func() error {
-			opCtx, cancel := context.WithTimeout(ctx, KeyBatchTimeout)
-			defer cancel()
-
-			vals, err := c.client.MGet(opCtx, redisKeys...).Result()
-			if err != nil {
-				return redis.NewError(err, c.scope)
-			}
-
-			for j, raw := range vals {
-				key := chunk[j]
-
-				strVal, ok := raw.(string)
-				if !ok || strVal == "" {
-					missing = append(missing, key)
-					continue
-				}
-
-				var item T
-				if err := json.Unmarshal([]byte(strVal), &item); err != nil {
-					missing = append(missing, key)
-					continue
-				}
-
-				found[key] = &item
-			}
-			return nil
-		}()
-
+		vals, err := c.client.MGet(ctx, redisKeys...).Result()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, redis.NewError(err, c.scope)
 		}
+
+		for j, raw := range vals {
+			key := chunk[j]
+
+			if raw == nil {
+				missing = append(missing, key)
+				continue
+			}
+
+			var data []byte
+			switch v := raw.(type) {
+			case string:
+				if v == "" {
+					missing = append(missing, key)
+					continue
+				}
+				data = []byte(v)
+			case []byte:
+				if len(v) == 0 {
+					missing = append(missing, key)
+					continue
+				}
+				data = v
+			default:
+				missing = append(missing, key)
+				continue
+			}
+
+			var item T
+			if err := json.Unmarshal(data, &item); err != nil {
+				return nil, nil, errs.Internal("Failed to unmarshal cached batch item.").
+					Meta("scope", c.scope.String()).
+					Wrap(err)
+			}
+
+			found[key] = &item
+		}
+	}
+
+	if len(missing) > 0 {
+		seen := make(map[K]struct{}, len(missing))
+		result := make([]K, 0, len(missing))
+
+		for _, k := range missing {
+			if _, inFound := found[k]; inFound {
+				continue
+			}
+			if _, inSeen := seen[k]; !inSeen {
+				seen[k] = struct{}{}
+				result = append(result, k)
+			}
+		}
+		missing = result
 	}
 
 	return found, missing, nil
