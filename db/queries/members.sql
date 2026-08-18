@@ -50,9 +50,7 @@ SELECT
 FROM
     channel_members
 WHERE
-    channel_id = ANY (@channel_ids::uuid[])
-ORDER BY
-    channel_id ASC;
+    channel_id = ANY (@channel_ids::uuid[]);
 
 -- name: ChannelMemberListVisibleByUserID :many
 SELECT
@@ -92,8 +90,8 @@ RETURNING
 UPDATE
     channel_members
 SET
-    last_read_message_id = @last_read_message_id::uuid,
-    last_read_message_at = @last_read_message_at::timestamptz,
+    last_read_message_id = sqlc.narg('last_read_message_id')::uuid,
+    last_read_message_at = sqlc.narg('last_read_message_at')::timestamptz,
     mention_count = CASE WHEN sqlc.narg('mention_count')::int IS NOT NULL THEN
         sqlc.narg('mention_count')::int
     ELSE
@@ -103,8 +101,9 @@ SET
 WHERE
     channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid
-    AND (last_read_message_at IS NULL
-        OR @last_read_message_at::timestamptz >= last_read_message_at)
+    AND (sqlc.narg('last_read_message_at')::timestamptz IS NULL
+        OR last_read_message_at IS NULL
+        OR sqlc.narg('last_read_message_at')::timestamptz >= last_read_message_at)
 RETURNING
     channel_members.*;
 
@@ -132,20 +131,7 @@ WHERE
 RETURNING
     channel_members.*;
 
--- name: ChannelMemberIncrementBatchMentionCount :exec
-UPDATE
-    channel_members
-SET
-    mention_count = mention_count + 1,
-    is_visible = TRUE,
-    updated_at = @updated_at::timestamptz
-WHERE
-    channel_id = @channel_id::uuid
-    AND user_id = ANY (@user_ids::uuid[])
-    AND (muted_until IS NULL
-        OR muted_until < CURRENT_TIMESTAMP);
-
--- name: ChannelMemberIncrementPeersMentionCount :exec
+-- name: ChannelMemberIncrementPeersMentionCountByChannelID :exec
 UPDATE
     channel_members
 SET
@@ -156,7 +142,7 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id != @user_id::uuid
     AND (muted_until IS NULL
-        OR muted_until < CURRENT_TIMESTAMP);
+        OR muted_until < @updated_at::timestamptz);
 
 -- name: ChannelMemberDelete :exec
 DELETE FROM channel_members
