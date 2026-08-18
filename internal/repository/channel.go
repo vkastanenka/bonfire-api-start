@@ -61,7 +61,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 		slog.WarnContext(ctx, "cache read failed, falling back to database",
 			"id", id.String(),
 			"error", err,
-			"scope", redis.ScopeRelation,
+			"scope", redis.ScopeChannel,
 		)
 	}
 
@@ -83,7 +83,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 			slog.WarnContext(sfCtx, "failed to backfill cache",
 				"id", id.String(),
 				"error", cacheErr,
-				"scope", redis.ScopeRelation,
+				"scope", redis.ScopeChannel,
 			)
 		}
 
