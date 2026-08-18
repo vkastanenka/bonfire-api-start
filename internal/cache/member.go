@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"bonfire-api/internal/channel"
@@ -290,4 +291,113 @@ func toMemberDTOMap(members []*channel.Member) map[MemberKeyIDs]Member {
 		dtos[key] = ParseMember(mem)
 	}
 	return dtos
+}
+
+// GetBatchByChannelIDs fetches members for multiple channels concurrently using pipelined Redis operations.
+func (c *MemberCache) GetBatchByChannelIDs(
+	ctx context.Context,
+	channelIDs []fields.ID,
+) (found map[fields.ID][]*channel.Member, missingChannelIDs []fields.ID, err error) {
+	if len(channelIDs) == 0 {
+		return make(map[fields.ID][]*channel.Member), nil, nil
+	}
+
+	opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
+	defer cancel()
+
+	// 1. Pipeline all SMembers calls to fetch user IDs for every channel in 1 round-trip
+	pipe := c.client.Pipeline()
+	cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(channelIDs))
+	for _, cid := range channelIDs {
+		cmds[cid] = pipe.SMembers(opCtx, ChannelMembersKey(cid))
+	}
+
+	if _, err := pipe.Exec(opCtx); err != nil && !errors.Is(err, redisdriver.Nil) {
+		return nil, nil, redis.NewError(err, redis.ScopeMember)
+	}
+
+	// 2. Process set results and build a single flat slice of MemberKeyIDs
+	channelUserKeys := make(map[fields.ID][]MemberKeyIDs)
+	var allMemberKeys []MemberKeyIDs
+
+	for cid, cmd := range cmds {
+		userIDsStr, err := cmd.Result()
+		if err != nil || len(userIDsStr) == 0 {
+			missingChannelIDs = append(missingChannelIDs, cid)
+			continue
+		}
+
+		var keys []MemberKeyIDs
+		corrupted := false
+		for _, rawUID := range userIDsStr {
+			parsedUUID, err := uuid.Parse(rawUID)
+			if err != nil {
+				corrupted = true
+				break
+			}
+			uid, err := fields.ParseRequiredID("user_id", parsedUUID)
+			if err != nil {
+				corrupted = true
+				break
+			}
+
+			mKey := MemberKeyIDs{ChannelID: cid, UserID: uid}
+			keys = append(keys, mKey)
+			allMemberKeys = append(allMemberKeys, mKey)
+		}
+
+		if corrupted {
+			missingChannelIDs = append(missingChannelIDs, cid)
+			continue
+		}
+
+		channelUserKeys[cid] = keys
+	}
+
+	if len(allMemberKeys) == 0 {
+		return make(map[fields.ID][]*channel.Member), missingChannelIDs, nil
+	}
+
+	// 3. Batch fetch ALL member DTOs across ALL channels in a single MGet
+	dtosMap, missingMemberKeys, err := c.GetBatch(ctx, allMemberKeys)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Index missing member keys for fast lookup
+	missingSet := make(map[MemberKeyIDs]struct{}, len(missingMemberKeys))
+	for _, mk := range missingMemberKeys {
+		missingSet[mk] = struct{}{}
+	}
+
+	// 4. Assemble final result map by channel
+	found = make(map[fields.ID][]*channel.Member, len(channelIDs))
+
+	for cid, keys := range channelUserKeys {
+		channelHasMissingMember := false
+		members := make([]*channel.Member, 0, len(keys))
+
+		for _, mk := range keys {
+			if _, isMissing := missingSet[mk]; isMissing {
+				channelHasMissingMember = true
+				break
+			}
+
+			mem, ok := dtosMap[mk]
+			if !ok || mem == nil {
+				channelHasMissingMember = true
+				break
+			}
+			members = append(members, mem)
+		}
+
+		// If any individual member key expired, mark whole channel as miss for DB backfill
+		if channelHasMissingMember {
+			missingChannelIDs = append(missingChannelIDs, cid)
+		} else {
+			found[cid] = members
+		}
+	}
+
+	return found, missingChannelIDs, nil
 }
