@@ -18,7 +18,7 @@ type ChannelCache struct {
 
 func NewChannelCache(client redisdriver.Cmdable, ttl time.Duration) *ChannelCache {
 	return &ChannelCache{
-		KeyCache: NewKeyCache[fields.ID, Channel](client, redis.ScopeChannel, channelKey),
+		KeyCache: NewKeyCache[fields.ID, Channel](client, redis.ScopeChannel, ChannelKey),
 		ttl:      ttl,
 	}
 }

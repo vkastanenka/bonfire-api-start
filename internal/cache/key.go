@@ -59,10 +59,6 @@ func (c *KeyCache[K, T]) Get(ctx context.Context, key K) (*T, error) {
 }
 
 func (c *KeyCache[K, T]) GetBatch(ctx context.Context, keys []K) (map[K]*T, []K, error) {
-	if len(keys) == 0 {
-		return map[K]*T{}, nil, nil
-	}
-
 	found := make(map[K]*T, len(keys))
 	var missing []K
 
