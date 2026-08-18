@@ -6,12 +6,12 @@ func ChannelKey(id fields.ID) string {
 	return "channel:" + id.String()
 }
 
-func ChannelMembersKey(channelID fields.ID) string {
-	return "channel:" + channelID.String() + ":members"
+func ChannelMemberIDsKey(channelID fields.ID) string {
+	return "channel:" + channelID.String() + ":member_ids"
 }
 
-func ChannelMessagesKey(channelID fields.ID) string {
-	return "channel:" + channelID.String() + ":messages"
+func ChannelMessageIDsKey(channelID fields.ID) string {
+	return "channel:" + channelID.String() + ":message_ids"
 }
 
 type MemberKeyIDs struct {
@@ -27,7 +27,6 @@ func MessageKey(id fields.ID) string {
 	return "message:" + id.String()
 }
 
-
-func UserMembersKey(userID fields.ID) string {
-	return "user:" + userID.String() + ":members"
+func UserChannelIDsKey(userID fields.ID) string {
+	return "user:" + userID.String() + ":channel_ids"
 }

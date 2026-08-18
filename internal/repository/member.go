@@ -19,6 +19,7 @@ import (
 type MemberCache interface {
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (found map[fields.ID][]*channel.Member, missingChannelIDs []fields.ID, err error)
+	GetVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, []fields.ID, error)
 	Set(ctx context.Context, ch *channel.Member) error
 	SetBatch(ctx context.Context, members []*channel.Member) error
 }
@@ -204,8 +205,19 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	return result, nil
 }
 
-// TODO: Update cache and then cache aside strategy
 func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, error) {
+	members, _, err := r.cache.GetVisibleByUserID(ctx, userID, limit)
+	if err == nil && len(members) > 0 {
+		return members, nil
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed for visible members, falling back to database",
+			"user_id", userID,
+			"error", err,
+			"scope", redis.ScopeMember,
+		)
+	}
+
 	rows, err := r.store.ChannelMemberListVisibleByUserID(ctx, db.ChannelMemberListVisibleByUserIDParams{
 		UserID:   db.ToUUID(userID.UUID()),
 		LimitVal: limit,
@@ -214,13 +226,23 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID field
 		return nil, r.store.Err(err)
 	}
 
-	members := make([]*channel.Member, 0, len(rows))
+	members = make([]*channel.Member, 0, len(rows))
 	for _, row := range rows {
 		m, err := memberFromRow(row)
 		if err != nil {
 			return nil, err
 		}
 		members = append(members, m)
+	}
+
+	if len(members) > 0 {
+		if cacheErr := r.cache.SetBatch(ctx, members); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill cache",
+				"user_id", userID,
+				"error", cacheErr,
+				"scope", redis.ScopeMember,
+			)
+		}
 	}
 
 	return members, nil
