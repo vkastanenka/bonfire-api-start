@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -60,7 +59,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 		return ch, nil
 	}
 
-	if err != nil && !errors.Is(err, redis.ErrCacheMiss) {
+	if err != nil {
 		slog.WarnContext(ctx, "channel:id cache read failed, falling back to database",
 			"id", id.String(),
 			"error", err,
