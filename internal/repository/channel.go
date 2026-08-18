@@ -2,14 +2,18 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
 
 type ChannelCache interface {
@@ -24,6 +28,7 @@ type ChannelCache interface {
 type ChannelRepository struct {
 	store *db.Store
 	cache ChannelCache
+	sf    singleflight.Group
 }
 
 func NewChannelRepository(store *db.Store, cache ChannelCache) *ChannelRepository {
@@ -55,19 +60,43 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 		return ch, nil
 	}
 
-	row, err := r.store.ChannelGet(ctx, db.ToUUID(id.UUID()))
-	if err != nil {
-		return nil, r.store.Err(err)
+	if err != nil && !errors.Is(err, redis.ErrCacheMiss) {
+		slog.WarnContext(ctx, "channel:id cache read failed, falling back to database",
+			"id", id.String(),
+			"error", err,
+			"scope", redis.ScopeRelation,
+		)
 	}
 
-	ch, err = channelFromRow(row)
+	sfKey := "channel:get:" + id.String()
+	sfCtx := context.WithoutCancel(ctx)
+
+	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
+		row, err := r.store.ChannelGet(sfCtx, db.ToUUID(id.UUID()))
+		if err != nil {
+			return nil, r.store.Err(err)
+		}
+
+		dbCh, err := channelFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+
+		if cacheErr := r.cache.Set(sfCtx, dbCh); cacheErr != nil {
+			slog.WarnContext(sfCtx, "failed to backfill channel:id cache",
+				"id", id.String(),
+				"error", cacheErr,
+				"scope", redis.ScopeRelation,
+			)
+		}
+
+		return dbCh, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = r.cache.Set(ctx, ch)
-
-	return ch, nil
+	return val.(*channel.Channel), nil
 }
 
 func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, error) {

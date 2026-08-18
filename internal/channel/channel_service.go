@@ -174,6 +174,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 	return nil
 }
 
+// TODO: Get with certain message ids?
 func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
