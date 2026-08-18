@@ -20,10 +20,7 @@ SELECT
 FROM
     message_reactions
 WHERE
-    message_id = ANY (@message_ids::uuid[])
-ORDER BY
-    message_id,
-    created_at ASC;
+    message_id = ANY (@message_ids::uuid[]);
 
 -- name: ReactionCountByEmoji :one
 SELECT

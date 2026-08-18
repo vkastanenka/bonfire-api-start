@@ -4,6 +4,33 @@ INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_m
 RETURNING
     messages.*;
 
+-- name: MessageCreateBatch :many
+WITH unpacked AS (
+    SELECT
+        x.*
+    FROM
+        jsonb_to_recordset(@payload::jsonb)
+        WITH ORDINALITY AS x(id uuid, channel_id uuid, author_id uuid, reply_to_message_id uuid, forwarded_message_id uuid, forwarded_channel_id uuid, created_at timestamptz, updated_at timestamptz, type smallint, content text, system_metadata jsonb, ord bigint))
+    INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
+    SELECT
+        id,
+        channel_id,
+        author_id,
+        reply_to_message_id,
+        forwarded_message_id,
+        forwarded_channel_id,
+        created_at,
+        updated_at,
+        type,
+        content,
+        system_metadata
+    FROM
+        unpacked
+    ORDER BY
+        ord ASC
+    RETURNING
+        messages.*;
+
 -- name: MessageGet :one
 SELECT
     messages.*

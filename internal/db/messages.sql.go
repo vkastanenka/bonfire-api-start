@@ -65,6 +65,68 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 	return i, err
 }
 
+const messageCreateBatch = `-- name: MessageCreateBatch :many
+WITH unpacked AS (
+    SELECT
+        x.x
+    FROM
+        jsonb_to_recordset($1::jsonb)
+        WITH ORDINALITY AS x(id uuid, channel_id uuid, author_id uuid, reply_to_message_id uuid, forwarded_message_id uuid, forwarded_channel_id uuid, created_at timestamptz, updated_at timestamptz, type smallint, content text, system_metadata jsonb, ord bigint))
+    INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
+    SELECT
+        id,
+        channel_id,
+        author_id,
+        reply_to_message_id,
+        forwarded_message_id,
+        forwarded_channel_id,
+        created_at,
+        updated_at,
+        type,
+        content,
+        system_metadata
+    FROM
+        unpacked
+    ORDER BY
+        ord ASC
+    RETURNING
+        messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+`
+
+func (q *Queries) MessageCreateBatch(ctx context.Context, payload []byte) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageCreateBatch, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.ForwardedMessageID,
+			&i.ForwardedChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.PinnedAt,
+			&i.Type,
+			&i.Content,
+			&i.SystemMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const messageDelete = `-- name: MessageDelete :exec
 DELETE FROM messages
 WHERE id = $1::uuid

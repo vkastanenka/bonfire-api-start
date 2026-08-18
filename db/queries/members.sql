@@ -1,39 +1,38 @@
 -- name: ChannelMemberCreateBatch :many
-INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
-SELECT
-    channel_id,
-    user_id,
-    last_read_message_id,
-    created_at,
-    updated_at,
-    last_read_message_at,
-    pinned_at,
-    muted_until,
-    mention_count,
-    is_visible
-FROM
-    jsonb_to_recordset(@payload::jsonb) AS x(channel_id uuid,
-        user_id uuid,
-        last_read_message_id uuid,
-        created_at timestamptz,
-        updated_at timestamptz,
-        last_read_message_at timestamptz,
-        pinned_at timestamptz,
-        muted_until timestamptz,
-        mention_count integer,
-        is_visible boolean)
-ON CONFLICT (channel_id,
-    user_id)
-    DO UPDATE SET
-        last_read_message_id = EXCLUDED.last_read_message_id,
-        updated_at = EXCLUDED.updated_at,
-        last_read_message_at = EXCLUDED.last_read_message_at,
-        pinned_at = EXCLUDED.pinned_at,
-        muted_until = EXCLUDED.muted_until,
-        mention_count = EXCLUDED.mention_count,
-        is_visible = EXCLUDED.is_visible
-    RETURNING
-        *;
+WITH unpacked AS (
+    SELECT
+        x.*
+    FROM
+        jsonb_to_recordset(@payload::jsonb)
+        WITH ORDINALITY AS x(channel_id uuid, user_id uuid, last_read_message_id uuid, created_at timestamptz, updated_at timestamptz, last_read_message_at timestamptz, pinned_at timestamptz, muted_until timestamptz, mention_count integer, is_visible boolean, ord bigint))
+    INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
+    SELECT
+        channel_id,
+        user_id,
+        last_read_message_id,
+        created_at,
+        updated_at,
+        last_read_message_at,
+        pinned_at,
+        muted_until,
+        mention_count,
+        is_visible
+    FROM
+        unpacked
+    ORDER BY
+        ord ASC
+    ON CONFLICT (channel_id,
+        user_id)
+        DO UPDATE SET
+            last_read_message_id = EXCLUDED.last_read_message_id,
+            updated_at = EXCLUDED.updated_at,
+            last_read_message_at = EXCLUDED.last_read_message_at,
+            pinned_at = EXCLUDED.pinned_at,
+            muted_until = EXCLUDED.muted_until,
+            mention_count = EXCLUDED.mention_count,
+            is_visible = EXCLUDED.is_visible
+        RETURNING
+            channel_members.*;
 
 -- name: ChannelMemberGet :one
 SELECT

@@ -2,21 +2,32 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
+
+type MessageCache interface {
+	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
+	Set(ctx context.Context, msg *channel.Message) error
+}
 
 type MessageRepository struct {
 	store *db.Store
+	cache MessageCache
+	sf    singleflight.Group
 }
 
-func NewMessageRepository(store *db.Store) *MessageRepository {
+func NewMessageRepository(store *db.Store, cache MessageCache) *MessageRepository {
 	return &MessageRepository{
 		store: store.WithEntity(db.EntityMessage),
 	}
@@ -43,13 +54,108 @@ func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*
 	return messageFromRow(row)
 }
 
-func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	row, err := r.store.MessageGet(ctx, db.ToUUID(id.UUID()))
+func (r *MessageRepository) CreateBatch(
+	ctx context.Context,
+	messages []*channel.Message,
+) ([]*channel.Message, error) {
+	type messagePayload struct {
+		ID                 uuid.UUID       `json:"id"`
+		ChannelID          uuid.UUID       `json:"channel_id"`
+		AuthorID           *uuid.UUID      `json:"author_id,omitempty"`
+		ReplyToMessageID   *uuid.UUID      `json:"reply_to_message_id,omitempty"`
+		ForwardedMessageID *uuid.UUID      `json:"forwarded_message_id,omitempty"`
+		ForwardedChannelID *uuid.UUID      `json:"forwarded_channel_id,omitempty"`
+		CreatedAt          string          `json:"created_at"`
+		UpdatedAt          string          `json:"updated_at"`
+		Type               int16           `json:"type"`
+		Content            *string         `json:"content,omitempty"`
+		SystemMetadata     json.RawMessage `json:"system_metadata,omitempty"`
+	}
+
+	payloads := make([]messagePayload, len(messages))
+	for i, msg := range messages {
+		payloads[i] = messagePayload{
+			ID:                 msg.ID().UUID(),
+			ChannelID:          msg.ChannelID().UUID(),
+			AuthorID:           msg.AuthorID().UUIDPtr(),
+			ReplyToMessageID:   msg.ReplyToMessageID().UUIDPtr(),
+			ForwardedMessageID: msg.ForwardedMessageID().UUIDPtr(),
+			ForwardedChannelID: msg.ForwardedChannelID().UUIDPtr(),
+			CreatedAt:          msg.CreatedAt().String(),
+			UpdatedAt:          msg.UpdatedAt().String(),
+			Type:               msg.Type().Int16(),
+			Content:            msg.Content().StringPtr(),
+			SystemMetadata:     json.RawMessage(msg.SystemMetadata().Bytes()),
+		}
+	}
+
+	jsonBytes, err := json.Marshal(payloads)
+	if err != nil {
+		return nil, errs.Internal("failed to marshal create message batch payload").
+			Meta("entity", db.EntityMessage.String()).
+			Wrap(err)
+	}
+
+	rows, err := r.store.MessageCreateBatch(ctx, jsonBytes)
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return messageFromRow(row)
+	result := make([]*channel.Message, len(rows))
+	for i, row := range rows {
+		msg, err := messageFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = msg
+	}
+
+	return result, nil
+}
+
+func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
+	msg, err := r.cache.Get(ctx, id)
+	if err == nil && msg != nil {
+		return msg, nil
+	}
+
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed, falling back to database",
+			"id", id.String(),
+			"error", err,
+			"scope", redis.ScopeMessage,
+		)
+	}
+
+	sfKey := "message:" + id.String()
+	sfCtx := context.WithoutCancel(ctx)
+
+	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
+		row, err := r.store.MessageGet(sfCtx, db.ToUUID(id.UUID()))
+		if err != nil {
+			return nil, r.store.Err(err)
+		}
+
+		dbMsg, err := messageFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+
+		if cacheErr := r.cache.Set(sfCtx, dbMsg); cacheErr != nil {
+			slog.WarnContext(sfCtx, "failed to backfill cache",
+				"id", id.String(),
+				"error", cacheErr,
+				"scope", redis.ScopeMessage,
+			)
+		}
+
+		return dbMsg, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return val.(*channel.Message), nil
 }
 
 func (r *MessageRepository) ListAroundByChannelID(

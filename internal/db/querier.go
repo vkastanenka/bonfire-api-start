@@ -33,6 +33,7 @@ type Querier interface {
 	ChannelUpdateGroup(ctx context.Context, arg ChannelUpdateGroupParams) (Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
+	MessageCreateBatch(ctx context.Context, payload []byte) ([]Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
 	MessageGet(ctx context.Context, id pgtype.UUID) (Message, error)
 	MessageListAfterByChannelID(ctx context.Context, arg MessageListAfterByChannelIDParams) ([]Message, error)

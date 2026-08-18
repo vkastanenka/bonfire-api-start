@@ -118,9 +118,6 @@ FROM
     message_reactions
 WHERE
     message_id = ANY ($1::uuid[])
-ORDER BY
-    message_id,
-    created_at ASC
 `
 
 func (q *Queries) ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error) {
