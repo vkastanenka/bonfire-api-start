@@ -60,7 +60,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 	}
 
 	if err != nil {
-		slog.WarnContext(ctx, "channel:id cache read failed, falling back to database",
+		slog.WarnContext(ctx, "cache read failed, falling back to database",
 			"id", id.String(),
 			"error", err,
 			"scope", redis.ScopeRelation,
@@ -82,7 +82,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 		}
 
 		if cacheErr := r.cache.Set(sfCtx, dbCh); cacheErr != nil {
-			slog.WarnContext(sfCtx, "failed to backfill channel:id cache",
+			slog.WarnContext(sfCtx, "failed to backfill cache",
 				"id", id.String(),
 				"error", cacheErr,
 				"scope", redis.ScopeRelation,
@@ -98,50 +98,36 @@ func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Cha
 	return val.(*channel.Channel), nil
 }
 
-func (r *ChannelRepository) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, error) {
-	if len(ids) == 0 {
-		return make(map[fields.ID]*channel.Channel), nil
+func (r *ChannelRepository) GetForUpdate(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+	row, err := r.store.ChannelGetForUpdate(ctx, db.ToUUID(id.UUID()))
+	if err != nil {
+		return nil, r.store.Err(err)
 	}
 
+	return channelFromRow(row)
+}
+
+func (r *ChannelRepository) GetBatch(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*channel.Channel, error) {
 	cachedMap, missingIDs, err := r.cache.GetBatch(ctx, ids)
 	if err != nil {
-		return r.fetchBatchFromDB(ctx, ids)
+		slog.WarnContext(ctx, "cache read failed, treating all ids as missing",
+			"count", len(ids),
+			"error", err,
+			"scope", redis.ScopeChannel,
+		)
+		cachedMap = make(map[fields.ID]*channel.Channel, len(ids))
+		missingIDs = ids
 	}
 
 	if len(missingIDs) == 0 {
 		return cachedMap, nil
 	}
 
-	dbMap, err := r.fetchBatchFromDB(ctx, missingIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(dbMap) > 0 {
-		dbChannels := make([]*channel.Channel, 0, len(dbMap))
-		for _, ch := range dbMap {
-			dbChannels = append(dbChannels, ch)
-		}
-		_ = r.cache.SetBatch(ctx, dbChannels)
-	}
-
-	for id, ch := range dbMap {
-		cachedMap[id] = ch
-	}
-
-	return cachedMap, nil
-}
-
-func (r *ChannelRepository) fetchBatchFromDB(
-	ctx context.Context,
-	ids []fields.ID,
-) (map[fields.ID]*channel.Channel, error) {
-	if len(ids) == 0 {
-		return make(map[fields.ID]*channel.Channel), nil
-	}
-
-	uuidSlice := make([]uuid.UUID, len(ids))
-	for i, id := range ids {
+	uuidSlice := make([]uuid.UUID, len(missingIDs))
+	for i, id := range missingIDs {
 		uuidSlice[i] = id.UUID()
 	}
 
@@ -150,16 +136,33 @@ func (r *ChannelRepository) fetchBatchFromDB(
 		return nil, r.store.Err(err)
 	}
 
-	channelMap := make(map[fields.ID]*channel.Channel, len(rows))
+	dbMap := make(map[fields.ID]*channel.Channel, len(rows))
+	dbChannels := make([]*channel.Channel, 0, len(rows))
+
 	for _, row := range rows {
 		ch, err := channelFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		channelMap[ch.ID()] = ch
+		dbMap[ch.ID()] = ch
+		dbChannels = append(dbChannels, ch)
 	}
 
-	return channelMap, nil
+	if len(dbChannels) > 0 {
+		if cacheErr := r.cache.SetBatch(ctx, dbChannels); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill cache",
+				"count", len(dbChannels),
+				"error", cacheErr,
+				"scope", redis.ScopeChannel,
+			)
+		}
+	}
+
+	for id, ch := range dbMap {
+		cachedMap[id] = ch
+	}
+
+	return cachedMap, nil
 }
 
 func (r *ChannelRepository) UpdateGroup(

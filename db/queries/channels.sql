@@ -27,9 +27,7 @@ SELECT
 FROM
     channels
 WHERE
-    id = ANY (@ids::uuid[])
-ORDER BY
-    id ASC;
+    id = ANY (@ids::uuid[]);
 
 -- name: ChannelUpdateGroup :one
 UPDATE
