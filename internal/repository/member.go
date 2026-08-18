@@ -19,7 +19,6 @@ import (
 type MemberCache interface {
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (found map[fields.ID][]*channel.Member, missingChannelIDs []fields.ID, err error)
-	// GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
 	Set(ctx context.Context, ch *channel.Member) error
 	SetBatch(ctx context.Context, members []*channel.Member) error
 }
@@ -205,6 +204,7 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	return result, nil
 }
 
+// TODO: Update cache and then cache aside strategy
 func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, error) {
 	rows, err := r.store.ChannelMemberListVisibleByUserID(ctx, db.ChannelMemberListVisibleByUserIDParams{
 		UserID:   db.ToUUID(userID.UUID()),
@@ -233,6 +233,25 @@ func (r *MemberRepository) CountByChannel(ctx context.Context, channelID fields.
 	}
 
 	return count, nil
+}
+
+func (r *MemberRepository) UpdateIsVisible(
+	ctx context.Context,
+	channelID, userID fields.ID,
+	isVisible bool,
+	updatedAt fields.Timestamp,
+) (*channel.Member, error) {
+	row, err := r.store.ChannelMemberUpdateIsVisible(ctx, db.ChannelMemberUpdateIsVisibleParams{
+		ChannelID: db.ToUUID(channelID.UUID()),
+		UserID:    db.ToUUID(userID.UUID()),
+		IsVisible: isVisible,
+		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return memberFromRow(row)
 }
 
 func (r *MemberRepository) UpdateLastReadMessage(
@@ -292,61 +311,14 @@ func (r *MemberRepository) UpdateMutedUntil(
 	return memberFromRow(row)
 }
 
-func (r *MemberRepository) UpdateIsVisible(
+func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 	ctx context.Context,
 	channelID, userID fields.ID,
-	isVisible bool,
 	updatedAt fields.Timestamp,
-) (*channel.Member, error) {
-	row, err := r.store.ChannelMemberUpdateIsVisible(ctx, db.ChannelMemberUpdateIsVisibleParams{
+) error {
+	err := r.store.ChannelMemberIncrementPeersMentionCountByChannelID(ctx, db.ChannelMemberIncrementPeersMentionCountByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		UserID:    db.ToUUID(userID.UUID()),
-		IsVisible: isVisible,
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
-	})
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	return memberFromRow(row)
-}
-
-func (r *MemberRepository) IncrementBatchMentionCount(
-	ctx context.Context,
-	channelID fields.ID,
-	userIDs []fields.ID,
-	updatedAt fields.Timestamp,
-) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	uuidSlice := make([]uuid.UUID, len(userIDs))
-	for i, id := range userIDs {
-		uuidSlice[i] = id.UUID()
-	}
-
-	err := r.store.ChannelMemberIncrementBatchMentionCount(ctx, db.ChannelMemberIncrementBatchMentionCountParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserIds:   db.ToUUIDs(uuidSlice),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
-	})
-	if err != nil {
-		return r.store.Err(err)
-	}
-
-	return nil
-}
-
-func (r *MemberRepository) IncrementPeersMentionCount(
-	ctx context.Context,
-	channelID fields.ID,
-	excludeUserID fields.ID,
-	updatedAt fields.Timestamp,
-) error {
-	err := r.store.ChannelMemberIncrementPeersMentionCount(ctx, db.ChannelMemberIncrementPeersMentionCountParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(excludeUserID.UUID()),
 		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {
