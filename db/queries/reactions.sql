@@ -14,13 +14,28 @@ WHERE
     AND user_id = @user_id::uuid
     AND emoji = @emoji::text;
 
--- name: ReactionGetBatchByMessageIDs :many
+-- name: ReactionGetBatchByUserIDAndMessageIDs :many
 SELECT
-    *
+    message_id,
+    emoji
 FROM
     message_reactions
 WHERE
-    message_id = ANY (@message_ids::uuid[]);
+    message_id = ANY (@message_ids::uuid[])
+    AND user_id = @user_id::uuid;
+
+-- name: ReactionGetBatchSummaryByMessageIDs :many
+SELECT
+    message_id,
+    emoji,
+    COUNT(*)::int AS count
+FROM
+    message_reactions
+WHERE
+    message_id = ANY (@message_ids::uuid[])
+GROUP BY
+    message_id,
+    emoji;
 
 -- name: ReactionCountByEmoji :one
 SELECT
@@ -37,3 +52,10 @@ WHERE message_id = @message_id::uuid
     AND user_id = @user_id::uuid
     AND emoji = @emoji::text;
 
+-- -- name: ReactionGetBatchByMessageIDs :many
+-- SELECT
+--     *
+-- FROM
+--     message_reactions
+-- WHERE
+--     message_id = ANY (@message_ids::uuid[]);
