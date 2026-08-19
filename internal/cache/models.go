@@ -3,6 +3,7 @@ package cache
 import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -236,4 +237,104 @@ func ParseMessage(m *channel.Message) (Message, error) {
 		UpdatedAt:          m.UpdatedAt().Time(),
 		EditedAt:           m.EditedAt().Time(),
 	}, nil
+}
+
+type User struct {
+	ID                     uuid.UUID `json:"id"`
+	Email                  string    `json:"email"`
+	Username               string    `json:"username"`
+	DisplayName            string    `json:"display_name"`
+	Phone                  string    `json:"phone"`
+	Bio                    string    `json:"bio"`
+	AvatarURL              string    `json:"avatar_url"`
+	BannerColor            string    `json:"banner_color"`
+	PreferredPresence      int16     `json:"preferred_presence"`
+	PreferredPresenceUntil time.Time `json:"preferred_presence_until"`
+	VerifiedAt             time.Time `json:"verified_at"`
+	DisabledAt             time.Time `json:"disabled_at"`
+	DeleteScheduledAt      time.Time `json:"delete_scheduled_at"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+func (u User) ToDomain() (*user.User, error) {
+	id, err := fields.ParseRequiredID("id", u.ID)
+	if err != nil {
+		return nil, err
+	}
+	email, err := user.ParseEmail("email", u.Email)
+	if err != nil {
+		return nil, err
+	}
+	username, err := user.ParseUsername("username", u.Username)
+	if err != nil {
+		return nil, err
+	}
+	displayName, err := user.ParseDisplayName("display_name", u.DisplayName)
+	if err != nil {
+		return nil, err
+	}
+	phone, err := user.ParsePhone("phone", u.Phone)
+	if err != nil {
+		return nil, err
+	}
+	bio, err := user.ParseBio("bio", u.Bio)
+	if err != nil {
+		return nil, err
+	}
+	avatarURL, err := fields.ParseURL("avatar_url", u.AvatarURL)
+	if err != nil {
+		return nil, err
+	}
+	bannerColor, err := fields.ParseHexColor("banner_color", u.BannerColor)
+	if err != nil {
+		return nil, err
+	}
+	prefPresence, err := user.ParsePreferredPresenceFromInt16("preferred_presence", u.PreferredPresence)
+	if err != nil {
+		return nil, err
+	}
+
+	return user.Reconstitute(
+		id,
+		email,
+		username,
+		user.PasswordHash{},
+		phone,
+		displayName,
+		bio,
+		avatarURL,
+		bannerColor,
+		prefPresence,
+		fields.NewTimestamp(u.PreferredPresenceUntil),
+		fields.NewTimestamp(u.VerifiedAt),
+		fields.NewTimestamp(u.DisabledAt),
+		fields.NewTimestamp(u.DeleteScheduledAt),
+		fields.NewTimestamp(u.CreatedAt),
+		fields.NewTimestamp(u.UpdatedAt),
+	), nil
+}
+
+func ParseUser(u *user.User) User {
+	if u == nil {
+		return User{}
+	}
+
+	return User{
+		ID:                     u.ID().UUID(),
+		Email:                  u.Email().String(),
+		Username:               u.Username().String(),
+		DisplayName:            u.DisplayName().String(),
+		Phone:                  u.Phone().String(),
+		Bio:                    u.Bio().String(),
+		AvatarURL:              u.AvatarURL().String(),
+		BannerColor:            u.BannerColor().String(),
+		PreferredPresence:      u.PreferredPresence().Int16(),
+		PreferredPresenceUntil: u.PreferredPresenceUntil().Time(),
+		VerifiedAt:             u.VerifiedAt().Time(),
+		DisabledAt:             u.DisabledAt().Time(),
+		DeleteScheduledAt:      u.DeleteScheduledAt().Time(),
+		CreatedAt:              u.CreatedAt().Time(),
+		UpdatedAt:              u.UpdatedAt().Time(),
+	}
 }

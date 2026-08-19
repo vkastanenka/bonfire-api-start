@@ -40,7 +40,7 @@ type MessageView struct {
 	forwardedChannelID fields.ID
 	createdAt          fields.Timestamp
 	editedAt           fields.Timestamp
-	reactions          []ReactionView
+	reactions          []EmojiCount
 }
 
 type MessagePinnedView struct {

@@ -1,6 +1,8 @@
 package cache
 
-import "bonfire-api/internal/fields"
+import (
+	"bonfire-api/internal/fields"
+)
 
 func ChannelKey(id fields.ID) string {
 	return "channel:" + id.String()
@@ -33,6 +35,10 @@ func MessageKey(msgID fields.ID) string {
 
 func MessageReactionsKey(msgID fields.ID) string {
 	return "message:" + msgID.String() + ":reactions"
+}
+
+func UserKey(id fields.ID) string {
+	return "user:" + id.String()
 }
 
 func UserChannelIDsKey(userID fields.ID) string {

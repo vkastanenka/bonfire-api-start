@@ -7,9 +7,8 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
-	"fmt"
+	"log/slog"
 	"slices"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,9 +66,10 @@ func NewChannelService(
 	}
 }
 
-func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, rawMemberIDs []uuid.UUID) error {
-	if len(rawMemberIDs) > ChannelMaxPeers {
-		return errs.InvalidArgument(fmt.Sprintf("Peer list cannot exceed %d items.", ChannelMaxPeers))
+func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, rawPeerIDs []uuid.UUID) error {
+	err := ValidateMaxPeers(rawPeerIDs)
+	if err != nil {
+		return err
 	}
 
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
@@ -77,43 +77,32 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		return err
 	}
 
-	memberIDs, err := fields.ParseIDs("user_id", rawMemberIDs)
+	memberIDs, err := fields.ParseIDs("member_id", rawPeerIDs)
 	if err != nil {
 		return err
 	}
 
-	peerIDs := make([]fields.ID, 0, len(memberIDs))
-	seen := map[fields.ID]struct{}{
-		userID: {},
-	}
-
-	for _, id := range memberIDs {
-		if _, exists := seen[id]; !exists {
-			seen[id] = struct{}{}
-			peerIDs = append(peerIDs, id)
-		}
-	}
-
-	if len(peerIDs) > 0 {
-		hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, peerIDs)
-		if err != nil {
-			return err
-		}
-		if hasBlock {
-			return errs.InvalidArgument("Cannot create group DM with users who have blocked you.")
-		}
-	}
+	peerIDs := fields.RemoveID(fields.DedupeIDs(memberIDs), userID)
 
 	allMemberIDs := make([]fields.ID, 0, len(peerIDs)+1)
 	allMemberIDs = append(allMemberIDs, userID)
 	allMemberIDs = append(allMemberIDs, peerIDs...)
 
-	now := fields.NewTimestamp(time.Now())
-	channelID := fields.NewID(uuid.New())
+	err = s.ensureNoIncomingBlocks(ctx, userID, peerIDs)
+	if err != nil {
+		return err
+	}
+
+	channelID, err := fields.NewID()
+	if err != nil {
+		return err
+	}
+
+	now := fields.Now()
 
 	parsedChannel := ParseChannel(
 		channelID,
-		NewChannelType(ChannelTypeGroup),
+		NewChannelTypeGroup(),
 		ChannelName{},
 		fields.URL{},
 		fields.ID{},
@@ -122,60 +111,111 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		now,
 	)
 
+	creatorMember := ParseMember(
+		channelID,
+		userID,
+		fields.ID{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		0,
+		true,
+		now,
+		now,
+	)
+
+	peerMembers := ParseMembers(
+		channelID,
+		peerIDs,
+		fields.ID{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		1,
+		true,
+		now,
+		now,
+	)
+
 	parsedMembers := make([]*Member, 0, len(allMemberIDs))
-	for _, id := range allMemberIDs {
-		m := ParseMember(
-			channelID,
-			id,
-			fields.ID{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			1,
-			true,
-			now,
-			now,
-		)
-		parsedMembers = append(parsedMembers, m)
-	}
+	parsedMembers = append(parsedMembers, creatorMember)
+	parsedMembers = append(parsedMembers, peerMembers...)
 
 	var newChannel *Channel
 	var newChannelMembers []*Member
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		channelRow, err := s.repo.Create(txCtx, parsedChannel)
+		ch, err := s.repo.Create(txCtx, parsedChannel)
 		if err != nil {
 			return err
 		}
 
-		memberRows, err := s.memberRepo.CreateBatch(txCtx, parsedMembers)
+		mem, err := s.memberRepo.CreateBatch(txCtx, parsedMembers)
 		if err != nil {
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{})
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventChannelCreated,
+			ChannelCreatedPayload{},
+		)
 		if err != nil {
 			return err
 		}
 
-		newChannel = channelRow
-		newChannelMembers = memberRows
+		newChannel = ch
+		newChannelMembers = mem
+
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	s.cache.Set(ctx, newChannel)
-	s.memberCache.SetBatch(ctx, newChannelMembers)
+	cacheCtx := context.WithoutCancel(ctx)
 
-	// Set channelID: memberID[]?
+	if err := s.cache.Set(cacheCtx, newChannel); err != nil {
+		slog.WarnContext(cacheCtx, "failed to cache channel entity",
+			"channel_id", channelID.String(),
+			"error", err,
+		)
+	}
+
+	if err := s.cache.SetMemberIDs(cacheCtx, channelID, allMemberIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed to cache channel member ids",
+			"channel_id", channelID.String(),
+			"count", len(allMemberIDs),
+			"error", err,
+		)
+	}
+
+	if err := s.cache.SetLoaded(cacheCtx, channelID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to set channel loaded flag",
+			"channel_id", channelID.String(),
+			"error", err,
+		)
+	}
+
+	if err := s.memberCache.SetBatch(cacheCtx, newChannelMembers); err != nil {
+		slog.WarnContext(cacheCtx, "failed to batch cache channel members",
+			"channel_id", channelID.String(),
+			"count", len(newChannelMembers),
+			"error", err,
+		)
+	}
+
+	if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
+			"count", len(allMemberIDs),
+			"error", err,
+		)
+	}
 
 	return nil
 }
 
-// TODO: Get with certain message ids?
-func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
+func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMessageID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -186,58 +226,53 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		return nil, nil, nil, err
 	}
 
-	// 1. Members (Required first for authorization & message anchor ID)
+	messageID, err := fields.ParseID(rawMessageID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	members := memberMap[channelID]
-
-	var currentMember *Member
-	for _, m := range members {
-		if m.UserID() == userID {
-			currentMember = m
-			break
-		}
+	members, ok := memberMap[channelID]
+	if !ok || len(members) == 0 {
+		return nil, nil, nil, errs.NotFound("Channel members not found.")
 	}
 
-	if currentMember == nil {
-		return nil, nil, nil, errs.PermissionDenied("You are not a member of this channel.")
+	currentMember, err := ValidateMembership(members, userID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	// --- PHASE 1: Concurrent Channel + Messages fetch ---
 	var (
-		ch       *Channel
+		channel  *Channel
 		messages []*Message
 	)
 
 	g1, ctx1 := errgroup.WithContext(ctx)
 
-	// Fetch Channel
 	g1.Go(func() error {
-		channelMap, err := s.repo.GetBatch(ctx1, []fields.ID{channelID})
+		channel, err = s.repo.Get(ctx1, channelID)
 		if err != nil {
 			return err
-		}
-		var ok bool
-		ch, ok = channelMap[channelID]
-		if !ok || ch == nil {
-			return errs.NotFound("Channel not found.")
 		}
 		return nil
 	})
 
-	// Fetch Messages
 	g1.Go(func() error {
-		anchorMessageID := currentMember.LastReadMessageID()
+		anchorMessageID := messageID
 		beforeLimit := MessageListBeforeLimit
 		afterLimit := MessageListAfterLimit
 
-		// Default anchor fallback logic
 		if !anchorMessageID.IsValid() {
-			beforeLimit = MessageListLimit
-			afterLimit = 0
+			anchorMessageID = currentMember.LastReadMessageID()
+
+			if !anchorMessageID.IsValid() {
+				beforeLimit = MessageListLimit
+				afterLimit = 0
+			}
 		}
 
 		var err error
@@ -250,42 +285,32 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		)
 		return err
 	})
-
 	if err := g1.Wait(); err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Collect known User IDs from Members & Messages
-	userIDMap := make(map[fields.ID]struct{}, len(members)+len(messages))
+	rawUserIDs := make([]fields.ID, 0, len(members)+len(messages))
+
 	for _, m := range members {
-		if id := m.UserID(); id.IsValid() {
-			userIDMap[id] = struct{}{}
-		}
+		rawUserIDs = append(rawUserIDs, m.UserID())
 	}
 	for _, msg := range messages {
-		if id := msg.AuthorID(); id.IsValid() {
-			userIDMap[id] = struct{}{}
-		}
+		rawUserIDs = append(rawUserIDs, msg.AuthorID())
 	}
 
-	userIDs := make([]fields.ID, 0, len(userIDMap))
-	for id := range userIDMap {
-		userIDs = append(userIDs, id)
-	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
 
-	// --- PHASE 2: Concurrent Reactions, Users, & Presence fetches ---
 	var (
-		reactionMap map[fields.ID][]*Reaction
+		reactionMap map[fields.ID]*ReactionSummary
 		userMap     map[fields.ID]*user.User
 		presenceMap map[fields.ID]presence.Presence
 	)
 
 	g2, ctx2 := errgroup.WithContext(ctx)
 
-	// Fetch Reactions
 	g2.Go(func() error {
 		if len(messages) == 0 {
-			reactionMap = make(map[fields.ID][]*Reaction)
+			reactionMap = make(map[fields.ID]*ReactionSummary)
 			return nil
 		}
 		messageIDs := make([]fields.ID, len(messages))
@@ -293,27 +318,17 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 			messageIDs[i] = msg.ID()
 		}
 		var err error
-		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctx2, messageIDs)
+		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, userID, messageIDs)
 		return err
 	})
 
-	// Fetch Users
 	g2.Go(func() error {
-		if len(userIDs) == 0 {
-			userMap = make(map[fields.ID]*user.User)
-			return nil
-		}
 		var err error
 		userMap, err = s.userRepo.GetBatch(ctx2, userIDs)
 		return err
 	})
 
-	// Fetch Presences (Redis/Cache)
 	g2.Go(func() error {
-		if len(userIDs) == 0 {
-			presenceMap = make(map[fields.ID]presence.Presence)
-			return nil
-		}
 		var err error
 		presenceMap, err = s.presenceCache.GetBatch(ctx2, userIDs)
 		return err
@@ -323,130 +338,7 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID uuid.U
 		return nil, nil, nil, err
 	}
 
-	// Hydrate Views
-	memberViews := HydrateMembers(members, userMap, presenceMap)
-	messageViews := HydrateMessages(messages, reactionMap, userMap, userID)
-
-	// ==========================================
-	// CACHING ARCHITECTURE CHECKLIST FOR Get()
-	// ==========================================
-	// 1. Channel Cache:
-	//    - Key: channel:{channel_id}
-	//    - Implementation: s.channelCache.GetBatch / SetBatch (stores single channel entity state).
-	//
-	// 2. Member Cache:
-	//    - Keys: member:{channel_id}:{user_id} (individual member DTOs) & channel:{channel_id}:members (Redis Set index)
-	//    - Implementation: s.memberCache.GetByChannelID (checks the index set, handles cache hits/misses, and falls back to s.memberRepo.GetBatchByChannelIDs).
-	//
-	// 3. Message Cache (Two-Tier Approach):
-	//    - Individual DTOs: message:{message_id} (via MessageCache.GetBatch / SetBatch)
-	//    - Feed Index: channel:{channel_id}:messages (Redis ZSET ordered by creation timestamp via MessageCache.ListAround / SetBatchChannelIDs)
-	//    - Implementation Flow on Cache Miss: Fall back to s.messageRepo.ListAroundByChannelID, then populate both the individual message keys and the channel ZSET feed index.
-	//    - Add reactions to the cache to prevent needing its own keys.
-	//
-	// 4. Presence Cache:
-	//    - Keys: presence:{user_id}
-	//    - Implementation: Already wired to s.presenceCache.GetBatch in Phase 2.
-	// ==========================================
-
-	return ch, memberViews, messageViews, nil
-}
-
-func HydrateMembers(
-	members []*Member,
-	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]presence.Presence,
-) []MemberView {
-	views := make([]MemberView, 0, len(members))
-	for _, m := range members {
-		u, ok := userMap[m.UserID()]
-		if !ok || u == nil {
-			continue
-		}
-
-		p, ok := presenceMap[m.UserID()]
-		if !ok {
-			p = presence.New(presence.PresenceOffline)
-		}
-
-		views = append(views, MemberView{
-			id:          m.UserID(),
-			displayName: u.DisplayName(),
-			avatarURL:   u.AvatarURL(),
-			presence:    p,
-		})
-	}
-	return views
-}
-
-func HydrateMessage(
-	msg *Message,
-	reactions []*Reaction,
-	author *user.User,
-	currentUserID fields.ID,
-) MessageView {
-	if author == nil {
-		author = &user.User{}
-	}
-
-	emojiCounts := make(map[ReactionEmoji][]*Reaction)
-	for _, r := range reactions {
-		emojiCounts[r.Emoji()] = append(emojiCounts[r.Emoji()], r)
-	}
-
-	reactionsView := make([]ReactionView, 0, len(emojiCounts))
-	for emoji, list := range emojiCounts {
-		isReacted := false
-		for _, r := range list {
-			if r.UserID() == currentUserID {
-				isReacted = true
-				break
-			}
-		}
-		reactionsView = append(reactionsView, ReactionView{
-			emoji:     emoji,
-			count:     len(list),
-			isReacted: isReacted,
-		})
-	}
-
-	sort.Slice(reactionsView, func(i, j int) bool {
-		return reactionsView[i].emoji.String() < reactionsView[j].emoji.String()
-	})
-
-	return MessageView{
-		id:                 msg.ID(),
-		authorID:           msg.AuthorID(),
-		displayName:        author.DisplayName(),
-		avatarURL:          author.AvatarURL(),
-		msgType:            msg.Type(),
-		content:            msg.Content(),
-		systemMetadata:     msg.SystemMetadata(),
-		replyToMessageID:   msg.ReplyToMessageID(),
-		forwardedMessageID: msg.ForwardedMessageID(),
-		forwardedChannelID: msg.ForwardedChannelID(),
-		createdAt:          msg.CreatedAt(),
-		editedAt:           msg.EditedAt(),
-		reactions:          reactionsView,
-	}
-}
-
-func HydrateMessages(
-	messages []*Message,
-	reactionMap map[fields.ID][]*Reaction,
-	userMap map[fields.ID]*user.User,
-	currentUserID fields.ID,
-) []MessageView {
-	views := make([]MessageView, 0, len(messages))
-	for _, msg := range messages {
-		views = append(views, HydrateMessage(
-			msg,
-			reactionMap[msg.ID()],
-			userMap[msg.AuthorID()],
-			currentUserID,
-		))
-	}
-	return views
+	return channel, HydrateMemberViews(members, userMap, presenceMap), HydrateMessageViews(messages, userMap, reactionMap), nil
 }
 
 func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([]ChannelSidebarView, error) {
@@ -718,4 +610,21 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelI
 	s.cache.Delete(ctx, updatedChannel.ID())
 
 	return updatedChannel, nil
+}
+
+func (s *ChannelService) ensureNoIncomingBlocks(ctx context.Context, userID fields.ID, peerIDs []fields.ID) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, peerIDs)
+	if err != nil {
+		return err
+	}
+	if hasBlock {
+		return errs.InvalidArgument("Cannot interact with users who have blocked you.").
+			Reason("INCOMING_BLOCK_DETECTED")
+	}
+
+	return nil
 }

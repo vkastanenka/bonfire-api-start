@@ -80,6 +80,14 @@ func NewChannelType(val ChannelTypeValue) ChannelType {
 	return ChannelType{Enum: fields.NewEnum(val, channelTypeSpec)}
 }
 
+func NewChannelTypeDirect() ChannelType {
+	return NewChannelType(ChannelTypeDirect)
+}
+
+func NewChannelTypeGroup() ChannelType {
+	return NewChannelType(ChannelTypeGroup)
+}
+
 func ErrChannelInvalidType() *errs.Error {
 	return errs.InvalidArgument("Invalid channel type.").
 		Reason("CHANNEL_TYPE_INVALID").

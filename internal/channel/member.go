@@ -2,8 +2,6 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
 )
 
 type Member struct {
@@ -17,13 +15,6 @@ type Member struct {
 	isVisible         bool
 	createdAt         fields.Timestamp
 	updatedAt         fields.Timestamp
-}
-
-type MemberView struct {
-	id          fields.ID
-	displayName user.DisplayName
-	avatarURL   fields.URL
-	presence    presence.Presence
 }
 
 func (m *Member) ChannelID() fields.ID                { return m.channelID }
@@ -61,6 +52,41 @@ func ParseMember(
 		createdAt:         createdAt,
 		updatedAt:         updatedAt,
 	}
+}
+
+func ParseMembers(
+	channelID fields.ID,
+	userIDs []fields.ID,
+	lastReadMessageID fields.ID,
+	lastReadMessageAt fields.Timestamp,
+	pinnedAt fields.Timestamp,
+	mutedUntil fields.Timestamp,
+	mentionCount int32,
+	isVisible bool,
+	createdAt fields.Timestamp,
+	updatedAt fields.Timestamp,
+) []*Member {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	members := make([]*Member, 0, len(userIDs))
+	for _, userID := range userIDs {
+		members = append(members, ParseMember(
+			channelID,
+			userID,
+			lastReadMessageID,
+			lastReadMessageAt,
+			pinnedAt,
+			mutedUntil,
+			mentionCount,
+			isVisible,
+			createdAt,
+			updatedAt,
+		))
+	}
+
+	return members
 }
 
 func (m *Member) SetLastReadMessage(id fields.ID, at fields.Timestamp, now fields.Timestamp) {

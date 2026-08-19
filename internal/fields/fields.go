@@ -192,11 +192,15 @@ func ParseRequiredHexColor(fieldName, raw string) (HexColor, error) {
 
 type ID uuid.UUID
 
-func NewID(v uuid.UUID) ID {
-	return ID(v)
+func NewID() (ID, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return ID{}, errs.Internal("Unable to create new ID.").Wrap(err)
+	}
+	return ID(id), nil
 }
 
-func ParseID(fieldName string, raw uuid.UUID) (ID, error) {
+func ParseID(raw uuid.UUID) (ID, error) {
 	id := ID(raw)
 	if id.IsZero() {
 		return ID{}, nil
@@ -205,14 +209,11 @@ func ParseID(fieldName string, raw uuid.UUID) (ID, error) {
 }
 
 func ParseRequiredID(fieldName string, raw uuid.UUID) (ID, error) {
-	id, err := ParseID(fieldName, raw)
-	if err != nil {
-		return ID{}, err
-	}
+	id := ID(raw)
 	if id.IsZero() {
-		return ID{}, errs.InvalidArgument("ID is required.").
+		return ID{}, errs.InvalidArgument(fieldName+" is required.").
 			Reason("ID_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+			FieldViolation(fieldName, fieldName+" is required.", "REQUIRED")
 	}
 	return id, nil
 }
@@ -223,9 +224,8 @@ func ParseIDs(fieldName string, raws []uuid.UUID) ([]ID, error) {
 	}
 
 	ids := make([]ID, 0, len(raws))
-
-	for i, raw := range raws {
-		id, err := ParseID(fmt.Sprintf("%s[%d]", fieldName, i), raw)
+	for _, raw := range raws {
+		id, err := ParseID(raw)
 		if err != nil {
 			return nil, err
 		}
@@ -255,16 +255,47 @@ func ParseIDFromString(fieldName, raw string) (ID, error) {
 }
 
 func ParseRequiredIDFromString(fieldName, raw string) (ID, error) {
-	v, err := ParseIDFromString(fieldName, raw)
+	id, err := ParseIDFromString(fieldName, raw)
 	if err != nil {
 		return ID{}, err
 	}
-	if v.IsZero() {
-		return ID{}, errs.InvalidArgument("ID is required.").
+	if id.IsZero() {
+		return ID{}, errs.InvalidArgument(fieldName+" is required.").
 			Reason("ID_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+			FieldViolation(fieldName, fieldName+" is required.", "REQUIRED")
 	}
-	return v, nil
+	return id, nil
+}
+
+func DedupeIDs(ids []ID) []ID {
+	if len(ids) == 0 {
+		return []ID{}
+	}
+	seen := make(map[ID]struct{}, len(ids))
+	result := make([]ID, 0, len(ids))
+	for _, id := range ids {
+		if id.IsZero() {
+			continue
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func RemoveID(ids []ID, target ID) []ID {
+	if len(ids) == 0 {
+		return []ID{}
+	}
+	result := make([]ID, 0, len(ids))
+	for _, id := range ids {
+		if !id.Equals(target) {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
@@ -570,6 +601,10 @@ func ParseRequiredTimestamp(fieldName, raw string) (Timestamp, error) {
 			FieldViolation(fieldName, "Field is required.", "REQUIRED")
 	}
 	return t, nil
+}
+
+func Now() Timestamp {
+	return NewTimestamp(time.Now())
 }
 
 func (t Timestamp) Time() time.Time             { return t.value }

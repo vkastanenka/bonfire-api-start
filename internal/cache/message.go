@@ -30,19 +30,6 @@ func NewMessageCache(client redisdriver.Cmdable, ttl time.Duration) *MessageCach
 	}
 }
 
-func (c *MessageCache) IsTimelineComplete(ctx context.Context, channelID fields.ID) bool {
-	val, err := c.client.Exists(ctx, ChannelLoadedKey(channelID)).Result()
-	return err == nil && val > 0
-}
-
-func (c *MessageCache) SetTimelineComplete(ctx context.Context, channelID fields.ID) error {
-	key := ChannelLoadedKey(channelID)
-	if err := c.client.Set(ctx, key, "1", c.ttl).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeMessage)
-	}
-	return nil
-}
-
 func (c *MessageCache) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
 	dto, err := c.KeyCache.Get(ctx, id)
 	if err != nil || dto == nil {

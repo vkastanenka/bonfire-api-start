@@ -24,8 +24,11 @@ type ChannelCache interface {
 	DeleteBatch(ctx context.Context, keys []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Channel, []fields.ID, error)
+	IsLoaded(ctx context.Context, channelID fields.ID) bool
 	Set(ctx context.Context, ch *Channel) error
 	SetBatch(ctx context.Context, channels []*Channel) error
+	SetLoaded(ctx context.Context, channelID fields.ID) error
+	SetMemberIDs(ctx context.Context, channelID fields.ID, memberIDs []fields.ID) error
 }
 
 type MemberRepository interface {
@@ -69,13 +72,11 @@ type MessageCache interface {
 	DeleteBatch(ctx context.Context, channelID fields.ID, keys []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Message, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Message, []fields.ID, error)
-	IsTimelineComplete(ctx context.Context, channelID fields.ID) bool
 	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*Message, error)
 	ListAroundByChannelID(ctx context.Context, channelID fields.ID, anchorMessageID fields.ID, beforeLimit int32, afterLimit int32) ([]*Message, error)
 	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*Message, error)
 	Set(ctx context.Context, msg *Message) error
 	SetBatch(ctx context.Context, messages []*Message) error
-	SetTimelineComplete(ctx context.Context, channelID fields.ID) error
 }
 
 type ReactionRepository interface {
@@ -110,7 +111,15 @@ type UserRepository interface {
 }
 
 type UserCache interface {
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	DeleteChannelIDs(ctx context.Context, userID fields.ID) error
+	DeleteChannelIDsBatch(ctx context.Context, userIDs []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
+	Set(ctx context.Context, usr *user.User) error
 	SetBatch(ctx context.Context, users []*user.User) error
+	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 }
 
 type PresenceCache interface {
