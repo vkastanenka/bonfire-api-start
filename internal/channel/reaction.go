@@ -11,10 +11,15 @@ type Reaction struct {
 	createdAt fields.Timestamp
 }
 
-type ReactionView struct {
-	emoji     ReactionEmoji
-	count     int
-	isReacted bool
+type EmojiCount struct {
+	Emoji   string
+	Count   int
+	Reacted bool
+}
+
+type ReactionSummary struct {
+	MessageID fields.ID
+	Counts    []EmojiCount
 }
 
 func (r *Reaction) MessageID() fields.ID        { return r.messageID }

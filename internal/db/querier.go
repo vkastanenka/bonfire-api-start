@@ -56,6 +56,8 @@ type Querier interface {
 	ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error
 	ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error)
 	ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error)
+	ReactionGetBatchByUserIDAndMessageIDs(ctx context.Context, arg ReactionGetBatchByUserIDAndMessageIDsParams) ([]ReactionGetBatchByUserIDAndMessageIDsRow, error)
+	ReactionGetBatchSummaryByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]ReactionGetBatchSummaryByMessageIDsRow, error)
 	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error
 	RelationGet(ctx context.Context, arg RelationGetParams) (Relation, error)
 	RelationGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relation, error)

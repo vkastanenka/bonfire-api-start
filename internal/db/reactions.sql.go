@@ -144,3 +144,84 @@ func (q *Queries) ReactionGetBatchByMessageIDs(ctx context.Context, messageIds [
 	}
 	return items, nil
 }
+
+const reactionGetBatchByUserIDAndMessageIDs = `-- name: ReactionGetBatchByUserIDAndMessageIDs :many
+SELECT
+    message_id,
+    emoji
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+    AND user_id = $2::uuid
+`
+
+type ReactionGetBatchByUserIDAndMessageIDsParams struct {
+	MessageIds []pgtype.UUID `json:"message_ids"`
+	UserID     pgtype.UUID   `json:"user_id"`
+}
+
+type ReactionGetBatchByUserIDAndMessageIDsRow struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionGetBatchByUserIDAndMessageIDs(ctx context.Context, arg ReactionGetBatchByUserIDAndMessageIDsParams) ([]ReactionGetBatchByUserIDAndMessageIDsRow, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchByUserIDAndMessageIDs, arg.MessageIds, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReactionGetBatchByUserIDAndMessageIDsRow
+	for rows.Next() {
+		var i ReactionGetBatchByUserIDAndMessageIDsRow
+		if err := rows.Scan(&i.MessageID, &i.Emoji); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reactionGetBatchSummaryByMessageIDs = `-- name: ReactionGetBatchSummaryByMessageIDs :many
+SELECT
+    message_id,
+    emoji,
+    COUNT(*)::int AS count
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+GROUP BY
+    message_id,
+    emoji
+`
+
+type ReactionGetBatchSummaryByMessageIDsRow struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+	Count     int32       `json:"count"`
+}
+
+func (q *Queries) ReactionGetBatchSummaryByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]ReactionGetBatchSummaryByMessageIDsRow, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchSummaryByMessageIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReactionGetBatchSummaryByMessageIDsRow
+	for rows.Next() {
+		var i ReactionGetBatchSummaryByMessageIDsRow
+		if err := rows.Scan(&i.MessageID, &i.Emoji, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

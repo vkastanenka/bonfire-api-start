@@ -27,8 +27,12 @@ func MemberKey(k MemberKeyIDs) string {
 	return "member:" + k.ChannelID.String() + ":" + k.UserID.String()
 }
 
-func MessageKey(id fields.ID) string {
-	return "message:" + id.String()
+func MessageKey(msgID fields.ID) string {
+	return "message:" + msgID.String()
+}
+
+func MessageReactionsKey(msgID fields.ID) string {
+	return "message:" + msgID.String() + ":reactions"
 }
 
 func UserChannelIDsKey(userID fields.ID) string {

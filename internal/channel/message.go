@@ -48,6 +48,7 @@ type MessagePinnedView struct {
 	avatarURL   fields.URL
 	displayName user.DisplayName
 	content     MessageContent
+	pinnedAt    fields.Timestamp
 	createdAt   fields.Timestamp
 }
 
