@@ -62,13 +62,12 @@ func (r *ReactionRepository) Get(
 	// 1. Fast path: Check Redis aggregate counts
 	counts, hit, err := r.cache.Get(ctx, messageID)
 	if err == nil && hit {
-		// If total count is 0 or missing from Redis, this user cannot have reacted
 		if cnt, exists := counts[emojiStr]; !exists || cnt == 0 {
 			return nil, errs.NotFound("reaction not found")
 		}
 	}
 
-	// 2. Cache Miss: Backfill message aggregate counts if absent from Redis
+	// 2. Cache Miss: Backfill Redis from DB
 	if !hit {
 		dbRows, dbErr := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs([]uuid.UUID{messageID.UUID()}))
 		if dbErr != nil {
@@ -81,10 +80,15 @@ func (r *ReactionRepository) Get(
 			if setErr := r.cache.Set(ctx, messageID, summary); setErr != nil {
 				slog.WarnContext(ctx, "failed to set reaction cache", "error", setErr)
 			}
+
+			// In-memory Short Circuit: Avoid DB Query #2 if the freshly backfilled count is 0
+			if cnt, exists := summary[emojiStr]; !exists || cnt == 0 {
+				return nil, errs.NotFound("reaction not found")
+			}
 		}
 	}
 
-	// 3. Direct DB Query for this specific user's reaction
+	// 3. Direct DB Query for this specific user's reaction row
 	row, dbErr := r.store.ReactionGet(ctx, db.ReactionGetParams{
 		MessageID: db.ToUUID(messageID.UUID()),
 		UserID:    db.ToUUID(userID.UUID()),
@@ -97,7 +101,7 @@ func (r *ReactionRepository) Get(
 	return reactionFromRow(row)
 }
 
-func (r *ReactionRepository) ReactionGetBatchSummaryByMessageIDs(
+func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 	ctx context.Context,
 	userID fields.ID,
 	messageIDs []fields.ID,
