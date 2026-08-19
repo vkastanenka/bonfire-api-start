@@ -6,6 +6,10 @@ func ChannelKey(id fields.ID) string {
 	return "channel:" + id.String()
 }
 
+func ChannelLoadedKey(channelID fields.ID) string {
+	return "channel:" + channelID.String() + ":loaded"
+}
+
 func ChannelMemberIDsKey(channelID fields.ID) string {
 	return "channel:" + channelID.String() + ":member_ids"
 }

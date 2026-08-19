@@ -2,10 +2,13 @@ package cache
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
+	"slices"
+	"strconv"
 	"time"
 
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
@@ -14,25 +17,37 @@ import (
 )
 
 type MessageCache struct {
-	*ScopeCache[fields.ID, Message]
+	*KeyCache[fields.ID, Message]
 	client redisdriver.Cmdable
 	ttl    time.Duration
 }
 
 func NewMessageCache(client redisdriver.Cmdable, ttl time.Duration) *MessageCache {
 	return &MessageCache{
-		ScopeCache: NewScopeCache[fields.ID, Message](client, redis.ScopeMessage, messageKey),
-		client:     client,
-		ttl:        ttl,
+		KeyCache: NewKeyCache[fields.ID, Message](client, redis.ScopeMessage, MessageKey),
+		client:   client,
+		ttl:      ttl,
 	}
 }
 
+func (c *MessageCache) IsTimelineComplete(ctx context.Context, channelID fields.ID) bool {
+	val, err := c.client.Exists(ctx, ChannelLoadedKey(channelID)).Result()
+	return err == nil && val > 0
+}
+
+func (c *MessageCache) SetTimelineComplete(ctx context.Context, channelID fields.ID) error {
+	key := ChannelLoadedKey(channelID)
+	if err := c.client.Set(ctx, key, "1", c.ttl).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeMessage)
+	}
+	return nil
+}
+
 func (c *MessageCache) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	dto, err := c.ScopeCache.Get(ctx, id)
+	dto, err := c.KeyCache.Get(ctx, id)
 	if err != nil || dto == nil {
 		return nil, err
 	}
-
 	return dto.ToDomain()
 }
 
@@ -40,7 +55,7 @@ func (c *MessageCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Message, []fields.ID, error) {
-	dtos, missing, err := c.ScopeCache.GetBatch(ctx, ids)
+	dtos, missing, err := c.KeyCache.GetBatch(ctx, ids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -73,11 +88,46 @@ func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 		return err
 	}
 
-	return c.ScopeCache.Set(ctx, msg.ID(), dto, c.ttl)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return errs.Internal("Failed to marshal cached json.").
+			Meta("scope", redis.ScopeMessage.String()).
+			Wrap(err)
+	}
+
+	pipe := c.client.Pipeline()
+
+	// 1. Store DTO
+	pipe.Set(ctx, MessageKey(msg.ID()), bytes, c.ttl)
+
+	// 2. Add to Timeline ZSET (Score = Unix Microseconds for precision)
+	zKey := ChannelMessageIDsKey(msg.ChannelID())
+	score := float64(msg.CreatedAt().Time().UnixMicro())
+	pipe.ZAdd(ctx, zKey, redisdriver.Z{
+		Score:  score,
+		Member: msg.ID().String(),
+	})
+	pipe.Expire(ctx, zKey, c.ttl)
+
+	// Touch timeline completeness flag TTL if active
+	loadedKey := ChannelLoadedKey(msg.ChannelID())
+	pipe.Expire(ctx, loadedKey, c.ttl)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeMessage)
+	}
+
+	return nil
 }
 
 func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
 	dtos := make(map[fields.ID]Message, len(messages))
+	channelZMap := make(map[fields.ID][]redisdriver.Z)
+
 	for _, msg := range messages {
 		if msg == nil {
 			continue
@@ -87,153 +137,227 @@ func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message
 		if err != nil {
 			return err
 		}
+
+		cid := msg.ChannelID()
 		dtos[msg.ID()] = dto
+
+		channelZMap[cid] = append(channelZMap[cid], redisdriver.Z{
+			Score:  float64(msg.CreatedAt().Time().UnixMicro()),
+			Member: msg.ID().String(),
+		})
 	}
 
-	return c.ScopeCache.SetBatch(ctx, dtos, c.ttl)
-}
-
-// ListAround fetches message IDs from the Redis ZSET around an anchor timestamp,
-// splits them into before/after windows, and bulk-fetches the actual message DTOs.
-// Returns (messages, hitFeedMiss, error).
-func (c *MessageCache) ListAround(
-	ctx context.Context,
-	channelID fields.ID,
-	anchorTimestamp time.Time,
-	beforeLimit, afterLimit int,
-) ([]*channel.Message, bool, error) {
-	setKey := channelMessagesKey(channelID)
-
-	opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
-	defer cancel()
-
-	anchorScore := float64(anchorTimestamp.UnixNano())
-
-	// Check if feed ZSET exists
-	exists, err := c.client.Exists(opCtx, setKey).Result()
-	if err != nil || exists == 0 {
-		return nil, true, redis.NewError(err, redis.ScopeMessage)
-	}
-
-	// 1. Fetch messages strictly BEFORE anchor (ZREVRANGEBYSCORE descending from anchor)
-	// We use limit (0, beforeLimit)
-	beforeIDsStr, err := c.client.ZRevRangeByScore(opCtx, setKey, &redisdriver.ZRangeBy{
-		Min:    "-inf",
-		Max:    fmt.Sprintf("(%f", anchorScore), // exclusive of anchor score
-		Count:  int64(beforeLimit),
-		Offset: 0,
-	}).Result()
-	if err != nil {
-		return nil, true, redis.NewError(err, redis.ScopeMessage)
-	}
-
-	// 2. Fetch anchor and messages AFTER anchor (ZRANGEBYSCORE ascending from anchor)
-	afterIDsStr, err := c.client.ZRangeByScore(opCtx, setKey, &redisdriver.ZRangeBy{
-		Min:    fmt.Sprintf("%f", anchorScore), // inclusive of anchor score
-		Max:    "+inf",
-		Count:  int64(afterLimit + 1), // +1 in case anchor is included
-		Offset: 0,
-	}).Result()
-	if err != nil {
-		return nil, true, redis.NewError(err, redis.ScopeMessage)
-	}
-
-	// Combine and deduplicate unique message IDs while preserving order
-	seen := make(map[fields.ID]bool)
-	var targetIDs []fields.ID
-
-	// Before IDs are returned in reverse-chronological order; reverse them to chronological order
-	for i := len(beforeIDsStr) - 1; i >= 0; i-- {
-		parsedUUID, parseErr := uuid.Parse(beforeIDsStr[i])
-		if parseErr != nil {
-			return nil, true, nil // Malformed cache entry -> treat as feed miss
-		}
-		id, parseErr := fields.ParseRequiredID("id", parsedUUID)
-		if parseErr != nil {
-			return nil, true, nil
-		}
-		if !seen[id] {
-			seen[id] = true
-			targetIDs = append(targetIDs, id)
-		}
-	}
-
-	for _, rawID := range afterIDsStr {
-		parsedUUID, parseErr := uuid.Parse(rawID)
-		if parseErr != nil {
-			return nil, true, nil
-		}
-		id, parseErr := fields.ParseRequiredID("id", parsedUUID)
-		if parseErr != nil {
-			return nil, true, nil
-		}
-		if !seen[id] {
-			seen[id] = true
-			targetIDs = append(targetIDs, id)
-		}
-	}
-
-	if len(targetIDs) == 0 {
-		return nil, true, nil
-	}
-
-	// 3. Batch fetch individual message DTOs
-	foundMap, missingIDs, err := c.GetBatch(ctx, targetIDs)
-	if err != nil {
-		return nil, false, err
-	}
-
-	// If any individual message keys expired or are missing, trigger feed/cache miss fallback
-	if len(missingIDs) > 0 {
-		return nil, true, nil
-	}
-
-	// Reconstruct final slice ordered chronologically based on targetIDs sequence
-	messages := make([]*channel.Message, 0, len(targetIDs))
-	for _, id := range targetIDs {
-		if msg, ok := foundMap[id]; ok && msg != nil {
-			messages = append(messages, msg)
-		}
-	}
-
-	return messages, false, nil
-}
-
-// SetBatchWithFeed updates both individual message DTOs and registers them into the channel ZSET feed index.
-func (c *MessageCache) SetBatchChannelIDs(ctx context.Context, channelID fields.ID, messages []*channel.Message) error {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	// 1. Save individual message DTOs via standard batch setter
-	if err := c.SetBatch(ctx, messages); err != nil {
+	if err := c.KeyCache.SetBatch(ctx, dtos, c.ttl); err != nil {
 		return err
 	}
 
-	opCtx, cancel := context.WithTimeout(ctx, ScopeBatchTimeout)
-	defer cancel()
-
 	pipe := c.client.Pipeline()
-	setKey := channelMessagesKey(channelID)
+	for cid, zMembers := range channelZMap {
+		zKey := ChannelMessageIDsKey(cid)
+		pipe.ZAdd(ctx, zKey, zMembers...)
+		pipe.Expire(ctx, zKey, c.ttl)
 
-	zMembers := make([]redisdriver.Z, len(messages))
-	for i, msg := range messages {
-		if msg == nil {
-			continue
-		}
-		score := float64(msg.CreatedAt().Time().UnixNano())
-		zMembers[i] = redisdriver.Z{
-			Score:  score,
-			Member: msg.ID().String(),
-		}
+		loadedKey := ChannelLoadedKey(cid)
+		pipe.Expire(ctx, loadedKey, c.ttl)
 	}
 
-	pipe.ZAdd(opCtx, setKey, zMembers...)
-	pipe.Expire(opCtx, setKey, c.ttl)
-
-	if _, err := pipe.Exec(opCtx); err != nil {
+	if _, err := pipe.Exec(ctx); err != nil {
 		return redis.NewError(err, redis.ScopeMessage)
 	}
 
 	return nil
+}
+
+// ListBeforeByChannelID uses a single Redis Pipeline to check score and fetch range.
+func (c *MessageCache) ListBeforeByChannelID(
+	ctx context.Context,
+	channelID, cursorID fields.ID,
+	limit int32,
+) ([]*channel.Message, error) {
+	zKey := ChannelMessageIDsKey(channelID)
+	loadedKey := ChannelLoadedKey(channelID)
+
+	// Single round-trip pipeline
+	pipe := c.client.Pipeline()
+	scoreCmd := pipe.ZScore(ctx, zKey, cursorID.String())
+	loadedCmd := pipe.Exists(ctx, loadedKey)
+	_, _ = pipe.Exec(ctx)
+
+	anchorScore, err := scoreCmd.Result()
+	if err != nil {
+		return nil, nil // Cursor not in ZSET -> Cache Miss
+	}
+
+	isComplete := loadedCmd.Val() > 0
+
+	rawIDs, err := c.client.ZRevRangeByScore(ctx, zKey, &redisdriver.ZRangeBy{
+		Max:    "(" + scoreToString(anchorScore),
+		Min:    "-inf",
+		Offset: 0,
+		Count:  int64(limit),
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if int32(len(rawIDs)) < limit && !isComplete {
+		return nil, nil // Partial result on incomplete cache -> Fallback to DB
+	}
+
+	if len(rawIDs) == 0 {
+		return []*channel.Message{}, nil
+	}
+
+	return c.hydrateFromIDs(ctx, rawIDs)
+}
+
+// ListAfterByChannelID fetches newer messages relative to cursorID using a single pipeline.
+func (c *MessageCache) ListAfterByChannelID(
+	ctx context.Context,
+	channelID, cursorID fields.ID,
+	limit int32,
+) ([]*channel.Message, error) {
+	zKey := ChannelMessageIDsKey(channelID)
+	loadedKey := ChannelLoadedKey(channelID)
+
+	pipe := c.client.Pipeline()
+	scoreCmd := pipe.ZScore(ctx, zKey, cursorID.String())
+	loadedCmd := pipe.Exists(ctx, loadedKey)
+	_, _ = pipe.Exec(ctx)
+
+	anchorScore, err := scoreCmd.Result()
+	if err != nil {
+		return nil, nil // Cursor not in ZSET -> Cache Miss
+	}
+
+	isComplete := loadedCmd.Val() > 0
+
+	rawIDs, err := c.client.ZRangeByScore(ctx, zKey, &redisdriver.ZRangeBy{
+		Min:    "(" + scoreToString(anchorScore),
+		Max:    "+inf",
+		Offset: 0,
+		Count:  int64(limit),
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if int32(len(rawIDs)) < limit && !isComplete {
+		return nil, nil // Partial result on incomplete cache -> Fallback to DB
+	}
+
+	if len(rawIDs) == 0 {
+		return []*channel.Message{}, nil
+	}
+
+	return c.hydrateFromIDs(ctx, rawIDs)
+}
+
+// ListAroundByChannelID fetches surrounding messages in a single pipelined operation.
+func (c *MessageCache) ListAroundByChannelID(
+	ctx context.Context,
+	channelID, anchorMessageID fields.ID,
+	beforeLimit, afterLimit int32,
+) ([]*channel.Message, error) {
+	zKey := ChannelMessageIDsKey(channelID)
+	loadedKey := ChannelLoadedKey(channelID)
+
+	// Step 1: Pipeline Anchor Score + Complete Check
+	pipe := c.client.Pipeline()
+	scoreCmd := pipe.ZScore(ctx, zKey, anchorMessageID.String())
+	loadedCmd := pipe.Exists(ctx, loadedKey)
+	_, _ = pipe.Exec(ctx)
+
+	anchorScore, err := scoreCmd.Result()
+	if err != nil {
+		return nil, nil // Anchor missing from ZSET -> Cache Miss
+	}
+
+	isComplete := loadedCmd.Val() > 0
+
+	// Step 2: Pipeline Both Range Queries
+	pipeRange := c.client.Pipeline()
+	beforeCmd := pipeRange.ZRevRangeByScore(ctx, zKey, &redisdriver.ZRangeBy{
+		Max:    "(" + scoreToString(anchorScore),
+		Min:    "-inf",
+		Offset: 0,
+		Count:  int64(beforeLimit),
+	})
+	afterCmd := pipeRange.ZRangeByScore(ctx, zKey, &redisdriver.ZRangeBy{
+		Min:    scoreToString(anchorScore),
+		Max:    "+inf",
+		Offset: 0,
+		Count:  int64(afterLimit + 1),
+	})
+	if _, err := pipeRange.Exec(ctx); err != nil {
+		return nil, err
+	}
+
+	beforeIDs := beforeCmd.Val()
+	afterIDs := afterCmd.Val()
+
+	// Validate incomplete windows
+	if (int32(len(beforeIDs)) < beforeLimit || int32(len(afterIDs)) < (afterLimit+1)) && !isComplete {
+		return nil, nil // Incomplete window -> Fallback to DB
+	}
+
+	slices.Reverse(beforeIDs)
+	combinedIDs := append(beforeIDs, afterIDs...)
+
+	if len(combinedIDs) == 0 {
+		return []*channel.Message{}, nil
+	}
+
+	return c.hydrateFromIDs(ctx, combinedIDs)
+}
+
+func (c *MessageCache) Delete(ctx context.Context, channelID, messageID fields.ID) error {
+	pipe := c.client.Pipeline()
+
+	zKey := ChannelMessageIDsKey(channelID)
+	msgKey := MessageKey(messageID)
+
+	pipe.ZRem(ctx, zKey, messageID.String())
+	pipe.Del(ctx, msgKey)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeMessage)
+	}
+
+	return nil
+}
+
+func scoreToString(score float64) string {
+	return strconv.FormatFloat(score, 'f', -1, 64)
+}
+
+func (c *MessageCache) hydrateFromIDs(ctx context.Context, rawIDs []string) ([]*channel.Message, error) {
+	msgIDs := make([]fields.ID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		parsedUUID, err := uuid.Parse(raw)
+		if err != nil {
+			return nil, nil
+		}
+		id, err := fields.ParseRequiredID("message_id", parsedUUID)
+		if err != nil {
+			return nil, nil
+		}
+		msgIDs = append(msgIDs, id)
+	}
+
+	dtosMap, missing, err := c.GetBatch(ctx, msgIDs)
+	if err != nil || len(missing) > 0 {
+		return nil, nil // DTO missing -> Fallback to DB
+	}
+
+	ordered := make([]*channel.Message, 0, len(msgIDs))
+	for _, id := range msgIDs {
+		msg, ok := dtosMap[id]
+		if !ok || msg == nil {
+			return nil, nil
+		}
+		ordered = append(ordered, msg)
+	}
+
+	return ordered, nil
 }
