@@ -18,7 +18,7 @@ import (
 
 type MessageCache interface {
 	Delete(ctx context.Context, channelID fields.ID, messageID fields.ID) error
-	DeleteBatch(ctx context.Context, keys []fields.ID) error
+	DeleteBatch(ctx context.Context, channelID fields.ID, keys []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Message, []fields.ID, error)
 	IsTimelineComplete(ctx context.Context, channelID fields.ID) bool
@@ -173,7 +173,6 @@ func (r *MessageRepository) ListAroundByChannelID(
 	channelID, lastReadMessageID fields.ID,
 	beforeLimit, afterLimit int32,
 ) ([]*channel.Message, error) {
-	// 1. Try reading from Redis cache first
 	messages, err := r.cache.ListAroundByChannelID(ctx, channelID, lastReadMessageID, beforeLimit, afterLimit)
 	if err == nil && messages != nil {
 		return messages, nil
@@ -187,7 +186,6 @@ func (r *MessageRepository) ListAroundByChannelID(
 		)
 	}
 
-	// 2. Fallback to Database on cache miss or cache error
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
 		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
@@ -203,7 +201,6 @@ func (r *MessageRepository) ListAroundByChannelID(
 		return nil, err
 	}
 
-	// 3. Backfill Cache
 	if len(messages) > 0 {
 		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
 			slog.WarnContext(ctx, "failed to backfill message cache",
@@ -222,6 +219,19 @@ func (r *MessageRepository) ListBeforeByChannelID(
 	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
+	messages, err := r.cache.ListBeforeByChannelID(ctx, channelID, cursorID, limit)
+	if err == nil && messages != nil {
+		return messages, nil
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed for messages before cursor, falling back to database",
+			"channel_id", channelID,
+			"cursor_id", cursorID,
+			"error", err,
+			"scope", redis.ScopeMessage,
+		)
+	}
+
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
@@ -231,7 +241,32 @@ func (r *MessageRepository) ListBeforeByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err = messagesFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(messages) > 0 {
+		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill message cache",
+				"channel_id", channelID,
+				"error", cacheErr,
+				"scope", redis.ScopeMessage,
+			)
+		}
+	}
+
+	if len(messages) < int(limit) {
+		if cacheErr := r.cache.SetTimelineComplete(ctx, channelID); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to set timeline complete flag",
+				"channel_id", channelID,
+				"error", cacheErr,
+				"scope", redis.ScopeMessage,
+			)
+		}
+	}
+
+	return messages, nil
 }
 
 func (r *MessageRepository) ListAfterByChannelID(
@@ -239,6 +274,19 @@ func (r *MessageRepository) ListAfterByChannelID(
 	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
+	messages, err := r.cache.ListAfterByChannelID(ctx, channelID, cursorID, limit)
+	if err == nil && messages != nil {
+		return messages, nil
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed for messages after cursor, falling back to database",
+			"channel_id", channelID,
+			"cursor_id", cursorID,
+			"error", err,
+			"scope", redis.ScopeMessage,
+		)
+	}
+
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
@@ -248,7 +296,22 @@ func (r *MessageRepository) ListAfterByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err = messagesFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(messages) > 0 {
+		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill message cache",
+				"channel_id", channelID,
+				"error", cacheErr,
+				"scope", redis.ScopeMessage,
+			)
+		}
+	}
+
+	return messages, nil
 }
 
 func (r *MessageRepository) ListPinnedByChannelID(
