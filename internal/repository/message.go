@@ -17,8 +17,17 @@ import (
 )
 
 type MessageCache interface {
+	Delete(ctx context.Context, channelID fields.ID, messageID fields.ID) error
+	DeleteBatch(ctx context.Context, keys []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Message, []fields.ID, error)
+	IsTimelineComplete(ctx context.Context, channelID fields.ID) bool
+	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*channel.Message, error)
+	ListAroundByChannelID(ctx context.Context, channelID fields.ID, anchorMessageID fields.ID, beforeLimit int32, afterLimit int32) ([]*channel.Message, error)
+	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*channel.Message, error)
 	Set(ctx context.Context, msg *channel.Message) error
+	SetBatch(ctx context.Context, messages []*channel.Message) error
+	SetTimelineComplete(ctx context.Context, channelID fields.ID) error
 }
 
 type MessageRepository struct {
@@ -30,6 +39,7 @@ type MessageRepository struct {
 func NewMessageRepository(store *db.Store, cache MessageCache) *MessageRepository {
 	return &MessageRepository{
 		store: store.WithEntity(db.EntityMessage),
+		cache: cache,
 	}
 }
 
@@ -163,6 +173,21 @@ func (r *MessageRepository) ListAroundByChannelID(
 	channelID, lastReadMessageID fields.ID,
 	beforeLimit, afterLimit int32,
 ) ([]*channel.Message, error) {
+	// 1. Try reading from Redis cache first
+	messages, err := r.cache.ListAroundByChannelID(ctx, channelID, lastReadMessageID, beforeLimit, afterLimit)
+	if err == nil && messages != nil {
+		return messages, nil
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "cache read failed for messages around anchor, falling back to database",
+			"channel_id", channelID,
+			"anchor_id", lastReadMessageID,
+			"error", err,
+			"scope", redis.ScopeMessage,
+		)
+	}
+
+	// 2. Fallback to Database on cache miss or cache error
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
 		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
@@ -173,7 +198,23 @@ func (r *MessageRepository) ListAroundByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err = messagesFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Backfill Cache
+	if len(messages) > 0 {
+		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
+			slog.WarnContext(ctx, "failed to backfill message cache",
+				"channel_id", channelID,
+				"error", cacheErr,
+				"scope", redis.ScopeMessage,
+			)
+		}
+	}
+
+	return messages, nil
 }
 
 func (r *MessageRepository) ListBeforeByChannelID(

@@ -253,7 +253,7 @@ func (c *MessageCache) ListAfterByChannelID(
 	return c.hydrateFromIDs(ctx, rawIDs)
 }
 
-// ListAroundByChannelID fetches surrounding messages in a single pipelined operation.
+// ListAroundByChannelID fetches surrounding messages in pipelined Redis operations.
 func (c *MessageCache) ListAroundByChannelID(
 	ctx context.Context,
 	channelID, anchorMessageID fields.ID,
@@ -296,11 +296,16 @@ func (c *MessageCache) ListAroundByChannelID(
 	beforeIDs := beforeCmd.Val()
 	afterIDs := afterCmd.Val()
 
-	// Validate incomplete windows
-	if (int32(len(beforeIDs)) < beforeLimit || int32(len(afterIDs)) < (afterLimit+1)) && !isComplete {
-		return nil, nil // Incomplete window -> Fallback to DB
+	// Step 3: Validate window completeness
+	// The "before" window is only considered incomplete if we retrieved fewer items
+	// than beforeLimit AND the channel hasn't been flagged as fully backfilled to day 1.
+	isBeforeTruncated := int32(len(beforeIDs)) < beforeLimit && !isComplete
+
+	if isBeforeTruncated {
+		return nil, nil // Cache Miss -> Fallback to DB to fetch older history
 	}
 
+	// Step 4: Construct combined IDs list in chronological order
 	slices.Reverse(beforeIDs)
 	combinedIDs := append(beforeIDs, afterIDs...)
 
@@ -308,7 +313,19 @@ func (c *MessageCache) ListAroundByChannelID(
 		return []*channel.Message{}, nil
 	}
 
-	return c.hydrateFromIDs(ctx, combinedIDs)
+	// Step 5: Hydrate full structs from Redis String keys (MGET)
+	messages, err := c.hydrateFromIDs(ctx, combinedIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// If any individual message key was evicted while present in the ZSET,
+	// fall back to DB to ensure no missing/nil items in returned slice.
+	if len(messages) < len(combinedIDs) {
+		return nil, nil
+	}
+
+	return messages, nil
 }
 
 func (c *MessageCache) Delete(ctx context.Context, channelID, messageID fields.ID) error {
