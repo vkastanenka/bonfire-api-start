@@ -76,6 +76,14 @@ type ChannelType struct {
 	fields.Enum[ChannelTypeValue]
 }
 
+func (t ChannelType) IsDirect() bool {
+	return t.Value == uint8(ChannelTypeDirect)
+}
+
+func (t ChannelType) IsGroup() bool {
+	return t.Value == uint8(ChannelTypeGroup)
+}
+
 func NewChannelType(val ChannelTypeValue) ChannelType {
 	return ChannelType{Enum: fields.NewEnum(val, channelTypeSpec)}
 }

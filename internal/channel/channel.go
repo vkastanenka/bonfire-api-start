@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 )
@@ -35,14 +36,14 @@ type MemberView struct {
 	presence    presence.Presence
 }
 
-type ChannelSidebarPeerView struct {
+type SidebarPeer struct {
 	id          fields.ID
 	displayName user.DisplayName
 	avatarURL   fields.URL
 	presence    presence.Presence
 }
 
-type ChannelSidebarView struct {
+type SidebarView struct {
 	id                fields.ID
 	chType            ChannelType
 	name              ChannelName
@@ -53,7 +54,7 @@ type ChannelSidebarView struct {
 	pinnedAt          fields.Timestamp
 	mutedUntil        fields.Timestamp
 	mentionCount      int32
-	peers             []ChannelSidebarPeerView
+	peers             []SidebarPeer
 	memberTotal       int16
 }
 
@@ -205,6 +206,144 @@ func HydrateMessageViews(
 		}
 	}
 	return views
+}
+
+func HydrateSidebarPeer(
+	currentUserID fields.ID,
+	pMem *Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) (SidebarPeer, bool) {
+	if pMem == nil || pMem.UserID() == currentUserID {
+		return SidebarPeer{}, false
+	}
+
+	u, ok := userMap[pMem.UserID()]
+	if !ok || u == nil {
+		return SidebarPeer{}, false
+	}
+
+	p, ok := presenceMap[pMem.UserID()]
+	if !ok {
+		p = presence.New(presence.PresenceOffline)
+	}
+
+	return SidebarPeer{
+		id:          u.ID(),
+		displayName: u.DisplayName(),
+		avatarURL:   u.AvatarURL(),
+		presence:    p,
+	}, true
+}
+
+func HydrateSidebarPeers(
+	currentUserID fields.ID,
+	rawPeers []*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []SidebarPeer {
+	views := make([]SidebarPeer, 0, len(rawPeers))
+	for _, pMem := range rawPeers {
+		if view, ok := HydrateSidebarPeer(currentUserID, pMem, userMap, presenceMap); ok {
+			views = append(views, view)
+		}
+	}
+	return views
+}
+
+func HydrateSidebarViews(
+	currentUserID fields.ID,
+	channels []*Channel,
+	userMembersMap map[fields.ID]*Member,
+	peerMembersMap map[fields.ID][]*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []SidebarView {
+	views := make([]SidebarView, 0, len(channels))
+
+	for _, ch := range channels {
+		mem := userMembersMap[ch.ID()]
+		if mem == nil {
+			continue
+		}
+
+		rawPeers := peerMembersMap[ch.ID()]
+		peersView := HydrateSidebarPeers(currentUserID, rawPeers, userMap, presenceMap)
+
+		views = append(views, SidebarView{
+			id:                ch.ID(),
+			chType:            ch.Type(),
+			name:              ch.Name(),
+			iconURL:           ch.IconURL(),
+			lastMessageID:     ch.LastMessageID(),
+			lastMessageAt:     ch.LastMessageAt(),
+			lastReadMessageID: mem.LastReadMessageID(),
+			pinnedAt:          mem.PinnedAt(),
+			mutedUntil:        mem.MutedUntil(),
+			mentionCount:      mem.MentionCount(),
+			peers:             peersView,
+			memberTotal:       int16(len(rawPeers)),
+		})
+	}
+
+	return views
+}
+
+func IndexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
+	channelIDs := make([]fields.ID, len(members))
+	membershipMap := make(map[fields.ID]*Member, len(members))
+	for i, m := range members {
+		chID := m.ChannelID()
+		channelIDs[i] = chID
+		membershipMap[chID] = m
+	}
+	return channelIDs, membershipMap
+}
+
+func SortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
+	slices.SortFunc(channels, func(a, b *Channel) int {
+		mA := userMembersMap[a.ID()]
+		mB := userMembersMap[b.ID()]
+
+		// 1. Pinned priority
+		aPinned := mA != nil && mA.PinnedAt().IsValid()
+		bPinned := mB != nil && mB.PinnedAt().IsValid()
+		if aPinned != bPinned {
+			if aPinned {
+				return -1
+			}
+			return 1
+		}
+		if aPinned {
+			if mA.PinnedAt().After(mB.PinnedAt()) {
+				return -1
+			}
+			if mB.PinnedAt().After(mA.PinnedAt()) {
+				return 1
+			}
+		}
+
+		// 2. Activity (lastMessageAt)
+		aLast := a.LastMessageAt()
+		bLast := b.LastMessageAt()
+		if !aLast.Equals(bLast) {
+			if aLast.After(bLast) {
+				return -1
+			}
+			return 1
+		}
+
+		// 3. Creation date
+		if a.CreatedAt().After(b.CreatedAt()) {
+			return -1
+		}
+		if b.CreatedAt().After(a.CreatedAt()) {
+			return 1
+		}
+
+		// 4. Guaranteed deterministic ID tie-breaker
+		return a.ID().Compare(b.ID())
+	})
 }
 
 func ValidateMaxPeers(rawPeerIDs []uuid.UUID) error {

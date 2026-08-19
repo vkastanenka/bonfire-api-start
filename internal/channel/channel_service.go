@@ -8,7 +8,6 @@ import (
 	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -341,7 +340,7 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 	return channel, HydrateMemberViews(members, userMap, presenceMap), HydrateMessageViews(messages, userMap, reactionMap), nil
 }
 
-func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([]ChannelSidebarView, error) {
+func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([]SidebarView, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
@@ -351,62 +350,45 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 	if err != nil {
 		return nil, err
 	}
+
 	if len(userMemberships) == 0 {
-		return []ChannelSidebarView{}, nil
+		return []SidebarView{}, nil
 	}
 
-	channelIDs := make([]fields.ID, len(userMemberships))
-	membershipMap := make(map[fields.ID]*Member, len(userMemberships))
-	for i, m := range userMemberships {
-		channelIDs[i] = m.ChannelID()
-		membershipMap[m.ChannelID()] = m
-	}
+	channelIDs, userMembersMap := IndexMemberships(userMemberships)
 
-	// --- PHASE 1: Fetch Channels & Resolve Peer IDs ---
 	channelMap, err := s.repo.GetBatch(ctx, channelIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	var membersMap map[fields.ID][]*Member
-	if len(channelIDs) > 0 {
-		membersMap, err = s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
-		if err != nil {
-			return nil, err
-		}
+	channelMembersMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
+	if err != nil {
+		return nil, err
 	}
 
-	// Deduplicate User IDs for profile hydration and direct presence lookups
-	userIDSet := make(map[fields.ID]struct{})
-	directPeerIDSet := make(map[fields.ID]struct{})
+	var rawUserIDs []fields.ID
+	var rawDirectPeerIDs []fields.ID
 
-	for chID, members := range membersMap {
+	for chID, members := range channelMembersMap {
 		ch, exists := channelMap[chID]
 		if !exists || ch == nil {
 			continue
 		}
 		for _, m := range members {
 			if m.UserID() == userID {
-				continue // Exclude current user
+				continue
 			}
-			userIDSet[m.UserID()] = struct{}{}
-			if ChannelTypeValue(ch.Type().Value) == ChannelTypeDirect {
-				directPeerIDSet[m.UserID()] = struct{}{}
+			rawUserIDs = append(rawUserIDs, m.UserID())
+			if ch.Type().IsDirect() {
+				rawDirectPeerIDs = append(rawDirectPeerIDs, m.UserID())
 			}
 		}
 	}
 
-	userIDs := make([]fields.ID, 0, len(userIDSet))
-	for id := range userIDSet {
-		userIDs = append(userIDs, id)
-	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
+	directPeerIDs := fields.DedupeIDs(rawDirectPeerIDs)
 
-	directPeerIDs := make([]fields.ID, 0, len(directPeerIDSet))
-	for id := range directPeerIDSet {
-		directPeerIDs = append(directPeerIDs, id)
-	}
-
-	// --- PHASE 2: Concurrent Users & Presence Fetch ---
 	var (
 		userMap     map[fields.ID]*user.User
 		presenceMap map[fields.ID]presence.Presence
@@ -414,7 +396,6 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 
 	g, gCtx := errgroup.WithContext(ctx)
 
-	// Fetch Users (only if userIDs is non-empty)
 	if len(userIDs) > 0 {
 		g.Go(func() error {
 			var err error
@@ -423,7 +404,6 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		})
 	}
 
-	// Fetch Presences (1:1 Direct Peers only, if non-empty)
 	if len(directPeerIDs) > 0 {
 		g.Go(func() error {
 			var err error
@@ -436,7 +416,6 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		return nil, err
 	}
 
-	// --- PHASE 3: In-Memory Sort ---
 	channels := make([]*Channel, 0, len(channelMap))
 	for _, ch := range channelMap {
 		if ch != nil {
@@ -444,114 +423,9 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		}
 	}
 
-	slices.SortFunc(channels, func(a, b *Channel) int {
-		mA := membershipMap[a.ID()]
-		mB := membershipMap[b.ID()]
+	SortSidebar(channels, userMembersMap)
 
-		// 1. Pinned priority
-		aPinned := mA != nil && mA.PinnedAt().IsValid()
-		bPinned := mB != nil && mB.PinnedAt().IsValid()
-		if aPinned != bPinned {
-			if aPinned {
-				return -1
-			}
-			return 1
-		}
-		if aPinned && bPinned {
-			if mA.PinnedAt().After(mB.PinnedAt()) {
-				return -1
-			}
-			if mB.PinnedAt().After(mA.PinnedAt()) {
-				return 1
-			}
-		}
-
-		// 2. Activity (lastMessageAt)
-		aLast := a.LastMessageAt()
-		bLast := b.LastMessageAt()
-		if !aLast.Equals(bLast) {
-			if aLast.After(bLast) {
-				return -1
-			}
-			return 1
-		}
-
-		// 3. Creation date
-		if a.CreatedAt().After(b.CreatedAt()) {
-			return -1
-		}
-		if b.CreatedAt().After(a.CreatedAt()) {
-			return 1
-		}
-
-		// 4. Guaranteed deterministic ID tie-breaker
-		return a.ID().Compare(b.ID())
-	})
-
-	// --- PHASE 4: Hydrate Views ---
-	return s.hydrateSidebarViews(channels, membershipMap, membersMap, userMap, presenceMap), nil
-}
-
-func (s *ChannelService) hydrateSidebarViews(
-	channels []*Channel,
-	membershipMap map[fields.ID]*Member,
-	peerMembersMap map[fields.ID][]*Member,
-	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]presence.Presence,
-) []ChannelSidebarView {
-	views := make([]ChannelSidebarView, 0, len(channels))
-
-	for _, ch := range channels {
-		mem := membershipMap[ch.ID()]
-		if mem == nil {
-			continue
-		}
-
-		rawPeers := peerMembersMap[ch.ID()]
-		peersView := make([]ChannelSidebarPeerView, 0, len(rawPeers))
-
-		for _, pMem := range rawPeers {
-			if pMem.UserID() == mem.UserID() {
-				continue
-			}
-
-			u, ok := userMap[pMem.UserID()]
-			if !ok || u == nil {
-				continue
-			}
-
-			p, ok := presenceMap[pMem.UserID()]
-			if !ok {
-				p = presence.New(presence.PresenceOffline)
-			}
-
-			peersView = append(peersView, ChannelSidebarPeerView{
-				id:          u.ID(),
-				displayName: u.DisplayName(),
-				avatarURL:   u.AvatarURL(),
-				presence:    p,
-			})
-		}
-
-		memberTotal := int16(len(rawPeers))
-
-		views = append(views, ChannelSidebarView{
-			id:                ch.ID(),
-			chType:            ch.Type(),
-			name:              ch.Name(),
-			iconURL:           ch.IconURL(),
-			lastMessageID:     ch.LastMessageID(),
-			lastMessageAt:     ch.LastMessageAt(),
-			lastReadMessageID: mem.LastReadMessageID(),
-			pinnedAt:          mem.PinnedAt(),
-			mutedUntil:        mem.MutedUntil(),
-			mentionCount:      mem.MentionCount(),
-			peers:             peersView,
-			memberTotal:       memberTotal,
-		})
-	}
-
-	return views
+	return HydrateSidebarViews(userID, channels, userMembersMap, channelMembersMap, userMap, presenceMap), nil
 }
 
 func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
