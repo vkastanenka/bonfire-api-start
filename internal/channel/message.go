@@ -98,6 +98,133 @@ func ParseMessage(
 	}
 }
 
+func ParseMessageMemberAdd(
+	id,
+	channelID,
+	authorID,
+	addedUserID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"user_id": addedUserID.String()})
+
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeMemberAdd(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
+}
+
+func ParseMessageMemberRemove(
+	id,
+	channelID,
+	authorID,
+	removedUserID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"user_id": removedUserID.String()})
+
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeMemberRemove(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
+}
+
+func ParseMessageNameChange(
+	id,
+	channelID,
+	authorID fields.ID,
+	newName ChannelName,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"name": newName.String()})
+
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeNameChange(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
+}
+
+func ParseMessageIconChange(
+	id,
+	channelID,
+	authorID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeIconChange(),
+		MessageContent{},
+		fields.JSON{},
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
+}
+
+func ParseMessagePin(
+	id,
+	channelID,
+	authorID,
+	pinnedMessageID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"message_id": pinnedMessageID.String()})
+
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypePin(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
+}
+
 func (m *Message) SetAuthorID(id fields.ID, now fields.Timestamp) {
 	m.authorID = id
 	m.touch(now)

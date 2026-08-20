@@ -212,8 +212,72 @@ type MessageType struct {
 	fields.Enum[MessageTypeValue]
 }
 
+func (t MessageType) IsDefault() bool {
+	return t.Value == uint8(MessageTypeDefault)
+}
+
+func (t MessageType) IsReply() bool {
+	return t.Value == uint8(MessageTypeReply)
+}
+
+func (t MessageType) IsForward() bool {
+	return t.Value == uint8(MessageTypeForward)
+}
+
+func (t MessageType) IsMemberAdd() bool {
+	return t.Value == uint8(MessageTypeMemberAdd)
+}
+
+func (t MessageType) IsMemberRemove() bool {
+	return t.Value == uint8(MessageTypeMemberRemove)
+}
+
+func (t MessageType) IsNameChange() bool {
+	return t.Value == uint8(MessageTypeNameChange)
+}
+
+func (t MessageType) IsIconChange() bool {
+	return t.Value == uint8(MessageTypeIconChange)
+}
+
+func (t MessageType) IsPin() bool {
+	return t.Value == uint8(MessageTypePin)
+}
+
 func NewMessageType(val MessageTypeValue) MessageType {
 	return MessageType{Enum: fields.NewEnum(val, messageTypeSpec)}
+}
+
+func NewMessageTypeDefault() MessageType {
+	return NewMessageType(MessageTypeDefault)
+}
+
+func NewMessageTypeReply() MessageType {
+	return NewMessageType(MessageTypeReply)
+}
+
+func NewMessageTypeForward() MessageType {
+	return NewMessageType(MessageTypeForward)
+}
+
+func NewMessageTypeMemberAdd() MessageType {
+	return NewMessageType(MessageTypeMemberAdd)
+}
+
+func NewMessageTypeMemberRemove() MessageType {
+	return NewMessageType(MessageTypeMemberRemove)
+}
+
+func NewMessageTypeNameChange() MessageType {
+	return NewMessageType(MessageTypeNameChange)
+}
+
+func NewMessageTypeIconChange() MessageType {
+	return NewMessageType(MessageTypeIconChange)
+}
+
+func NewMessageTypePin() MessageType {
+	return NewMessageType(MessageTypePin)
 }
 
 func ErrMessageTypeInvalid() *errs.Error {

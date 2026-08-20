@@ -7,6 +7,7 @@ import (
 	"bonfire-api/internal/user"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -298,6 +299,30 @@ func IndexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
 		membershipMap[chID] = m
 	}
 	return channelIDs, membershipMap
+}
+
+func SortMembers(members []*Member, userMap map[fields.ID]*user.User) {
+	slices.SortFunc(members, func(a, b *Member) int {
+		uA, okA := userMap[a.UserID()]
+		uB, okB := userMap[b.UserID()]
+
+		nameA := ""
+		if okA && uA != nil {
+			nameA = uA.DisplayName().String()
+		}
+		nameB := ""
+		if okB && uB != nil {
+			nameB = uB.DisplayName().String()
+		}
+
+		return strings.Compare(nameA, nameB)
+	})
+}
+
+func SortMessages(messages []*Message) {
+	slices.SortFunc(messages, func(a, b *Message) int {
+		return a.ID().Compare(b.ID())
+	})
 }
 
 func SortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {

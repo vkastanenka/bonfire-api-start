@@ -131,6 +131,7 @@ func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message
 		})
 	}
 
+	// 1. Store individual message entity DTOs (e.g. message:<id>)
 	if err := c.KeyCache.SetBatch(ctx, dtos, c.ttl); err != nil {
 		return err
 	}
@@ -138,7 +139,10 @@ func (c *MessageCache) SetBatch(ctx context.Context, messages []*channel.Message
 	pipe := c.client.Pipeline()
 	for cid, zMembers := range channelZMap {
 		zKey := ChannelMessageIDsKey(cid)
-		pipe.ZAdd(ctx, zKey, zMembers...)
+
+		// IMPORTANT: Use ZAddXX so we ONLY append if the ZSET already exists.
+		// If the ZSET is missing/cold, ZAddXX does nothing, preventing a partial/corrupted ZSET.
+		pipe.ZAddXX(ctx, zKey, zMembers...)
 		pipe.Expire(ctx, zKey, c.ttl)
 
 		loadedKey := ChannelLoadedKey(cid)

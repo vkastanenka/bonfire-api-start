@@ -674,6 +674,10 @@ func (t Timestamp) HasPassed(now time.Time) bool {
 	return now.After(t.value)
 }
 
+func (t Timestamp) Add(d time.Duration) Timestamp {
+	return NewTimestamp(t.Time().Add(d))
+}
+
 func (t Timestamp) MarshalText() ([]byte, error) {
 	if t.IsZero() {
 		return nil, nil
