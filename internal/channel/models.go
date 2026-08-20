@@ -22,6 +22,7 @@ type ChannelRepository interface {
 type ChannelCache interface {
 	Delete(ctx context.Context, key fields.ID) error
 	DeleteBatch(ctx context.Context, keys []fields.ID) error
+	DeleteMemberIDs(ctx context.Context, channelID fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Channel, []fields.ID, error)
 	IsLoaded(ctx context.Context, channelID fields.ID) bool
@@ -111,15 +112,16 @@ type UserRepository interface {
 }
 
 type UserCache interface {
+	AddChannelIDs(ctx context.Context, userID fields.ID, channelIDs ...fields.ID) error
 	Delete(ctx context.Context, id fields.ID) error
 	DeleteBatch(ctx context.Context, ids []fields.ID) error
-	DeleteChannelIDs(ctx context.Context, userID fields.ID) error
-	DeleteChannelIDsBatch(ctx context.Context, userIDs []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
+	GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	RemoveChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	RemoveChannelIDBatch(ctx context.Context, userIDs []fields.ID, channelID fields.ID) error
 	Set(ctx context.Context, usr *user.User) error
 	SetBatch(ctx context.Context, users []*user.User) error
-	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 }
 
 type PresenceCache interface {

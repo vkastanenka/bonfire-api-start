@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"bonfire-api/internal/fields"
@@ -97,68 +96,104 @@ func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 	return u.KeyCache.DeleteBatch(ctx, ids)
 }
 
-func (u *UserCache) SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
+func (u *UserCache) AddChannelIDs(ctx context.Context, userID fields.ID, channelIDs ...fields.ID) error {
 	if userID.IsZero() || len(channelIDs) == 0 {
 		return nil
 	}
 
-	key := UserChannelIDsKey(userID)
-
-	rawIDs := make([]string, 0, len(channelIDs))
+	members := make([]any, 0, len(channelIDs))
 	for _, id := range channelIDs {
 		if !id.IsZero() {
-			rawIDs = append(rawIDs, id.String())
+			members = append(members, id.String())
 		}
+	}
+
+	if len(members) == 0 {
+		return nil
+	}
+
+	key := UserChannelIDsKey(userID)
+
+	// SADD and refresh TTL
+	pipe := u.KeyCache.client.Pipeline()
+	pipe.SAdd(ctx, key, members...)
+	pipe.Expire(ctx, key, u.ttl)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+
+	return nil
+}
+
+func (u *UserCache) RemoveChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error {
+	if userID.IsZero() || channelID.IsZero() {
+		return nil
+	}
+
+	key := UserChannelIDsKey(userID)
+	if err := u.KeyCache.client.SRem(ctx, key, channelID.String()).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+
+	return nil
+}
+
+func (u *UserCache) RemoveChannelIDBatch(
+	ctx context.Context,
+	userIDs []fields.ID,
+	channelID fields.ID,
+) error {
+	if len(userIDs) == 0 || channelID.IsZero() {
+		return nil
+	}
+
+	channelIDStr := channelID.String()
+	pipe := u.KeyCache.client.Pipeline()
+
+	var queuedCount int
+	for _, id := range userIDs {
+		if !id.IsZero() {
+			key := UserChannelIDsKey(id)
+			pipe.SRem(ctx, key, channelIDStr)
+			queuedCount++
+		}
+	}
+
+	if queuedCount == 0 {
+		return nil
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+
+	return nil
+}
+
+func (u *UserCache) GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	if userID.IsZero() {
+		return nil, nil
+	}
+
+	key := UserChannelIDsKey(userID)
+	rawIDs, err := u.KeyCache.client.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, redis.NewError(err, redis.ScopeUser)
 	}
 
 	if len(rawIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	data, err := json.Marshal(rawIDs)
-	if err != nil {
-		return err
-	}
-
-	if err := u.KeyCache.client.Set(ctx, key, data, u.ttl).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
-}
-
-func (u *UserCache) DeleteChannelIDs(ctx context.Context, userID fields.ID) error {
-	if userID.IsZero() {
-		return nil
-	}
-
-	key := UserChannelIDsKey(userID)
-	if err := u.KeyCache.client.Del(ctx, key).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
-}
-
-func (u *UserCache) DeleteChannelIDsBatch(ctx context.Context, userIDs []fields.ID) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	keys := make([]string, 0, len(userIDs))
-	for _, id := range userIDs {
-		if !id.IsZero() {
-			keys = append(keys, UserChannelIDsKey(id))
+	parsedIDs := make([]fields.ID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := fields.ParseIDFromString("channel_id", raw)
+		if err != nil {
+			continue
 		}
+		parsedIDs = append(parsedIDs, id)
 	}
 
-	if len(keys) == 0 {
-		return nil
-	}
-
-	if err := u.KeyCache.client.Del(ctx, keys...).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-
-	return nil
+	return parsedIDs, nil
 }

@@ -4,7 +4,7 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"context"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +15,10 @@ type MemberService struct {
 	cache        MemberCache
 	channelRepo  ChannelRepository
 	channelCache ChannelCache
+	messageRepo  MessageRepository
+	messageCache MessageCache
+	userRepo     UserRepository
+	userCache    UserCache
 	outboxRepo   OutboxRepository
 	relationRepo RelationRepository
 	tx           TX
@@ -25,6 +29,10 @@ func NewMemberService(
 	cache MemberCache,
 	channelRepo ChannelRepository,
 	channelCache ChannelCache,
+	messageRepo MessageRepository,
+	messageCache MessageCache,
+	userRepo UserRepository,
+	userCache UserCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
@@ -34,6 +42,10 @@ func NewMemberService(
 		cache:        cache,
 		channelRepo:  channelRepo,
 		channelCache: channelCache,
+		messageRepo:  messageRepo,
+		messageCache: messageCache,
+		userRepo:     userRepo,
+		userCache:    userCache,
 		outboxRepo:   outboxRepo,
 		relationRepo: relationRepo,
 		tx:           tx,
@@ -42,15 +54,16 @@ func NewMemberService(
 
 func (s *MemberService) AddMembers(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID uuid.UUID,
 	rawMemberIDs []uuid.UUID,
 ) error {
-	if len(rawMemberIDs) == 0 {
-		return errs.InvalidArgument("Member list cannot be empty.")
+	err := ValidateMinMembers(rawMemberIDs)
+	if err != nil {
+		return err
 	}
 
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return err
 	}
@@ -60,104 +73,72 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
-	memberIDs, err := fields.ParseIDs("member_id", rawMemberIDs)
+	memberIDs, err := fields.ParseIDs("member_ids", rawMemberIDs)
 	if err != nil {
 		return err
 	}
 
-	// 1. Deduplicate new member IDs and filter out actorID
-	newPeerIDs := make([]fields.ID, 0, len(memberIDs))
-	seen := map[fields.ID]struct{}{
-		actorID: {},
-	}
-
-	for _, id := range memberIDs {
-		if _, exists := seen[id]; !exists {
-			seen[id] = struct{}{}
-			newPeerIDs = append(newPeerIDs, id)
-		}
-	}
-
-	// If all provided IDs were duplicates of actorID or each other, return early
+	newPeerIDs := fields.RemoveID(fields.DedupeIDs(memberIDs), userID)
 	if len(newPeerIDs) == 0 {
-		return errs.InvalidArgument("No new members to add.")
+		return errs.InvalidArgument("No new members to add.").
+			Reason("NO_NEW_MEMBERS")
 	}
 
-	// 2. Verify no block exists between actor and prospective new members
-	hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, actorID, newPeerIDs)
+	hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, newPeerIDs)
 	if err != nil {
 		return err
 	}
 	if hasBlock {
-		return errs.InvalidArgument("Cannot add users who have blocked you.")
+		return errs.InvalidArgument("Cannot add users who have blocked you.").
+			Reason("INCOMING_BLOCK_DETECTED")
 	}
 
-	var newMembers []*Member
-	now := fields.NewTimestamp(time.Now())
+	now := fields.Now()
 
-	// 3. Execute Transaction
+	var (
+		createdChannel *Channel
+		newMembers     []*Member
+		systemMessages []*Message
+		allMemberIDs   []fields.ID
+	)
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Lock channel for update to avoid race conditions on group size
-		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
+		chLock, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
 		}
 
-		// Fetch existing channel members within tx
 		existingMembersMap, err := s.repo.GetBatchByChannelIDs(txCtx, []fields.ID{channelID})
 		if err != nil {
 			return err
 		}
 
-		existingMembers := existingMembersMap[channelID]
-
-		// Ensure actor is currently a member of the target channel
-		isActorMember := false
-		existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
-		for _, m := range existingMembers {
-			existingMemberSet[m.UserID()] = struct{}{}
-			if m.UserID() == actorID {
-				isActorMember = true
-			}
+		existingMembers, ok := existingMembersMap[channelID]
+		if !ok || len(existingMembers) == 0 {
+			return ErrMembersNotFound()
 		}
 
-		if !isActorMember {
-			return errs.PermissionDenied("You are not a member of this channel.")
+		if _, err := ValidateMembership(userID, existingMembers); err != nil {
+			return err
 		}
 
-		// Filter out candidates who are already members
-		toAddIDs := make([]fields.ID, 0, len(newPeerIDs))
-		for _, id := range newPeerIDs {
-			if _, exists := existingMemberSet[id]; !exists {
-				toAddIDs = append(toAddIDs, id)
-			}
-		}
-
-		if len(toAddIDs) == 0 {
-			return errs.InvalidArgument("All specified users are already members of this channel.")
-		}
-
-		// Validate capacity limit: existing count + candidates to add <= max allowed peers + 1
-		if len(existingMembers)+len(toAddIDs) > ChannelMaxPeers+1 {
-			return errs.InvalidArgument(fmt.Sprintf("Adding these members exceeds the maximum limit of %d members.", ChannelMaxPeers+1))
+		newMemberIDs, err := FilterNewMemberIDs(userID, existingMembers, newPeerIDs)
+		if err != nil {
+			return err
 		}
 
 		targetChannelID := channelID
-		finalMemberIDs := toAddIDs
+		peerIDs := newMemberIDs
 
-		// If this is a 1:1 Direct DM (Type 1), spawn a new Group DM channel instead
-		if ChannelTypeValue(ch.Type().Value) == ChannelTypeDirect {
-			rawID, err := uuid.NewV7()
+		if chLock.chType.IsDirect() {
+			newGroupChannelID, err := fields.NewID()
 			if err != nil {
-				return errs.Internal("Failed to generate channel ID.").Wrap(err)
+				return err
 			}
 
-			newGroupChannelID := fields.NewID(rawID)
-
-			// Construct new Group DM channel
 			newGroupChannel := ParseChannel(
 				newGroupChannelID,
-				NewChannelType(ChannelTypeGroup),
+				NewChannelTypeGroup(),
 				ChannelName{},
 				fields.URL{},
 				fields.ID{},
@@ -166,73 +147,181 @@ func (s *MemberService) AddMembers(
 				now,
 			)
 
-			newCh, err := s.channelRepo.Create(txCtx, newGroupChannel)
+			ch, err := s.channelRepo.Create(txCtx, newGroupChannel)
 			if err != nil {
 				return err
 			}
 
-			targetChannelID = newCh.ID()
+			createdChannel = ch
+			targetChannelID = ch.ID()
 
-			// When converting to a new group channel, existing members of the DM
-			// also need to be seeded into the new channel alongside the new candidates.
-			finalMemberIDs = make([]fields.ID, 0, len(existingMembers)+len(toAddIDs))
+			peerIDs = make([]fields.ID, 0, (len(existingMembers)-1)+len(newMemberIDs))
 			for _, m := range existingMembers {
-				finalMemberIDs = append(finalMemberIDs, m.UserID())
+				if !m.UserID().Equals(userID) {
+					peerIDs = append(peerIDs, m.UserID())
+				}
 			}
-			finalMemberIDs = append(finalMemberIDs, toAddIDs...)
+			peerIDs = append(peerIDs, newMemberIDs...)
 		}
 
-		// Construct Domain DTOs using targetChannelID
-		parsedMembers := make([]*Member, 0, len(finalMemberIDs))
-		for _, id := range finalMemberIDs {
-			m := ParseMember(
-				targetChannelID,
-				id,
-				fields.ID{},
-				fields.Timestamp{},
-				fields.Timestamp{},
-				fields.Timestamp{},
-				1,
-				true,
-				now,
-				now,
-			)
-			parsedMembers = append(parsedMembers, m)
-		}
+		creatorMember := ParseMember(
+			targetChannelID,
+			userID,
+			fields.ID{},
+			fields.Timestamp{},
+			fields.Timestamp{},
+			fields.Timestamp{},
+			0,
+			true,
+			now,
+			now,
+		)
 
-		// Batch create membership records
+		peerMembers := ParseMembers(
+			targetChannelID,
+			peerIDs,
+			fields.ID{},
+			fields.Timestamp{},
+			fields.Timestamp{},
+			fields.Timestamp{},
+			1,
+			true,
+			now,
+			now,
+		)
+
+		parsedMembers := make([]*Member, 0, len(peerIDs)+1)
+		parsedMembers = append(parsedMembers, creatorMember)
+		parsedMembers = append(parsedMembers, peerMembers...)
+
 		createdMembers, err := s.repo.CreateBatch(txCtx, parsedMembers)
 		if err != nil {
 			return err
 		}
 
-		// TODO: Create system message that user have been added by actor
+		if chLock.chType.IsGroup() {
+			systemMessages = make([]*Message, 0, len(newMemberIDs))
+			msgTime := now
 
-		// Publish outbox event (If upgraded to group, notify with the new group channel ID)
+			for _, addedUserID := range newMemberIDs {
+				msgID, err := fields.NewID()
+				if err != nil {
+					return err
+				}
+
+				msg := ParseMessageMemberAdd(
+					msgID,
+					targetChannelID,
+					userID,
+					addedUserID,
+					msgTime,
+				)
+				systemMessages = append(systemMessages, msg)
+
+				msgTime = msgTime.Add(time.Microsecond)
+			}
+
+			if len(systemMessages) > 0 {
+				systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
 		_, err = s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
 		if err != nil {
 			return err
 		}
 
 		newMembers = createdMembers
+		allMemberIDs = make([]fields.ID, len(parsedMembers))
+		for i, m := range parsedMembers {
+			allMemberIDs[i] = m.UserID()
+		}
+
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	// 4. Update Cache post-commit
-	s.cache.SetBatch(ctx, newMembers)
+	// Cache Layer Implementation (Pipeline + Atomic Ordering)
+
+	// Handle cache
+	cacheCtx := context.WithoutCancel(ctx)
+
+	if createdChannel != nil {
+		if err := s.channelCache.Set(cacheCtx, createdChannel); err != nil {
+			slog.WarnContext(cacheCtx, "failed to cache new channel entity",
+				"channel_id", createdChannel.ID().String(),
+				"error", err,
+			)
+		}
+
+		if err := s.channelCache.SetMemberIDs(cacheCtx, createdChannel.ID(), allMemberIDs); err != nil {
+			slog.WarnContext(cacheCtx, "failed to cache channel member ids",
+				"channel_id", createdChannel.ID().String(),
+				"count", len(allMemberIDs),
+				"error", err,
+			)
+		}
+
+		if err := s.channelCache.SetLoaded(cacheCtx, createdChannel.ID()); err != nil {
+			slog.WarnContext(cacheCtx, "failed to set channel loaded flag",
+				"channel_id", createdChannel.ID().String(),
+				"error", err,
+			)
+		}
+
+		// if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
+		// 	slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
+		// 		"count", len(allMemberIDs),
+		// 		"error", err,
+		// 	)
+		// }
+	} else {
+		if err := s.channelCache.DeleteMemberIDs(cacheCtx, channelID); err != nil {
+			slog.WarnContext(cacheCtx, "failed to invalidate channel member ids",
+				"channel_id", channelID.String(),
+				"error", err,
+			)
+		}
+
+		// if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
+		// 	slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
+		// 		"count", len(allMemberIDs),
+		// 		"error", err,
+		// 	)
+		// }
+	}
+
+	if err := s.cache.SetBatch(cacheCtx, newMembers); err != nil {
+		slog.WarnContext(cacheCtx, "failed to batch cache members",
+			"count", len(newMembers),
+			"error", err,
+		)
+	}
+
+	if len(systemMessages) > 0 {
+		if err := s.messageCache.SetBatch(cacheCtx, systemMessages); err != nil {
+			slog.WarnContext(cacheCtx, "failed to batch cache system messages",
+				"channel_id", channelID.String(),
+				"count", len(systemMessages),
+				"error", err,
+			)
+		}
+	}
 
 	return nil
 }
 
 func (s *MemberService) CloseDirect(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID uuid.UUID,
 ) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return err
 	}
@@ -247,20 +336,21 @@ func (s *MemberService) CloseDirect(
 		return err
 	}
 
-	if ch.Type() != NewChannelType(ChannelTypeDirect) {
+	if !ch.Type().IsDirect() {
 		return errs.InvalidArgument("Only direct channels can be closed or hidden.").
 			Reason("INVALID_CHANNEL_TYPE")
 	}
 
-	now := fields.NewTimestamp(time.Now())
-	isVisible := false
+	now := fields.Now()
+
+	var member *Member
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err := s.repo.UpdateIsVisible(
+		member, err = s.repo.UpdateIsVisible(
 			txCtx,
 			channelID,
-			actorID,
-			isVisible,
+			userID,
+			false,
 			now,
 		)
 		if err != nil {
@@ -285,17 +375,36 @@ func (s *MemberService) CloseDirect(
 		return err
 	}
 
+	// Handle cache
+	cacheCtx := context.WithoutCancel(ctx)
+
+	if err := s.cache.Delete(cacheCtx, member.channelID, member.userID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to delete cached member entity",
+			"channel_id", member.channelID.String(),
+			"user_id", member.userID.String(),
+			"error", err,
+		)
+	}
+
+	if err := s.userCache.RemoveChannelID(cacheCtx, userID, channelID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to remove channel id from user cache",
+			"channel_id", channelID.String(),
+			"user_id", userID.String(),
+			"error", err,
+		)
+	}
+
 	return nil
 }
 
 func (s *MemberService) UpdateLastReadMessage(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID,
 	rawLastReadMessageID uuid.UUID,
 	rawLastReadAt time.Time, // TODO: Remove, handle in service
 ) (*Member, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +439,7 @@ func (s *MemberService) UpdateLastReadMessage(
 		member, err := s.repo.UpdateLastReadMessage(
 			txCtx,
 			channelID,
-			actorID,
+			userID,
 			lastReadMessageID,
 			lastReadMessageAt,
 			now,
@@ -360,11 +469,11 @@ func (s *MemberService) UpdateLastReadMessage(
 
 func (s *MemberService) UpdatePinnedAt(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID uuid.UUID,
 	rawPinnedAt *time.Time,
 ) (*Member, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +495,7 @@ func (s *MemberService) UpdatePinnedAt(
 		member, err := s.repo.UpdatePinnedAt(
 			txCtx,
 			channelID,
-			actorID,
+			userID,
 			pinnedAt,
 			now,
 		)
@@ -415,11 +524,11 @@ func (s *MemberService) UpdatePinnedAt(
 
 func (s *MemberService) UpdateGroupMutedUntil(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID uuid.UUID,
 	rawMutedUntil *time.Time,
 ) (*Member, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +552,7 @@ func (s *MemberService) UpdateGroupMutedUntil(
 		member, err := s.repo.UpdateMutedUntil(
 			txCtx,
 			channelID,
-			actorID,
+			userID,
 			mutedUntil,
 			now,
 		)
@@ -475,10 +584,10 @@ func (s *MemberService) UpdateGroupMutedUntil(
 
 func (s *MemberService) LeaveGroup(
 	ctx context.Context,
-	rawActorID,
+	rawUserID,
 	rawChannelID uuid.UUID,
 ) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return err
 	}
@@ -498,7 +607,7 @@ func (s *MemberService) LeaveGroup(
 			return errs.InvalidArgument("Cannot leave a direct message channel.")
 		}
 
-		err = s.repo.Delete(txCtx, channelID, actorID)
+		err = s.repo.Delete(txCtx, channelID, userID)
 		if err != nil {
 			return err
 		}

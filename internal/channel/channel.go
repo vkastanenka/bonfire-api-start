@@ -118,6 +118,34 @@ func (u *Channel) touch(at fields.Timestamp) {
 	u.updatedAt = at
 }
 
+func FilterNewMemberIDs(userID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
+	existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
+	for _, m := range existingMembers {
+		existingMemberSet[m.UserID()] = struct{}{}
+	}
+
+	cleanNewPeerIDs := fields.RemoveID(newPeerIDs, userID)
+	toAddIDs := make([]fields.ID, 0, len(cleanNewPeerIDs))
+
+	for _, id := range cleanNewPeerIDs {
+		if _, exists := existingMemberSet[id]; !exists {
+			toAddIDs = append(toAddIDs, id)
+		}
+	}
+
+	if len(toAddIDs) == 0 {
+		return nil, errs.InvalidArgument("All specified users are already members of this channel.").
+			Reason("ALREADY_MEMBERS")
+	}
+
+	if len(existingMembers)+len(toAddIDs) > ChannelMaxPeers+1 {
+		return nil, errs.InvalidArgument(fmt.Sprintf("Adding these members exceeds the maximum limit of %d members.", ChannelMaxPeers+1)).
+			Reason("MAX_CAPACITY_EXCEEDED")
+	}
+
+	return toAddIDs, nil
+}
+
 func HydrateMemberView(
 	m *Member,
 	userMap map[fields.ID]*user.User,
@@ -375,13 +403,21 @@ func ValidateMaxPeers(rawPeerIDs []uuid.UUID) error {
 	count := (len(rawPeerIDs))
 	if count > ChannelMaxPeers {
 		return errs.InvalidArgument(fmt.Sprintf("Peer list cannot exceed %d items.", ChannelMaxPeers)).
-			Reason("MAX_PEERS_EXCEEDED").
-			Meta("domain", "channels")
+			Reason("MAX_PEERS_EXCEEDED")
 	}
 	return nil
 }
 
-func ValidateMembership(members []*Member, userID fields.ID) (*Member, error) {
+func ValidateMinMembers(rawMemberIDs []uuid.UUID) error {
+	count := (len(rawMemberIDs))
+	if count < ChannelMinMembers {
+		return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
+			Reason("MIN_MEMBERS_INVALID")
+	}
+	return nil
+}
+
+func ValidateMembership(userID fields.ID, members []*Member) (*Member, error) {
 	for _, m := range members {
 		if m.UserID() == userID {
 			return m, nil

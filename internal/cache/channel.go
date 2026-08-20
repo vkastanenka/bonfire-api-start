@@ -102,6 +102,15 @@ func (c *ChannelCache) SetMemberIDs(ctx context.Context, channelID fields.ID, me
 	return c.KeyCache.client.Set(ctx, key, data, c.ttl).Err()
 }
 
+func (c *ChannelCache) DeleteMemberIDs(ctx context.Context, channelID fields.ID) error {
+	if channelID.IsZero() {
+		return nil
+	}
+
+	key := ChannelMemberIDsKey(channelID)
+	return c.KeyCache.client.Del(ctx, key).Err()
+}
+
 func (c *ChannelCache) IsLoaded(ctx context.Context, channelID fields.ID) bool {
 	val, err := c.client.Exists(ctx, ChannelLoadedKey(channelID)).Result()
 	return err == nil && val > 0

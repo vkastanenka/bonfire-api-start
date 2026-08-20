@@ -99,7 +99,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		}
 	}
 
-	// Generate fields
+	// Parse models
 	channelID, err := fields.NewID()
 	if err != nil {
 		return err
@@ -107,7 +107,6 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 
 	now := fields.Now()
 
-	// Parse models
 	parsedChannel := ParseChannel(
 		channelID,
 		NewChannelTypeGroup(),
@@ -182,6 +181,8 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		return err
 	}
 
+	// Cache Layer Implementation (Pipeline + Atomic Ordering)
+
 	// Handle cache
 	cacheCtx := context.WithoutCancel(ctx)
 
@@ -215,8 +216,9 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		)
 	}
 
-	if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
-		slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
+	if err := s.userCache.RemoveChannelIDBatch(cacheCtx, allMemberIDs, channelID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to remove channel id from user caches batch",
+			"channel_id", channelID.String(),
 			"count", len(allMemberIDs),
 			"error", err,
 		)
@@ -251,11 +253,11 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 
 	members, ok := memberMap[channelID]
 	if !ok || len(members) == 0 {
-		return nil, nil, nil, errs.NotFound("Channel members not found.")
+		return nil, nil, nil, ErrMembersNotFound()
 	}
 
 	// Validate membership
-	currentMember, err := ValidateMembership(members, userID)
+	currentMember, err := ValidateMembership(userID, members)
 	if err != nil {
 		return nil, nil, nil, err
 	}
