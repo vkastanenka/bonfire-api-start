@@ -20,7 +20,8 @@ type ChannelRepository interface {
 }
 
 type MemberRepository interface {
-	CountByChannel(ctx context.Context, channelID fields.ID) (int64, error)
+	ClearBatchLastReadMessageByChannelID(ctx context.Context, channelID fields.ID, updatedAt fields.Timestamp) ([]*Member, error)
+	CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error)
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
@@ -34,6 +35,7 @@ type MemberRepository interface {
 }
 
 type MessageRepository interface {
+	CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error)
 	Create(ctx context.Context, msg *Message) (*Message, error)
 	CreateBatch(ctx context.Context, messages []*Message) ([]*Message, error)
 	Delete(ctx context.Context, id fields.ID) error

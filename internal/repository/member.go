@@ -146,8 +146,8 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID field
 	return members, nil
 }
 
-func (r *MemberRepository) CountByChannel(ctx context.Context, channelID fields.ID) (int64, error) {
-	count, err := r.store.ChannelMemberCountByChannel(ctx, db.ToUUID(channelID.UUID()))
+func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error) {
+	count, err := r.store.ChannelMemberCountByChannelID(ctx, db.ToUUID(channelID.UUID()))
 	if err != nil {
 		return 0, r.store.Err(err)
 	}
@@ -258,6 +258,31 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.
 	}
 
 	return nil
+}
+
+func (r *MemberRepository) ClearBatchLastReadMessageByChannelID(
+	ctx context.Context,
+	channelID fields.ID,
+	updatedAt fields.Timestamp,
+) ([]*channel.Member, error) {
+	rows, err := r.store.ChannelMemberClearBatchLastReadMessageByChannelID(ctx, db.ChannelMemberClearBatchLastReadMessageByChannelIDParams{
+		ChannelID: db.ToUUID(channelID.UUID()),
+		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	result := make([]*channel.Member, len(rows))
+	for i, row := range rows {
+		m, err := memberFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = m
+	}
+
+	return result, nil
 }
 
 func memberFromRow(row db.ChannelMember) (*channel.Member, error) {

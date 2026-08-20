@@ -13,48 +13,37 @@ import (
 )
 
 type MessageService struct {
-	repo          MessageRepository
-	cache         MessageCache
-	channelRepo   ChannelRepository
-	channelCache  ChannelCache
-	memberRepo    MemberRepository
-	memberCache   MemberCache
-	userRepo      UserRepository
-	userCache     UserCache
-	reactionRepo  ReactionRepository
-	reactionCache ReactionCache
-	outboxRepo    OutboxRepository
-	tx            TX
+	repo         MessageRepository
+	channelRepo  ChannelRepository
+	memberRepo   MemberRepository
+	userRepo     UserRepository
+	userCache    UserCache
+	reactionRepo ReactionRepository
+	outboxRepo   OutboxRepository
+	tx           TX
 }
 
 func NewMessageService(
 	repo MessageRepository,
-	cache MessageCache,
 	channelRepo ChannelRepository,
-	channelCache ChannelCache,
 	memberRepo MemberRepository,
-	memberCache MemberCache,
 	reactionRepo ReactionRepository,
-	reactionCache ReactionCache,
 	userRepo UserRepository,
 	userCache UserCache,
 	tx TX,
 ) *MessageService {
 	return &MessageService{
-		repo:          repo,
-		cache:         cache,
-		channelRepo:   channelRepo,
-		channelCache:  channelCache,
-		memberRepo:    memberRepo,
-		memberCache:   memberCache,
-		reactionRepo:  reactionRepo,
-		reactionCache: reactionCache,
-		userRepo:      userRepo,
-		userCache:     userCache,
-		tx:            tx,
+		repo:         repo,
+		channelRepo:  channelRepo,
+		memberRepo:   memberRepo,
+		reactionRepo: reactionRepo,
+		userRepo:     userRepo,
+		userCache:    userCache,
+		tx:           tx,
 	}
 }
 
+// Create generates a new message and related channel and member side effects.
 func (s *MessageService) Create(
 	ctx context.Context,
 	rawAuthorID,
@@ -64,6 +53,7 @@ func (s *MessageService) Create(
 	rawFwdMsgID *uuid.UUID,
 	rawFwdChannelID *uuid.UUID,
 ) (*MessageView, error) {
+	// Validate
 	hasReply := rawReplyToMsgID != nil
 	hasFwdMsg := rawFwdMsgID != nil
 	hasFwdChan := rawFwdChannelID != nil
@@ -91,38 +81,65 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	replyToID, err := fields.ParseID("reply_to_message_id", *rawReplyToMsgID)
+	replyToID, err := fields.ParseID(ptr.From(rawReplyToMsgID))
 	if err != nil {
 		return nil, err
 	}
 
-	fwdMsgID, err := fields.ParseID("forwarded_message_id", *rawFwdMsgID)
+	fwdMsgID, err := fields.ParseID(ptr.From(rawFwdMsgID))
 	if err != nil {
 		return nil, err
 	}
 
-	fwdChannelID, err := fields.ParseID("forwarded_channel_id", *rawFwdChannelID)
+	fwdChannelID, err := fields.ParseID(ptr.From(rawFwdChannelID))
 	if err != nil {
 		return nil, err
 	}
 
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	// Validate membership
+	g.Go(func() error {
+		_, err := s.memberRepo.Get(ctxGrp, channelID, authorID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.PermissionDenied("You are not a member of this channel.")
+			}
+			return err
+		}
+		return nil
+	})
+
+	// Validate reply channel id
+	if hasReply {
+		g.Go(func() error {
+			parentMsg, err := s.repo.Get(ctxGrp, replyToID)
+			if err != nil {
+				return err
+			}
+			if parentMsg.ChannelID() != channelID {
+				return errs.InvalidArgument("Cannot reply to a message in a different channel.")
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Fetch author for hydration
 	author, err := s.userRepo.Get(ctx, authorID)
 	if err != nil {
 		return nil, err
 	}
 
-	if hasReply {
-		parentMsg, err := s.repo.Get(ctx, replyToID)
-		if err != nil {
-			return nil, err
-		}
-		if parentMsg.ChannelID() != channelID {
-			return nil, errs.InvalidArgument("Cannot reply to a message in a different channel.")
-		}
+	msgID, err := fields.NewID()
+	if err != nil {
+		return nil, err
 	}
 
-	now := fields.NewTimestamp(time.Now())
-	msgID := fields.NewID(uuid.New()) // TODO: v7
+	now := fields.Now()
 
 	msg := ParseMessage(
 		msgID,
@@ -142,9 +159,8 @@ func (s *MessageService) Create(
 
 	var savedMsg *Message
 
-	// 5. Execute Write Transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Get channel for update to serialize state changes
+		// Lock channel
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
@@ -156,13 +172,13 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		// Update channel domain with last message id and last message at
+		// Update channel with last message
 		_, err = s.channelRepo.UpdateLastMessage(txCtx, ch.ID(), savedMsg.ID(), now, now)
 		if err != nil {
 			return err
 		}
 
-		// Update channel member last read message for the author
+		// Update author membership last read message
 		_, err = s.memberRepo.UpdateLastReadMessage(
 			txCtx,
 			channelID,
@@ -176,8 +192,8 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		// Increment members mention count (excluding author)
-		err = s.memberRepo.IncrementPeersMentionCount(txCtx, channelID, authorID, now)
+		// Increment peer mention count
+		err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, channelID, authorID, now)
 		if err != nil {
 			return err
 		}
@@ -198,17 +214,18 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	// 6. Hydrate and return view (New messages have no reactions yet, pass empty slice/nil)
-	view := HydrateMessage(savedMsg, nil, author, authorID)
+	// Hydrate
+	view := HydrateMessageView(savedMsg, author, nil)
 
 	return &view, nil
 }
 
-// ListBefore fetches older messages when scrolling up
-func (s *MessageService) ListBefore(
+// ListAround fetches messages directly before and after rawMsgCursorID.
+func (s *MessageService) ListAround(
 	ctx context.Context,
 	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
 ) ([]MessageView, error) {
+	// Validate
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
 	if err != nil {
 		return nil, err
@@ -224,14 +241,23 @@ func (s *MessageService) ListBefore(
 		return nil, err
 	}
 
-	// 1. Authorization: Verify user is a member of the channel
+	// Validate membership
 	_, err = s.memberRepo.Get(ctx, channelID, actorID)
 	if err != nil {
+		if errs.IsNotFound(err) {
+			return nil, errs.PermissionDenied("You are not a member of this channel.")
+		}
 		return nil, err
 	}
 
-	// 2. Fetch older messages
-	messages, err := s.repo.ListBeforeByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
+	// Fetch messages around the cursor using standard limits
+	messages, err := s.repo.ListAroundByChannelID(
+		ctx,
+		channelID,
+		msgCursorID,
+		MessageListBeforeLimit,
+		MessageListAfterLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -240,36 +266,33 @@ func (s *MessageService) ListBefore(
 		return []MessageView{}, nil
 	}
 
-	// 3. Collect author IDs for hydration
-	userIDMap := make(map[fields.ID]struct{}, len(messages))
-	for _, msg := range messages {
-		if id := msg.AuthorID(); id.IsValid() {
-			userIDMap[id] = struct{}{}
-		}
+	// Collect author ids
+	rawUserIDs := make([]fields.ID, len(messages))
+	for i, msg := range messages {
+		rawUserIDs[i] = msg.AuthorID()
 	}
-	userIDs := make([]fields.ID, 0, len(userIDMap))
-	for id := range userIDMap {
-		userIDs = append(userIDs, id)
-	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
 
-	// 4. Concurrent fetch of Reactions and Users
+	// Concurrent fetch of Reaction Summaries and Users
 	var (
-		reactionMap map[fields.ID][]*Reaction
-		userMap     map[fields.ID]*user.User
+		reactionSummaryMap map[fields.ID]*ReactionSummary
+		userMap            map[fields.ID]*user.User
 	)
 
 	g, ctxGrp := errgroup.WithContext(ctx)
 
+	// Fetch reaction summaries
 	g.Go(func() error {
 		messageIDs := make([]fields.ID, len(messages))
 		for i, msg := range messages {
 			messageIDs[i] = msg.ID()
 		}
 		var err error
-		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctxGrp, messageIDs)
+		reactionSummaryMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctxGrp, actorID, messageIDs)
 		return err
 	})
 
+	// Fetch users
 	g.Go(func() error {
 		var err error
 		userMap, err = s.userRepo.GetBatch(ctxGrp, userIDs)
@@ -280,14 +303,102 @@ func (s *MessageService) ListBefore(
 		return nil, err
 	}
 
-	// 5. Hydrate and return
-	return HydrateMessages(messages, reactionMap, userMap, actorID), nil
+	// Sort messages chronologically
+	SortMessages(messages)
+
+	// Hydrate and return
+	return HydrateMessageViews(messages, userMap, reactionSummaryMap), nil
 }
 
-// ListAfter fetches newer messages when scrolling down or catching up
+// ListBefore fetches messages directly before rawMsgCursorID.
+func (s *MessageService) ListBefore(
+	ctx context.Context,
+	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
+) ([]MessageView, error) {
+	// Validate
+	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	msgCursorID, err := fields.ParseRequiredID("msg_cursor_id", rawMsgCursorID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate membership
+	_, err = s.memberRepo.Get(ctx, channelID, actorID)
+	if err != nil {
+		if errs.IsNotFound(err) {
+			return nil, errs.PermissionDenied("You are not a member of this channel.")
+		}
+		return nil, err
+	}
+
+	// Fetch messages
+	messages, err := s.repo.ListBeforeByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(messages) == 0 {
+		return []MessageView{}, nil
+	}
+
+	// Collect author ids
+	rawUserIDs := make([]fields.ID, len(messages))
+	for i, msg := range messages {
+		rawUserIDs[i] = msg.AuthorID()
+	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
+
+	var (
+		reactionSummaryMap map[fields.ID]*ReactionSummary
+		userMap            map[fields.ID]*user.User
+	)
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	// Fetch reaction summaries
+	g.Go(func() error {
+		messageIDs := make([]fields.ID, len(messages))
+		for i, msg := range messages {
+			messageIDs[i] = msg.ID()
+		}
+		var err error
+		reactionSummaryMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctxGrp, actorID, messageIDs)
+		return err
+	})
+
+	// Fetch users
+	g.Go(func() error {
+		var err error
+		userMap, err = s.userRepo.GetBatch(ctxGrp, userIDs)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Sort
+	SortMessages(messages)
+
+	// Hydrate
+	view := HydrateMessageViews(messages, userMap, reactionSummaryMap)
+
+	return view, nil
+}
+
+// ListBefore fetches messages directly before rawMsgCursorID.
 func (s *MessageService) ListAfter(
 	ctx context.Context,
-	rawUserID, rawChannelID, rawAfterID uuid.UUID,
+	rawUserID, rawChannelID, rawMsgCursorID uuid.UUID,
 ) ([]MessageView, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
@@ -299,18 +410,21 @@ func (s *MessageService) ListAfter(
 		return nil, err
 	}
 
-	msgCursorID, err := fields.ParseRequiredID("msg_cursor_id", rawAfterID)
+	msgCursorID, err := fields.ParseRequiredID("msg_cursor_id", rawMsgCursorID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 1. Authorization: Verify user is a member of the channel
+	// Validate membership
 	_, err = s.memberRepo.Get(ctx, channelID, userID)
 	if err != nil {
+		if errs.IsNotFound(err) {
+			return nil, errs.PermissionDenied("You are not a member of this channel.")
+		}
 		return nil, err
 	}
 
-	// 2. Fetch newer messages
+	// Fetch messages
 	messages, err := s.repo.ListAfterByChannelID(ctx, channelID, msgCursorID, MessageListLimit)
 	if err != nil {
 		return nil, err
@@ -320,36 +434,33 @@ func (s *MessageService) ListAfter(
 		return []MessageView{}, nil
 	}
 
-	// 3. Collect author IDs for hydration
-	userIDMap := make(map[fields.ID]struct{}, len(messages))
-	for _, msg := range messages {
-		if id := msg.AuthorID(); id.IsValid() {
-			userIDMap[id] = struct{}{}
-		}
+	// Collect author ids
+	rawUserIDs := make([]fields.ID, len(messages))
+	for i, msg := range messages {
+		rawUserIDs[i] = msg.AuthorID()
 	}
-	userIDs := make([]fields.ID, 0, len(userIDMap))
-	for id := range userIDMap {
-		userIDs = append(userIDs, id)
-	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
 
 	// 4. Concurrent fetch of Reactions and Users
 	var (
-		reactionMap map[fields.ID][]*Reaction
-		userMap     map[fields.ID]*user.User
+		reactionSummaryMap map[fields.ID]*ReactionSummary
+		userMap            map[fields.ID]*user.User
 	)
 
 	g, ctxGrp := errgroup.WithContext(ctx)
 
+	// Fetch reaction summaries
 	g.Go(func() error {
 		messageIDs := make([]fields.ID, len(messages))
 		for i, msg := range messages {
 			messageIDs[i] = msg.ID()
 		}
 		var err error
-		reactionMap, err = s.reactionRepo.GetBatchByMessageIDs(ctxGrp, messageIDs)
+		reactionSummaryMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctxGrp, userID, messageIDs)
 		return err
 	})
 
+	// Fetch users
 	g.Go(func() error {
 		var err error
 		userMap, err = s.userRepo.GetBatch(ctxGrp, userIDs)
@@ -360,8 +471,13 @@ func (s *MessageService) ListAfter(
 		return nil, err
 	}
 
-	// 5. Hydrate and return
-	return HydrateMessages(messages, reactionMap, userMap, userID), nil
+	// Sort
+	SortMessages(messages)
+
+	// Hydrate
+	view := HydrateMessageViews(messages, userMap, reactionSummaryMap)
+
+	return view, nil
 }
 
 // ListPinned fetches pinned messages for a channel
@@ -371,6 +487,7 @@ func (s *ChannelService) ListPinned(
 	rawCursorID *uuid.UUID,
 	rawCursorPinnedAt *time.Time,
 ) ([]MessagePinnedView, error) {
+	// Validate
 	if (rawCursorID == nil) != (rawCursorPinnedAt == nil) {
 		return nil, errs.InvalidArgument("Both cursor_id and cursor_pinned_at must be provided together.")
 	}
@@ -385,20 +502,20 @@ func (s *ChannelService) ListPinned(
 		return nil, err
 	}
 
-	cursorID, err := fields.ParseID("cursor_id", ptr.From(rawCursorID))
+	cursorID, err := fields.ParseID(ptr.From(rawCursorID))
 	if err != nil {
 		return nil, err
 	}
 
 	cursorPinnedAt := fields.NewTimestamp(ptr.From(rawCursorPinnedAt))
 
-	// 1. Authorization: Verify user is a member of the channel
+	// Validate membership
 	_, err = s.memberRepo.Get(ctx, channelID, actorID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Fetch pinned messages (using a reasonable default limit like 50 or MessageListLimit)
+	// Fetch messages
 	messages, err := s.messageRepo.ListPinnedByChannelID(
 		ctx,
 		channelID,
@@ -414,51 +531,41 @@ func (s *ChannelService) ListPinned(
 		return []MessagePinnedView{}, nil
 	}
 
-	// 3. Collect author IDs for hydration
-	userIDMap := make(map[fields.ID]struct{}, len(messages))
-	for _, msg := range messages {
-		if id := msg.AuthorID(); id.IsValid() {
-			userIDMap[id] = struct{}{}
-		}
+	// Collect author ids
+	rawUserIDs := make([]fields.ID, len(messages))
+	for i, msg := range messages {
+		rawUserIDs[i] = msg.AuthorID()
 	}
-	userIDs := make([]fields.ID, 0, len(userIDMap))
-	for id := range userIDMap {
-		userIDs = append(userIDs, id)
-	}
+	userIDs := fields.DedupeIDs(rawUserIDs)
 
-	// 4. Batch fetch users
+	// Fetch users
 	userMap, err := s.userRepo.GetBatch(ctx, userIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Hydrate and map to MessagePinnedView
-	pinnedViews := make([]MessagePinnedView, 0, len(messages))
-	for _, msg := range messages {
-		u, ok := userMap[msg.AuthorID()]
-		if !ok || u == nil {
-			u = &user.User{}
-		}
+	// Sort
+	SortPinnedMessages(messages)
 
-		pinnedViews = append(pinnedViews, MessagePinnedView{
-			id:          msg.ID(),
-			avatarURL:   u.AvatarURL(),
-			displayName: u.DisplayName(),
-			content:     msg.Content(),
-			createdAt:   msg.CreatedAt(),
-		})
-	}
+	// Hydrate
+	views := HydrateMessagePinnedViews(messages, userMap)
 
-	return pinnedViews, nil
+	return views, nil
 }
 
-// UpdateContent updates a message's text if the actor is the author
+// UpdateContent updates an author's message content.
 func (s *MessageService) UpdateContent(
 	ctx context.Context,
-	rawActorID, rawMessageID uuid.UUID,
+	rawActorID, rawChannelID, rawMessageID uuid.UUID,
 	rawContent string,
 ) (*Message, error) {
+	// Validate
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -477,43 +584,58 @@ func (s *MessageService) UpdateContent(
 		return nil, errs.InvalidArgument("Content must have at least 1 character.")
 	}
 
-	// 1. Fetch existing message
-	msg, err := s.repo.Get(ctx, messageID)
-	if err != nil {
+	// Validate message and membership
+	var msg *Message
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		msg, err = s.repo.Get(ctxGrp, messageID)
+		return err
+	})
+
+	g.Go(func() error {
+		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.PermissionDenied("You are not a member of this channel.")
+			}
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	// 2. Authorization: Ensure actor is the author
+	if !msg.ChannelID().Equals(channelID) {
+		return nil, errs.NotFound("Message not found in this channel.")
+	}
+
 	if !msg.AuthorID().Equals(actorID) {
 		return nil, errs.PermissionDenied("Actor is not the author of the message.")
 	}
 
-	// 3. Authorization: Verify user is still a member of the channel
-	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. Execute Write Transaction
 	var updatedMsg *Message
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		now := fields.NewTimestamp(time.Now())
-		var txErr error
+	now := fields.Now()
 
-		// Update message content in DB
-		updatedMsg, txErr = s.repo.UpdateContent(txCtx, messageID, content, now, now)
-		if txErr != nil {
-			return txErr
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Update message
+		updatedMsg, err = s.repo.UpdateContent(txCtx, messageID, content, now, now)
+		if err != nil {
+			return err
 		}
 
-		// Publish Outbox Event for WS broadcast to other users
-		_, txErr = s.outboxRepo.Publish(
+		// Publish event
+		_, err = s.outboxRepo.Publish(
 			txCtx,
 			EventMessageUpdateContent,
 			MessageUpdateContentPayload{},
 		)
-		return txErr
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -522,13 +644,18 @@ func (s *MessageService) UpdateContent(
 	return updatedMsg, nil
 }
 
-// UpdatePinnedAt pins or unpins a message in a channel
+// UpdatePinnedAt pins or unpins a message in a channel.
 func (s *MessageService) UpdatePinnedAt(
 	ctx context.Context,
-	rawActorID, rawMessageID uuid.UUID,
+	rawActorID, rawChannelID, rawMessageID uuid.UUID,
 	isPinned bool,
 ) (*Message, error) {
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -538,46 +665,73 @@ func (s *MessageService) UpdatePinnedAt(
 		return nil, err
 	}
 
-	msg, err := s.repo.Get(ctx, messageID)
-	if err != nil {
+	// Message and member validation
+	var (
+		msg *Message
+	)
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		msg, err = s.repo.Get(ctxGrp, messageID)
+		return err
+	})
+
+	g.Go(func() error {
+		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.PermissionDenied("You are not a member of this channel.")
+			}
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
-	if err != nil {
-		return nil, err
+	if !msg.ChannelID().Equals(channelID) {
+		return nil, errs.NotFound("Message not found in this channel.")
 	}
 
-	var message *Message
+	now := fields.Now()
+	pinnedAt := fields.Timestamp{}
+	if isPinned {
+		pinnedAt = now
+	}
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		now := fields.NewTimestamp(time.Now())
-
-		pinnedAt := fields.NewTimestamp(time.Time{})
-		if isPinned {
-			pinnedAt = now
-		}
-
-		message, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
+		// Update message
+		msg, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
 		if err != nil {
 			return err
 		}
 
-		// if isPinned {
-		// 	// e.g., create system message: "[User] pinned a message to this channel."
-		// 	systemMetadata := NewPinnedSystemMetadata(actorID, messageID)
-		// 	_, txErr = s.repo.CreateSystemMessage(
-		// 		txCtx,
-		// 		msg.ChannelID(),
-		// 		MessageTypeSystemPinned,
-		// 		systemMetadata,
-		// 		now,
-		// 	)
-		// 	if txErr != nil {
-		// 		return txErr
-		// 	}
-		// }
+		// If pinned, create a system message
+		if isPinned {
+			msgID, err := fields.NewID()
+			if err != nil {
+				return err
+			}
 
+			sysMsg := ParseMessagePin(
+				msgID,
+				msg.ChannelID(),
+				actorID,
+				msg.ID(),
+				now,
+			)
+
+			_, err = s.repo.Create(txCtx, sysMsg)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Publish event
 		_, err = s.outboxRepo.Publish(
 			txCtx,
 			EventMessageUpdatePinnedAt,
@@ -593,16 +747,21 @@ func (s *MessageService) UpdatePinnedAt(
 		return nil, err
 	}
 
-	return message, nil
+	return msg, nil
 }
 
-// TODO: Handle first message in channel deletes
-// Delete soft-deletes or hard-deletes a message if the actor is authorized
+// Delete deletes a message belonging to the actor and triggers side effects.
 func (s *MessageService) Delete(
 	ctx context.Context,
-	rawActorID, rawMessageID uuid.UUID,
+	rawActorID, rawChannelID, rawMessageID uuid.UUID,
 ) error {
+	// Validate
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
 	if err != nil {
 		return err
 	}
@@ -612,32 +771,70 @@ func (s *MessageService) Delete(
 		return err
 	}
 
-	// 1. Fetch existing message
-	msg, err := s.repo.Get(ctx, messageID)
-	if err != nil {
+	// Message and member validation
+	var msg *Message
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		msg, err = s.repo.Get(ctxGrp, messageID)
+		return err
+	})
+
+	g.Go(func() error {
+		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.PermissionDenied("You are not a member of this channel.")
+			}
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		return err
 	}
 
-	// 2. Authorization: Ensure actor is the author
-	// (Note: Add channel moderator/admin checks here if permitted)
+	if !msg.ChannelID().Equals(channelID) {
+		return errs.NotFound("Message not found in this channel.")
+	}
+
 	if !msg.AuthorID().Equals(actorID) {
 		return errs.PermissionDenied("Actor is not authorized to delete this message.")
 	}
 
-	// 3. Authorization: Verify user is still a member of the channel
-	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
-	if err != nil {
-		return err
-	}
+	now := fields.Now()
 
-	// 4. Execute Write Transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Delete message in DB (using txCtx)
+		// Delete message
 		if txErr := s.repo.Delete(txCtx, messageID); txErr != nil {
 			return txErr
 		}
 
-		// Publish Outbox Event for real-time WS broadcast
+		// Count remaining messages
+		remainingCount, err := s.repo.CountByChannelID(txCtx, channelID)
+		if err != nil {
+			return err
+		}
+
+		// If no messages left, clear users and members
+		if remainingCount == 0 {
+			_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, fields.ID{}, fields.Timestamp{}, now)
+			if err != nil {
+				return err
+			}
+
+			_, err = s.memberRepo.ClearBatchLastReadMessageByChannelID(txCtx, channelID, now)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+
+		// Publish event
 		_, txErr := s.outboxRepo.Publish(
 			txCtx,
 			EventMessageDelete,
@@ -653,19 +850,22 @@ func (s *MessageService) Delete(
 		return err
 	}
 
-	// 5. Invalidate caches outside transaction
-	// s.cache.Delete(ctx, messageID)
-
 	return nil
 }
 
-// ToggleReaction adds or removes a user's reaction on a message
+// ToggleReaction adds or removes a user's reaction on a message.
 func (s *MessageService) ToggleReaction(
 	ctx context.Context,
-	rawActorID, rawMessageID uuid.UUID,
+	rawActorID, rawChannelID, rawMessageID uuid.UUID,
 	rawEmoji string,
-) (*ReactionView, error) {
+) (*EmojiCount, error) {
+	// Validate
 	actorID, err := fields.ParseRequiredID("user_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -680,44 +880,71 @@ func (s *MessageService) ToggleReaction(
 		return nil, err
 	}
 
-	// 1. Fetch target message to resolve ChannelID & verify existence
-	msg, err := s.repo.Get(ctx, messageID)
-	if err != nil {
+	// Validate message and membership
+	var msg *Message
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		msg, err = s.repo.Get(ctxGrp, messageID)
+		return err
+	})
+
+	g.Go(func() error {
+		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
+		if err != nil {
+			if errs.IsNotFound(err) {
+				return errs.PermissionDenied("You are not a member of this channel.")
+			}
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	// 2. Authorization: Verify user is a member of the channel
-	_, err = s.memberRepo.Get(ctx, msg.ChannelID(), actorID)
-	if err != nil {
-		return nil, err
+	if !msg.ChannelID().Equals(channelID) {
+		return nil, errs.NotFound("Message not found in this channel.")
 	}
 
-	// 3. Check if user already reacted with this emoji
-	existingRx, err := s.reactionRepo.Get(ctx, messageID, actorID, emoji)
-	if err != nil && !errs.IsNotFound(err) {
-		return nil, err
-	}
+	var (
+		willBeReacted bool
+		updatedCount  int
+	)
 
-	wasReacted := existingRx != nil
-	willBeReacted := !wasReacted
-
-	// 4. Execute Write Transaction
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		now := fields.NewTimestamp(time.Now())
+		// Get reaction
+		existingRx, txErr := s.reactionRepo.Get(txCtx, messageID, actorID, emoji)
+		if txErr != nil && !errs.IsNotFound(txErr) {
+			return txErr
+		}
 
+		wasReacted := existingRx != nil
+		willBeReacted = !wasReacted
+
+		// Create / delete
 		if wasReacted {
 			if txErr := s.reactionRepo.Delete(txCtx, messageID, actorID, emoji); txErr != nil {
 				return txErr
 			}
 		} else {
-			// Add reaction
-			rx := ParseReaction(messageID, actorID, emoji, now)
+			rx := ParseReaction(messageID, actorID, emoji, fields.Now())
 			if _, txErr := s.reactionRepo.Create(txCtx, rx); txErr != nil {
 				return txErr
 			}
 		}
-		// Publish real-time event
-		_, txErr := s.outboxRepo.Publish(
+
+		// Calculate emoji count
+		updatedCount, txErr = s.reactionRepo.CountByEmoji(txCtx, messageID, emoji)
+		if txErr != nil {
+			return txErr
+		}
+
+		// Publish event
+		_, txErr = s.outboxRepo.Publish(
 			txCtx,
 			EventReactionToggle,
 			ReactionTogglePayload{},
@@ -728,15 +955,9 @@ func (s *MessageService) ToggleReaction(
 		return nil, err
 	}
 
-	count, err := s.reactionRepo.CountByEmoji(ctx, messageID, emoji)
-	if err != nil {
-		return nil, err
-	}
-
-	// 6. Return precise, lightweight view
-	return &ReactionView{
-		emoji:     emoji,
-		count:     count,
-		isReacted: willBeReacted,
+	return &EmojiCount{
+		Emoji:   emoji.String(),
+		Count:   updatedCount,
+		Reacted: willBeReacted,
 	}, nil
 }

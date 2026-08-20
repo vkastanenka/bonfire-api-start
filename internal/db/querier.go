@@ -19,7 +19,8 @@ type Querier interface {
 	ChannelGet(ctx context.Context, id pgtype.UUID) (Channel, error)
 	ChannelGetBatch(ctx context.Context, ids []pgtype.UUID) ([]Channel, error)
 	ChannelGetForUpdate(ctx context.Context, id pgtype.UUID) (Channel, error)
-	ChannelMemberCountByChannel(ctx context.Context, channelID pgtype.UUID) (int64, error)
+	ChannelMemberClearBatchLastReadMessageByChannelID(ctx context.Context, arg ChannelMemberClearBatchLastReadMessageByChannelIDParams) ([]ChannelMember, error)
+	ChannelMemberCountByChannelID(ctx context.Context, channelID pgtype.UUID) (int64, error)
 	ChannelMemberCreateBatch(ctx context.Context, payload []byte) ([]ChannelMember, error)
 	ChannelMemberDelete(ctx context.Context, arg ChannelMemberDeleteParams) error
 	ChannelMemberGet(ctx context.Context, arg ChannelMemberGetParams) (ChannelMember, error)
@@ -32,6 +33,7 @@ type Querier interface {
 	ChannelMemberUpdatePinnedAt(ctx context.Context, arg ChannelMemberUpdatePinnedAtParams) (ChannelMember, error)
 	ChannelUpdateGroup(ctx context.Context, arg ChannelUpdateGroupParams) (Channel, error)
 	ChannelUpdateLastMessage(ctx context.Context, arg ChannelUpdateLastMessageParams) (Channel, error)
+	MessageCountByChannelID(ctx context.Context, channelID pgtype.UUID) (int64, error)
 	MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error)
 	MessageCreateBatch(ctx context.Context, payload []byte) ([]Message, error)
 	MessageDelete(ctx context.Context, id pgtype.UUID) error
@@ -55,7 +57,6 @@ type Querier interface {
 	ReactionCreate(ctx context.Context, arg ReactionCreateParams) (MessageReaction, error)
 	ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error
 	ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error)
-	ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error)
 	ReactionGetBatchByUserIDAndMessageIDs(ctx context.Context, arg ReactionGetBatchByUserIDAndMessageIDsParams) ([]ReactionGetBatchByUserIDAndMessageIDsRow, error)
 	ReactionGetBatchSummaryByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]ReactionGetBatchSummaryByMessageIDsRow, error)
 	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error

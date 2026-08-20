@@ -3,10 +3,12 @@ package channel
 import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
 	"context"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type MemberService struct {
@@ -76,20 +78,33 @@ func (s *MemberService) AddMembers(
 			Reason("NO_NEW_MEMBERS")
 	}
 
-	// Verify blocks
-	hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, newPeerIDs)
-	if err != nil {
+	// Validate blocks and membership
+	var (
+		hasBlock           bool
+		existingMembersMap map[fields.ID][]*Member
+	)
+
+	g, ctxGrp := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		hasBlock, err = s.relationRepo.HasIncomingBlock(ctxGrp, userID, newPeerIDs)
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		existingMembersMap, err = s.repo.GetBatchByChannelIDs(ctxGrp, []fields.ID{channelID})
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return err
 	}
+
 	if hasBlock {
 		return errs.InvalidArgument("Cannot add users who have blocked you.").
 			Reason("INCOMING_BLOCK_DETECTED")
-	}
-
-	// Validate membership and filter new members
-	existingMembersMap, err := s.repo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
-	if err != nil {
-		return err
 	}
 
 	existingMembers, ok := existingMembersMap[channelID]
@@ -101,6 +116,7 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
+	// Prepare fields
 	newMemberIDs, err := FilterNewMemberIDs(userID, existingMembers, newPeerIDs)
 	if err != nil {
 		return err
@@ -341,11 +357,14 @@ func (s *MemberService) UpdateLastReadMessage(
 	return updatedMember, nil
 }
 
+// TODO: Add isPinned param
+
 // UpdatePinnedAt updates a members pinned at timestamp.
 func (s *MemberService) UpdatePinnedAt(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
+	isPinned bool,
 ) (*Member, error) {
 	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
@@ -361,6 +380,10 @@ func (s *MemberService) UpdatePinnedAt(
 	var updatedMember *Member
 
 	now := fields.Now()
+	pinnedAt := fields.Timestamp{}
+	if isPinned {
+		pinnedAt = now
+	}
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Update member
@@ -368,7 +391,7 @@ func (s *MemberService) UpdatePinnedAt(
 			txCtx,
 			channelID,
 			userID,
-			now,
+			pinnedAt,
 			now,
 		)
 		if err != nil {
@@ -399,6 +422,7 @@ func (s *MemberService) UpdateMutedUntil(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
+	rawDuration *uint8,
 ) (*Member, error) {
 	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
@@ -411,9 +435,22 @@ func (s *MemberService) UpdateMutedUntil(
 		return nil, err
 	}
 
-	var updatedMember *Member
-
+	mutedUntil := fields.Timestamp{}
 	now := fields.Now()
+
+	if rawDuration != nil {
+		muteDuration, err := ParseMuteDuration(ptr.From(rawDuration))
+		if err != nil {
+			return nil, err
+		}
+
+		mutedUntil, err = muteDuration.CalculateUntil(now)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var updatedMember *Member
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Update member
@@ -421,7 +458,7 @@ func (s *MemberService) UpdateMutedUntil(
 			txCtx,
 			channelID,
 			userID,
-			now,
+			mutedUntil,
 			now,
 		)
 		if err != nil {
@@ -485,7 +522,7 @@ func (s *MemberService) LeaveGroup(
 		}
 
 		// Count remaining members
-		remainingCount, err := s.repo.CountByChannel(txCtx, channelID)
+		remainingCount, err := s.repo.CountByChannelID(txCtx, channelID)
 		if err != nil {
 			return err
 		}

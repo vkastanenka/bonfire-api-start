@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const messageCountByChannelID = `-- name: MessageCountByChannelID :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    messages
+WHERE
+    channel_id = $1::uuid
+`
+
+func (q *Queries) MessageCountByChannelID(ctx context.Context, channelID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, messageCountByChannelID, channelID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const messageCreate = `-- name: MessageCreate :one
 INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
     VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, $8::timestamptz, $9::smallint, $10::text, $11::jsonb)

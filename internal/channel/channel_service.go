@@ -405,9 +405,9 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 	SortSidebar(channels, userMembersMap)
 
 	// Hydrate
-	sidebarViews := HydrateSidebarViews(userID, channels, userMembersMap, channelMembersMap, userMap, presenceMap)
+	views := HydrateSidebarViews(userID, channels, userMembersMap, channelMembersMap, userMap, presenceMap)
 
-	return sidebarViews, nil
+	return views, nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.

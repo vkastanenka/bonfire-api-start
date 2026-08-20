@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"time"
 	"unicode/utf8"
 
 	"bonfire-api/internal/errs"
@@ -300,6 +301,96 @@ func ParseMessageTypeString(s string) (MessageType, error) {
 		return MessageType{}, ErrMessageTypeInvalid()
 	}
 	return NewMessageType(kind), nil
+}
+
+// -----------------------------------------------------------------------------
+// Mute Duration
+// -----------------------------------------------------------------------------
+
+type MuteDurationValue uint8
+
+const (
+	MuteDurationUnknown MuteDurationValue = iota
+	MuteDuration15Min
+	MuteDuration1Hour
+	MuteDuration8Hours
+	MuteDuration24Hours
+	MuteDuration3Days
+	MuteDurationForever
+	muteDurationMax
+)
+
+var muteDurationSpec = &fields.EnumSpec{
+	Domain: "MUTE_DURATION",
+	Max:    uint8(muteDurationMax),
+	Names:  []string{"UNKNOWN", "15_MIN", "1_HOUR", "8_HOURS", "24_HOURS", "3_DAYS", "FOREVER"},
+	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("15_MIN"), []byte("1_HOUR"), []byte("8_HOURS"), []byte("24_HOURS"), []byte("3_DAYS"), []byte("FOREVER")},
+}
+
+type MuteDuration struct {
+	fields.Enum[MuteDurationValue]
+}
+
+func NewMuteDuration(val MuteDurationValue) MuteDuration {
+	return MuteDuration{Enum: fields.NewEnum(val, muteDurationSpec)}
+}
+
+func ErrMuteDurationInvalid() *errs.Error {
+	return errs.InvalidArgument("Invalid mute duration.").
+		Reason("MUTE_DURATION_INVALID").
+		FieldViolation("mute_duration", "Must be one of: 15_MIN, 1_HOUR, 8_HOURS, 24_HOURS, 3_DAYS, FOREVER.", "INVALID_ENUM_VALUE").
+		Meta("domain", "members")
+}
+
+func ParseMuteDuration(raw uint8) (MuteDuration, error) {
+	if raw <= 0 || raw >= uint8(muteDurationMax) {
+		return MuteDuration{}, ErrMuteDurationInvalid()
+	}
+	return NewMuteDuration(MuteDurationValue(raw)), nil
+}
+
+func ParseMuteDurationString(s string) (MuteDuration, error) {
+	kind, ok := fields.ParseEnumString[MuteDurationValue](s, muteDurationSpec)
+	if !ok || kind >= muteDurationMax {
+		return MuteDuration{}, ErrMuteDurationInvalid()
+	}
+	return NewMuteDuration(kind), nil
+}
+
+// ToDuration converts the enum value into a actual time.Duration or handles forever.
+func (m MuteDuration) ToDuration() (time.Duration, bool) {
+	switch MuteDurationValue(m.Value) {
+	case MuteDuration15Min:
+		return 15 * time.Minute, true
+	case MuteDuration1Hour:
+		return time.Hour, true
+	case MuteDuration8Hours:
+		return 8 * time.Hour, true
+	case MuteDuration24Hours:
+		return 24 * time.Hour, true
+	case MuteDuration3Days:
+		return 72 * time.Hour, true
+	case MuteDurationForever:
+		return 0, true
+	default:
+		return 0, false
+	}
+}
+
+// CalculateUntil computes the absolute timestamp based on "now".
+func (m MuteDuration) CalculateUntil(now fields.Timestamp) (fields.Timestamp, error) {
+	if MuteDurationValue(m.Value) == MuteDurationForever {
+		// Far-future convention for "forever"
+		farFuture := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+		return fields.NewTimestamp(farFuture), nil
+	}
+
+	d, ok := m.ToDuration()
+	if !ok {
+		return fields.Timestamp{}, ErrMuteDurationInvalid()
+	}
+
+	return fields.NewTimestamp(now.Time().Add(d)), nil
 }
 
 // -----------------------------------------------------------------------------

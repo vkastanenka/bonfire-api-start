@@ -111,40 +111,6 @@ func (q *Queries) ReactionGet(ctx context.Context, arg ReactionGetParams) (Messa
 	return i, err
 }
 
-const reactionGetBatchByMessageIDs = `-- name: ReactionGetBatchByMessageIDs :many
-SELECT
-    message_id, user_id, created_at, emoji
-FROM
-    message_reactions
-WHERE
-    message_id = ANY ($1::uuid[])
-`
-
-func (q *Queries) ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error) {
-	rows, err := q.db.Query(ctx, reactionGetBatchByMessageIDs, messageIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []MessageReaction
-	for rows.Next() {
-		var i MessageReaction
-		if err := rows.Scan(
-			&i.MessageID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.Emoji,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const reactionGetBatchByUserIDAndMessageIDs = `-- name: ReactionGetBatchByUserIDAndMessageIDs :many
 SELECT
     message_id,

@@ -189,18 +189,9 @@ func HydrateMemberViews(
 
 func HydrateMessageView(
 	msg *Message,
-	userMap map[fields.ID]*user.User,
+	author *user.User,
 	reactionMap map[fields.ID]*ReactionSummary,
-) (MessageView, bool) {
-	if msg == nil {
-		return MessageView{}, false
-	}
-
-	u, ok := userMap[msg.AuthorID()]
-	if !ok || u == nil {
-		return MessageView{}, false
-	}
-
+) MessageView {
 	var reactions []EmojiCount
 	if summary, ok := reactionMap[msg.ID()]; ok && summary != nil {
 		reactions = summary.Counts
@@ -209,8 +200,8 @@ func HydrateMessageView(
 	return MessageView{
 		id:                 msg.ID(),
 		authorID:           msg.AuthorID(),
-		displayName:        u.DisplayName(),
-		avatarURL:          u.AvatarURL(),
+		displayName:        author.DisplayName(),
+		avatarURL:          author.AvatarURL(),
 		msgType:            msg.Type(),
 		content:            msg.Content(),
 		systemMetadata:     msg.SystemMetadata(),
@@ -220,7 +211,7 @@ func HydrateMessageView(
 		createdAt:          msg.CreatedAt(),
 		editedAt:           msg.EditedAt(),
 		reactions:          reactions,
-	}, true
+	}
 }
 
 func HydrateMessageViews(
@@ -228,9 +219,55 @@ func HydrateMessageViews(
 	userMap map[fields.ID]*user.User,
 	reactionMap map[fields.ID]*ReactionSummary,
 ) []MessageView {
+	if len(messages) == 0 {
+		return nil
+	}
+
 	views := make([]MessageView, 0, len(messages))
 	for _, msg := range messages {
-		if view, ok := HydrateMessageView(msg, userMap, reactionMap); ok {
+		author, ok := userMap[msg.AuthorID()]
+		if !ok || author == nil {
+			continue
+		}
+
+		views = append(views, HydrateMessageView(msg, author, reactionMap))
+	}
+	return views
+}
+
+func HydrateMessagePinnedView(
+	msg *Message,
+	author *user.User,
+) (MessagePinnedView, bool) {
+	if msg == nil {
+		return MessagePinnedView{}, false
+	}
+
+	if author == nil {
+		author = &user.User{}
+	}
+
+	return MessagePinnedView{
+		id:          msg.ID(),
+		avatarURL:   author.AvatarURL(),
+		displayName: author.DisplayName(),
+		content:     msg.Content(),
+		createdAt:   msg.CreatedAt(),
+	}, true
+}
+
+func HydrateMessagePinnedViews(
+	messages []*Message,
+	userMap map[fields.ID]*user.User,
+) []MessagePinnedView {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	views := make([]MessagePinnedView, 0, len(messages))
+	for _, msg := range messages {
+		author, _ := userMap[msg.AuthorID()]
+		if view, ok := HydrateMessagePinnedView(msg, author); ok {
 			views = append(views, view)
 		}
 	}
@@ -350,6 +387,12 @@ func SortMembers(members []*Member, userMap map[fields.ID]*user.User) {
 func SortMessages(messages []*Message) {
 	slices.SortFunc(messages, func(a, b *Message) int {
 		return a.ID().Compare(b.ID())
+	})
+}
+
+func SortPinnedMessages(messages []*Message) {
+	slices.SortFunc(messages, func(a, b *Message) int {
+		return b.ID().Compare(a.ID())
 	})
 }
 
