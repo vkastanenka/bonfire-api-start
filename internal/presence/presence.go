@@ -56,8 +56,8 @@ func New(val PresenceValue) Presence {
 	return Presence{Enum: fields.NewEnum(val, presenceSpec)}
 }
 
-func Parse(raw int16) (Presence, error) {
-	if raw <= 0 || raw >= int16(presenceMax) {
+func Parse(raw uint8) (Presence, error) {
+	if raw <= 0 || raw >= uint8(presenceMax) {
 		return Presence{}, ErrInvalid()
 	}
 	return New(PresenceValue(raw)), nil

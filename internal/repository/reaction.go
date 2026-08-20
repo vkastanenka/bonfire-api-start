@@ -3,8 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"time"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
@@ -12,29 +10,15 @@ import (
 	"bonfire-api/internal/fields"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/singleflight"
 )
-
-type ReactionCache interface {
-	DecrementEmoji(ctx context.Context, messageID fields.ID, _ string) error
-	Delete(ctx context.Context, messageID fields.ID) error
-	Get(ctx context.Context, messageID fields.ID) (map[string]int, bool, error)
-	GetBatch(ctx context.Context, messageIDs []fields.ID) (hits map[fields.ID]map[string]int, misses []fields.ID, err error)
-	IncrementEmoji(ctx context.Context, messageID fields.ID, _ string) error
-	Set(ctx context.Context, messageID fields.ID, counts map[string]int) error
-	SetBatch(ctx context.Context, countsMap map[fields.ID]map[string]int, missedIDs []fields.ID) error
-}
 
 type ReactionRepository struct {
 	store *db.Store
-	cache ReactionCache
-	sf    singleflight.Group
 }
 
-func NewReactionRepository(store *db.Store, cache ReactionCache) *ReactionRepository {
+func NewReactionRepository(store *db.Store) *ReactionRepository {
 	return &ReactionRepository{
 		store: store.WithEntity(db.EntityMessageReaction),
-		cache: cache,
 	}
 }
 
@@ -57,42 +41,10 @@ func (r *ReactionRepository) Get(
 	messageID, userID fields.ID,
 	emoji channel.ReactionEmoji,
 ) (*channel.Reaction, error) {
-	emojiStr := emoji.String()
-
-	// 1. Fast path: Check Redis aggregate counts
-	counts, hit, err := r.cache.Get(ctx, messageID)
-	if err == nil && hit {
-		if cnt, exists := counts[emojiStr]; !exists || cnt == 0 {
-			return nil, errs.NotFound("reaction not found")
-		}
-	}
-
-	// 2. Cache Miss: Backfill Redis from DB
-	if !hit {
-		dbRows, dbErr := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs([]uuid.UUID{messageID.UUID()}))
-		if dbErr != nil {
-			slog.WarnContext(ctx, "failed to fetch DB summary for backfill", "error", dbErr)
-		} else {
-			summary := make(map[string]int, len(dbRows))
-			for _, row := range dbRows {
-				summary[row.Emoji] = int(row.Count)
-			}
-			if setErr := r.cache.Set(ctx, messageID, summary); setErr != nil {
-				slog.WarnContext(ctx, "failed to set reaction cache", "error", setErr)
-			}
-
-			// In-memory Short Circuit: Avoid DB Query #2 if the freshly backfilled count is 0
-			if cnt, exists := summary[emojiStr]; !exists || cnt == 0 {
-				return nil, errs.NotFound("reaction not found")
-			}
-		}
-	}
-
-	// 3. Direct DB Query for this specific user's reaction row
 	row, dbErr := r.store.ReactionGet(ctx, db.ReactionGetParams{
 		MessageID: db.ToUUID(messageID.UUID()),
 		UserID:    db.ToUUID(userID.UUID()),
-		Emoji:     emojiStr,
+		Emoji:     emoji.String(),
 	})
 	if dbErr != nil {
 		return nil, r.store.Err(dbErr)
@@ -106,68 +58,50 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 	userID fields.ID,
 	messageIDs []fields.ID,
 ) (map[fields.ID]*channel.ReactionSummary, error) {
-	// 1. Read aggregate counts from Redis Cache
-	cachedCounts, missedIDs, err := r.cache.GetBatch(ctx, messageIDs)
+	summaries := make(map[fields.ID]*channel.ReactionSummary, len(messageIDs))
+	if len(messageIDs) == 0 {
+		return summaries, nil
+	}
+
+	for _, msgID := range messageIDs {
+		summaries[msgID] = &channel.ReactionSummary{
+			MessageID: msgID,
+			Counts:    []channel.EmojiCount{},
+		}
+	}
+
+	uuidMsgs := make([]uuid.UUID, len(messageIDs))
+	for i, id := range messageIDs {
+		uuidMsgs[i] = id.UUID()
+	}
+
+	dbRows, err := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs(uuidMsgs))
 	if err != nil {
-		slog.WarnContext(ctx, "reaction cache read failed, falling back to DB", "error", err)
-		missedIDs = messageIDs
-		cachedCounts = make(map[fields.ID]map[string]int, len(messageIDs))
+		return nil, r.store.Err(err)
 	}
 
-	// 2. Fetch aggregate counts from DB for cache misses
-	if len(missedIDs) > 0 {
-		uuidMisses := make([]uuid.UUID, len(missedIDs))
-		for i, id := range missedIDs {
-			uuidMisses[i] = id.UUID()
+	countsMap := make(map[fields.ID]map[string]int, len(messageIDs))
+	for _, row := range dbRows {
+		rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
+		msgID, parseErr := fields.ParseRequiredID("id", rawMsgID)
+		if parseErr != nil {
+			return nil, parseErr
 		}
 
-		dbRows, err := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs(uuidMisses))
-		if err != nil {
-			return nil, r.store.Err(err)
+		if countsMap[msgID] == nil {
+			countsMap[msgID] = make(map[string]int)
 		}
-
-		dbCounts := make(map[fields.ID]map[string]int, len(missedIDs))
-		for _, id := range missedIDs {
-			dbCounts[id] = make(map[string]int)
-		}
-
-		for _, row := range dbRows {
-			rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
-			msgID, parseErr := fields.ParseRequiredID("id", rawMsgID)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			dbCounts[msgID][row.Emoji] = int(row.Count)
-		}
-
-		// Asynchronously backfill cache to prevent blocking response
-		go func(ids []fields.ID, counts map[fields.ID]map[string]int) {
-			asyncCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			if cacheErr := r.cache.SetBatch(asyncCtx, counts, ids); cacheErr != nil {
-				slog.WarnContext(asyncCtx, "failed to backfill reaction cache", "error", cacheErr)
-			}
-		}(missedIDs, dbCounts)
-
-		for msgID, counts := range dbCounts {
-			cachedCounts[msgID] = counts
-		}
+		countsMap[msgID][row.Emoji] = int(row.Count)
 	}
 
-	// 3. Fetch user's personal reactions
 	userReactions := make(map[fields.ID]map[string]bool)
 	if !userID.IsZero() {
-		uuidMsgs := make([]uuid.UUID, len(messageIDs))
-		for i, id := range messageIDs {
-			uuidMsgs[i] = id.UUID()
-		}
-
 		userRows, err := r.store.ReactionGetBatchByUserIDAndMessageIDs(ctx, db.ReactionGetBatchByUserIDAndMessageIDsParams{
 			MessageIds: db.ToUUIDs(uuidMsgs),
 			UserID:     db.ToUUID(userID.UUID()),
 		})
 		if err != nil {
-			return nil, r.store.Err(err) // Fail fast on DB errors
+			return nil, r.store.Err(err)
 		}
 
 		for _, row := range userRows {
@@ -176,6 +110,7 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 			if parseErr != nil {
 				return nil, parseErr
 			}
+
 			if userReactions[msgID] == nil {
 				userReactions[msgID] = make(map[string]bool)
 			}
@@ -183,14 +118,11 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 		}
 	}
 
-	// 4. Build final ReactionSummary DTOs
-	summaries := make(map[fields.ID]*channel.ReactionSummary, len(messageIDs))
-	for _, msgID := range messageIDs {
-		countsMap := cachedCounts[msgID]
+	for msgID, emojiCounts := range countsMap {
 		userEmojiMap := userReactions[msgID]
+		countsList := make([]channel.EmojiCount, 0, len(emojiCounts))
 
-		countsList := make([]channel.EmojiCount, 0, len(countsMap))
-		for emoji, count := range countsMap {
+		for emoji, count := range emojiCounts {
 			countsList = append(countsList, channel.EmojiCount{
 				Emoji:   emoji,
 				Count:   count,

@@ -7,7 +7,6 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,50 +14,38 @@ import (
 )
 
 type ChannelService struct {
-	repo          ChannelRepository
-	cache         ChannelCache
-	memberRepo    MemberRepository
-	memberCache   MemberCache
-	messageRepo   MessageRepository
-	messageCache  MessageCache
-	reactionRepo  ReactionRepository
-	userRepo      UserRepository
-	userCache     UserCache
-	outboxRepo    OutboxRepository
-	relationRepo  RelationRepository
-	presenceCache PresenceCache
-	tx            TX
+	repo         ChannelRepository
+	memberRepo   MemberRepository
+	messageRepo  MessageRepository
+	reactionRepo ReactionRepository
+	userRepo     UserRepository
+	userCache    UserCache
+	outboxRepo   OutboxRepository
+	relationRepo RelationRepository
+	tx           TX
 }
 
 func NewChannelService(
 	repo ChannelRepository,
-	cache ChannelCache,
 	memberRepo MemberRepository,
-	memberCache MemberCache,
 	messageRepo MessageRepository,
-	messageCache MessageCache,
 	reactionRepo ReactionRepository,
 	userRepo UserRepository,
 	userCache UserCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
-	presenceCache PresenceCache,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
-		repo:          repo,
-		cache:         cache,
-		memberRepo:    memberRepo,
-		memberCache:   memberCache,
-		messageRepo:   messageRepo,
-		messageCache:  messageCache,
-		reactionRepo:  reactionRepo,
-		userRepo:      userRepo,
-		userCache:     userCache,
-		outboxRepo:    outboxRepo,
-		relationRepo:  relationRepo,
-		presenceCache: presenceCache,
-		tx:            tx,
+		repo:         repo,
+		memberRepo:   memberRepo,
+		messageRepo:  messageRepo,
+		reactionRepo: reactionRepo,
+		userRepo:     userRepo,
+		userCache:    userCache,
+		outboxRepo:   outboxRepo,
+		relationRepo: relationRepo,
+		tx:           tx,
 	}
 }
 
@@ -148,18 +135,15 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 	parsedMembers = append(parsedMembers, creatorMember)
 	parsedMembers = append(parsedMembers, peerMembers...)
 
-	var newChannel *Channel
-	var newChannelMembers []*Member
-
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Create channel
-		newChannel, err = s.repo.Create(txCtx, parsedChannel)
+		_, err = s.repo.Create(txCtx, parsedChannel)
 		if err != nil {
 			return err
 		}
 
 		// Create members
-		newChannelMembers, err = s.memberRepo.CreateBatch(txCtx, parsedMembers)
+		_, err = s.memberRepo.CreateBatch(txCtx, parsedMembers)
 		if err != nil {
 			return err
 		}
@@ -178,24 +162,6 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 	})
 	if err != nil {
 		return err
-	}
-
-	// Handle cache
-	cacheCtx := context.WithoutCancel(ctx)
-
-	if err := s.cache.SetNew(cacheCtx, newChannel); err != nil {
-		slog.WarnContext(cacheCtx, "failed to cache new channel",
-			"channel_id", channelID.String(),
-			"error", err,
-		)
-	}
-
-	if err := s.memberCache.SetBatch(cacheCtx, newChannelMembers); err != nil {
-		slog.WarnContext(cacheCtx, "failed to batch cache channel members",
-			"channel_id", channelID.String(),
-			"count", len(newChannelMembers),
-			"error", err,
-		)
 	}
 
 	return nil
@@ -324,7 +290,7 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 
 	g2.Go(func() error {
 		var err error
-		presenceMap, err = s.presenceCache.GetBatch(ctx2, userIDs)
+		presenceMap, err = s.userCache.GetBatchPresence(ctx2, userIDs)
 		return err
 	})
 
@@ -418,7 +384,7 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 	if len(directPeerIDs) > 0 {
 		g.Go(func() error {
 			var err error
-			presenceMap, err = s.presenceCache.GetBatch(gCtx, directPeerIDs)
+			presenceMap, err = s.userCache.GetBatchPresence(gCtx, directPeerIDs)
 			return err
 		})
 	}
@@ -526,7 +492,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelI
 		}
 
 		if len(systemMessages) > 0 {
-			systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages)
+			_, err = s.messageRepo.CreateBatch(txCtx, systemMessages)
 			if err != nil {
 				return err
 			}
@@ -542,26 +508,6 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelI
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	// Handle cache
-	cacheCtx := context.WithoutCancel(ctx)
-
-	if err := s.cache.Delete(cacheCtx, channel.ID()); err != nil {
-		slog.WarnContext(cacheCtx, "failed to delete cached channel entity",
-			"channel_id", channel.ID().String(),
-			"error", err,
-		)
-	}
-
-	if len(systemMessages) > 0 {
-		if err := s.messageCache.SetBatch(cacheCtx, systemMessages); err != nil {
-			slog.WarnContext(cacheCtx, "failed to batch cache system messages",
-				"channel_id", channel.ID().String(),
-				"count", len(systemMessages),
-				"error", err,
-			)
-		}
 	}
 
 	return channel, nil

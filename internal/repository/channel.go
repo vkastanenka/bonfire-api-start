@@ -3,35 +3,22 @@ package repository
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/singleflight"
 )
-
-type ChannelCache interface {
-	Get(ctx context.Context, id fields.ID) (*channel.Channel, error)
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
-	Set(ctx context.Context, ch *channel.Channel) error
-	SetBatch(ctx context.Context, channels []*channel.Channel) error
-}
 
 type ChannelRepository struct {
 	store *db.Store
-	cache ChannelCache
-	sf    singleflight.Group
 }
 
-func NewChannelRepository(store *db.Store, cache ChannelCache) *ChannelRepository {
+func NewChannelRepository(store *db.Store) *ChannelRepository {
 	return &ChannelRepository{
 		store: store.WithEntity(db.EntityChannel),
-		cache: cache,
 	}
 }
 
@@ -52,48 +39,12 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 }
 
 func (r *ChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
-	ch, err := r.cache.Get(ctx, id)
-	if err == nil && ch != nil {
-		return ch, nil
-	}
-
+	row, err := r.store.ChannelGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
-		slog.WarnContext(ctx, "cache read failed, falling back to database",
-			"id", id.String(),
-			"error", err,
-			"scope", redis.ScopeChannel,
-		)
+		return nil, r.store.Err(err)
 	}
 
-	sfKey := "channel:" + id.String()
-	sfCtx := context.WithoutCancel(ctx)
-
-	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
-		row, err := r.store.ChannelGet(sfCtx, db.ToUUID(id.UUID()))
-		if err != nil {
-			return nil, r.store.Err(err)
-		}
-
-		dbCh, err := channelFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-
-		if cacheErr := r.cache.Set(sfCtx, dbCh); cacheErr != nil {
-			slog.WarnContext(sfCtx, "failed to backfill cache",
-				"id", id.String(),
-				"error", cacheErr,
-				"scope", redis.ScopeChannel,
-			)
-		}
-
-		return dbCh, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return val.(*channel.Channel), nil
+	return channelFromRow(row)
 }
 
 func (r *ChannelRepository) GetForUpdate(ctx context.Context, id fields.ID) (*channel.Channel, error) {
@@ -109,23 +60,12 @@ func (r *ChannelRepository) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*channel.Channel, error) {
-	cachedMap, missingIDs, err := r.cache.GetBatch(ctx, ids)
-	if err != nil {
-		slog.WarnContext(ctx, "cache read failed, treating all ids as missing",
-			"count", len(ids),
-			"error", err,
-			"scope", redis.ScopeChannel,
-		)
-		cachedMap = make(map[fields.ID]*channel.Channel, len(ids))
-		missingIDs = ids
+	if len(ids) == 0 {
+		return make(map[fields.ID]*channel.Channel), nil
 	}
 
-	if len(missingIDs) == 0 {
-		return cachedMap, nil
-	}
-
-	uuidSlice := make([]uuid.UUID, len(missingIDs))
-	for i, id := range missingIDs {
+	uuidSlice := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
 		uuidSlice[i] = id.UUID()
 	}
 
@@ -134,33 +74,16 @@ func (r *ChannelRepository) GetBatch(
 		return nil, r.store.Err(err)
 	}
 
-	dbMap := make(map[fields.ID]*channel.Channel, len(rows))
-	dbChannels := make([]*channel.Channel, 0, len(rows))
-
+	resultMap := make(map[fields.ID]*channel.Channel, len(rows))
 	for _, row := range rows {
 		ch, err := channelFromRow(row)
 		if err != nil {
 			return nil, err
 		}
-		dbMap[ch.ID()] = ch
-		dbChannels = append(dbChannels, ch)
+		resultMap[ch.ID()] = ch
 	}
 
-	if len(dbChannels) > 0 {
-		if cacheErr := r.cache.SetBatch(ctx, dbChannels); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill cache",
-				"count", len(dbChannels),
-				"error", cacheErr,
-				"scope", redis.ScopeChannel,
-			)
-		}
-	}
-
-	for id, ch := range dbMap {
-		cachedMap[id] = ch
-	}
-
-	return cachedMap, nil
+	return resultMap, nil
 }
 
 func (r *ChannelRepository) UpdateGroup(
@@ -244,7 +167,7 @@ func channelFromRow(row db.Channel) (*channel.Channel, error) {
 		return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
 	}
 
-	lastMessageID, err := fields.ParseID("last_message_id", db.FromUUID[uuid.UUID](row.LastMessageID))
+	lastMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.LastMessageID))
 	if err != nil {
 		return nil, mapErr("failed to parse channel name from database", "name", row.Name, err)
 	}

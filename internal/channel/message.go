@@ -127,19 +127,16 @@ func ParseMessageMemberAdd(
 func ParseMessageMemberRemove(
 	id,
 	channelID,
-	authorID,
-	removedUserID fields.ID,
+	authorID fields.ID,
 	now fields.Timestamp,
 ) *Message {
-	metadataJSON := fields.NewJSON(map[string]any{"user_id": removedUserID.String()})
-
 	return ParseMessage(
 		id,
 		channelID,
 		authorID,
 		NewMessageTypeMemberRemove(),
 		MessageContent{},
-		metadataJSON,
+		fields.JSON{},
 		fields.ID{},
 		fields.ID{},
 		fields.ID{},

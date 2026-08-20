@@ -91,6 +91,17 @@ func (e Enum[T]) Raw() T {
 	return T(e.Value)
 }
 
+func (e Enum[T]) Uint8() uint8 {
+	return uint8(e.Value)
+}
+
+func (e Enum[T]) Uint8Ptr() *uint8 {
+	if !e.IsValid() {
+		return nil
+	}
+	return ptr.To(uint8(e.Value))
+}
+
 func (e Enum[T]) Int16() int16 {
 	return int16(e.Value)
 }

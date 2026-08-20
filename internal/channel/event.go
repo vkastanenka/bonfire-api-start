@@ -20,7 +20,7 @@ type ChannelCreatedPayload struct{}
 type ChannelUpdatedPayload struct{}
 
 type MembersAddedPayload struct{}
-type MemberUpdateVisibilitytPayload struct{}
+type MemberUpdateVisibilityPayload struct{}
 type MemberUpdateLastReadMessagePayload struct{}
 type MemberUpdatePinnedAtPayload struct{}
 type MemberUpdateMutedUntilPayload struct{}

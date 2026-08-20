@@ -4,42 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/singleflight"
 )
-
-type MessageCache interface {
-	Delete(ctx context.Context, channelID fields.ID, messageID fields.ID) error
-	DeleteBatch(ctx context.Context, channelID fields.ID, keys []fields.ID) error
-	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Message, []fields.ID, error)
-	IsTimelineComplete(ctx context.Context, channelID fields.ID) bool
-	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*channel.Message, error)
-	ListAroundByChannelID(ctx context.Context, channelID fields.ID, anchorMessageID fields.ID, beforeLimit int32, afterLimit int32) ([]*channel.Message, error)
-	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*channel.Message, error)
-	Set(ctx context.Context, msg *channel.Message) error
-	SetBatch(ctx context.Context, messages []*channel.Message) error
-	SetTimelineComplete(ctx context.Context, channelID fields.ID) error
-}
 
 type MessageRepository struct {
 	store *db.Store
-	cache MessageCache
-	sf    singleflight.Group
 }
 
-func NewMessageRepository(store *db.Store, cache MessageCache) *MessageRepository {
+func NewMessageRepository(store *db.Store) *MessageRepository {
 	return &MessageRepository{
 		store: store.WithEntity(db.EntityMessage),
-		cache: cache,
 	}
 }
 
@@ -124,48 +104,12 @@ func (r *MessageRepository) CreateBatch(
 }
 
 func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	msg, err := r.cache.Get(ctx, id)
-	if err == nil && msg != nil {
-		return msg, nil
-	}
-
+	row, err := r.store.MessageGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
-		slog.WarnContext(ctx, "cache read failed, falling back to database",
-			"id", id.String(),
-			"error", err,
-			"scope", redis.ScopeMessage,
-		)
+		return nil, r.store.Err(err)
 	}
 
-	sfKey := "message:" + id.String()
-	sfCtx := context.WithoutCancel(ctx)
-
-	val, err, _ := r.sf.Do(sfKey, func() (any, error) {
-		row, err := r.store.MessageGet(sfCtx, db.ToUUID(id.UUID()))
-		if err != nil {
-			return nil, r.store.Err(err)
-		}
-
-		dbMsg, err := messageFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-
-		if cacheErr := r.cache.Set(sfCtx, dbMsg); cacheErr != nil {
-			slog.WarnContext(sfCtx, "failed to backfill cache",
-				"id", id.String(),
-				"error", cacheErr,
-				"scope", redis.ScopeMessage,
-			)
-		}
-
-		return dbMsg, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return val.(*channel.Message), nil
+	return messageFromRow(row)
 }
 
 func (r *MessageRepository) ListAroundByChannelID(
@@ -173,19 +117,6 @@ func (r *MessageRepository) ListAroundByChannelID(
 	channelID, lastReadMessageID fields.ID,
 	beforeLimit, afterLimit int32,
 ) ([]*channel.Message, error) {
-	messages, err := r.cache.ListAroundByChannelID(ctx, channelID, lastReadMessageID, beforeLimit, afterLimit)
-	if err == nil && messages != nil {
-		return messages, nil
-	}
-	if err != nil {
-		slog.WarnContext(ctx, "cache read failed for messages around anchor, falling back to database",
-			"channel_id", channelID,
-			"anchor_id", lastReadMessageID,
-			"error", err,
-			"scope", redis.ScopeMessage,
-		)
-	}
-
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
 		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
@@ -196,22 +127,7 @@ func (r *MessageRepository) ListAroundByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	messages, err = messagesFromRows(rows)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(messages) > 0 {
-		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill message cache",
-				"channel_id", channelID,
-				"error", cacheErr,
-				"scope", redis.ScopeMessage,
-			)
-		}
-	}
-
-	return messages, nil
+	return messagesFromRows(rows)
 }
 
 func (r *MessageRepository) ListBeforeByChannelID(
@@ -219,19 +135,6 @@ func (r *MessageRepository) ListBeforeByChannelID(
 	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
-	messages, err := r.cache.ListBeforeByChannelID(ctx, channelID, cursorID, limit)
-	if err == nil && messages != nil {
-		return messages, nil
-	}
-	if err != nil {
-		slog.WarnContext(ctx, "cache read failed for messages before cursor, falling back to database",
-			"channel_id", channelID,
-			"cursor_id", cursorID,
-			"error", err,
-			"scope", redis.ScopeMessage,
-		)
-	}
-
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
@@ -241,32 +144,7 @@ func (r *MessageRepository) ListBeforeByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	messages, err = messagesFromRows(rows)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(messages) > 0 {
-		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill message cache",
-				"channel_id", channelID,
-				"error", cacheErr,
-				"scope", redis.ScopeMessage,
-			)
-		}
-	}
-
-	if len(messages) < int(limit) {
-		if cacheErr := r.cache.SetTimelineComplete(ctx, channelID); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to set timeline complete flag",
-				"channel_id", channelID,
-				"error", cacheErr,
-				"scope", redis.ScopeMessage,
-			)
-		}
-	}
-
-	return messages, nil
+	return messagesFromRows(rows)
 }
 
 func (r *MessageRepository) ListAfterByChannelID(
@@ -274,19 +152,6 @@ func (r *MessageRepository) ListAfterByChannelID(
 	channelID, cursorID fields.ID,
 	limit int32,
 ) ([]*channel.Message, error) {
-	messages, err := r.cache.ListAfterByChannelID(ctx, channelID, cursorID, limit)
-	if err == nil && messages != nil {
-		return messages, nil
-	}
-	if err != nil {
-		slog.WarnContext(ctx, "cache read failed for messages after cursor, falling back to database",
-			"channel_id", channelID,
-			"cursor_id", cursorID,
-			"error", err,
-			"scope", redis.ScopeMessage,
-		)
-	}
-
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
@@ -296,22 +161,7 @@ func (r *MessageRepository) ListAfterByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	messages, err = messagesFromRows(rows)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(messages) > 0 {
-		if cacheErr := r.cache.SetBatch(ctx, messages); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill message cache",
-				"channel_id", channelID,
-				"error", cacheErr,
-				"scope", redis.ScopeMessage,
-			)
-		}
-	}
-
-	return messages, nil
+	return messagesFromRows(rows)
 }
 
 func (r *MessageRepository) ListPinnedByChannelID(
@@ -413,22 +263,22 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		return nil, mapErr("failed to parse channel id from database", "channel_id", row.ChannelID, err)
 	}
 
-	authorID, err := fields.ParseID("author_id", db.FromUUID[uuid.UUID](row.AuthorID))
+	authorID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.AuthorID))
 	if err != nil {
 		return nil, mapErr("failed to parse author id from database", "author_id", row.AuthorID, err)
 	}
 
-	replyToMessageID, err := fields.ParseID("reply_to_message_id", db.FromUUID[uuid.UUID](row.ReplyToMessageID))
+	replyToMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ReplyToMessageID))
 	if err != nil {
 		return nil, mapErr("failed to parse reply to message id from database", "reply_to_message_id", row.ReplyToMessageID, err)
 	}
 
-	forwardedMessageID, err := fields.ParseID("forwarded_message_id", db.FromUUID[uuid.UUID](row.ForwardedMessageID))
+	forwardedMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardedMessageID))
 	if err != nil {
 		return nil, mapErr("failed to parse forwarded message id from database", "forwarded_message_id", row.ForwardedMessageID, err)
 	}
 
-	forwardedChannelID, err := fields.ParseID("forwarded_channel_id", db.FromUUID[uuid.UUID](row.ForwardedChannelID))
+	forwardedChannelID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardedChannelID))
 	if err != nil {
 		return nil, mapErr("failed to parse forwarded channel id from database", "forwarded_channel_id", row.ForwardedChannelID, err)
 	}

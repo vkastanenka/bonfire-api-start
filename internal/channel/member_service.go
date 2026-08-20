@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,11 +11,8 @@ import (
 
 type MemberService struct {
 	repo         MemberRepository
-	cache        MemberCache
 	channelRepo  ChannelRepository
-	channelCache ChannelCache
 	messageRepo  MessageRepository
-	messageCache MessageCache
 	userRepo     UserRepository
 	userCache    UserCache
 	outboxRepo   OutboxRepository
@@ -26,11 +22,8 @@ type MemberService struct {
 
 func NewMemberService(
 	repo MemberRepository,
-	cache MemberCache,
 	channelRepo ChannelRepository,
-	channelCache ChannelCache,
 	messageRepo MessageRepository,
-	messageCache MessageCache,
 	userRepo UserRepository,
 	userCache UserCache,
 	outboxRepo OutboxRepository,
@@ -39,11 +32,8 @@ func NewMemberService(
 ) *MemberService {
 	return &MemberService{
 		repo:         repo,
-		cache:        cache,
 		channelRepo:  channelRepo,
-		channelCache: channelCache,
 		messageRepo:  messageRepo,
-		messageCache: messageCache,
 		userRepo:     userRepo,
 		userCache:    userCache,
 		outboxRepo:   outboxRepo,
@@ -60,8 +50,7 @@ func (s *MemberService) AddMembers(
 	rawMemberIDs []uuid.UUID,
 ) error {
 	// Validate
-	err := ValidateMinMembers(rawMemberIDs)
-	if err != nil {
+	if err := ValidateMinMembers(rawMemberIDs); err != nil {
 		return err
 	}
 
@@ -80,7 +69,7 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
-	// Dedupe ids and remove user id
+	// Dedupe and remove user id
 	newPeerIDs := fields.RemoveID(fields.DedupeIDs(memberIDs), userID)
 	if len(newPeerIDs) == 0 {
 		return errs.InvalidArgument("No new members to add.").
@@ -97,16 +86,7 @@ func (s *MemberService) AddMembers(
 			Reason("INCOMING_BLOCK_DETECTED")
 	}
 
-	now := fields.Now()
-
-	var (
-		createdChannel *Channel
-		newMembers     []*Member
-		systemMessages []*Message
-		allMemberIDs   []fields.ID
-	)
-
-	// Get existing members
+	// Validate membership and filter new members
 	existingMembersMap, err := s.repo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
 	if err != nil {
 		return err
@@ -117,7 +97,6 @@ func (s *MemberService) AddMembers(
 		return ErrMembersNotFound()
 	}
 
-	// Validate membership
 	if _, err := ValidateMembership(userID, existingMembers); err != nil {
 		return err
 	}
@@ -127,16 +106,21 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
-	targetChannelID := channelID
-	peerIDs := newMemberIDs
+	now := fields.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Lock channel for update
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Lock channel
 		chLock, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
 		}
 
+		var (
+			targetChannelID = channelID
+			membersToInsert []*Member
+		)
+
+		// If direct, create new group channel
 		if chLock.chType.IsDirect() {
 			newGroupChannelID, err := fields.NewID()
 			if err != nil {
@@ -154,60 +138,45 @@ func (s *MemberService) AddMembers(
 				now,
 			)
 
-			ch, err := s.channelRepo.Create(txCtx, newGroupChannel)
+			createdChannel, err := s.channelRepo.Create(txCtx, newGroupChannel)
 			if err != nil {
 				return err
 			}
+			targetChannelID = createdChannel.ID()
 
-			createdChannel = ch
-			targetChannelID = ch.ID()
+			// Actor member has no mentions
+			creatorMember := ParseMember(
+				targetChannelID, userID, fields.ID{}, fields.Timestamp{},
+				fields.Timestamp{}, fields.Timestamp{}, 0, true, now, now,
+			)
 
-			peerIDs = make([]fields.ID, 0, (len(existingMembers)-1)+len(newMemberIDs))
+			// Peer members have 1 mention
+			allPeerIDs := make([]fields.ID, 0, (len(existingMembers)-1)+len(newMemberIDs))
 			for _, m := range existingMembers {
 				if !m.UserID().Equals(userID) {
-					peerIDs = append(peerIDs, m.UserID())
+					allPeerIDs = append(allPeerIDs, m.UserID())
 				}
 			}
-			peerIDs = append(peerIDs, newMemberIDs...)
-		}
+			allPeerIDs = append(allPeerIDs, newMemberIDs...)
 
-		creatorMember := ParseMember(
-			targetChannelID,
-			userID,
-			fields.ID{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			0,
-			true,
-			now,
-			now,
-		)
+			peerMembers := ParseMembers(
+				targetChannelID, allPeerIDs, fields.ID{}, fields.Timestamp{},
+				fields.Timestamp{}, fields.Timestamp{}, 1, true, now, now,
+			)
 
-		peerMembers := ParseMembers(
-			targetChannelID,
-			peerIDs,
-			fields.ID{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			fields.Timestamp{},
-			1,
-			true,
-			now,
-			now,
-		)
+			membersToInsert = make([]*Member, 0, len(allPeerIDs)+1)
+			membersToInsert = append(membersToInsert, creatorMember)
+			membersToInsert = append(membersToInsert, peerMembers...)
 
-		parsedMembers := make([]*Member, 0, len(peerIDs)+1)
-		parsedMembers = append(parsedMembers, creatorMember)
-		parsedMembers = append(parsedMembers, peerMembers...)
+		} else {
+			// Existing group creates new members
+			membersToInsert = ParseMembers(
+				targetChannelID, newMemberIDs, fields.ID{}, fields.Timestamp{},
+				fields.Timestamp{}, fields.Timestamp{}, 1, true, now, now,
+			)
 
-		createdMembers, err := s.repo.CreateBatch(txCtx, parsedMembers)
-		if err != nil {
-			return err
-		}
-
-		if chLock.chType.IsGroup() {
-			systemMessages = make([]*Message, 0, len(newMemberIDs))
+			// System messages only for created groups
+			systemMessages := make([]*Message, 0, len(newMemberIDs))
 			msgTime := now
 
 			for _, addedUserID := range newMemberIDs {
@@ -217,115 +186,37 @@ func (s *MemberService) AddMembers(
 				}
 
 				msg := ParseMessageMemberAdd(
-					msgID,
-					targetChannelID,
-					userID,
-					addedUserID,
-					msgTime,
+					msgID, targetChannelID, userID, addedUserID, msgTime,
 				)
 				systemMessages = append(systemMessages, msg)
-
 				msgTime = msgTime.Add(time.Microsecond)
 			}
 
 			if len(systemMessages) > 0 {
-				systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages)
-				if err != nil {
+				if _, err = s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
 					return err
 				}
 			}
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
-		if err != nil {
+		// Create members
+		if _, err := s.repo.CreateBatch(txCtx, membersToInsert); err != nil {
 			return err
 		}
 
-		newMembers = createdMembers
-		allMemberIDs = make([]fields.ID, len(parsedMembers))
-		for i, m := range parsedMembers {
-			allMemberIDs[i] = m.UserID()
-		}
-
-		return nil
-	})
-	if err != nil {
+		// Publish Outbox Event
+		_, err = s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
 		return err
-	}
-
-	// Handle cache
-	cacheCtx := context.WithoutCancel(ctx)
-
-	if createdChannel != nil {
-		if err := s.channelCache.Set(cacheCtx, createdChannel); err != nil {
-			slog.WarnContext(cacheCtx, "failed to cache new channel entity",
-				"channel_id", createdChannel.ID().String(),
-				"error", err,
-			)
-		}
-
-		if err := s.channelCache.SetMemberIDs(cacheCtx, createdChannel.ID(), allMemberIDs); err != nil {
-			slog.WarnContext(cacheCtx, "failed to cache channel member ids",
-				"channel_id", createdChannel.ID().String(),
-				"count", len(allMemberIDs),
-				"error", err,
-			)
-		}
-
-		if err := s.channelCache.SetLoaded(cacheCtx, createdChannel.ID()); err != nil {
-			slog.WarnContext(cacheCtx, "failed to set channel loaded flag",
-				"channel_id", createdChannel.ID().String(),
-				"error", err,
-			)
-		}
-
-		// if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
-		// 	slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
-		// 		"count", len(allMemberIDs),
-		// 		"error", err,
-		// 	)
-		// }
-	} else {
-		if err := s.channelCache.DeleteMemberIDs(cacheCtx, channelID); err != nil {
-			slog.WarnContext(cacheCtx, "failed to invalidate channel member ids",
-				"channel_id", channelID.String(),
-				"error", err,
-			)
-		}
-
-		// if err := s.userCache.DeleteChannelIDsBatch(cacheCtx, allMemberIDs); err != nil {
-		// 	slog.WarnContext(cacheCtx, "failed to invalidate user channel ids batch",
-		// 		"count", len(allMemberIDs),
-		// 		"error", err,
-		// 	)
-		// }
-	}
-
-	if err := s.cache.SetBatch(cacheCtx, newMembers); err != nil {
-		slog.WarnContext(cacheCtx, "failed to batch cache members",
-			"count", len(newMembers),
-			"error", err,
-		)
-	}
-
-	if len(systemMessages) > 0 {
-		if err := s.messageCache.SetBatch(cacheCtx, systemMessages); err != nil {
-			slog.WarnContext(cacheCtx, "failed to batch cache system messages",
-				"channel_id", channelID.String(),
-				"count", len(systemMessages),
-				"error", err,
-			)
-		}
-	}
-
-	return nil
+	})
 }
 
+// CloseDirect updates the visibility of a channel membership to false.
 func (s *MemberService) CloseDirect(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
 ) error {
+	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return err
@@ -336,6 +227,7 @@ func (s *MemberService) CloseDirect(
 		return err
 	}
 
+	// Validate channel type
 	ch, err := s.channelRepo.Get(ctx, channelID)
 	if err != nil {
 		return err
@@ -348,10 +240,9 @@ func (s *MemberService) CloseDirect(
 
 	now := fields.Now()
 
-	var member *Member
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err = s.repo.UpdateIsVisible(
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Update visibility
+		_, err := s.repo.UpdateIsVisible(
 			txCtx,
 			channelID,
 			userID,
@@ -361,14 +252,12 @@ func (s *MemberService) CloseDirect(
 		if err != nil {
 			return err
 		}
-		if member == nil {
-			return errs.NotFound("Member not found in channel.")
-		}
 
+		// Publish event
 		_, err = s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdateUpdateVisibility,
-			MemberUpdateVisibilitytPayload{},
+			MemberUpdateVisibilityPayload{},
 		)
 		if err != nil {
 			return err
@@ -376,39 +265,16 @@ func (s *MemberService) CloseDirect(
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	// Handle cache
-	cacheCtx := context.WithoutCancel(ctx)
-
-	if err := s.cache.Delete(cacheCtx, member.channelID, member.userID); err != nil {
-		slog.WarnContext(cacheCtx, "failed to delete cached member entity",
-			"channel_id", member.channelID.String(),
-			"user_id", member.userID.String(),
-			"error", err,
-		)
-	}
-
-	if err := s.userCache.RemoveChannelID(cacheCtx, userID, channelID); err != nil {
-		slog.WarnContext(cacheCtx, "failed to remove channel id from user cache",
-			"channel_id", channelID.String(),
-			"user_id", userID.String(),
-			"error", err,
-		)
-	}
-
-	return nil
 }
 
+// UpdateLastReadMessage updates a members last read message id and time.
 func (s *MemberService) UpdateLastReadMessage(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID,
 	rawLastReadMessageID uuid.UUID,
-	rawLastReadAt time.Time, // TODO: Remove, handle in service
 ) (*Member, error) {
+	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
@@ -424,6 +290,7 @@ func (s *MemberService) UpdateLastReadMessage(
 		return nil, err
 	}
 
+	// Get channel for mention count handling
 	ch, err := s.channelRepo.Get(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -437,32 +304,34 @@ func (s *MemberService) UpdateLastReadMessage(
 	}
 
 	var updatedMember *Member
-	lastReadMessageAt := fields.NewTimestamp(rawLastReadAt)
-	now := fields.NewTimestamp(time.Now())
+
+	now := fields.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err := s.repo.UpdateLastReadMessage(
+		// Update member
+		updatedMember, err = s.repo.UpdateLastReadMessage(
 			txCtx,
 			channelID,
 			userID,
 			lastReadMessageID,
-			lastReadMessageAt,
+			now,
 			now,
 			mentionCount,
 		)
 		if err != nil {
 			return err
 		}
-		if member == nil {
-			return errs.NotFound("Member not found in channel.")
-		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventMemberUpdateLastReadMessage, MemberUpdateLastReadMessagePayload{})
+		// Publish event
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMemberUpdateLastReadMessage,
+			MemberUpdateLastReadMessagePayload{},
+		)
 		if err != nil {
 			return err
 		}
 
-		updatedMember = member
 		return nil
 	})
 	if err != nil {
@@ -472,12 +341,13 @@ func (s *MemberService) UpdateLastReadMessage(
 	return updatedMember, nil
 }
 
+// UpdatePinnedAt updates a members pinned at timestamp.
 func (s *MemberService) UpdatePinnedAt(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
-	rawPinnedAt *time.Time,
 ) (*Member, error) {
+	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
@@ -488,26 +358,24 @@ func (s *MemberService) UpdatePinnedAt(
 		return nil, err
 	}
 
-	var pinnedAt fields.Timestamp
-	if rawPinnedAt != nil {
-		pinnedAt = fields.NewTimestamp(*rawPinnedAt)
-	}
-
-	now := fields.NewTimestamp(time.Now())
 	var updatedMember *Member
 
+	now := fields.Now()
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err := s.repo.UpdatePinnedAt(
+		// Update member
+		updatedMember, err = s.repo.UpdatePinnedAt(
 			txCtx,
 			channelID,
 			userID,
-			pinnedAt,
+			now,
 			now,
 		)
 		if err != nil {
 			return err
 		}
 
+		// Publish event
 		_, err = s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdatePinnedAt,
@@ -517,7 +385,6 @@ func (s *MemberService) UpdatePinnedAt(
 			return err
 		}
 
-		updatedMember = member
 		return nil
 	})
 	if err != nil {
@@ -527,12 +394,13 @@ func (s *MemberService) UpdatePinnedAt(
 	return updatedMember, nil
 }
 
-func (s *MemberService) UpdateGroupMutedUntil(
+// UpdateMuted until updates a members muted until timestamp.
+func (s *MemberService) UpdateMutedUntil(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
-	rawMutedUntil *time.Time,
 ) (*Member, error) {
+	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
@@ -543,31 +411,24 @@ func (s *MemberService) UpdateGroupMutedUntil(
 		return nil, err
 	}
 
-	var mutedUntil fields.Timestamp
-	if rawMutedUntil != nil {
-		mutedUntil = fields.NewTimestamp(*rawMutedUntil)
-	}
-
-	now := fields.NewTimestamp(time.Now())
 	var updatedMember *Member
 
-	// TODO: Ensure channel type is type 2
+	now := fields.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err := s.repo.UpdateMutedUntil(
+		// Update member
+		updatedMember, err = s.repo.UpdateMutedUntil(
 			txCtx,
 			channelID,
 			userID,
-			mutedUntil,
+			now,
 			now,
 		)
 		if err != nil {
 			return err
 		}
-		if member == nil {
-			return errs.NotFound("Member not found in channel.")
-		}
 
+		// Publish event
 		_, err = s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdateMutedUntil,
@@ -577,7 +438,6 @@ func (s *MemberService) UpdateGroupMutedUntil(
 			return err
 		}
 
-		updatedMember = member
 		return nil
 	})
 	if err != nil {
@@ -587,11 +447,13 @@ func (s *MemberService) UpdateGroupMutedUntil(
 	return updatedMember, nil
 }
 
+// LeaveGroup deletes a member and a group channel if no remaining members.
 func (s *MemberService) LeaveGroup(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
 ) error {
+	// Validate
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return err
@@ -602,50 +464,69 @@ func (s *MemberService) LeaveGroup(
 		return err
 	}
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	now := fields.Now()
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Lock channel
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
 		}
 
-		if ch.Type() == NewChannelType(ChannelTypeDirect) {
+		// Validate channel type
+		if ch.Type().IsDirect() {
 			return errs.InvalidArgument("Cannot leave a direct message channel.")
 		}
 
+		// Delete member
 		err = s.repo.Delete(txCtx, channelID, userID)
 		if err != nil {
 			return err
 		}
 
+		// Count remaining members
 		remainingCount, err := s.repo.CountByChannel(txCtx, channelID)
 		if err != nil {
 			return err
 		}
 
+		// Delete and return if no members left
 		if remainingCount == 0 {
 			err = s.channelRepo.Delete(txCtx, channelID)
 			if err != nil {
 				return err
 			}
-			// Optional: Publish channel deleted event
-		} else {
-			_, err = s.outboxRepo.Publish(
-				txCtx,
-				EventMemberDelete,
-				MemberDeletePayload{},
-			)
-			if err != nil {
-				return err
-			}
+			return nil
 		}
 
-		// TODO: Send system message that user left
+		// Create system message
+		msgID, err := fields.NewID()
+		if err != nil {
+			return err
+		}
+
+		sysMsg := ParseMessageMemberRemove(
+			msgID,
+			ch.id,
+			userID,
+			now,
+		)
+
+		_, err = s.messageRepo.Create(txCtx, sysMsg)
+		if err != nil {
+			return err
+		}
+
+		// Publish event
+		_, err = s.outboxRepo.Publish(
+			txCtx,
+			EventMemberDelete,
+			MemberDeletePayload{},
+		)
+		if err != nil {
+			return err
+		}
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
