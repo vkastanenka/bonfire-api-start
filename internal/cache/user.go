@@ -2,202 +2,359 @@ package cache
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"time"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 
-	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-func UserKey(id fields.ID) string {
-	return fmt.Sprintf("users:%s", id.String())
-}
-
-type User struct {
-	ID                     uuid.UUID `json:"id"`
-	Email                  string    `json:"email"`
-	Username               string    `json:"username"`
-	DisplayName            string    `json:"display_name"`
-	Phone                  string    `json:"phone"`
-	Bio                    string    `json:"bio"`
-	AvatarURL              string    `json:"avatar_url"`
-	BannerColor            string    `json:"banner_color"`
-	PreferredPresence      int16     `json:"preferred_presence"`
-	PreferredPresenceUntil int64     `json:"preferred_presence_until"`
-	VerifiedAt             int64     `json:"verified_at"`
-	DisabledAt             int64     `json:"disabled_at"`
-	DeleteScheduledAt      int64     `json:"delete_scheduled_at"`
-	CreatedAt              int64     `json:"created_at"`
-	UpdatedAt              int64     `json:"updated_at"`
-}
-
-func (u User) ToDomain() (*user.User, error) {
-	id, err := fields.ParseRequiredID("id", u.ID)
-	if err != nil {
-		return nil, err
-	}
-	email, err := user.ParseEmail("email", u.Email)
-	if err != nil {
-		return nil, err
-	}
-	username, err := user.ParseUsername("username", u.Username)
-	if err != nil {
-		return nil, err
-	}
-	displayName, err := user.ParseDisplayName("display_name", u.DisplayName)
-	if err != nil {
-		return nil, err
-	}
-	phone, err := user.ParsePhone("phone", u.Phone)
-	if err != nil {
-		return nil, err
-	}
-	bio, err := user.ParseBio("bio", u.Bio)
-	if err != nil {
-		return nil, err
-	}
-	avatarURL, err := fields.ParseURL("avatar_url", u.AvatarURL)
-	if err != nil {
-		return nil, err
-	}
-	bannerColor, err := fields.ParseHexColor("banner_color", u.BannerColor)
-	if err != nil {
-		return nil, err
-	}
-	prefPresence, err := user.ParsePreferredPresenceFromInt16("preferred_presence", u.PreferredPresence)
-	if err != nil {
-		return nil, err
-	}
-
-	return user.Reconstitute(
-		id,
-		email,
-		username,
-		user.PasswordHash{},
-		phone,
-		displayName,
-		bio,
-		avatarURL,
-		bannerColor,
-		prefPresence,
-		fields.NewTimestampFromUnix(u.PreferredPresenceUntil),
-		fields.NewTimestampFromUnix(u.VerifiedAt),
-		fields.NewTimestampFromUnix(u.DisabledAt),
-		fields.NewTimestampFromUnix(u.DeleteScheduledAt),
-		fields.NewTimestampFromUnix(u.CreatedAt),
-		fields.NewTimestampFromUnix(u.UpdatedAt),
-	), nil
-}
-
-func FromDomain(u *user.User) *User {
-	return &User{
-		ID:                     u.ID().UUID(),
-		Email:                  u.Email().String(),
-		Username:               u.Username().String(),
-		DisplayName:            u.DisplayName().String(),
-		Phone:                  u.Phone().String(),
-		Bio:                    u.Bio().String(),
-		AvatarURL:              u.AvatarURL().String(),
-		BannerColor:            u.BannerColor().String(),
-		PreferredPresence:      u.PreferredPresence().Int16(),
-		PreferredPresenceUntil: u.PreferredPresenceUntil().Unix(),
-		VerifiedAt:             u.VerifiedAt().Unix(),
-		DisabledAt:             u.DisabledAt().Unix(),
-		DeleteScheduledAt:      u.DeleteScheduledAt().Unix(),
-		CreatedAt:              u.CreatedAt().Unix(),
-		UpdatedAt:              u.UpdatedAt().Unix(),
-	}
-}
-
 type UserCache struct {
-	engine *KeyCache[fields.ID, User]
+	client redisdriver.Cmdable
+	scope  redis.Scope
+	ttl    time.Duration
 }
 
-func NewUserCache(store *redis.Store, ttl time.Duration) *UserCache {
-	engine := NewKeyCache[fields.ID, User](
-		store.WithScope(redis.ScopeUser),
-		ttl,
-		UserKey,
-	)
-	return &UserCache{engine: engine}
+func NewUserCache(
+	client redisdriver.Cmdable,
+	scope redis.Scope,
+	ttl time.Duration,
+) *UserCache {
+	return &UserCache{
+		client: client,
+		scope:  scope,
+		ttl:    ttl,
+	}
+}
+
+func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
+	redisKey := UserKey(id)
+
+	data, err := u.client.Get(ctx, redisKey).Bytes()
+	if redis.IsCacheMiss(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, redis.NewError(err, u.scope)
+	}
+
+	var dto User
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, errs.Internal("Failed to unmarshal cached user.").
+			Meta("scope", u.scope.String()).
+			Wrap(err)
+	}
+
+	return dto.ToDomain()
+}
+
+func (u *UserCache) GetBatch(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*user.User, []fields.ID, error) {
+	found := make(map[fields.ID]*user.User, len(ids))
+	var missing []fields.ID
+
+	for i := 0; i < len(ids); i += KeyMaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+
+		end := min(i+KeyMaxBatchSize, len(ids))
+		chunk := ids[i:end]
+
+		redisKeys := make([]string, len(chunk))
+		for j, id := range chunk {
+			redisKeys[j] = UserKey(id)
+		}
+
+		vals, err := u.client.MGet(ctx, redisKeys...).Result()
+		if err != nil {
+			return nil, nil, redis.NewError(err, u.scope)
+		}
+
+		for j, raw := range vals {
+			id := chunk[j]
+
+			if raw == nil {
+				missing = append(missing, id)
+				continue
+			}
+
+			var data []byte
+			switch v := raw.(type) {
+			case string:
+				if v == "" {
+					missing = append(missing, id)
+					continue
+				}
+				data = []byte(v)
+			case []byte:
+				if len(v) == 0 {
+					missing = append(missing, id)
+					continue
+				}
+				data = v
+			default:
+				missing = append(missing, id)
+				continue
+			}
+
+			var dto User
+			if err := json.Unmarshal(data, &dto); err != nil {
+				return nil, nil, errs.Internal("Failed to unmarshal cached user batch item.").
+					Meta("scope", u.scope.String()).
+					Wrap(err)
+			}
+
+			usr, err := dto.ToDomain()
+			if err != nil {
+				missing = append(missing, id)
+				continue
+			}
+
+			found[id] = usr
+		}
+	}
+
+	if len(missing) > 0 {
+		seen := make(map[fields.ID]struct{}, len(missing))
+		result := make([]fields.ID, 0, len(missing))
+
+		for _, id := range missing {
+			if _, inFound := found[id]; inFound {
+				continue
+			}
+			if _, inSeen := seen[id]; !inSeen {
+				seen[id] = struct{}{}
+				result = append(result, id)
+			}
+		}
+		missing = result
+	}
+
+	return found, missing, nil
 }
 
 func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
-	if usr == nil {
-		return nil
+	redisKey := UserKey(usr.ID())
+	dto := ParseUser(usr)
+
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return errs.Internal("Failed to marshal user json.").
+			Meta("scope", u.scope.String()).
+			Wrap(err)
 	}
-	return u.engine.Set(ctx, usr.ID(), FromDomain(usr))
+
+	if err := u.client.Set(ctx, redisKey, bytes, u.ttl).Err(); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
 }
 
 func (u *UserCache) SetBatch(ctx context.Context, users []*user.User) error {
-	if len(users) == 0 {
-		return nil
-	}
-	items := make(map[fields.ID]*User, len(users))
+	validUsers := make([]*user.User, 0, len(users))
 	for _, usr := range users {
-		if usr != nil {
-			items[usr.ID()] = FromDomain(usr)
+		if usr != nil && !usr.ID().IsZero() {
+			validUsers = append(validUsers, usr)
 		}
 	}
-	return u.engine.SetBatch(ctx, items)
+
+	if len(validUsers) == 0 {
+		return nil
+	}
+
+	for i := 0; i < len(validUsers); i += KeyMaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+KeyMaxBatchSize, len(validUsers))
+		chunk := validUsers[i:end]
+
+		pipe := u.client.Pipeline()
+		for _, usr := range chunk {
+			bytes, err := json.Marshal(ParseUser(usr))
+			if err != nil {
+				return errs.Internal("Failed to marshal user json.").
+					Meta("scope", u.scope.String()).
+					Wrap(err)
+			}
+			pipe.Set(ctx, UserKey(usr.ID()), bytes, u.ttl)
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return redis.NewError(err, u.scope)
+		}
+	}
+
+	return nil
 }
 
-func (u *UserCache) Get(ctx context.Context, userID fields.ID) (*user.User, error) {
-	if !userID.IsValid() {
+func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
+	if err := u.client.Del(ctx, UserKey(id)).Err(); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
+}
+
+func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
+	for i := 0; i < len(ids); i += KeyMaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+KeyMaxBatchSize, len(ids))
+		chunk := ids[i:end]
+
+		redisKeys := make([]string, len(chunk))
+		for j, id := range chunk {
+			redisKeys[j] = UserKey(id)
+		}
+
+		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
+			return redis.NewError(err, u.scope)
+		}
+	}
+
+	return nil
+}
+
+func (u *UserCache) GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	key := UserChannelIDsKey(userID)
+	rawIDs, err := u.client.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, redis.NewError(err, u.scope)
+	}
+
+	if len(rawIDs) == 0 {
 		return nil, nil
 	}
-	cached, err := u.engine.Get(ctx, userID)
-	if err != nil || cached == nil {
-		return nil, err
-	}
-	return cached.ToDomain()
-}
 
-func (u *UserCache) GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*user.User, []fields.ID, error) {
-	found, missing, err := u.engine.GetBatch(ctx, userIDs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	result := make(map[fields.ID]*user.User, len(found))
-	for id, cached := range found {
-		domainUser, err := cached.ToDomain()
+	parsedIDs := make([]fields.ID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := fields.ParseIDFromString("channel_id", raw)
 		if err != nil {
-			missing = append(missing, id)
 			continue
 		}
-		result[id] = domainUser
+		parsedIDs = append(parsedIDs, id)
 	}
 
-	return result, missing, nil
+	return parsedIDs, nil
 }
 
-func (u *UserCache) Delete(ctx context.Context, userID fields.ID) error {
-	if !userID.IsValid() {
+func (u *UserCache) AddChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
+	members := make([]any, 0, len(channelIDs))
+	for _, id := range channelIDs {
+		if !id.IsZero() {
+			members = append(members, id.String())
+		}
+	}
+	if len(members) == 0 {
 		return nil
 	}
-	return u.engine.Delete(ctx, userID)
+
+	key := UserChannelIDsKey(userID)
+
+	pipe := u.client.Pipeline()
+	pipe.SAdd(ctx, key, members...)
+	pipe.Expire(ctx, key, u.ttl)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
 }
 
-func (u *UserCache) DeleteBatch(ctx context.Context, userIDs []fields.ID) error {
-	return u.engine.DeleteBatch(ctx, userIDs)
+func (u *UserCache) RemoveChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
+	members := make([]any, 0, len(channelIDs))
+	for _, id := range channelIDs {
+		if !id.IsZero() {
+			members = append(members, id.String())
+		}
+	}
+	if len(members) == 0 {
+		return nil
+	}
+
+	key := UserChannelIDsKey(userID)
+
+	if err := u.client.SRem(ctx, key, members...).Err(); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
 }
 
-// PublishEvent broadcasts a user domain event over the user's WebSocket channel.
-// func (u *UserCache) PublishEvent(ctx context.Context, userID string, eventType string, payload any) error {
-// 	channel := fmt.Sprintf("user:%s:events", userID)
-// 	wsEvent := map[string]any{
-// 		"type": eventType,
-// 		"data": payload,
-// 	}
-// 	return u.engine.Store().Publish(ctx, channel, wsEvent)
-// }
+func (u *UserCache) AddBatchChannelID(
+	ctx context.Context,
+	userIDs []fields.ID,
+	channelID fields.ID,
+) error {
+	if len(userIDs) == 0 || channelID.IsZero() {
+		return nil
+	}
 
-// InvalidateSession clears active user session keys from Redis. (TODO: Move to session cache)
-// func (u *UserCache) InvalidateSession(ctx context.Context, userID string) error {
-// 	sessionKey := fmt.Sprintf("user:%s:session", userID)
-// 	return u.engine.Store().Delete(ctx, sessionKey)
-// }
+	channelIDStr := channelID.String()
+	pipe := u.client.Pipeline()
+
+	var queuedCount int
+	for _, id := range userIDs {
+		if !id.IsZero() {
+			key := UserChannelIDsKey(id)
+			pipe.SAdd(ctx, key, channelIDStr)
+			pipe.Expire(ctx, key, u.ttl)
+			queuedCount++
+		}
+	}
+
+	if queuedCount == 0 {
+		return nil
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
+}
+
+func (u *UserCache) RemoveBatchChannelID(
+	ctx context.Context,
+	userIDs []fields.ID,
+	channelID fields.ID,
+) error {
+	if len(userIDs) == 0 || channelID.IsZero() {
+		return nil
+	}
+
+	channelIDStr := channelID.String()
+	pipe := u.client.Pipeline()
+
+	var queuedCount int
+	for _, id := range userIDs {
+		if !id.IsZero() {
+			key := UserChannelIDsKey(id)
+			pipe.SRem(ctx, key, channelIDStr)
+			queuedCount++
+		}
+	}
+
+	if queuedCount == 0 {
+		return nil
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
+}

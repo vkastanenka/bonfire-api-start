@@ -15,36 +15,24 @@ import (
 )
 
 type MemberCache struct {
+	*KeyCache[MemberKeyIDs, Member]
 	client redisdriver.Cmdable
-	scope  redis.Scope
 	ttl    time.Duration
 }
 
 func NewMemberCache(client redisdriver.Cmdable, ttl time.Duration) *MemberCache {
 	return &MemberCache{
-		client: client,
-		scope:  redis.ScopeMember,
-		ttl:    ttl,
+		KeyCache: NewKeyCache[MemberKeyIDs, Member](client, redis.ScopeMember, MemberKey),
+		client:   client,
+		ttl:      ttl,
 	}
 }
 
 func (c *MemberCache) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
 	key := MemberKeyIDs{ChannelID: channelID, UserID: userID}
-	redisKey := MemberKey(key)
-
-	data, err := c.client.Get(ctx, redisKey).Bytes()
-	if redis.IsCacheMiss(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, redis.NewError(err, c.scope)
-	}
-
-	var dto Member
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, errs.Internal("Failed to unmarshal cached member.").
-			Meta("scope", c.scope.String()).
-			Wrap(err)
+	dto, err := c.KeyCache.Get(ctx, key)
+	if err != nil || dto == nil {
+		return nil, err
 	}
 
 	return dto.ToDomain()
@@ -54,85 +42,24 @@ func (c *MemberCache) GetBatch(
 	ctx context.Context,
 	keys []MemberKeyIDs,
 ) (map[MemberKeyIDs]*channel.Member, []MemberKeyIDs, error) {
-	found := make(map[MemberKeyIDs]*channel.Member, len(keys))
-	var missing []MemberKeyIDs
-
-	for i := 0; i < len(keys); i += KeyMaxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-
-		end := min(i+KeyMaxBatchSize, len(keys))
-		chunk := keys[i:end]
-
-		redisKeys := make([]string, len(chunk))
-		for j, key := range chunk {
-			redisKeys[j] = MemberKey(key)
-		}
-
-		vals, err := c.client.MGet(ctx, redisKeys...).Result()
-		if err != nil {
-			return nil, nil, redis.NewError(err, c.scope)
-		}
-
-		for j, raw := range vals {
-			key := chunk[j]
-
-			if raw == nil {
-				missing = append(missing, key)
-				continue
-			}
-
-			var data []byte
-			switch v := raw.(type) {
-			case string:
-				if v == "" {
-					missing = append(missing, key)
-					continue
-				}
-				data = []byte(v)
-			case []byte:
-				if len(v) == 0 {
-					missing = append(missing, key)
-					continue
-				}
-				data = v
-			default:
-				missing = append(missing, key)
-				continue
-			}
-
-			var dto Member
-			if err := json.Unmarshal(data, &dto); err != nil {
-				return nil, nil, errs.Internal("Failed to unmarshal cached member batch item.").
-					Meta("scope", c.scope.String()).
-					Wrap(err)
-			}
-
-			mem, err := dto.ToDomain()
-			if err != nil {
-				missing = append(missing, key)
-				continue
-			}
-
-			found[key] = mem
-		}
+	dtos, missing, err := c.KeyCache.GetBatch(ctx, keys)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	if len(missing) > 0 {
-		seen := make(map[MemberKeyIDs]struct{}, len(missing))
-		result := make([]MemberKeyIDs, 0, len(missing))
-
-		for _, k := range missing {
-			if _, inFound := found[k]; inFound {
-				continue
-			}
-			if _, inSeen := seen[k]; !inSeen {
-				seen[k] = struct{}{}
-				result = append(result, k)
-			}
+	found := make(map[MemberKeyIDs]*channel.Member, len(dtos))
+	for k, dto := range dtos {
+		if dto == nil {
+			missing = append(missing, k)
+			continue
 		}
-		missing = result
+
+		mem, err := dto.ToDomain()
+		if err != nil {
+			missing = append(missing, k)
+			continue
+		}
+		found[k] = mem
 	}
 
 	return found, missing, nil
@@ -149,7 +76,7 @@ func (c *MemberCache) GetBatchByChannelIDs(
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil && !redis.IsCacheMiss(err) {
-		return nil, nil, redis.NewError(err, c.scope)
+		return nil, nil, redis.NewError(err, redis.ScopeMember)
 	}
 
 	channelUserKeys := make(map[fields.ID][]MemberKeyIDs)
@@ -288,17 +215,13 @@ func (c *MemberCache) GetVisibleByUserID(ctx context.Context, userID fields.ID) 
 }
 
 func (c *MemberCache) Set(ctx context.Context, member *channel.Member) error {
-	if member == nil {
-		return nil
-	}
-
 	key := MemberKeyIDs{ChannelID: member.ChannelID(), UserID: member.UserID()}
 	dto := ParseMember(member)
 
 	bytes, err := json.Marshal(dto)
 	if err != nil {
 		return errs.Internal("Failed to marshal cached json.").
-			Meta("scope", c.scope.String()).
+			Meta("scope", redis.ScopeMember.String()).
 			Wrap(err)
 	}
 
@@ -315,63 +238,49 @@ func (c *MemberCache) Set(ctx context.Context, member *channel.Member) error {
 	pipe.Expire(ctx, userSetKey, c.ttl)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return redis.NewError(err, c.scope)
+		return redis.NewError(err, redis.ScopeMember)
 	}
 
 	return nil
 }
 
 func (c *MemberCache) SetBatch(ctx context.Context, members []*channel.Member) error {
-	validMembers := make([]*channel.Member, 0, len(members))
-	for _, m := range members {
-		if m != nil {
-			validMembers = append(validMembers, m)
+	dtos := make(map[MemberKeyIDs]Member, len(members))
+	channelUserMap := make(map[fields.ID][]any)
+	userChannelMap := make(map[fields.ID][]any)
+
+	for _, mem := range members {
+		if mem == nil {
+			continue
 		}
+		cid := mem.ChannelID()
+		uid := mem.UserID()
+
+		dtos[MemberKeyIDs{ChannelID: cid, UserID: uid}] = ParseMember(mem)
+		channelUserMap[cid] = append(channelUserMap[cid], uid.String())
+		userChannelMap[uid] = append(userChannelMap[uid], cid.String())
 	}
 
-	if len(validMembers) == 0 {
-		return nil
+	if err := c.KeyCache.SetBatch(ctx, dtos, c.ttl); err != nil {
+		return err
 	}
 
-	for i := 0; i < len(validMembers); i += KeyMaxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	pipe := c.client.Pipeline()
 
-		end := min(i+KeyMaxBatchSize, len(validMembers))
-		chunk := validMembers[i:end]
+	for cid, userIDs := range channelUserMap {
+		setKey := ChannelMemberIDsKey(cid)
+		pipe.SAdd(ctx, setKey, userIDs...)
+		pipe.Expire(ctx, setKey, c.ttl)
+	}
 
-		channelMembers := make(map[string][]any)
+	for uid, channelIDs := range userChannelMap {
+		userSetKey := UserChannelIDsKey(uid)
+		pipe.SAdd(ctx, userSetKey, channelIDs...)
+		pipe.Expire(ctx, userSetKey, c.ttl)
+	}
 
-		pipe := c.client.Pipeline()
-		for _, mem := range chunk {
-			cid := mem.ChannelID()
-			uid := mem.UserID()
-
-			bytes, err := json.Marshal(ParseMember(mem))
-			if err != nil {
-				return errs.Internal("Failed to marshal cached json.").
-					Meta("scope", c.scope.String()).
-					Wrap(err)
-			}
-			pipe.Set(ctx, MemberKey(MemberKeyIDs{ChannelID: cid, UserID: uid}), bytes, c.ttl)
-
-			cKey := ChannelMemberIDsKey(cid)
-			channelMembers[cKey] = append(channelMembers[cKey], uid.String())
-
-			uKey := UserChannelIDsKey(uid)
-			pipe.SAdd(ctx, uKey, cid.String())
-			pipe.Expire(ctx, uKey, c.ttl)
-		}
-
-		for cKey, uids := range channelMembers {
-			pipe.SAdd(ctx, cKey, uids...)
-			pipe.Expire(ctx, cKey, c.ttl)
-		}
-
-		if _, err := pipe.Exec(ctx); err != nil {
-			return redis.NewError(err, c.scope)
-		}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeMember)
 	}
 
 	return nil
@@ -389,7 +298,7 @@ func (c *MemberCache) Delete(ctx context.Context, channelID, userID fields.ID) e
 	pipe.Del(ctx, memKey)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return redis.NewError(err, c.scope)
+		return redis.NewError(err, redis.ScopeMember)
 	}
 
 	return nil

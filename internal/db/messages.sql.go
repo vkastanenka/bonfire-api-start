@@ -12,10 +12,10 @@ import (
 )
 
 const messageCreate = `-- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata)
-    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::smallint, $12::text, $13::jsonb)
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, $8::timestamptz, $9::smallint, $10::text, $11::jsonb)
 RETURNING
-    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
 `
 
 type MessageCreateParams struct {
@@ -27,8 +27,6 @@ type MessageCreateParams struct {
 	ForwardedChannelID pgtype.UUID        `json:"forwarded_channel_id"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	EditedAt           pgtype.Timestamptz `json:"edited_at"`
-	PinnedAt           pgtype.Timestamptz `json:"pinned_at"`
 	Type               int16              `json:"type"`
 	Content            pgtype.Text        `json:"content"`
 	SystemMetadata     []byte             `json:"system_metadata"`
@@ -44,8 +42,6 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		arg.ForwardedChannelID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.EditedAt,
-		arg.PinnedAt,
 		arg.Type,
 		arg.Content,
 		arg.SystemMetadata,
@@ -69,6 +65,68 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 	return i, err
 }
 
+const messageCreateBatch = `-- name: MessageCreateBatch :many
+WITH unpacked AS (
+    SELECT
+        x.x
+    FROM
+        jsonb_to_recordset($1::jsonb)
+        WITH ORDINALITY AS x(id uuid, channel_id uuid, author_id uuid, reply_to_message_id uuid, forwarded_message_id uuid, forwarded_channel_id uuid, created_at timestamptz, updated_at timestamptz, type smallint, content text, system_metadata jsonb, ord bigint))
+    INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
+    SELECT
+        id,
+        channel_id,
+        author_id,
+        reply_to_message_id,
+        forwarded_message_id,
+        forwarded_channel_id,
+        created_at,
+        updated_at,
+        type,
+        content,
+        system_metadata
+    FROM
+        unpacked
+    ORDER BY
+        ord ASC
+    RETURNING
+        messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+`
+
+func (q *Queries) MessageCreateBatch(ctx context.Context, payload []byte) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageCreateBatch, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.ForwardedMessageID,
+			&i.ForwardedChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.PinnedAt,
+			&i.Type,
+			&i.Content,
+			&i.SystemMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const messageDelete = `-- name: MessageDelete :exec
 DELETE FROM messages
 WHERE id = $1::uuid
@@ -81,19 +139,7 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 
 const messageGet = `-- name: MessageGet :one
 SELECT
-    id,
-    channel_id,
-    author_id,
-    reply_to_message_id,
-    forwarded_message_id,
-    forwarded_channel_id,
-    created_at,
-    updated_at,
-    edited_at,
-    pinned_at,
-    type,
-    content,
-    system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
 FROM
     messages
 WHERE
@@ -121,47 +167,117 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 	return i, err
 }
 
-const messageListByChannel = `-- name: MessageListByChannel :many
+const messageListAfterByChannelID = `-- name: MessageListAfterByChannelID :many
 SELECT
-    id,
-    channel_id,
-    author_id,
-    reply_to_message_id,
-    forwarded_message_id,
-    forwarded_channel_id,
-    created_at,
-    updated_at,
-    edited_at,
-    pinned_at,
-    type,
-    content,
-    system_metadata
+    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
 FROM
     messages
 WHERE
     channel_id = $1::uuid
-    AND (created_at,
-        id) <($2::timestamptz,
-        $3::uuid)
+    AND id > $2::uuid
 ORDER BY
-    created_at DESC,
-    id DESC
-LIMIT $4::int
+    id ASC
+LIMIT $3::int
 `
 
-type MessageListByChannelParams struct {
-	ChannelID       pgtype.UUID        `json:"channel_id"`
-	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
-	BeforeID        pgtype.UUID        `json:"before_id"`
-	BatchLimit      int32              `json:"batch_limit"`
+type MessageListAfterByChannelIDParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	CursorID  pgtype.UUID `json:"cursor_id"`
+	LimitVal  int32       `json:"limit_val"`
 }
 
-func (q *Queries) MessageListByChannel(ctx context.Context, arg MessageListByChannelParams) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListByChannel,
+func (q *Queries) MessageListAfterByChannelID(ctx context.Context, arg MessageListAfterByChannelIDParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListAfterByChannelID, arg.ChannelID, arg.CursorID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.ForwardedMessageID,
+			&i.ForwardedChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.PinnedAt,
+			&i.Type,
+			&i.Content,
+			&i.SystemMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageListAroundByChannelID = `-- name: MessageListAroundByChannelID :many
+WITH before_read AS (
+    SELECT
+        id
+    FROM
+        messages
+    WHERE
+        channel_id = $1::uuid
+        AND id <= $2::uuid
+    ORDER BY
+        id DESC
+    LIMIT $3::int
+),
+after_read AS (
+    SELECT
+        id
+    FROM
+        messages
+    WHERE
+        channel_id = $1::uuid
+        AND id > $2::uuid
+    ORDER BY
+        id ASC
+    LIMIT $4::int
+),
+target_ids AS (
+    SELECT
+        id
+    FROM
+        before_read
+    UNION ALL
+    SELECT
+        id
+    FROM
+        after_read
+)
+SELECT
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+FROM
+    messages
+    JOIN target_ids ON messages.id = target_ids.id
+ORDER BY
+    messages.id ASC
+`
+
+type MessageListAroundByChannelIDParams struct {
+	ChannelID         pgtype.UUID `json:"channel_id"`
+	LastReadMessageID pgtype.UUID `json:"last_read_message_id"`
+	BeforeLimit       int32       `json:"before_limit"`
+	AfterLimit        int32       `json:"after_limit"`
+}
+
+func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageListAroundByChannelIDParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListAroundByChannelID,
 		arg.ChannelID,
-		arg.BeforeCreatedAt,
-		arg.BeforeID,
-		arg.BatchLimit,
+		arg.LastReadMessageID,
+		arg.BeforeLimit,
+		arg.AfterLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -195,32 +311,27 @@ func (q *Queries) MessageListByChannel(ctx context.Context, arg MessageListByCha
 	return items, nil
 }
 
-const messageListPinned = `-- name: MessageListPinned :many
+const messageListBeforeByChannelID = `-- name: MessageListBeforeByChannelID :many
 SELECT
-    id,
-    channel_id,
-    author_id,
-    reply_to_message_id,
-    forwarded_message_id,
-    forwarded_channel_id,
-    created_at,
-    updated_at,
-    edited_at,
-    pinned_at,
-    type,
-    content,
-    system_metadata
+    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
 FROM
     messages
 WHERE
     channel_id = $1::uuid
-    AND pinned_at IS NOT NULL
+    AND id < $2::uuid
 ORDER BY
-    pinned_at DESC
+    id DESC
+LIMIT $3::int
 `
 
-func (q *Queries) MessageListPinned(ctx context.Context, channelID pgtype.UUID) ([]Message, error) {
-	rows, err := q.db.Query(ctx, messageListPinned, channelID)
+type MessageListBeforeByChannelIDParams struct {
+	ChannelID pgtype.UUID `json:"channel_id"`
+	CursorID  pgtype.UUID `json:"cursor_id"`
+	LimitVal  int32       `json:"limit_val"`
+}
+
+func (q *Queries) MessageListBeforeByChannelID(ctx context.Context, arg MessageListBeforeByChannelIDParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListBeforeByChannelID, arg.ChannelID, arg.CursorID, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +364,117 @@ func (q *Queries) MessageListPinned(ctx context.Context, channelID pgtype.UUID) 
 	return items, nil
 }
 
-const messageTogglePin = `-- name: MessageTogglePin :one
+const messageListPinnedByChannelID = `-- name: MessageListPinnedByChannelID :many
+SELECT
+    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+FROM
+    messages
+WHERE
+    channel_id = $1::uuid
+    AND pinned_at IS NOT NULL
+    AND ($2::uuid IS NULL
+        OR (pinned_at,
+            id) <($3::timestamptz,
+            $2::uuid))
+ORDER BY
+    pinned_at DESC,
+    id DESC
+LIMIT $4::int
+`
+
+type MessageListPinnedByChannelIDParams struct {
+	ChannelID      pgtype.UUID        `json:"channel_id"`
+	CursorID       pgtype.UUID        `json:"cursor_id"`
+	CursorPinnedAt pgtype.Timestamptz `json:"cursor_pinned_at"`
+	LimitVal       int32              `json:"limit_val"`
+}
+
+func (q *Queries) MessageListPinnedByChannelID(ctx context.Context, arg MessageListPinnedByChannelIDParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, messageListPinnedByChannelID,
+		arg.ChannelID,
+		arg.CursorID,
+		arg.CursorPinnedAt,
+		arg.LimitVal,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.ReplyToMessageID,
+			&i.ForwardedMessageID,
+			&i.ForwardedChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EditedAt,
+			&i.PinnedAt,
+			&i.Type,
+			&i.Content,
+			&i.SystemMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const messageUpdateContent = `-- name: MessageUpdateContent :one
+UPDATE
+    messages
+SET
+    content = $1::text,
+    edited_at = $2::timestamptz,
+    updated_at = $3::timestamptz
+WHERE
+    id = $4::uuid
+RETURNING
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+`
+
+type MessageUpdateContentParams struct {
+	Content   string             `json:"content"`
+	EditedAt  pgtype.Timestamptz `json:"edited_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageUpdateContent,
+		arg.Content,
+		arg.EditedAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.AuthorID,
+		&i.ReplyToMessageID,
+		&i.ForwardedMessageID,
+		&i.ForwardedChannelID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EditedAt,
+		&i.PinnedAt,
+		&i.Type,
+		&i.Content,
+		&i.SystemMetadata,
+	)
+	return i, err
+}
+
+const messageUpdatePinnedAt = `-- name: MessageUpdatePinnedAt :one
 UPDATE
     messages
 SET
@@ -261,87 +482,18 @@ SET
     updated_at = $2::timestamptz
 WHERE
     id = $3::uuid
-    AND channel_id = $4::uuid
 RETURNING
-    id,
-    channel_id,
-    pinned_at,
-    updated_at
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
 `
 
-type MessageTogglePinParams struct {
+type MessageUpdatePinnedAtParams struct {
 	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
 }
 
-type MessageTogglePinRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	PinnedAt  pgtype.Timestamptz `json:"pinned_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) MessageTogglePin(ctx context.Context, arg MessageTogglePinParams) (MessageTogglePinRow, error) {
-	row := q.db.QueryRow(ctx, messageTogglePin,
-		arg.PinnedAt,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.ChannelID,
-	)
-	var i MessageTogglePinRow
-	err := row.Scan(
-		&i.ID,
-		&i.ChannelID,
-		&i.PinnedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const messageUpdateContent = `-- name: MessageUpdateContent :one
-UPDATE
-    messages
-SET
-    content = COALESCE($1::text, content),
-    updated_at = $2::timestamptz,
-    edited_at = $3::timestamptz
-WHERE
-    id = $4::uuid
-    AND author_id = $5::uuid
-RETURNING
-    id,
-    channel_id,
-    author_id,
-    reply_to_message_id,
-    forwarded_message_id,
-    forwarded_channel_id,
-    created_at,
-    updated_at,
-    edited_at,
-    pinned_at,
-    type,
-    content,
-    system_metadata
-`
-
-type MessageUpdateContentParams struct {
-	Content   pgtype.Text        `json:"content"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	EditedAt  pgtype.Timestamptz `json:"edited_at"`
-	ID        pgtype.UUID        `json:"id"`
-	AuthorID  pgtype.UUID        `json:"author_id"`
-}
-
-func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateContentParams) (Message, error) {
-	row := q.db.QueryRow(ctx, messageUpdateContent,
-		arg.Content,
-		arg.UpdatedAt,
-		arg.EditedAt,
-		arg.ID,
-		arg.AuthorID,
-	)
+func (q *Queries) MessageUpdatePinnedAt(ctx context.Context, arg MessageUpdatePinnedAtParams) (Message, error) {
+	row := q.db.QueryRow(ctx, messageUpdatePinnedAt, arg.PinnedAt, arg.UpdatedAt, arg.ID)
 	var i Message
 	err := row.Scan(
 		&i.ID,

@@ -1,307 +1,125 @@
 package channel
 
 import (
-	"errors"
-	"fmt"
-	"time"
-
-	"github.com/google/uuid"
+	"bonfire-api/internal/fields"
 )
 
-// -----------------------------------------------------------------------------
-// Domain Errors
-// -----------------------------------------------------------------------------
-
-var (
-	ErrMemberChannelIDRequired = errors.New("channel id is required")
-	ErrMemberUserIDRequired    = errors.New("user id is required")
-	ErrMentionCountNegative    = errors.New("mention count cannot be negative")
-	ErrInvalidDMVisibility     = errors.New("invalid dm visibility value")
-)
-
-// -----------------------------------------------------------------------------
-// Value Objects
-// -----------------------------------------------------------------------------
-
-// DMVisibility defines visibility states for DM/Group DM channels.
-type DMVisibility smallint
-
-type smallint = int16
-
-const (
-	DMVisibilityHidden  DMVisibility = 0
-	DMVisibilityVisible DMVisibility = 1
-)
-
-func NewDMVisibility(val int16) (DMVisibility, error) {
-	v := DMVisibility(val)
-	if !v.IsValid() {
-		return 0, fmt.Errorf("%w: %d", ErrInvalidDMVisibility, val)
-	}
-	return v, nil
-}
-
-func (v DMVisibility) IsValid() bool {
-	return v == DMVisibilityHidden || v == DMVisibilityVisible
-}
-
-func (v DMVisibility) Raw() int16 {
-	return int16(v)
-}
-
-// -----------------------------------------------------------------------------
-// Domain Entities
-// -----------------------------------------------------------------------------
-
-// Member represents a user's membership, visibility, and read state within a channel.
 type Member struct {
-	channelID         ID
-	userID            UserID
-	lastReadMessageID *MessageID
+	channelID         fields.ID
+	userID            fields.ID
+	lastReadMessageID fields.ID
+	lastReadMessageAt fields.Timestamp
+	pinnedAt          fields.Timestamp
+	mutedUntil        fields.Timestamp
 	mentionCount      int32
-	lastReadAt        time.Time
-	pinnedAt          *time.Time
-	dmVisibility      DMVisibility
-	createdAt         time.Time
-	updatedAt         time.Time
+	isVisible         bool
+	createdAt         fields.Timestamp
+	updatedAt         fields.Timestamp
 }
 
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
+func (m *Member) ChannelID() fields.ID                { return m.channelID }
+func (m *Member) UserID() fields.ID                   { return m.userID }
+func (m *Member) LastReadMessageID() fields.ID        { return m.lastReadMessageID }
+func (m *Member) LastReadMessageAt() fields.Timestamp { return m.lastReadMessageAt }
+func (m *Member) PinnedAt() fields.Timestamp          { return m.pinnedAt }
+func (m *Member) MutedUntil() fields.Timestamp        { return m.mutedUntil }
+func (m *Member) MentionCount() int32                 { return m.mentionCount }
+func (m *Member) IsVisible() bool                     { return m.isVisible }
+func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
+func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
 
-func (m *Member) ChannelID() ID                 { return m.channelID }
-func (m *Member) UserID() UserID                { return m.userID }
-func (m *Member) LastReadMessageID() *MessageID { return m.lastReadMessageID }
-func (m *Member) MentionCount() int32           { return m.mentionCount }
-func (m *Member) LastReadAt() time.Time         { return m.lastReadAt }
-func (m *Member) PinnedAt() *time.Time          { return m.pinnedAt }
-func (m *Member) DMVisibility() DMVisibility    { return m.dmVisibility }
-func (m *Member) CreatedAt() time.Time          { return m.createdAt }
-func (m *Member) UpdatedAt() time.Time          { return m.updatedAt }
-
-// -----------------------------------------------------------------------------
-// Constructors / Factory Methods
-// -----------------------------------------------------------------------------
-
-// NewMember creates a fresh Member domain entity defaults to DMVisibilityVisible.
-func NewMember(rawChannelID, rawUserID uuid.UUID) (*Member, error) {
-	chID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, ErrMemberChannelIDRequired
-	}
-
-	uID, err := NewUserID(rawUserID)
-	if err != nil {
-		return nil, ErrMemberUserIDRequired
-	}
-
-	now := time.Now().UTC()
-
-	return &Member{
-		channelID:    chID,
-		userID:       uID,
-		mentionCount: 0,
-		lastReadAt:   now,
-		pinnedAt:     nil,
-		dmVisibility: DMVisibilityVisible,
-		createdAt:    now,
-		updatedAt:    now,
-	}, nil
-}
-
-// ReconstituteMember restores an existing Member entity from persistence.
-func ReconstituteMember(
-	rawChannelID, rawUserID uuid.UUID,
-	rawLastReadMessageID *uuid.UUID,
+func ParseMember(
+	channelID fields.ID,
+	userID fields.ID,
+	lastReadMessageID fields.ID,
+	lastReadMessageAt fields.Timestamp,
+	pinnedAt fields.Timestamp,
+	mutedUntil fields.Timestamp,
 	mentionCount int32,
-	lastReadAt time.Time,
-	rawPinnedAt *time.Time,
-	rawDMVisibility int16,
-	createdAt, updatedAt time.Time,
-) (*Member, error) {
-	chID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, ErrMemberChannelIDRequired
-	}
-
-	uID, err := NewUserID(rawUserID)
-	if err != nil {
-		return nil, ErrMemberUserIDRequired
-	}
-
-	msgID, err := NewMessageIDPtr(rawLastReadMessageID)
-	if err != nil {
-		return nil, err
-	}
-
-	if mentionCount < 0 {
-		return nil, ErrMentionCountNegative
-	}
-
-	visibility, err := NewDMVisibility(rawDMVisibility)
-	if err != nil {
-		return nil, err
-	}
-
-	var pinnedAt *time.Time
-	if rawPinnedAt != nil {
-		t := rawPinnedAt.UTC()
-		pinnedAt = &t
-	}
-
+	isVisible bool,
+	createdAt fields.Timestamp,
+	updatedAt fields.Timestamp,
+) *Member {
 	return &Member{
-		channelID:         chID,
-		userID:            uID,
-		lastReadMessageID: msgID,
-		mentionCount:      mentionCount,
-		lastReadAt:        lastReadAt.UTC(),
+		channelID:         channelID,
+		userID:            userID,
+		lastReadMessageID: lastReadMessageID,
+		lastReadMessageAt: lastReadMessageAt,
 		pinnedAt:          pinnedAt,
-		dmVisibility:      visibility,
-		createdAt:         createdAt.UTC(),
-		updatedAt:         updatedAt.UTC(),
-	}, nil
+		mutedUntil:        mutedUntil,
+		mentionCount:      mentionCount,
+		isVisible:         isVisible,
+		createdAt:         createdAt,
+		updatedAt:         updatedAt,
+	}
 }
 
-// -----------------------------------------------------------------------------
-// Domain Mutations
-// -----------------------------------------------------------------------------
-
-// SetLastRead updates the last read message pointer, updates lastReadAt, and clears mentions.
-func (m *Member) SetLastRead(messageID MessageID) error {
-	if !messageID.IsValid() {
-		return ErrIDNil
-	}
-
-	if m.lastReadMessageID != nil && m.lastReadMessageID.Equals(messageID) {
+func ParseMembers(
+	channelID fields.ID,
+	userIDs []fields.ID,
+	lastReadMessageID fields.ID,
+	lastReadMessageAt fields.Timestamp,
+	pinnedAt fields.Timestamp,
+	mutedUntil fields.Timestamp,
+	mentionCount int32,
+	isVisible bool,
+	createdAt fields.Timestamp,
+	updatedAt fields.Timestamp,
+) []*Member {
+	if len(userIDs) == 0 {
 		return nil
 	}
 
-	now := time.Now().UTC()
-	msgID := messageID
+	members := make([]*Member, 0, len(userIDs))
+	for _, userID := range userIDs {
+		members = append(members, ParseMember(
+			channelID,
+			userID,
+			lastReadMessageID,
+			lastReadMessageAt,
+			pinnedAt,
+			mutedUntil,
+			mentionCount,
+			isVisible,
+			createdAt,
+			updatedAt,
+		))
+	}
 
-	m.lastReadMessageID = &msgID
-	m.lastReadAt = now
-	m.touchWith(now)
-
-	return nil
+	return members
 }
 
-// IncrementMention increments the unread mention counter.
-func (m *Member) IncrementMention() {
+func (m *Member) SetLastReadMessage(id fields.ID, at fields.Timestamp, now fields.Timestamp) {
+	m.lastReadMessageID = id
+	m.lastReadMessageAt = at
+	m.touch(now)
+}
+
+func (m *Member) SetPinnedAt(now fields.Timestamp) {
+	m.pinnedAt = now
+	m.touch(now)
+}
+
+func (m *Member) SetMutedUntil(now fields.Timestamp) {
+	m.mutedUntil = now
+	m.touch(now)
+}
+
+func (m *Member) IncrementMention(now fields.Timestamp) {
 	m.mentionCount++
-	m.touch()
+	m.touch(now)
 }
 
-// ResetMentions resets the unread mention counter without advancing the read message pointer.
-func (m *Member) ResetMentions() {
-	if m.mentionCount == 0 {
-		return
-	}
+func (m *Member) ResetMentions(now fields.Timestamp) {
 	m.mentionCount = 0
-	m.touch()
+	m.touch(now)
 }
 
-// TogglePinned flips the member's pinned status for sidebar/channel ordering.
-func (m *Member) TogglePinned() {
-	now := time.Now().UTC()
-	if m.pinnedAt == nil {
-		m.pinnedAt = &now
-	} else {
-		m.pinnedAt = nil
-	}
-	m.touchWith(now)
+func (m *Member) SetIsVisible(isVisible bool, now fields.Timestamp) {
+	m.isVisible = isVisible
+	m.touch(now)
 }
 
-// CloseDM sets visibility state to DMVisibilityHidden.
-func (m *Member) CloseDM() {
-	if m.dmVisibility == DMVisibilityHidden {
-		return
-	}
-	m.dmVisibility = DMVisibilityHidden
-	m.touch()
-}
-
-// OpenDM sets visibility state to DMVisibilityVisible.
-func (m *Member) OpenDM() {
-	if m.dmVisibility == DMVisibilityVisible {
-		return
-	}
-	m.dmVisibility = DMVisibilityVisible
-	m.touch()
-}
-
-func (m *Member) touch() {
-	m.updatedAt = time.Now().UTC()
-}
-
-func (m *Member) touchWith(t time.Time) {
-	m.updatedAt = t
-}
-
-// -----------------------------------------------------------------------------
-// MemberListItem
-// -----------------------------------------------------------------------------
-
-// MemberListItem represents a read-optimized projection of a channel member
-// joined with their aggregate user profile data.
-type MemberListItem struct {
-	channelID     ID
-	userID        UserID
-	memberSince   time.Time
-	lastReadAt    time.Time
-	username      string
-	displayName   string
-	avatarURL     *string
-	userCreatedAt time.Time
-}
-
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
-
-func (m *MemberListItem) ChannelID() ID            { return m.channelID }
-func (m *MemberListItem) UserID() UserID           { return m.userID }
-func (m *MemberListItem) MemberSince() time.Time   { return m.memberSince }
-func (m *MemberListItem) LastReadAt() time.Time    { return m.lastReadAt }
-func (m *MemberListItem) Username() string         { return m.username }
-func (m *MemberListItem) DisplayName() string      { return m.displayName }
-func (m *MemberListItem) AvatarURL() *string       { return m.avatarURL }
-func (m *MemberListItem) UserCreatedAt() time.Time { return m.userCreatedAt }
-
-// -----------------------------------------------------------------------------
-// Factory Methods
-// -----------------------------------------------------------------------------
-
-// ReconstituteMemberListItem restores a MemberListItem projection from persistence.
-func ReconstituteMemberListItem(
-	rawChannelID uuid.UUID,
-	rawUserID uuid.UUID,
-	memberSince time.Time,
-	lastReadAt time.Time,
-	username string,
-	displayName string,
-	rawAvatarURL *string,
-	userCreatedAt time.Time,
-) (*MemberListItem, error) {
-	channelID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	userID, err := NewUserID(rawUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MemberListItem{
-		channelID:     channelID,
-		userID:        userID,
-		memberSince:   memberSince.UTC(),
-		lastReadAt:    lastReadAt.UTC(),
-		username:      username,
-		displayName:   displayName,
-		avatarURL:     rawAvatarURL,
-		userCreatedAt: userCreatedAt.UTC(),
-	}, nil
+func (m *Member) touch(at fields.Timestamp) {
+	m.updatedAt = at
 }

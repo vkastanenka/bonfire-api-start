@@ -11,44 +11,217 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const messageReactionAdd = `-- name: MessageReactionAdd :exec
-INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
-    VALUES ($1::uuid, $2::uuid, $3::text, $4::timestamptz)
-ON CONFLICT (message_id, user_id, emoji)
-    DO NOTHING
+const reactionCountByEmoji = `-- name: ReactionCountByEmoji :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    message_reactions
+WHERE
+    message_id = $1::uuid
+    AND emoji = $2::text
 `
 
-type MessageReactionAddParams struct {
+type ReactionCountByEmojiParams struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionCountByEmoji(ctx context.Context, arg ReactionCountByEmojiParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reactionCountByEmoji, arg.MessageID, arg.Emoji)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const reactionCreate = `-- name: ReactionCreate :one
+INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
+    VALUES ($1::uuid, $2::uuid, $3::text, $4::timestamptz)
+RETURNING
+    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
+`
+
+type ReactionCreateParams struct {
 	MessageID pgtype.UUID        `json:"message_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
 	Emoji     string             `json:"emoji"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) MessageReactionAdd(ctx context.Context, arg MessageReactionAddParams) error {
-	_, err := q.db.Exec(ctx, messageReactionAdd,
+func (q *Queries) ReactionCreate(ctx context.Context, arg ReactionCreateParams) (MessageReaction, error) {
+	row := q.db.QueryRow(ctx, reactionCreate,
 		arg.MessageID,
 		arg.UserID,
 		arg.Emoji,
 		arg.CreatedAt,
 	)
-	return err
+	var i MessageReaction
+	err := row.Scan(
+		&i.MessageID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Emoji,
+	)
+	return i, err
 }
 
-const messageReactionRemove = `-- name: MessageReactionRemove :exec
+const reactionDelete = `-- name: ReactionDelete :exec
 DELETE FROM message_reactions
 WHERE message_id = $1::uuid
     AND user_id = $2::uuid
     AND emoji = $3::text
 `
 
-type MessageReactionRemoveParams struct {
+type ReactionDeleteParams struct {
 	MessageID pgtype.UUID `json:"message_id"`
 	UserID    pgtype.UUID `json:"user_id"`
 	Emoji     string      `json:"emoji"`
 }
 
-func (q *Queries) MessageReactionRemove(ctx context.Context, arg MessageReactionRemoveParams) error {
-	_, err := q.db.Exec(ctx, messageReactionRemove, arg.MessageID, arg.UserID, arg.Emoji)
+func (q *Queries) ReactionDelete(ctx context.Context, arg ReactionDeleteParams) error {
+	_, err := q.db.Exec(ctx, reactionDelete, arg.MessageID, arg.UserID, arg.Emoji)
 	return err
+}
+
+const reactionGet = `-- name: ReactionGet :one
+SELECT
+    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
+FROM
+    message_reactions
+WHERE
+    message_id = $1::uuid
+    AND user_id = $2::uuid
+    AND emoji = $3::text
+`
+
+type ReactionGetParams struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error) {
+	row := q.db.QueryRow(ctx, reactionGet, arg.MessageID, arg.UserID, arg.Emoji)
+	var i MessageReaction
+	err := row.Scan(
+		&i.MessageID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.Emoji,
+	)
+	return i, err
+}
+
+const reactionGetBatchByMessageIDs = `-- name: ReactionGetBatchByMessageIDs :many
+SELECT
+    message_id, user_id, created_at, emoji
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+`
+
+func (q *Queries) ReactionGetBatchByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]MessageReaction, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchByMessageIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessageReaction
+	for rows.Next() {
+		var i MessageReaction
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.Emoji,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reactionGetBatchByUserIDAndMessageIDs = `-- name: ReactionGetBatchByUserIDAndMessageIDs :many
+SELECT
+    message_id,
+    emoji
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+    AND user_id = $2::uuid
+`
+
+type ReactionGetBatchByUserIDAndMessageIDsParams struct {
+	MessageIds []pgtype.UUID `json:"message_ids"`
+	UserID     pgtype.UUID   `json:"user_id"`
+}
+
+type ReactionGetBatchByUserIDAndMessageIDsRow struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+}
+
+func (q *Queries) ReactionGetBatchByUserIDAndMessageIDs(ctx context.Context, arg ReactionGetBatchByUserIDAndMessageIDsParams) ([]ReactionGetBatchByUserIDAndMessageIDsRow, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchByUserIDAndMessageIDs, arg.MessageIds, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReactionGetBatchByUserIDAndMessageIDsRow
+	for rows.Next() {
+		var i ReactionGetBatchByUserIDAndMessageIDsRow
+		if err := rows.Scan(&i.MessageID, &i.Emoji); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reactionGetBatchSummaryByMessageIDs = `-- name: ReactionGetBatchSummaryByMessageIDs :many
+SELECT
+    message_id,
+    emoji,
+    COUNT(*)::int AS count
+FROM
+    message_reactions
+WHERE
+    message_id = ANY ($1::uuid[])
+GROUP BY
+    message_id,
+    emoji
+`
+
+type ReactionGetBatchSummaryByMessageIDsRow struct {
+	MessageID pgtype.UUID `json:"message_id"`
+	Emoji     string      `json:"emoji"`
+	Count     int32       `json:"count"`
+}
+
+func (q *Queries) ReactionGetBatchSummaryByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]ReactionGetBatchSummaryByMessageIDsRow, error) {
+	rows, err := q.db.Query(ctx, reactionGetBatchSummaryByMessageIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReactionGetBatchSummaryByMessageIDsRow
+	for rows.Next() {
+		var i ReactionGetBatchSummaryByMessageIDsRow
+		if err := rows.Scan(&i.MessageID, &i.Emoji, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

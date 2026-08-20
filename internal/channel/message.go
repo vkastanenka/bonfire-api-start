@@ -1,406 +1,262 @@
 package channel
 
 import (
-	"encoding/json"
-	"errors"
-	"time"
-
-	"github.com/google/uuid"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 )
 
-// -----------------------------------------------------------------------------
-// Domain Errors
-// -----------------------------------------------------------------------------
-
-var (
-	ErrMessageChannelIDRequired = errors.New("message channel id is required")
-	ErrMessageContentOrMediaReq = errors.New("message must contain either content or attachments")
+const (
+	MessageListLimit       int32 = 25
+	MessageListBeforeLimit int32 = 5
+	MessageListAfterLimit  int32 = 20
 )
 
-// Message represents a user or system post within a channel.
 type Message struct {
-	id               MessageID
-	channelID        ID
-	authorID         *UserID
-	replyToMessageID *MessageID
-	content          *Content
-	pinnedAt         *time.Time
-	createdAt        time.Time
-	updatedAt        time.Time
-	editedAt         *time.Time
+	id                 fields.ID
+	channelID          fields.ID
+	authorID           fields.ID
+	msgType            MessageType
+	content            MessageContent
+	systemMetadata     fields.JSON
+	replyToMessageID   fields.ID
+	forwardedMessageID fields.ID
+	forwardedChannelID fields.ID
+	pinnedAt           fields.Timestamp
+	createdAt          fields.Timestamp
+	updatedAt          fields.Timestamp
+	editedAt           fields.Timestamp
 }
 
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
-
-func (m *Message) ID() MessageID                { return m.id }
-func (m *Message) ChannelID() ID                { return m.channelID }
-func (m *Message) AuthorID() *UserID            { return m.authorID }
-func (m *Message) ReplyToMessageID() *MessageID { return m.replyToMessageID }
-func (m *Message) Content() *Content            { return m.content }
-func (m *Message) PinnedAt() *time.Time         { return m.pinnedAt }
-func (m *Message) IsPinned() bool               { return m.pinnedAt != nil }
-func (m *Message) CreatedAt() time.Time         { return m.createdAt }
-func (m *Message) UpdatedAt() time.Time         { return m.updatedAt }
-func (m *Message) EditedAt() *time.Time         { return m.editedAt }
-
-func (m *Message) CreatedAtPtr() *time.Time {
-	if m == nil {
-		return nil
-	}
-	t := m.CreatedAt()
-	return &t
+type MessageView struct {
+	id                 fields.ID
+	authorID           fields.ID
+	displayName        user.DisplayName
+	avatarURL          fields.URL
+	msgType            MessageType
+	content            MessageContent
+	systemMetadata     fields.JSON
+	replyToMessageID   fields.ID
+	forwardedMessageID fields.ID
+	forwardedChannelID fields.ID
+	createdAt          fields.Timestamp
+	editedAt           fields.Timestamp
+	reactions          []EmojiCount
 }
 
-func (m *Message) IDPtr() *uuid.UUID {
-	if m == nil {
-		return nil
-	}
-	u := m.ID().UUID()
-	return &u
+type MessagePinnedView struct {
+	id          fields.ID
+	avatarURL   fields.URL
+	displayName user.DisplayName
+	content     MessageContent
+	pinnedAt    fields.Timestamp
+	createdAt   fields.Timestamp
 }
 
-// -----------------------------------------------------------------------------
-// Constructors / Factory Methods
-// -----------------------------------------------------------------------------
+func (m *Message) ID() fields.ID                 { return m.id }
+func (m *Message) ChannelID() fields.ID          { return m.channelID }
+func (m *Message) AuthorID() fields.ID           { return m.authorID }
+func (m *Message) Type() MessageType             { return m.msgType }
+func (m *Message) Content() MessageContent       { return m.content }
+func (m *Message) SystemMetadata() fields.JSON   { return m.systemMetadata }
+func (m *Message) ReplyToMessageID() fields.ID   { return m.replyToMessageID }
+func (m *Message) ForwardedMessageID() fields.ID { return m.forwardedMessageID }
+func (m *Message) ForwardedChannelID() fields.ID { return m.forwardedChannelID }
+func (m *Message) PinnedAt() fields.Timestamp    { return m.pinnedAt }
+func (m *Message) CreatedAt() fields.Timestamp   { return m.createdAt }
+func (m *Message) UpdatedAt() fields.Timestamp   { return m.updatedAt }
+func (m *Message) EditedAt() fields.Timestamp    { return m.editedAt }
 
-// NewMessage creates a fresh Message domain entity using UUIDv7.
-func NewMessage(
-	rawChannelID uuid.UUID,
-	rawAuthorID *uuid.UUID,
-	rawReplyToID *uuid.UUID,
-	rawContent *string,
-) (*Message, error) {
-	chID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, ErrMessageChannelIDRequired
-	}
-
-	authorID, err := NewUserIDPtr(rawAuthorID)
-	if err != nil {
-		return nil, err
-	}
-
-	replyToID, err := NewMessageIDPtr(rawReplyToID)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := NewContentPtr(rawContent)
-	if err != nil {
-		return nil, err
-	}
-
-	rawID := uuid.Must(uuid.NewV7())
-	msgID, err := NewMessageID(rawID)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-
+func ParseMessage(
+	id fields.ID,
+	channelID fields.ID,
+	authorID fields.ID,
+	msgType MessageType,
+	content MessageContent,
+	systemMetadata fields.JSON,
+	replyToMessageID fields.ID,
+	forwardedMessageID fields.ID,
+	forwardedChannelID fields.ID,
+	pinnedAt fields.Timestamp,
+	createdAt fields.Timestamp,
+	updatedAt fields.Timestamp,
+	editedAt fields.Timestamp,
+) *Message {
 	return &Message{
-		id:               msgID,
-		channelID:        chID,
-		authorID:         authorID,
-		replyToMessageID: replyToID,
-		content:          content,
-		pinnedAt:         nil,
-		createdAt:        now,
-		updatedAt:        now,
-		editedAt:         nil,
-	}, nil
+		id:                 id,
+		channelID:          channelID,
+		authorID:           authorID,
+		msgType:            msgType,
+		content:            content,
+		systemMetadata:     systemMetadata,
+		replyToMessageID:   replyToMessageID,
+		forwardedMessageID: forwardedMessageID,
+		forwardedChannelID: forwardedChannelID,
+		pinnedAt:           pinnedAt,
+		createdAt:          createdAt,
+		updatedAt:          updatedAt,
+		editedAt:           editedAt,
+	}
 }
 
-// ReconstituteMessage restores an existing Message entity from persistence.
-func ReconstituteMessage(
-	rawID, rawChannelID uuid.UUID,
-	rawAuthorID, rawReplyToMessageID *uuid.UUID,
-	rawContent *string,
-	rawPinnedAt *time.Time,
-	createdAt, updatedAt time.Time,
-	rawEditedAt *time.Time,
-) (*Message, error) {
-	msgID, err := NewMessageID(rawID)
-	if err != nil {
-		return nil, err
-	}
+func ParseMessageMemberAdd(
+	id,
+	channelID,
+	authorID,
+	addedUserID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"user_id": addedUserID.String()})
 
-	chID, err := NewID(rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	authorID, err := NewUserIDPtr(rawAuthorID)
-	if err != nil {
-		return nil, err
-	}
-
-	replyToID, err := NewMessageIDPtr(rawReplyToMessageID)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := NewContentPtr(rawContent)
-	if err != nil {
-		return nil, err
-	}
-
-	var pinnedAt *time.Time
-	if rawPinnedAt != nil {
-		t := rawPinnedAt.UTC()
-		pinnedAt = &t
-	}
-
-	var editedAt *time.Time
-	if rawEditedAt != nil {
-		t := rawEditedAt.UTC()
-		editedAt = &t
-	}
-
-	return &Message{
-		id:               msgID,
-		channelID:        chID,
-		authorID:         authorID,
-		replyToMessageID: replyToID,
-		content:          content,
-		pinnedAt:         pinnedAt,
-		createdAt:        createdAt.UTC(),
-		updatedAt:        updatedAt.UTC(),
-		editedAt:         editedAt,
-	}, nil
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeMemberAdd(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
 }
 
-// -----------------------------------------------------------------------------
-// Domain Mutations
-// -----------------------------------------------------------------------------
+func ParseMessageMemberRemove(
+	id,
+	channelID,
+	authorID,
+	removedUserID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"user_id": removedUserID.String()})
 
-// EditContent updates the message content, sets editedAt, and touches updatedAt.
-func (m *Message) EditContent(newContent *Content) {
-	if m.content.Equals(newContent) {
-		return
-	}
-
-	now := time.Now().UTC()
-	m.content = newContent
-	m.editedAt = &now
-	m.touchWith(now)
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeMemberRemove(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
 }
 
-// SetPinned sets or unsets the pinned status and timestamp of the message.
-func (m *Message) SetPinned(pinned bool) {
-	if (m.pinnedAt != nil) == pinned {
-		return
-	}
+func ParseMessageNameChange(
+	id,
+	channelID,
+	authorID fields.ID,
+	newName ChannelName,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"name": newName.String()})
 
-	now := time.Now().UTC()
-	if pinned {
-		m.pinnedAt = &now
-	} else {
-		m.pinnedAt = nil
-	}
-	m.touchWith(now)
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeNameChange(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
 }
 
-// TogglePinned flips the message's pinned status.
-func (m *Message) TogglePinned() {
-	m.SetPinned(m.pinnedAt == nil)
+func ParseMessageIconChange(
+	id,
+	channelID,
+	authorID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypeIconChange(),
+		MessageContent{},
+		fields.JSON{},
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
 }
 
-func (m *Message) touch() {
-	m.updatedAt = time.Now().UTC()
+func ParseMessagePin(
+	id,
+	channelID,
+	authorID,
+	pinnedMessageID fields.ID,
+	now fields.Timestamp,
+) *Message {
+	metadataJSON := fields.NewJSON(map[string]any{"message_id": pinnedMessageID.String()})
+
+	return ParseMessage(
+		id,
+		channelID,
+		authorID,
+		NewMessageTypePin(),
+		MessageContent{},
+		metadataJSON,
+		fields.ID{},
+		fields.ID{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+		fields.Timestamp{},
+	)
 }
 
-func (m *Message) touchWith(t time.Time) {
-	m.updatedAt = t
+func (m *Message) SetAuthorID(id fields.ID, now fields.Timestamp) {
+	m.authorID = id
+	m.touch(now)
 }
 
-// -----------------------------------------------------------------------------
-// Aggregate & Author Summary
-// -----------------------------------------------------------------------------
-
-var (
-	ErrMessageAggregateNilMessage = errors.New("message aggregate requires a base message")
-)
-
-// AuthorSummary represents non-authoritative, snapshot metadata of the message author.
-type AuthorSummary struct {
-	id          *UserID
-	username    string
-	displayName string
-	avatarURL   *string
+func (m *Message) SetReplyToMessageID(id fields.ID, now fields.Timestamp) {
+	m.replyToMessageID = id
+	m.touch(now)
 }
 
-func (a AuthorSummary) ID() *UserID         { return a.id }
-func (a AuthorSummary) Username() string    { return a.username }
-func (a AuthorSummary) DisplayName() string { return a.displayName }
-func (a AuthorSummary) AvatarURL() *string  { return a.avatarURL }
-
-func ReconstituteAuthorSummary(
-	rawID *uuid.UUID,
-	username, displayName string,
-	avatarURL *string,
-) (AuthorSummary, error) {
-	authorID, err := NewUserIDPtr(rawID)
-	if err != nil {
-		return AuthorSummary{}, err
-	}
-
-	return AuthorSummary{
-		id:          authorID,
-		username:    username,
-		displayName: displayName,
-		avatarURL:   avatarURL,
-	}, nil
+func (m *Message) SetForwardedMessage(messageID, channelID fields.ID, now fields.Timestamp) {
+	m.forwardedMessageID = messageID
+	m.forwardedChannelID = channelID
+	m.touch(now)
 }
 
-// -----------------------------------------------------------------------------
-// Read Model / Aggregate
-// -----------------------------------------------------------------------------
-
-// MessageAggregate is a rich read-model used for feed rendering.
-type MessageAggregate struct {
-	message     *Message
-	author      AuthorSummary
-	attachments []*Attachment
-	reactions   []ReactionSummary
+func (m *Message) SetPinnedAt(pinnedAt, now fields.Timestamp) {
+	m.pinnedAt = pinnedAt
+	m.touch(now)
 }
 
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
-
-func (ma *MessageAggregate) Message() *Message            { return ma.message }
-func (ma *MessageAggregate) Author() AuthorSummary        { return ma.author }
-func (ma *MessageAggregate) Attachments() []*Attachment   { return ma.attachments }
-func (ma *MessageAggregate) Reactions() []ReactionSummary { return ma.reactions }
-
-// -----------------------------------------------------------------------------
-// Persistence Reconstitution
-// -----------------------------------------------------------------------------
-
-// ReconstituteMessageAggregate constructs the domain read model from persistence data.
-func ReconstituteMessageAggregate(
-	message *Message,
-	author AuthorSummary,
-	attachments []*Attachment,
-	reactions []ReactionSummary,
-) (*MessageAggregate, error) {
-	if message == nil {
-		return nil, ErrMessageAggregateNilMessage
-	}
-
-	if attachments == nil {
-		attachments = make([]*Attachment, 0)
-	}
-	if reactions == nil {
-		reactions = make([]ReactionSummary, 0)
-	}
-
-	return &MessageAggregate{
-		message:     message,
-		author:      author,
-		attachments: attachments,
-		reactions:   reactions,
-	}, nil
+func (m *Message) SetContent(content MessageContent, now fields.Timestamp) {
+	m.content = content
+	m.editedAt = now
+	m.touch(now)
 }
 
-// -----------------------------------------------------------------------------
-// Unmarshaling Helpers for JSON Aggregates from SQL
-// -----------------------------------------------------------------------------
-
-// AttachmentDTO represents the raw JSON structure returned by sqlc json_agg.
-type AttachmentDTO struct {
-	ID          uuid.UUID `json:"id"`
-	FileName    string    `json:"file_name"`
-	FileSize    int32     `json:"file_size"`
-	ContentType string    `json:"content_type"`
-	URL         string    `json:"url"`
-	Width       *int32    `json:"width"`
-	Height      *int32    `json:"height"`
-	CreatedAt   time.Time `json:"created_at"`
+func (m *Message) SetSystemMetadata(systemMetadata fields.JSON, now fields.Timestamp) {
+	m.systemMetadata = systemMetadata
+	m.touch(now)
 }
 
-// ReactionDTO represents the raw JSON structure returned by sqlc json_agg.
-type ReactionDTO struct {
-	MessageID uuid.UUID `json:"message_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Emoji     string    `json:"emoji"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// UnmarshalAttachmentsJSON parses the raw sqlc JSON byte slice into reconstituted domain Attachments.
-func UnmarshalAttachmentsJSON(messageID uuid.UUID, rawJSON []byte) ([]*Attachment, error) {
-	if len(rawJSON) == 0 || string(rawJSON) == "[]" {
-		return []*Attachment{}, nil
-	}
-
-	var dtos []AttachmentDTO
-	if err := json.Unmarshal(rawJSON, &dtos); err != nil {
-		return nil, err
-	}
-
-	attachments := make([]*Attachment, 0, len(dtos))
-	for _, dto := range dtos {
-		att, err := ReconstituteAttachment(
-			dto.ID,
-			messageID,
-			dto.FileName,
-			dto.FileSize,
-			dto.ContentType,
-			dto.URL,
-			dto.Width,
-			dto.Height,
-			dto.CreatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		attachments = append(attachments, att)
-	}
-
-	return attachments, nil
-}
-
-// UnmarshalReactionsJSON parses and aggregates raw sqlc reaction JSON byte slices into ReactionSummaries.
-func UnmarshalReactionsJSON(rawJSON []byte, currentUserID *uuid.UUID) ([]ReactionSummary, error) {
-	if len(rawJSON) == 0 || string(rawJSON) == "[]" {
-		return []ReactionSummary{}, nil
-	}
-
-	var dtos []ReactionDTO
-	if err := json.Unmarshal(rawJSON, &dtos); err != nil {
-		return nil, err
-	}
-
-	// Group reactions by Emoji to build ReactionSummaries
-	type summaryGroup struct {
-		count      int64
-		hasReacted bool
-	}
-	grouped := make(map[string]*summaryGroup)
-
-	for _, dto := range dtos {
-		grp, exists := grouped[dto.Emoji]
-		if !exists {
-			grp = &summaryGroup{}
-			grouped[dto.Emoji] = grp
-		}
-		grp.count++
-		if currentUserID != nil && dto.UserID == *currentUserID {
-			grp.hasReacted = true
-		}
-	}
-
-	summaries := make([]ReactionSummary, 0, len(grouped))
-	for emoji, grp := range grouped {
-		summary, err := ReconstituteReactionSummary(emoji, grp.count, grp.hasReacted)
-		if err != nil {
-			return nil, err
-		}
-		summaries = append(summaries, summary)
-	}
-
-	return summaries, nil
+func (m *Message) touch(at fields.Timestamp) {
+	m.updatedAt = at
 }

@@ -104,8 +104,10 @@ WHERE
 
 CREATE TABLE channels(
     id uuid NOT NULL,
+    last_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_message_at timestamptz DEFAULT NULL,
     type smallint NOT NULL,
     name text DEFAULT NULL,
     icon_url text DEFAULT NULL,
@@ -114,6 +116,10 @@ CREATE TABLE channels(
     CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100),
     CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048)
 );
+
+CREATE INDEX idx_channels_last_message ON channels(last_message_id)
+WHERE
+    last_message_id IS NOT NULL;
 
 CREATE TABLE messages(
     id uuid NOT NULL,
@@ -140,27 +146,53 @@ CREATE TABLE messages(
     CONSTRAINT forward_valid CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
 );
 
-CREATE INDEX idx_messages_channel_pagination ON messages(channel_id, created_at DESC, id DESC);
+CREATE INDEX idx_messages_author ON messages(author_id)
+WHERE
+    author_id IS NOT NULL;
 
-CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC)
+CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id)
+WHERE
+    reply_to_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_msg ON messages(forwarded_message_id)
+WHERE
+    forwarded_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forwarded_chan ON messages(forwarded_channel_id)
+WHERE
+    forwarded_channel_id IS NOT NULL;
+
+CREATE INDEX idx_messages_channel_created ON messages(channel_id, id DESC);
+
+CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC, id DESC)
 WHERE
     pinned_at IS NOT NULL;
+
+ALTER TABLE channels
+    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL,
     user_id uuid NOT NULL,
+    last_read_message_id uuid DEFAULT NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_read_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_read_message_id uuid DEFAULT NULL,
+    last_read_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     pinned_at timestamptz DEFAULT NULL,
     muted_until timestamptz DEFAULT NULL,
+    mention_count int NOT NULL DEFAULT 0,
     is_visible boolean NOT NULL DEFAULT TRUE,
     CONSTRAINT channel_members_pkey PRIMARY KEY (channel_id, user_id),
     CONSTRAINT fk_channel_members_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT fk_channel_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_channel_members_last_read_message FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
+
+CREATE INDEX idx_channel_members_last_read_message_id ON channel_members(last_read_message_id)
+WHERE
+    last_read_message_id IS NOT NULL;
+
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, channel_id DESC);
 
 CREATE TABLE message_attachments(
     id uuid NOT NULL,
@@ -180,7 +212,7 @@ CREATE TABLE message_attachments(
     CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048)
 );
 
-CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id, created_at ASC);
+CREATE INDEX idx_message_attachments_message_id_id ON message_attachments(message_id, id ASC);
 
 CREATE TABLE message_reactions(
     message_id uuid NOT NULL,
@@ -193,7 +225,9 @@ CREATE TABLE message_reactions(
     CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64)
 );
 
-CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id, created_at ASC);
+CREATE INDEX idx_message_reactions_message_id_created_at ON message_reactions(message_id, created_at ASC);
+
+CREATE INDEX idx_message_reactions_user_id ON message_reactions(user_id);
 
 CREATE TABLE relations(
     user1_id uuid NOT NULL,
@@ -221,4 +255,12 @@ CREATE INDEX idx_relations_user2_type_created ON relations(user2_id, type, creat
 CREATE UNIQUE INDEX idx_relations_channel_id ON relations(channel_id)
 WHERE
     channel_id IS NOT NULL;
+
+CREATE INDEX idx_relations_user1_blocks ON relations(user1_id, user2_id)
+WHERE
+    type = 3;
+
+CREATE INDEX idx_relations_user2_blocks ON relations(user2_id, user1_id)
+WHERE
+    type = 3;
 

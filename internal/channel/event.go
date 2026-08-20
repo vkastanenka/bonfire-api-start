@@ -1,79 +1,94 @@
 package channel
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
-
 const (
-	EventMessageCreated     = "channel.message_created"
-	EventMessageUpdated     = "channel.message_updated"
-	EventMessageDeleted     = "channel.message_deleted"
-	EventMessagePinned      = "channel.message_pinned"
-	EventReactionAdded      = "channel.reaction_added"
-	EventReactionRemoved    = "channel.reaction_removed"
-	EventChannelUpdated     = "channel.updated"
-	EventChannelDeleted     = "channel.deleted"
-	EventChannelReadUpdated = "channel.read_updated"
+	EventChannelCreated               = "channel.created"
+	EventChannelUpdated               = "channel.updated"
+	EventMemberUpdateUpdateVisibility = "channel.member_update_visibility"
+	EventMembersAdded                 = "channel.members_added"
+	EventMemberUpdateLastReadMessage  = "channel.member_update_last_read_message"
+	EventMemberUpdatePinnedAt         = "channel.member_update_pinned_at"
+	EventMemberUpdateMutedUntil       = "channel.member_update_muted_until"
+	EventMemberDelete                 = "channel.member_delete"
+	EventMessageCreated               = "channel.message_created"
+	EventMessageUpdateContent         = "channel.message_update_content"
+	EventMessageUpdatePinnedAt        = "channel.message_update_pinned_at"
+	EventMessageDelete                = "channel.message_delete"
+	EventReactionToggle               = "channel.reaction_toggle"
 )
 
-type DeletedPayload struct {
-	ChannelID uuid.UUID `json:"channelId"`
-	ActorID   uuid.UUID `json:"actorId"`
-}
+type ChannelCreatedPayload struct{}
+type ChannelUpdatedPayload struct{}
 
-type MessageCreatedPayload struct {
-	MessageID uuid.UUID  `json:"messageId"`
-	ChannelID uuid.UUID  `json:"channelId"`
-	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
-	Content   string     `json:"content"`
-	ReplyToID *uuid.UUID `json:"replyToId,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-}
+type MembersAddedPayload struct{}
+type MemberUpdateVisibilitytPayload struct{}
+type MemberUpdateLastReadMessagePayload struct{}
+type MemberUpdatePinnedAtPayload struct{}
+type MemberUpdateMutedUntilPayload struct{}
+type MemberDeletePayload struct{}
 
-type MessageUpdatedPayload struct {
-	MessageID uuid.UUID  `json:"messageId"`
-	ChannelID uuid.UUID  `json:"channelId"`
-	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
-	Content   string     `json:"content"`
-	EditedAt  *time.Time `json:"editedAt,omitempty"`
-}
+type MessageCreatedPayload struct{}
+type MessageUpdateContentPayload struct{}
+type MessageUpdatePinnedAtPayload struct{}
+type MessageDeletePayload struct{}
 
-type MessagePinnedPayload struct {
-	MessageID uuid.UUID `json:"messageId"`
-	ChannelID uuid.UUID `json:"channelId"`
-	IsPinned  bool      `json:"isPinned"`
-}
+type ReactionTogglePayload struct{}
 
-type MessageDeletedPayload struct {
-	MessageID uuid.UUID `json:"messageId"`
-	ChannelID uuid.UUID `json:"channelId"`
-	ActorID   uuid.UUID `json:"actorId,omitempty"`
-	DeletedAt time.Time `json:"deletedAt"`
-}
+// type DeletedPayload struct {
+// 	ChannelID uuid.UUID `json:"channelId"`
+// 	ActorID   uuid.UUID `json:"actorId"`
+// }
 
-type ReactionPayload struct {
-	MessageID uuid.UUID `json:"messageId"`
-	ChannelID uuid.UUID `json:"channelId"`
-	UserID    uuid.UUID `json:"userId"`
-	Emoji     string    `json:"emoji"`
-}
+// type MessageCreatedPayload struct {
+// 	MessageID uuid.UUID  `json:"messageId"`
+// 	ChannelID uuid.UUID  `json:"channelId"`
+// 	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
+// 	Content   string     `json:"content"`
+// 	ReplyToID *uuid.UUID `json:"replyToId,omitempty"`
+// 	CreatedAt time.Time  `json:"createdAt"`
+// }
 
-type ChannelUpdatedPayload struct {
-	ChannelID uuid.UUID `json:"channel_id"`
-	ActorID   uuid.UUID `json:"actor_id"`
-	Name      *string   `json:"name"`
-	IconURL   *string   `json:"icon_url"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+// type MessageUpdatedPayload struct {
+// 	MessageID uuid.UUID  `json:"messageId"`
+// 	ChannelID uuid.UUID  `json:"channelId"`
+// 	AuthorID  *uuid.UUID `json:"authorId,omitempty"`
+// 	Content   string     `json:"content"`
+// 	EditedAt  *time.Time `json:"editedAt,omitempty"`
+// }
 
-type ChannelReadUpdatedPayload struct {
-	ChannelID         uuid.UUID  `json:"channelId"`
-	UserID            uuid.UUID  `json:"userId"`
-	LastReadMessageID *uuid.UUID `json:"lastReadMessageId,omitempty"`
-	LastReadAt        time.Time  `json:"lastReadAt"`
-}
+// type MessagePinnedPayload struct {
+// 	MessageID uuid.UUID `json:"messageId"`
+// 	ChannelID uuid.UUID `json:"channelId"`
+// 	IsPinned  bool      `json:"isPinned"`
+// }
+
+// type MessageDeletedPayload struct {
+// 	MessageID uuid.UUID `json:"messageId"`
+// 	ChannelID uuid.UUID `json:"channelId"`
+// 	ActorID   uuid.UUID `json:"actorId,omitempty"`
+// 	DeletedAt time.Time `json:"deletedAt"`
+// }
+
+// type ReactionPayload struct {
+// 	MessageID uuid.UUID `json:"messageId"`
+// 	ChannelID uuid.UUID `json:"channelId"`
+// 	UserID    uuid.UUID `json:"userId"`
+// 	Emoji     string    `json:"emoji"`
+// }
+
+// type ChannelUpdatedPayload struct {
+// 	ChannelID uuid.UUID `json:"channel_id"`
+// 	ActorID   uuid.UUID `json:"actor_id"`
+// 	Name      *string   `json:"name"`
+// 	IconURL   *string   `json:"icon_url"`
+// 	UpdatedAt time.Time `json:"updated_at"`
+// }
+
+// type ChannelReadUpdatedPayload struct {
+// 	ChannelID         uuid.UUID  `json:"channelId"`
+// 	UserID            uuid.UUID  `json:"userId"`
+// 	LastReadMessageID *uuid.UUID `json:"lastReadMessageId,omitempty"`
+// 	LastReadAt        time.Time  `json:"lastReadAt"`
+// }
 
 // func RegisterOutboxHandlers(w *outbox.Worker, cacheStore *cache.Store) {
 // 	pubToChannel := func(ctx context.Context, channelID uuid.UUID, eventType string, payload any) error {

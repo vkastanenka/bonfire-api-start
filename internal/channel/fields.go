@@ -1,434 +1,347 @@
 package channel
 
 import (
-	"errors"
-	"net/url"
-	"strings"
 	"unicode/utf8"
 
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/sanitize"
-
-	"github.com/google/uuid"
 )
 
 // -----------------------------------------------------------------------------
-// Strongly Typed Domain Identifier Value Objects
+// Channel Name
 // -----------------------------------------------------------------------------
 
-var (
-	ErrIDNil     = errors.New("id cannot be nil or zero-value")
-	ErrIDInvalid = errors.New("invalid uuid format")
-)
+const channelNameMaxLength = 100
 
-// ID represents the primary Channel identifier (channel.ID).
-type ID uuid.UUID
-
-func NewID(raw uuid.UUID) (ID, error) {
-	if raw == uuid.Nil {
-		return ID{}, ErrIDNil
-	}
-	return ID(raw), nil
+type ChannelName struct {
+	fields.Text
 }
 
-func ParseID(raw string) (ID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return ID{}, ErrIDInvalid
-	}
-	return NewID(parsed)
+func NewChannelName(v string) ChannelName {
+	return ChannelName{Text: fields.NewText(v)}
 }
 
-func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
-func (id ID) String() string       { return uuid.UUID(id).String() }
-func (id ID) IsValid() bool        { return uuid.UUID(id) != uuid.Nil }
-func (id ID) Equals(other ID) bool { return id == other }
-
-// NewIDs validates a slice of raw UUIDs for batch operations.
-func NewIDs(raws []uuid.UUID) ([]ID, error) {
-	if len(raws) == 0 {
-		return nil, nil
-	}
-	ids := make([]ID, 0, len(raws))
-	for _, raw := range raws {
-		id, err := NewID(raw)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
-// -----------------------------------------------------------------------------
-// UserID (External Domain Reference)
-// -----------------------------------------------------------------------------
-
-type UserID uuid.UUID
-
-func NewUserID(raw uuid.UUID) (UserID, error) {
-	if raw == uuid.Nil {
-		return UserID{}, ErrIDNil
-	}
-	return UserID(raw), nil
-}
-
-func NewUserIDPtr(raw *uuid.UUID) (*UserID, error) {
-	if raw == nil || *raw == uuid.Nil {
-		return nil, nil
-	}
-	id, err := NewUserID(*raw)
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
-}
-
-func ParseUserID(raw string) (UserID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return UserID{}, ErrIDInvalid
-	}
-	return NewUserID(parsed)
-}
-
-func (id UserID) UUID() uuid.UUID          { return uuid.UUID(id) }
-func (id UserID) String() string           { return uuid.UUID(id).String() }
-func (id UserID) IsValid() bool            { return uuid.UUID(id) != uuid.Nil }
-func (id UserID) Equals(other UserID) bool { return id == other }
-
-// -----------------------------------------------------------------------------
-// MessageID (External Domain Reference)
-// -----------------------------------------------------------------------------
-
-type MessageID uuid.UUID
-
-func NewMessageID(raw uuid.UUID) (MessageID, error) {
-	if raw == uuid.Nil {
-		return MessageID{}, ErrIDNil
-	}
-	return MessageID(raw), nil
-}
-
-func NewMessageIDPtr(raw *uuid.UUID) (*MessageID, error) {
-	if raw == nil || *raw == uuid.Nil {
-		return nil, nil
-	}
-	id, err := NewMessageID(*raw)
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
-}
-
-func ParseMessageID(raw string) (MessageID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return MessageID{}, ErrIDInvalid
-	}
-	return NewMessageID(parsed)
-}
-
-func (id MessageID) UUID() uuid.UUID             { return uuid.UUID(id) }
-func (id MessageID) String() string              { return uuid.UUID(id).String() }
-func (id MessageID) IsValid() bool               { return uuid.UUID(id) != uuid.Nil }
-func (id MessageID) Equals(other MessageID) bool { return id == other }
-
-// -----------------------------------------------------------------------------
-// Name (Optional / Pointer Value Object)
-// -----------------------------------------------------------------------------
-
-var (
-	ErrNameEmpty          = errors.New("channel name cannot be empty")
-	ErrNameTooLong        = errors.New("channel name cannot exceed 100 characters")
-	ErrInvalidChannelName = errors.New("channel name is invalid")
-)
-
-type Name struct {
-	value string
-}
-
-// NewName sanitizes input and validates character length.
-// Returns nil, nil if the raw string pointer is nil or reduces to empty whitespace.
-func NewName(raw *string) (*Name, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	cleaned := sanitize.Text(*raw)
+func ParseChannelName(raw string) (ChannelName, error) {
+	cleaned := sanitize.Text(raw)
 	if cleaned == "" {
-		return nil, ErrNameEmpty
+		return ChannelName{}, nil
 	}
 
-	if utf8.RuneCountInString(cleaned) > 100 {
-		return nil, ErrNameTooLong
+	if utf8.RuneCountInString(cleaned) > channelNameMaxLength {
+		return ChannelName{}, errs.InvalidArgument("Name too long.").
+			Reason("NAME_TOO_LONG").
+			FieldViolation("name", "Name must be 100 characters or fewer.", "MAX_LENGTH_EXCEEDED").
+			Meta("domain", "channels")
 	}
 
-	return &Name{value: cleaned}, nil
+	return NewChannelName(cleaned), nil
 }
 
-func (n *Name) String() string {
-	if n == nil {
-		return ""
-	}
-	return n.value
-}
-
-func (n *Name) StringPtr() *string {
-	if n == nil {
-		return nil
-	}
-	s := n.value
-	return &s
-}
-
-func (n *Name) Equals(other *Name) bool {
-	if n == nil && other == nil {
-		return true
-	}
-	if n == nil || other == nil {
-		return false
-	}
-	return n.value == other.value
-}
-
-// -----------------------------------------------------------------------------
-// IconURL (Optional / Pointer Value Object)
-// -----------------------------------------------------------------------------
-
-var (
-	ErrIconURLEmpty    = errors.New("icon url cannot be empty")
-	ErrIconURLTooShort = errors.New("icon url must be at least 3 characters")
-	ErrIconURLTooLong  = errors.New("icon url cannot exceed 2048 characters")
-	ErrIconURLInvalid  = errors.New("icon url must be a valid http or https URL")
-)
-
-type IconURL struct {
-	value string
-}
-
-// NewIconURL validates and constructs an IconURL value object.
-// Returns nil, nil if the raw string pointer is nil or empty whitespace.
-func NewIconURL(raw *string) (*IconURL, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	s := strings.TrimSpace(*raw)
-	if s == "" {
-		return nil, nil
-	}
-
-	if len(s) < 3 {
-		return nil, ErrIconURLTooShort
-	}
-	if len(s) > 2048 {
-		return nil, ErrIconURLTooLong
-	}
-
-	parsed, err := url.ParseRequestURI(s)
-	if err != nil || parsed.Host == "" {
-		return nil, ErrIconURLInvalid
-	}
-
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return nil, ErrIconURLInvalid
-	}
-
-	return &IconURL{value: s}, nil
-}
-
-func (i *IconURL) String() string {
-	if i == nil {
-		return ""
-	}
-	return i.value
-}
-
-func (i *IconURL) StringPtr() *string {
-	if i == nil {
-		return nil
-	}
-	s := i.value
-	return &s
-}
-
-func (i *IconURL) Equals(other *IconURL) bool {
-	if i == nil && other == nil {
-		return true
-	}
-	if i == nil || other == nil {
-		return false
-	}
-	return i.value == other.value
-}
-
-// -----------------------------------------------------------------------------
-// Content (Required Value Object)
-// -----------------------------------------------------------------------------
-
-var (
-	ErrContentEmpty   = errors.New("message content cannot be empty")
-	ErrContentTooLong = errors.New("message content cannot exceed 4000 characters")
-)
-
-type Content struct {
-	value string
-}
-
-func NewContent(raw string) (Content, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return Content{}, ErrContentEmpty
-	}
-	if utf8.RuneCountInString(s) > 4000 {
-		return Content{}, ErrContentTooLong
-	}
-	return Content{value: s}, nil
-}
-
-func NewContentPtr(raw *string) (*Content, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	s := strings.TrimSpace(*raw)
-	if s == "" {
-		return nil, nil
-	}
-
-	content, err := NewContent(s)
+func ParseRequiredChannelName(raw string) (ChannelName, error) {
+	name, err := ParseChannelName(raw)
 	if err != nil {
-		return nil, err
+		return ChannelName{}, err
 	}
-	return &content, nil
-}
-
-func (c Content) String() string { return c.value }
-func (c Content) IsValid() bool  { return c.value != "" }
-
-func (c *Content) Equals(other *Content) bool {
-	if c == nil && other == nil {
-		return true
+	if name.IsZero() {
+		return ChannelName{}, errs.InvalidArgument("Channel name is required.").
+			Reason("NAME_REQUIRED").
+			FieldViolation("name", "Field is required.", "REQUIRED").
+			Meta("domain", "channels")
 	}
-	if c == nil || other == nil {
-		return false
-	}
-	return c.value == other.value
+	return name, nil
 }
 
 // -----------------------------------------------------------------------------
-// Attachment Specs (FileName, ContentType, AttachmentURL)
+// Channel Type
 // -----------------------------------------------------------------------------
 
-var (
-	ErrFileNameEmpty   = errors.New("file name cannot be empty")
-	ErrFileNameTooLong = errors.New("file name cannot exceed 255 characters")
+type ChannelTypeValue uint8
+
+const (
+	ChannelTypeUnknown ChannelTypeValue = iota
+	ChannelTypeDirect
+	ChannelTypeGroup
+	channelTypeMax
 )
 
-type FileName struct {
-	value string
+var channelTypeSpec = &fields.EnumSpec{
+	Domain: "CHANNEL_TYPE",
+	Max:    uint8(channelTypeMax),
+	Names:  []string{"UNKNOWN", "DIRECT", "GROUP"},
+	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("DIRECT"), []byte("GROUP")},
 }
 
-func NewFileName(raw string) (FileName, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return FileName{}, ErrFileNameEmpty
-	}
-	if utf8.RuneCountInString(s) > 255 {
-		return FileName{}, ErrFileNameTooLong
-	}
-	return FileName{value: s}, nil
+type ChannelType struct {
+	fields.Enum[ChannelTypeValue]
 }
 
-func (fn FileName) String() string { return fn.value }
-func (fn FileName) IsValid() bool  { return fn.value != "" }
-
-var (
-	ErrContentTypeEmpty   = errors.New("content type cannot be empty")
-	ErrContentTypeTooLong = errors.New("content type cannot exceed 128 characters")
-)
-
-type ContentType struct {
-	value string
+func (t ChannelType) IsDirect() bool {
+	return t.Value == uint8(ChannelTypeDirect)
 }
 
-func NewContentType(raw string) (ContentType, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return ContentType{}, ErrContentTypeEmpty
-	}
-	if len(s) > 128 {
-		return ContentType{}, ErrContentTypeTooLong
-	}
-	return ContentType{value: s}, nil
+func (t ChannelType) IsGroup() bool {
+	return t.Value == uint8(ChannelTypeGroup)
 }
 
-func (ct ContentType) String() string { return ct.value }
-func (ct ContentType) IsValid() bool  { return ct.value != "" }
-
-var (
-	ErrAttachmentURLEmpty    = errors.New("attachment url cannot be empty")
-	ErrAttachmentURLTooShort = errors.New("attachment url must be at least 3 characters")
-	ErrAttachmentURLTooLong  = errors.New("attachment url cannot exceed 2048 characters")
-	ErrAttachmentURLInvalid  = errors.New("attachment url must be a valid http or https URL")
-)
-
-type AttachmentURL struct {
-	value string
+func NewChannelType(val ChannelTypeValue) ChannelType {
+	return ChannelType{Enum: fields.NewEnum(val, channelTypeSpec)}
 }
 
-func NewAttachmentURL(raw string) (AttachmentURL, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return AttachmentURL{}, ErrAttachmentURLEmpty
-	}
-	if len(s) < 3 {
-		return AttachmentURL{}, ErrAttachmentURLTooShort
-	}
-	if len(s) > 2048 {
-		return AttachmentURL{}, ErrAttachmentURLTooLong
-	}
-
-	parsed, err := url.ParseRequestURI(s)
-	if err != nil || parsed.Host == "" {
-		return AttachmentURL{}, ErrAttachmentURLInvalid
-	}
-
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return AttachmentURL{}, ErrAttachmentURLInvalid
-	}
-
-	return AttachmentURL{value: s}, nil
+func NewChannelTypeDirect() ChannelType {
+	return NewChannelType(ChannelTypeDirect)
 }
 
-func (au AttachmentURL) String() string { return au.value }
-func (au AttachmentURL) IsValid() bool  { return au.value != "" }
+func NewChannelTypeGroup() ChannelType {
+	return NewChannelType(ChannelTypeGroup)
+}
+
+func ErrChannelInvalidType() *errs.Error {
+	return errs.InvalidArgument("Invalid channel type.").
+		Reason("CHANNEL_TYPE_INVALID").
+		FieldViolation("type", "Must be one of: DIRECT, GROUP.", "INVALID_ENUM_VALUE").
+		Meta("domain", "channels")
+}
+
+func ParseChannelType(raw int16) (ChannelType, error) {
+	if raw <= 0 || raw >= int16(channelTypeMax) {
+		return ChannelType{}, ErrChannelInvalidType()
+	}
+	return NewChannelType(ChannelTypeValue(raw)), nil
+}
+
+func ParseChannelTypeString(s string) (ChannelType, error) {
+	kind, ok := fields.ParseEnumString[ChannelTypeValue](s, channelTypeSpec)
+	if !ok || kind >= channelTypeMax {
+		return ChannelType{}, ErrChannelInvalidType()
+	}
+	return NewChannelType(kind), nil
+}
 
 // -----------------------------------------------------------------------------
-// Emoji (Reaction / Expression Value Object)
+// Message Content
 // -----------------------------------------------------------------------------
 
-var (
-	ErrEmojiEmpty   = errors.New("emoji cannot be empty")
-	ErrEmojiTooLong = errors.New("emoji cannot exceed 32 characters")
+const messageContentMaxLength = 4000
+
+type MessageContent struct {
+	fields.Text
+}
+
+func NewMessageContent(v string) MessageContent {
+	return MessageContent{Text: fields.NewText(v)}
+}
+
+func ParseMessageContent(raw string) (MessageContent, error) {
+	cleaned := sanitize.Text(raw)
+	if cleaned == "" {
+		return MessageContent{}, nil
+	}
+
+	if utf8.RuneCountInString(cleaned) > messageContentMaxLength {
+		return MessageContent{}, errs.InvalidArgument("Content too long.").
+			Reason("CONTENT_TOO_LONG").
+			FieldViolation("content", "Content must be 4000 characters or fewer.", "MAX_LENGTH_EXCEEDED").
+			Meta("domain", "messages")
+	}
+
+	return NewMessageContent(cleaned), nil
+}
+
+func ParseRequiredMessageContent(raw string) (MessageContent, error) {
+	content, err := ParseMessageContent(raw)
+	if err != nil {
+		return MessageContent{}, err
+	}
+	if content.IsZero() {
+		return MessageContent{}, errs.InvalidArgument("Message content is required.").
+			Reason("CONTENT_REQUIRED").
+			FieldViolation("content", "Field is required.", "REQUIRED").
+			Meta("domain", "messages")
+	}
+	return content, nil
+}
+
+// -----------------------------------------------------------------------------
+// Message Type
+// -----------------------------------------------------------------------------
+
+type MessageTypeValue uint8
+
+const (
+	MessageTypeUnknown MessageTypeValue = iota
+	MessageTypeDefault
+	MessageTypeReply
+	MessageTypeForward
+	MessageTypeMemberAdd
+	MessageTypeMemberRemove
+	MessageTypeNameChange
+	MessageTypeIconChange
+	MessageTypePin
+	messageTypeMax
 )
 
-type Emoji struct {
-	value string
+var messageTypeSpec = &fields.EnumSpec{
+	Domain: "MESSAGE_TYPE",
+	Max:    uint8(messageTypeMax),
+	Names: []string{
+		"UNKNOWN",
+		"DEFAULT",
+		"REPLY",
+		"FORWARD",
+		"MEMBER_ADD",
+		"MEMBER_REMOVE",
+		"NAME_CHANGE",
+		"ICON_CHANGE",
+		"PIN",
+	},
+	Bytes: [][]byte{
+		[]byte("UNKNOWN"),
+		[]byte("DEFAULT"),
+		[]byte("REPLY"),
+		[]byte("FORWARD"),
+		[]byte("MEMBER_ADD"),
+		[]byte("MEMBER_REMOVE"),
+		[]byte("NAME_CHANGE"),
+		[]byte("ICON_CHANGE"),
+		[]byte("PIN"),
+	},
 }
 
-func NewEmoji(raw string) (Emoji, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return Emoji{}, ErrEmojiEmpty
-	}
-	if utf8.RuneCountInString(s) > 32 {
-		return Emoji{}, ErrEmojiTooLong
-	}
-	return Emoji{value: s}, nil
+type MessageType struct {
+	fields.Enum[MessageTypeValue]
 }
 
-func (e Emoji) String() string { return e.value }
-func (e Emoji) IsValid() bool  { return e.value != "" }
+func (t MessageType) IsDefault() bool {
+	return t.Value == uint8(MessageTypeDefault)
+}
+
+func (t MessageType) IsReply() bool {
+	return t.Value == uint8(MessageTypeReply)
+}
+
+func (t MessageType) IsForward() bool {
+	return t.Value == uint8(MessageTypeForward)
+}
+
+func (t MessageType) IsMemberAdd() bool {
+	return t.Value == uint8(MessageTypeMemberAdd)
+}
+
+func (t MessageType) IsMemberRemove() bool {
+	return t.Value == uint8(MessageTypeMemberRemove)
+}
+
+func (t MessageType) IsNameChange() bool {
+	return t.Value == uint8(MessageTypeNameChange)
+}
+
+func (t MessageType) IsIconChange() bool {
+	return t.Value == uint8(MessageTypeIconChange)
+}
+
+func (t MessageType) IsPin() bool {
+	return t.Value == uint8(MessageTypePin)
+}
+
+func NewMessageType(val MessageTypeValue) MessageType {
+	return MessageType{Enum: fields.NewEnum(val, messageTypeSpec)}
+}
+
+func NewMessageTypeDefault() MessageType {
+	return NewMessageType(MessageTypeDefault)
+}
+
+func NewMessageTypeReply() MessageType {
+	return NewMessageType(MessageTypeReply)
+}
+
+func NewMessageTypeForward() MessageType {
+	return NewMessageType(MessageTypeForward)
+}
+
+func NewMessageTypeMemberAdd() MessageType {
+	return NewMessageType(MessageTypeMemberAdd)
+}
+
+func NewMessageTypeMemberRemove() MessageType {
+	return NewMessageType(MessageTypeMemberRemove)
+}
+
+func NewMessageTypeNameChange() MessageType {
+	return NewMessageType(MessageTypeNameChange)
+}
+
+func NewMessageTypeIconChange() MessageType {
+	return NewMessageType(MessageTypeIconChange)
+}
+
+func NewMessageTypePin() MessageType {
+	return NewMessageType(MessageTypePin)
+}
+
+func ErrMessageTypeInvalid() *errs.Error {
+	return errs.InvalidArgument("Invalid message type.").
+		Reason("MESSAGE_TYPE_INVALID").
+		FieldViolation("type", "Must be a valid message type.", "INVALID_ENUM_VALUE").
+		Meta("domain", "messages")
+}
+
+func ParseMessageType(raw int16) (MessageType, error) {
+	if raw <= 0 || raw >= int16(messageTypeMax) {
+		return MessageType{}, ErrMessageTypeInvalid()
+	}
+	return NewMessageType(MessageTypeValue(raw)), nil
+}
+
+func ParseMessageTypeString(s string) (MessageType, error) {
+	kind, ok := fields.ParseEnumString[MessageTypeValue](s, messageTypeSpec)
+	if !ok || kind >= messageTypeMax {
+		return MessageType{}, ErrMessageTypeInvalid()
+	}
+	return NewMessageType(kind), nil
+}
+
+// -----------------------------------------------------------------------------
+// Reaction Emoji
+// -----------------------------------------------------------------------------
+
+const reactionEmojiMaxLength = 64
+
+type ReactionEmoji struct {
+	fields.Text
+}
+
+func NewReactionEmoji(v string) ReactionEmoji {
+	return ReactionEmoji{Text: fields.NewText(v)}
+}
+
+func ParseReactionEmoji(raw string) (ReactionEmoji, error) {
+	cleaned := sanitize.Text(raw)
+	if cleaned == "" {
+		return ReactionEmoji{}, nil
+	}
+
+	if utf8.RuneCountInString(cleaned) > reactionEmojiMaxLength {
+		return ReactionEmoji{}, errs.InvalidArgument("Emoji too long.").
+			Reason("EMOJI_TOO_LONG").
+			FieldViolation("emoji", "Emoji must be 64 characters or fewer.", "MAX_LENGTH_EXCEEDED").
+			Meta("domain", "reactions")
+	}
+
+	return NewReactionEmoji(cleaned), nil
+}
+
+func ParseRequiredReactionEmoji(raw string) (ReactionEmoji, error) {
+	emoji, err := ParseReactionEmoji(raw)
+	if err != nil {
+		return ReactionEmoji{}, err
+	}
+	if emoji.IsZero() {
+		return ReactionEmoji{}, errs.InvalidArgument("Emoji is required.").
+			Reason("EMOJI_REQUIRED").
+			FieldViolation("emoji", "Emoji cannot be empty.", "REQUIRED").
+			Meta("domain", "reactions")
+	}
+	return emoji, nil
+}

@@ -1,206 +1,427 @@
 package channel
 
 import (
-	"errors"
-	"time"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
+	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 )
 
-var (
-	ErrDirectChannelCannotHaveMetadata = errors.New("direct channels cannot have a name or icon")
+const (
+	ChannelMinMembers      = 1
+	ChannelMaxMembers      = 10
+	ChannelMaxPeers        = 9
+	ChannelMaxSidebarItems = 100
 )
 
 type Channel struct {
-	id            ID
-	chType        Type
-	name          *Name
-	iconURL       *IconURL
-	lastMessageID *MessageID
-	createdAt     time.Time
-	updatedAt     time.Time
+	id            fields.ID
+	chType        ChannelType
+	name          ChannelName
+	iconURL       fields.URL
+	lastMessageID fields.ID
+	lastMessageAt fields.Timestamp
+	createdAt     fields.Timestamp
+	updatedAt     fields.Timestamp
 }
 
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
-
-func (c *Channel) ID() ID                    { return c.id }
-func (c *Channel) Type() Type                { return c.chType }
-func (c *Channel) Name() *Name               { return c.name }
-func (c *Channel) IconURL() *IconURL         { return c.iconURL }
-func (c *Channel) LastMessageID() *MessageID { return c.lastMessageID }
-func (c *Channel) CreatedAt() time.Time      { return c.createdAt }
-func (c *Channel) UpdatedAt() time.Time      { return c.updatedAt }
-
-// -----------------------------------------------------------------------------
-// Constructors / Factory Methods
-// -----------------------------------------------------------------------------
-
-// New creates a fresh Channel domain entity.
-func New(chType Type, name *Name, iconURL *IconURL) (*Channel, error) {
-	if !chType.IsValid() {
-		return nil, ErrInvalidType
-	}
-
-	switch chType {
-	case TypeDirect:
-		if name != nil || iconURL != nil {
-			return nil, ErrDirectChannelCannotHaveMetadata
-		}
-	}
-
-	now := time.Now().UTC()
-
-	rawID := uuid.Must(uuid.NewV7())
-	id, err := NewID(rawID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Channel{
-		id:        id,
-		chType:    chType,
-		name:      name,
-		iconURL:   iconURL,
-		createdAt: now,
-		updatedAt: now,
-	}, nil
+type MemberView struct {
+	id          fields.ID
+	displayName user.DisplayName
+	avatarURL   fields.URL
+	presence    presence.Presence
 }
 
-// Reconstitute restores an existing Channel aggregate from persistence.
-func Reconstitute(
-	rawID uuid.UUID,
-	rawType int16,
-	rawName *string,
-	rawIconURL *string,
-	rawLastMessageID *uuid.UUID,
-	createdAt, updatedAt time.Time,
-) (*Channel, error) {
-	id, err := NewID(rawID)
-	if err != nil {
-		return nil, err
-	}
+type SidebarPeer struct {
+	id          fields.ID
+	displayName user.DisplayName
+	avatarURL   fields.URL
+	presence    presence.Presence
+}
 
-	chType, err := ParseType(rawType)
-	if err != nil {
-		return nil, err
-	}
+type SidebarView struct {
+	id                fields.ID
+	chType            ChannelType
+	name              ChannelName
+	iconURL           fields.URL
+	lastMessageID     fields.ID
+	lastMessageAt     fields.Timestamp
+	lastReadMessageID fields.ID
+	pinnedAt          fields.Timestamp
+	mutedUntil        fields.Timestamp
+	mentionCount      int32
+	peers             []SidebarPeer
+	memberTotal       int16
+}
 
-	name, err := NewName(rawName)
-	if err != nil {
-		return nil, err
-	}
+func (c *Channel) ID() fields.ID                   { return c.id }
+func (c *Channel) Type() ChannelType               { return c.chType }
+func (c *Channel) Name() ChannelName               { return c.name }
+func (c *Channel) IconURL() fields.URL             { return c.iconURL }
+func (c *Channel) LastMessageID() fields.ID        { return c.lastMessageID }
+func (c *Channel) LastMessageAt() fields.Timestamp { return c.lastMessageAt }
+func (c *Channel) CreatedAt() fields.Timestamp     { return c.createdAt }
+func (c *Channel) UpdatedAt() fields.Timestamp     { return c.updatedAt }
 
-	iconURL, err := NewIconURL(rawIconURL)
-	if err != nil {
-		return nil, err
-	}
+func (c *Channel) IsDirect() bool {
+	return c.chType.Raw() == ChannelTypeDirect
+}
 
-	switch chType {
-	case TypeDirect:
-		if name != nil || iconURL != nil {
-			return nil, ErrDirectChannelCannotHaveMetadata
-		}
-	}
+func (c *Channel) IsGroup() bool {
+	return c.chType.Raw() == ChannelTypeGroup
+}
 
-	msgID, err := NewMessageIDPtr(rawLastMessageID)
-	if err != nil {
-		return nil, err
-	}
-
+func ParseChannel(
+	id fields.ID,
+	chType ChannelType,
+	name ChannelName,
+	iconURL fields.URL,
+	lastMessageID fields.ID,
+	lastMessageAt fields.Timestamp,
+	createdAt fields.Timestamp,
+	updatedAt fields.Timestamp,
+) *Channel {
 	return &Channel{
 		id:            id,
 		chType:        chType,
 		name:          name,
 		iconURL:       iconURL,
-		lastMessageID: msgID,
+		lastMessageID: lastMessageID,
+		lastMessageAt: lastMessageAt,
 		createdAt:     createdAt,
 		updatedAt:     updatedAt,
-	}, nil
+	}
 }
 
-// -----------------------------------------------------------------------------
-// Domain Mutations
-// -----------------------------------------------------------------------------
+func (c *Channel) SetName(name ChannelName, now fields.Timestamp) {
+	c.name = name
+	c.touch(now)
+}
 
-// SetName updates the channel's display name.
-func (c *Channel) SetName(newName *Name) error {
-	if c.chType == TypeDirect {
-		return ErrDirectChannelCannotHaveMetadata
+func (c *Channel) SetIcon(icon fields.URL, now fields.Timestamp) {
+	c.iconURL = icon
+	c.touch(now)
+}
+
+func (c *Channel) SetLastMessage(id fields.ID, at fields.Timestamp, now fields.Timestamp) {
+	c.lastMessageID = id
+	c.lastMessageAt = at
+	c.touch(now)
+}
+
+func (u *Channel) touch(at fields.Timestamp) {
+	u.updatedAt = at
+}
+
+func FilterNewMemberIDs(userID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
+	existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
+	for _, m := range existingMembers {
+		existingMemberSet[m.UserID()] = struct{}{}
 	}
 
-	if c.name.Equals(newName) {
-		return nil
+	cleanNewPeerIDs := fields.RemoveID(newPeerIDs, userID)
+	toAddIDs := make([]fields.ID, 0, len(cleanNewPeerIDs))
+
+	for _, id := range cleanNewPeerIDs {
+		if _, exists := existingMemberSet[id]; !exists {
+			toAddIDs = append(toAddIDs, id)
+		}
 	}
 
-	c.name = newName
-	c.touch()
+	if len(toAddIDs) == 0 {
+		return nil, errs.InvalidArgument("All specified users are already members of this channel.").
+			Reason("ALREADY_MEMBERS")
+	}
+
+	if len(existingMembers)+len(toAddIDs) > ChannelMaxPeers+1 {
+		return nil, errs.InvalidArgument(fmt.Sprintf("Adding these members exceeds the maximum limit of %d members.", ChannelMaxPeers+1)).
+			Reason("MAX_CAPACITY_EXCEEDED")
+	}
+
+	return toAddIDs, nil
+}
+
+func HydrateMemberView(
+	m *Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) (MemberView, bool) {
+	if m == nil {
+		return MemberView{}, false
+	}
+
+	u, ok := userMap[m.UserID()]
+	if !ok || u == nil {
+		return MemberView{}, false
+	}
+
+	p, ok := presenceMap[m.UserID()]
+	if !ok {
+		p = presence.New(presence.PresenceOffline)
+	}
+
+	return MemberView{
+		id:          m.UserID(),
+		displayName: u.DisplayName(),
+		avatarURL:   u.AvatarURL(),
+		presence:    p,
+	}, true
+}
+
+func HydrateMemberViews(
+	members []*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []MemberView {
+	views := make([]MemberView, 0, len(members))
+	for _, m := range members {
+		if view, ok := HydrateMemberView(m, userMap, presenceMap); ok {
+			views = append(views, view)
+		}
+	}
+	return views
+}
+
+func HydrateMessageView(
+	msg *Message,
+	userMap map[fields.ID]*user.User,
+	reactionMap map[fields.ID]*ReactionSummary,
+) (MessageView, bool) {
+	if msg == nil {
+		return MessageView{}, false
+	}
+
+	u, ok := userMap[msg.AuthorID()]
+	if !ok || u == nil {
+		return MessageView{}, false
+	}
+
+	var reactions []EmojiCount
+	if summary, ok := reactionMap[msg.ID()]; ok && summary != nil {
+		reactions = summary.Counts
+	}
+
+	return MessageView{
+		id:                 msg.ID(),
+		authorID:           msg.AuthorID(),
+		displayName:        u.DisplayName(),
+		avatarURL:          u.AvatarURL(),
+		msgType:            msg.Type(),
+		content:            msg.Content(),
+		systemMetadata:     msg.SystemMetadata(),
+		replyToMessageID:   msg.ReplyToMessageID(),
+		forwardedMessageID: msg.ForwardedMessageID(),
+		forwardedChannelID: msg.ForwardedChannelID(),
+		createdAt:          msg.CreatedAt(),
+		editedAt:           msg.EditedAt(),
+		reactions:          reactions,
+	}, true
+}
+
+func HydrateMessageViews(
+	messages []*Message,
+	userMap map[fields.ID]*user.User,
+	reactionMap map[fields.ID]*ReactionSummary,
+) []MessageView {
+	views := make([]MessageView, 0, len(messages))
+	for _, msg := range messages {
+		if view, ok := HydrateMessageView(msg, userMap, reactionMap); ok {
+			views = append(views, view)
+		}
+	}
+	return views
+}
+
+func HydrateSidebarPeer(
+	currentUserID fields.ID,
+	pMem *Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) (SidebarPeer, bool) {
+	if pMem == nil || pMem.UserID() == currentUserID {
+		return SidebarPeer{}, false
+	}
+
+	u, ok := userMap[pMem.UserID()]
+	if !ok || u == nil {
+		return SidebarPeer{}, false
+	}
+
+	p, ok := presenceMap[pMem.UserID()]
+	if !ok {
+		p = presence.New(presence.PresenceOffline)
+	}
+
+	return SidebarPeer{
+		id:          u.ID(),
+		displayName: u.DisplayName(),
+		avatarURL:   u.AvatarURL(),
+		presence:    p,
+	}, true
+}
+
+func HydrateSidebarPeers(
+	currentUserID fields.ID,
+	rawPeers []*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []SidebarPeer {
+	views := make([]SidebarPeer, 0, len(rawPeers))
+	for _, pMem := range rawPeers {
+		if view, ok := HydrateSidebarPeer(currentUserID, pMem, userMap, presenceMap); ok {
+			views = append(views, view)
+		}
+	}
+	return views
+}
+
+func HydrateSidebarViews(
+	currentUserID fields.ID,
+	channels []*Channel,
+	userMembersMap map[fields.ID]*Member,
+	peerMembersMap map[fields.ID][]*Member,
+	userMap map[fields.ID]*user.User,
+	presenceMap map[fields.ID]presence.Presence,
+) []SidebarView {
+	views := make([]SidebarView, 0, len(channels))
+
+	for _, ch := range channels {
+		mem := userMembersMap[ch.ID()]
+		if mem == nil {
+			continue
+		}
+
+		rawPeers := peerMembersMap[ch.ID()]
+		peersView := HydrateSidebarPeers(currentUserID, rawPeers, userMap, presenceMap)
+
+		views = append(views, SidebarView{
+			id:                ch.ID(),
+			chType:            ch.Type(),
+			name:              ch.Name(),
+			iconURL:           ch.IconURL(),
+			lastMessageID:     ch.LastMessageID(),
+			lastMessageAt:     ch.LastMessageAt(),
+			lastReadMessageID: mem.LastReadMessageID(),
+			pinnedAt:          mem.PinnedAt(),
+			mutedUntil:        mem.MutedUntil(),
+			mentionCount:      mem.MentionCount(),
+			peers:             peersView,
+			memberTotal:       int16(len(rawPeers)),
+		})
+	}
+
+	return views
+}
+
+func IndexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
+	channelIDs := make([]fields.ID, len(members))
+	membershipMap := make(map[fields.ID]*Member, len(members))
+	for i, m := range members {
+		chID := m.ChannelID()
+		channelIDs[i] = chID
+		membershipMap[chID] = m
+	}
+	return channelIDs, membershipMap
+}
+
+func SortMembers(members []*Member, userMap map[fields.ID]*user.User) {
+	slices.SortFunc(members, func(a, b *Member) int {
+		uA, okA := userMap[a.UserID()]
+		uB, okB := userMap[b.UserID()]
+
+		nameA := ""
+		if okA && uA != nil {
+			nameA = uA.DisplayName().String()
+		}
+		nameB := ""
+		if okB && uB != nil {
+			nameB = uB.DisplayName().String()
+		}
+
+		return strings.Compare(nameA, nameB)
+	})
+}
+
+func SortMessages(messages []*Message) {
+	slices.SortFunc(messages, func(a, b *Message) int {
+		return a.ID().Compare(b.ID())
+	})
+}
+
+func SortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
+	slices.SortFunc(channels, func(a, b *Channel) int {
+		mA := userMembersMap[a.ID()]
+		mB := userMembersMap[b.ID()]
+
+		// 1. Pinned priority
+		aPinned := mA != nil && mA.PinnedAt().IsValid()
+		bPinned := mB != nil && mB.PinnedAt().IsValid()
+		if aPinned != bPinned {
+			if aPinned {
+				return -1
+			}
+			return 1
+		}
+		if aPinned {
+			if mA.PinnedAt().After(mB.PinnedAt()) {
+				return -1
+			}
+			if mB.PinnedAt().After(mA.PinnedAt()) {
+				return 1
+			}
+		}
+
+		// 2. Activity (lastMessageAt)
+		aLast := a.LastMessageAt()
+		bLast := b.LastMessageAt()
+		if !aLast.Equals(bLast) {
+			if aLast.After(bLast) {
+				return -1
+			}
+			return 1
+		}
+
+		// 3. Creation date
+		if a.CreatedAt().After(b.CreatedAt()) {
+			return -1
+		}
+		if b.CreatedAt().After(a.CreatedAt()) {
+			return 1
+		}
+
+		// 4. Guaranteed deterministic ID tie-breaker
+		return a.ID().Compare(b.ID())
+	})
+}
+
+func ValidateMaxPeers(rawPeerIDs []uuid.UUID) error {
+	count := (len(rawPeerIDs))
+	if count > ChannelMaxPeers {
+		return errs.InvalidArgument(fmt.Sprintf("Peer list cannot exceed %d items.", ChannelMaxPeers)).
+			Reason("MAX_PEERS_EXCEEDED")
+	}
 	return nil
 }
 
-// SetIcon updates the channel's icon URL.
-func (c *Channel) SetIcon(newIcon *IconURL) error {
-	if c.chType == TypeDirect {
-		return ErrDirectChannelCannotHaveMetadata
+func ValidateMinMembers(rawMemberIDs []uuid.UUID) error {
+	count := (len(rawMemberIDs))
+	if count < ChannelMinMembers {
+		return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
+			Reason("MIN_MEMBERS_INVALID")
 	}
-
-	if c.iconURL.Equals(newIcon) {
-		return nil
-	}
-
-	c.iconURL = newIcon
-	c.touch()
 	return nil
 }
 
-// SetLastMessage records the latest message posted to the channel.
-func (c *Channel) SetLastMessage(messageID MessageID) error {
-	if !messageID.IsValid() {
-		return ErrIDNil
-	}
-
-	if c.lastMessageID != nil && c.lastMessageID.Equals(messageID) {
-		return nil
-	}
-
-	msgID := messageID
-	c.lastMessageID = &msgID
-	c.touch()
-	return nil
-}
-
-func (c *Channel) touch() {
-	c.updatedAt = time.Now().UTC()
-}
-
-// UpdateMeta attempts to update name and/or icon URL, returning true if any state changed.
-func (c *Channel) UpdateMeta(rawName, rawIconURL *string) (bool, error) {
-	var updated bool
-
-	if rawName != nil {
-		nameVO, err := NewName(rawName)
-		if err != nil {
-			return false, err
+func ValidateMembership(userID fields.ID, members []*Member) (*Member, error) {
+	for _, m := range members {
+		if m.UserID() == userID {
+			return m, nil
 		}
-		err = c.SetName(nameVO)
-		if err != nil {
-			return false, err
-		}
-		updated = true
 	}
-
-	if rawIconURL != nil {
-		iconVO, err := NewIconURL(rawIconURL)
-		if err != nil {
-			return false, err
-		}
-		err = c.SetIcon(iconVO)
-		if err != nil {
-			return false, err
-		}
-		updated = true
-	}
-
-	return updated, nil
+	return nil, errs.PermissionDenied("You are not a member of this channel.")
 }

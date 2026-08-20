@@ -11,23 +11,26 @@ import (
 )
 
 type Channel struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconUrl   pgtype.Text        `json:"icon_url"`
+	ID            pgtype.UUID        `json:"id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	LastMessageAt pgtype.Timestamptz `json:"last_message_at"`
+	Type          int16              `json:"type"`
+	Name          pgtype.Text        `json:"name"`
+	IconURL       pgtype.Text        `json:"icon_url"`
 }
 
 type ChannelMember struct {
 	ChannelID         pgtype.UUID        `json:"channel_id"`
 	UserID            pgtype.UUID        `json:"user_id"`
+	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	LastReadAt        pgtype.Timestamptz `json:"last_read_at"`
-	LastReadMessageID pgtype.UUID        `json:"last_read_message_id"`
+	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
 	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	MutedUntil        pgtype.Timestamptz `json:"muted_until"`
+	MentionCount      int32              `json:"mention_count"`
 	IsVisible         bool               `json:"is_visible"`
 }
 
@@ -56,7 +59,7 @@ type MessageAttachment struct {
 	Height      pgtype.Int4        `json:"height"`
 	FileName    string             `json:"file_name"`
 	ContentType string             `json:"content_type"`
-	Url         string             `json:"url"`
+	URL         string             `json:"url"`
 }
 
 type MessageReaction struct {
@@ -124,6 +127,6 @@ type User struct {
 	PasswordHash           string             `json:"password_hash"`
 	Phone                  pgtype.Text        `json:"phone"`
 	Bio                    pgtype.Text        `json:"bio"`
-	AvatarUrl              pgtype.Text        `json:"avatar_url"`
+	AvatarURL              pgtype.Text        `json:"avatar_url"`
 	BannerColor            pgtype.Text        `json:"banner_color"`
 }

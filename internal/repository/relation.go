@@ -324,6 +324,27 @@ func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (
 	return relationFromRow(row)
 }
 
+func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) (bool, error) {
+	if len(peerIDs) == 0 {
+		return false, nil
+	}
+
+	uuids := make([]uuid.UUID, len(peerIDs))
+	for i, id := range peerIDs {
+		uuids[i] = id.UUID()
+	}
+
+	hasBlock, err := r.store.RelationHasIncomingBlock(ctx, db.RelationHasIncomingBlockParams{
+		ActorID: db.ToUUID(actorID.UUID()),
+		PeerIds: db.ToUUIDs(uuids),
+	})
+	if err != nil {
+		return false, r.store.Err(err)
+	}
+
+	return hasBlock, nil
+}
+
 // -----------------------------------------------------------------------------
 // Row Mappers
 // -----------------------------------------------------------------------------
