@@ -20,16 +20,18 @@ type ChannelRepository interface {
 }
 
 type ChannelCache interface {
-	Delete(ctx context.Context, key fields.ID) error
-	DeleteBatch(ctx context.Context, keys []fields.ID) error
-	DeleteMemberIDs(ctx context.Context, channelID fields.ID) error
+	AddMemberIDs(ctx context.Context, channelID fields.ID, userIDs []fields.ID) error
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*Channel, []fields.ID, error)
 	IsLoaded(ctx context.Context, channelID fields.ID) bool
+	IsMember(ctx context.Context, channelID fields.ID, userID fields.ID) (bool, error)
+	RemoveMemberIDs(ctx context.Context, channelID fields.ID, userIDs []fields.ID) error
 	Set(ctx context.Context, ch *Channel) error
 	SetBatch(ctx context.Context, channels []*Channel) error
 	SetLoaded(ctx context.Context, channelID fields.ID) error
-	SetMemberIDs(ctx context.Context, channelID fields.ID, memberIDs []fields.ID) error
+	SetNew(ctx context.Context, ch *Channel) error
 }
 
 type MemberRepository interface {
@@ -112,14 +114,15 @@ type UserRepository interface {
 }
 
 type UserCache interface {
-	AddChannelIDs(ctx context.Context, userID fields.ID, channelIDs ...fields.ID) error
+	AddBatchChannelID(ctx context.Context, userIDs []fields.ID, channelID fields.ID) error
+	AddChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	Delete(ctx context.Context, id fields.ID) error
 	DeleteBatch(ctx context.Context, ids []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
 	GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
-	RemoveChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
-	RemoveChannelIDBatch(ctx context.Context, userIDs []fields.ID, channelID fields.ID) error
+	RemoveBatchChannelID(ctx context.Context, userIDs []fields.ID, channelID fields.ID) error
+	RemoveChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	Set(ctx context.Context, usr *user.User) error
 	SetBatch(ctx context.Context, users []*user.User) error
 }
