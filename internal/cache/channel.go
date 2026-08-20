@@ -83,7 +83,6 @@ func (c *ChannelCache) SetMemberIDs(ctx context.Context, channelID fields.ID, me
 
 	key := ChannelMemberIDsKey(channelID)
 
-	// Convert []fields.ID to string/byte slice representation for Redis
 	rawIDs := make([]string, 0, len(memberIDs))
 	for _, id := range memberIDs {
 		if !id.IsZero() {
@@ -95,8 +94,6 @@ func (c *ChannelCache) SetMemberIDs(ctx context.Context, channelID fields.ID, me
 		return nil
 	}
 
-	// Use Redis SADD / RPUSH or JSON/SET depending on your storage strategy.
-	// Example using JSON/String serialization matching KeyCache TTL:
 	data, err := json.Marshal(rawIDs)
 	if err != nil {
 		return err
@@ -117,29 +114,3 @@ func (c *ChannelCache) SetLoaded(ctx context.Context, channelID fields.ID) error
 	}
 	return nil
 }
-
-// func (c *ChannelCache) GetMemberIDs(ctx context.Context, channelID fields.ID) ([]fields.ID, error) {
-// 	if channelID.IsZero() {
-// 		return nil, nil
-// 	}
-
-// 	key := ChannelMemberIDsKey(channelID)
-// 	val, err := c.KeyCache.client.Get(ctx, key).Result()
-// 	if err == redisdriver.Nil {
-// 		return nil, nil // Cache miss
-// 	} else if err != nil {
-// 		return nil, err
-// 	}
-
-// 	var rawIDs []string
-// 	if err := json.Unmarshal([]byte(val), &rawIDs); err != nil {
-// 		return nil, err
-// 	}
-
-// 	memberIDs, err := fields.ParseIDs("member_id", fields.parseUUIDs(rawIDs))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return memberIDs, nil
-// }
