@@ -105,7 +105,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		now,
 	)
 
-	creatorMember := ParseMember(
+	parsedUser := ParseMember(
 		channelID,
 		userID,
 		fields.ID{},
@@ -118,7 +118,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		now,
 	)
 
-	peerMembers := ParseMembers(
+	parsedPeers := ParseMembers(
 		channelID,
 		peerIDs,
 		fields.ID{},
@@ -132,8 +132,8 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 	)
 
 	parsedMembers := make([]*Member, 0, len(allMemberIDs))
-	parsedMembers = append(parsedMembers, creatorMember)
-	parsedMembers = append(parsedMembers, peerMembers...)
+	parsedMembers = append(parsedMembers, parsedUser)
+	parsedMembers = append(parsedMembers, parsedPeers...)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		// Create channel
@@ -401,10 +401,10 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		}
 	}
 
-	// Sort channels
+	// Sort
 	SortSidebar(channels, userMembersMap)
 
-	// Hydrate views
+	// Hydrate
 	sidebarViews := HydrateSidebarViews(userID, channels, userMembersMap, channelMembersMap, userMap, presenceMap)
 
 	return sidebarViews, nil

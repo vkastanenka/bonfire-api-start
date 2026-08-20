@@ -175,7 +175,7 @@ func (s *MemberService) AddMembers(
 				fields.Timestamp{}, fields.Timestamp{}, 1, true, now, now,
 			)
 
-			// System messages only for created groups
+			// System messages only for existing groups
 			systemMessages := make([]*Message, 0, len(newMemberIDs))
 			msgTime := now
 
