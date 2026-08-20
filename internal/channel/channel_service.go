@@ -22,7 +22,6 @@ type ChannelService struct {
 	messageRepo   MessageRepository
 	messageCache  MessageCache
 	reactionRepo  ReactionRepository
-	reactionCache ReactionCache
 	userRepo      UserRepository
 	userCache     UserCache
 	outboxRepo    OutboxRepository
@@ -39,7 +38,6 @@ func NewChannelService(
 	messageRepo MessageRepository,
 	messageCache MessageCache,
 	reactionRepo ReactionRepository,
-	reactionCache ReactionCache,
 	userRepo UserRepository,
 	userCache UserCache,
 	outboxRepo OutboxRepository,
@@ -55,7 +53,6 @@ func NewChannelService(
 		messageRepo:   messageRepo,
 		messageCache:  messageCache,
 		reactionRepo:  reactionRepo,
-		reactionCache: reactionCache,
 		userRepo:      userRepo,
 		userCache:     userCache,
 		outboxRepo:    outboxRepo,
