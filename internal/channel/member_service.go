@@ -52,12 +52,14 @@ func NewMemberService(
 	}
 }
 
+// AddMembers adds members to a channel and creates a group channel if adding to a direct channel.
 func (s *MemberService) AddMembers(
 	ctx context.Context,
 	rawUserID,
 	rawChannelID uuid.UUID,
 	rawMemberIDs []uuid.UUID,
 ) error {
+	// Validate
 	err := ValidateMinMembers(rawMemberIDs)
 	if err != nil {
 		return err
@@ -78,12 +80,14 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
+	// Dedupe ids and remove user id
 	newPeerIDs := fields.RemoveID(fields.DedupeIDs(memberIDs), userID)
 	if len(newPeerIDs) == 0 {
 		return errs.InvalidArgument("No new members to add.").
 			Reason("NO_NEW_MEMBERS")
 	}
 
+	// Verify blocks
 	hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, newPeerIDs)
 	if err != nil {
 		return err
@@ -102,33 +106,36 @@ func (s *MemberService) AddMembers(
 		allMemberIDs   []fields.ID
 	)
 
+	// Get existing members
+	existingMembersMap, err := s.repo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	if err != nil {
+		return err
+	}
+
+	existingMembers, ok := existingMembersMap[channelID]
+	if !ok || len(existingMembers) == 0 {
+		return ErrMembersNotFound()
+	}
+
+	// Validate membership
+	if _, err := ValidateMembership(userID, existingMembers); err != nil {
+		return err
+	}
+
+	newMemberIDs, err := FilterNewMemberIDs(userID, existingMembers, newPeerIDs)
+	if err != nil {
+		return err
+	}
+
+	targetChannelID := channelID
+	peerIDs := newMemberIDs
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		// Lock channel for update
 		chLock, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
 		}
-
-		existingMembersMap, err := s.repo.GetBatchByChannelIDs(txCtx, []fields.ID{channelID})
-		if err != nil {
-			return err
-		}
-
-		existingMembers, ok := existingMembersMap[channelID]
-		if !ok || len(existingMembers) == 0 {
-			return ErrMembersNotFound()
-		}
-
-		if _, err := ValidateMembership(userID, existingMembers); err != nil {
-			return err
-		}
-
-		newMemberIDs, err := FilterNewMemberIDs(userID, existingMembers, newPeerIDs)
-		if err != nil {
-			return err
-		}
-
-		targetChannelID := channelID
-		peerIDs := newMemberIDs
 
 		if chLock.chType.IsDirect() {
 			newGroupChannelID, err := fields.NewID()
@@ -245,8 +252,6 @@ func (s *MemberService) AddMembers(
 	if err != nil {
 		return err
 	}
-
-	// Cache Layer Implementation (Pipeline + Atomic Ordering)
 
 	// Handle cache
 	cacheCtx := context.WithoutCancel(ctx)
