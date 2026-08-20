@@ -124,6 +124,14 @@ ORDER BY
     id DESC
 LIMIT @limit_val::int;
 
+-- name: MessageCountByChannelID :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    messages
+WHERE
+    channel_id = @channel_id::uuid;
+
 -- name: MessageUpdateContent :one
 UPDATE
     messages

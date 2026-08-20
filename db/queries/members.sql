@@ -65,7 +65,7 @@ ORDER BY
     channel_id DESC
 LIMIT @limit_val::int;
 
--- name: ChannelMemberCountByChannel :one
+-- name: ChannelMemberCountByChannelID :one
 SELECT
     COUNT(*)::bigint
 FROM
@@ -147,4 +147,17 @@ WHERE
 DELETE FROM channel_members
 WHERE channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
+
+-- name: ChannelMemberClearBatchLastReadMessageByChannelID :many
+UPDATE
+    channel_members
+SET
+    last_read_message_id = NULL,
+    last_read_message_at = NULL,
+    mention_count = 0,
+    updated_at = @updated_at::timestamptz
+WHERE
+    channel_id = @channel_id::uuid
+RETURNING
+    channel_members.*;
 
