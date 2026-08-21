@@ -174,7 +174,7 @@ CREATE INDEX idx_messages_forward_channel_id ON messages(forward_channel_id)
 WHERE
     forward_channel_id IS NOT NULL;
 
-CREATE INDEX idx_messages_pinned_at_desc ON messages(channel_id, pinned_at DESC)
+CREATE INDEX idx_messages_pinned_at_desc_id_desc ON messages(channel_id, pinned_at DESC, id DESC)
 WHERE
     pinned_at IS NOT NULL;
 

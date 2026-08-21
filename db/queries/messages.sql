@@ -1,35 +1,41 @@
 -- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
-    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('author_id')::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('forwarded_message_id')::uuid, sqlc.narg('forwarded_channel_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, @type::smallint, sqlc.narg('content')::text, sqlc.narg('system_metadata')::jsonb)
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata)
+    VALUES (@id::uuid, @channel_id::uuid, sqlc.narg('author_id')::uuid, sqlc.narg('reply_to_message_id')::uuid, sqlc.narg('forward_message_id')::uuid, sqlc.narg('forward_channel_id')::uuid, @created_at::timestamptz, @updated_at::timestamptz, sqlc.narg('edited_at')::timestamptz, sqlc.narg('pinned_at')::timestamptz, @type::smallint, sqlc.narg('content')::text, sqlc.narg('metadata')::jsonb)
 RETURNING
     messages.*;
 
 -- name: MessageCreateBatch :many
-WITH unpacked AS (
-    SELECT
-        x.*
-    FROM
-        jsonb_to_recordset(@payload::jsonb)
-        WITH ORDINALITY AS x(id uuid, channel_id uuid, author_id uuid, reply_to_message_id uuid, forwarded_message_id uuid, forwarded_channel_id uuid, created_at timestamptz, updated_at timestamptz, type smallint, content text, system_metadata jsonb, ord bigint))
-    INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
-    SELECT
-        id,
-        channel_id,
-        author_id,
-        reply_to_message_id,
-        forwarded_message_id,
-        forwarded_channel_id,
-        created_at,
-        updated_at,
-        type,
-        content,
-        system_metadata
-    FROM
-        unpacked
-    ORDER BY
-        ord ASC
-    RETURNING
-        messages.*;
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata)
+SELECT
+    id,
+    channel_id,
+    author_id,
+    reply_to_message_id,
+    forward_message_id,
+    forward_channel_id,
+    created_at,
+    updated_at,
+    edited_at,
+    pinned_at,
+    type,
+    content,
+    metadata
+FROM
+    jsonb_to_recordset(@payload::jsonb) AS x(id uuid,
+        channel_id uuid,
+        author_id uuid,
+        reply_to_message_id uuid,
+        forward_message_id uuid,
+        forward_channel_id uuid,
+        created_at timestamptz,
+        updated_at timestamptz,
+        edited_at timestamptz,
+        pinned_at timestamptz,
+        type smallint,
+        content text,
+        metadata jsonb)
+RETURNING
+    messages.*;
 
 -- name: MessageGet :one
 SELECT
@@ -115,10 +121,10 @@ FROM
 WHERE
     channel_id = @channel_id::uuid
     AND pinned_at IS NOT NULL
-    AND (@cursor_id::uuid IS NULL
+    AND (sqlc.narg('cursor_id')::uuid IS NULL
         OR (pinned_at,
-            id) <(@cursor_pinned_at::timestamptz,
-            @cursor_id::uuid))
+            id) <(sqlc.narg('cursor_pinned_at')::timestamptz,
+            sqlc.narg('cursor_id')::uuid))
 ORDER BY
     pinned_at DESC,
     id DESC
