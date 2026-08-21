@@ -12,26 +12,30 @@ import (
 )
 
 const channelCreate = `-- name: ChannelCreate :one
-INSERT INTO channels(id, created_at, updated_at, type, name, icon_url)
-    VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::smallint, $5::text, $6::text)
+INSERT INTO channels(id, last_message_id, created_at, updated_at, last_message_at, type, name, icon_url)
+    VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::timestamptz, $5::timestamptz, $6::smallint, $7::text, $8::text)
 RETURNING
     channels.id, channels.last_message_id, channels.created_at, channels.updated_at, channels.last_message_at, channels.type, channels.name, channels.icon_url
 `
 
 type ChannelCreateParams struct {
-	ID        pgtype.UUID        `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-	Name      pgtype.Text        `json:"name"`
-	IconURL   pgtype.Text        `json:"icon_url"`
+	ID            pgtype.UUID        `json:"id"`
+	LastMessageID pgtype.UUID        `json:"last_message_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	LastMessageAt pgtype.Timestamptz `json:"last_message_at"`
+	Type          int16              `json:"type"`
+	Name          pgtype.Text        `json:"name"`
+	IconURL       pgtype.Text        `json:"icon_url"`
 }
 
 func (q *Queries) ChannelCreate(ctx context.Context, arg ChannelCreateParams) (Channel, error) {
 	row := q.db.QueryRow(ctx, channelCreate,
 		arg.ID,
+		arg.LastMessageID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.LastMessageAt,
 		arg.Type,
 		arg.Name,
 		arg.IconURL,

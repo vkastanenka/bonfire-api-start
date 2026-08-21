@@ -28,24 +28,26 @@ func (q *Queries) MessageCountByChannelID(ctx context.Context, channelID pgtype.
 }
 
 const messageCreate = `-- name: MessageCreate :one
-INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
-    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, $8::timestamptz, $9::smallint, $10::text, $11::jsonb)
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::smallint, $12::text, $13::jsonb)
 RETURNING
-    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 `
 
 type MessageCreateParams struct {
-	ID                 pgtype.UUID        `json:"id"`
-	ChannelID          pgtype.UUID        `json:"channel_id"`
-	AuthorID           pgtype.UUID        `json:"author_id"`
-	ReplyToMessageID   pgtype.UUID        `json:"reply_to_message_id"`
-	ForwardedMessageID pgtype.UUID        `json:"forwarded_message_id"`
-	ForwardedChannelID pgtype.UUID        `json:"forwarded_channel_id"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	Type               int16              `json:"type"`
-	Content            pgtype.Text        `json:"content"`
-	SystemMetadata     []byte             `json:"system_metadata"`
+	ID               pgtype.UUID        `json:"id"`
+	ChannelID        pgtype.UUID        `json:"channel_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	ForwardMessageID pgtype.UUID        `json:"forward_message_id"`
+	ForwardChannelID pgtype.UUID        `json:"forward_channel_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+	PinnedAt         pgtype.Timestamptz `json:"pinned_at"`
+	Type             int16              `json:"type"`
+	Content          pgtype.Text        `json:"content"`
+	Metadata         []byte             `json:"metadata"`
 }
 
 func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (Message, error) {
@@ -54,13 +56,15 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		arg.ChannelID,
 		arg.AuthorID,
 		arg.ReplyToMessageID,
-		arg.ForwardedMessageID,
-		arg.ForwardedChannelID,
+		arg.ForwardMessageID,
+		arg.ForwardChannelID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.EditedAt,
+		arg.PinnedAt,
 		arg.Type,
 		arg.Content,
-		arg.SystemMetadata,
+		arg.Metadata,
 	)
 	var i Message
 	err := row.Scan(
@@ -68,45 +72,51 @@ func (q *Queries) MessageCreate(ctx context.Context, arg MessageCreateParams) (M
 		&i.ChannelID,
 		&i.AuthorID,
 		&i.ReplyToMessageID,
-		&i.ForwardedMessageID,
-		&i.ForwardedChannelID,
+		&i.ForwardMessageID,
+		&i.ForwardChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.PinnedAt,
 		&i.Type,
 		&i.Content,
-		&i.SystemMetadata,
+		&i.Metadata,
 	)
 	return i, err
 }
 
 const messageCreateBatch = `-- name: MessageCreateBatch :many
-WITH unpacked AS (
-    SELECT
-        x.x
-    FROM
-        jsonb_to_recordset($1::jsonb)
-        WITH ORDINALITY AS x(id uuid, channel_id uuid, author_id uuid, reply_to_message_id uuid, forwarded_message_id uuid, forwarded_channel_id uuid, created_at timestamptz, updated_at timestamptz, type smallint, content text, system_metadata jsonb, ord bigint))
-    INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, type, content, system_metadata)
-    SELECT
-        id,
-        channel_id,
-        author_id,
-        reply_to_message_id,
-        forwarded_message_id,
-        forwarded_channel_id,
-        created_at,
-        updated_at,
-        type,
-        content,
-        system_metadata
-    FROM
-        unpacked
-    ORDER BY
-        ord ASC
-    RETURNING
-        messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+INSERT INTO messages(id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata)
+SELECT
+    id,
+    channel_id,
+    author_id,
+    reply_to_message_id,
+    forward_message_id,
+    forward_channel_id,
+    created_at,
+    updated_at,
+    edited_at,
+    pinned_at,
+    type,
+    content,
+    metadata
+FROM
+    jsonb_to_recordset($1::jsonb) AS x(id uuid,
+        channel_id uuid,
+        author_id uuid,
+        reply_to_message_id uuid,
+        forward_message_id uuid,
+        forward_channel_id uuid,
+        created_at timestamptz,
+        updated_at timestamptz,
+        edited_at timestamptz,
+        pinned_at timestamptz,
+        type smallint,
+        content text,
+        metadata jsonb)
+RETURNING
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 `
 
 func (q *Queries) MessageCreateBatch(ctx context.Context, payload []byte) ([]Message, error) {
@@ -123,15 +133,15 @@ func (q *Queries) MessageCreateBatch(ctx context.Context, payload []byte) ([]Mes
 			&i.ChannelID,
 			&i.AuthorID,
 			&i.ReplyToMessageID,
-			&i.ForwardedMessageID,
-			&i.ForwardedChannelID,
+			&i.ForwardMessageID,
+			&i.ForwardChannelID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.PinnedAt,
 			&i.Type,
 			&i.Content,
-			&i.SystemMetadata,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -155,7 +165,7 @@ func (q *Queries) MessageDelete(ctx context.Context, id pgtype.UUID) error {
 
 const messageGet = `-- name: MessageGet :one
 SELECT
-    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 FROM
     messages
 WHERE
@@ -170,22 +180,22 @@ func (q *Queries) MessageGet(ctx context.Context, id pgtype.UUID) (Message, erro
 		&i.ChannelID,
 		&i.AuthorID,
 		&i.ReplyToMessageID,
-		&i.ForwardedMessageID,
-		&i.ForwardedChannelID,
+		&i.ForwardMessageID,
+		&i.ForwardChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.PinnedAt,
 		&i.Type,
 		&i.Content,
-		&i.SystemMetadata,
+		&i.Metadata,
 	)
 	return i, err
 }
 
 const messageListAfterByChannelID = `-- name: MessageListAfterByChannelID :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+    id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata
 FROM
     messages
 WHERE
@@ -216,15 +226,15 @@ func (q *Queries) MessageListAfterByChannelID(ctx context.Context, arg MessageLi
 			&i.ChannelID,
 			&i.AuthorID,
 			&i.ReplyToMessageID,
-			&i.ForwardedMessageID,
-			&i.ForwardedChannelID,
+			&i.ForwardMessageID,
+			&i.ForwardChannelID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.PinnedAt,
 			&i.Type,
 			&i.Content,
-			&i.SystemMetadata,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -273,7 +283,7 @@ target_ids AS (
         after_read
 )
 SELECT
-    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 FROM
     messages
     JOIN target_ids ON messages.id = target_ids.id
@@ -307,15 +317,15 @@ func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageL
 			&i.ChannelID,
 			&i.AuthorID,
 			&i.ReplyToMessageID,
-			&i.ForwardedMessageID,
-			&i.ForwardedChannelID,
+			&i.ForwardMessageID,
+			&i.ForwardChannelID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.PinnedAt,
 			&i.Type,
 			&i.Content,
-			&i.SystemMetadata,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -329,7 +339,7 @@ func (q *Queries) MessageListAroundByChannelID(ctx context.Context, arg MessageL
 
 const messageListBeforeByChannelID = `-- name: MessageListBeforeByChannelID :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+    id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata
 FROM
     messages
 WHERE
@@ -360,15 +370,15 @@ func (q *Queries) MessageListBeforeByChannelID(ctx context.Context, arg MessageL
 			&i.ChannelID,
 			&i.AuthorID,
 			&i.ReplyToMessageID,
-			&i.ForwardedMessageID,
-			&i.ForwardedChannelID,
+			&i.ForwardMessageID,
+			&i.ForwardChannelID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.PinnedAt,
 			&i.Type,
 			&i.Content,
-			&i.SystemMetadata,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -382,7 +392,7 @@ func (q *Queries) MessageListBeforeByChannelID(ctx context.Context, arg MessageL
 
 const messageListPinnedByChannelID = `-- name: MessageListPinnedByChannelID :many
 SELECT
-    id, channel_id, author_id, reply_to_message_id, forwarded_message_id, forwarded_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, system_metadata
+    id, channel_id, author_id, reply_to_message_id, forward_message_id, forward_channel_id, created_at, updated_at, edited_at, pinned_at, type, content, metadata
 FROM
     messages
 WHERE
@@ -424,15 +434,15 @@ func (q *Queries) MessageListPinnedByChannelID(ctx context.Context, arg MessageL
 			&i.ChannelID,
 			&i.AuthorID,
 			&i.ReplyToMessageID,
-			&i.ForwardedMessageID,
-			&i.ForwardedChannelID,
+			&i.ForwardMessageID,
+			&i.ForwardChannelID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.EditedAt,
 			&i.PinnedAt,
 			&i.Type,
 			&i.Content,
-			&i.SystemMetadata,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +464,7 @@ SET
 WHERE
     id = $4::uuid
 RETURNING
-    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 `
 
 type MessageUpdateContentParams struct {
@@ -477,15 +487,15 @@ func (q *Queries) MessageUpdateContent(ctx context.Context, arg MessageUpdateCon
 		&i.ChannelID,
 		&i.AuthorID,
 		&i.ReplyToMessageID,
-		&i.ForwardedMessageID,
-		&i.ForwardedChannelID,
+		&i.ForwardMessageID,
+		&i.ForwardChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.PinnedAt,
 		&i.Type,
 		&i.Content,
-		&i.SystemMetadata,
+		&i.Metadata,
 	)
 	return i, err
 }
@@ -499,7 +509,7 @@ SET
 WHERE
     id = $3::uuid
 RETURNING
-    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forwarded_message_id, messages.forwarded_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.system_metadata
+    messages.id, messages.channel_id, messages.author_id, messages.reply_to_message_id, messages.forward_message_id, messages.forward_channel_id, messages.created_at, messages.updated_at, messages.edited_at, messages.pinned_at, messages.type, messages.content, messages.metadata
 `
 
 type MessageUpdatePinnedAtParams struct {
@@ -516,15 +526,15 @@ func (q *Queries) MessageUpdatePinnedAt(ctx context.Context, arg MessageUpdatePi
 		&i.ChannelID,
 		&i.AuthorID,
 		&i.ReplyToMessageID,
-		&i.ForwardedMessageID,
-		&i.ForwardedChannelID,
+		&i.ForwardMessageID,
+		&i.ForwardChannelID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.EditedAt,
 		&i.PinnedAt,
 		&i.Type,
 		&i.Content,
-		&i.SystemMetadata,
+		&i.Metadata,
 	)
 	return i, err
 }

@@ -28,45 +28,45 @@ type ChannelMember struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
-	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	MutedUntil        pgtype.Timestamptz `json:"muted_until"`
+	PinnedAt          pgtype.Timestamptz `json:"pinned_at"`
 	MentionCount      int32              `json:"mention_count"`
 	IsVisible         bool               `json:"is_visible"`
 }
 
 type Message struct {
-	ID                 pgtype.UUID        `json:"id"`
-	ChannelID          pgtype.UUID        `json:"channel_id"`
-	AuthorID           pgtype.UUID        `json:"author_id"`
-	ReplyToMessageID   pgtype.UUID        `json:"reply_to_message_id"`
-	ForwardedMessageID pgtype.UUID        `json:"forwarded_message_id"`
-	ForwardedChannelID pgtype.UUID        `json:"forwarded_channel_id"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	EditedAt           pgtype.Timestamptz `json:"edited_at"`
-	PinnedAt           pgtype.Timestamptz `json:"pinned_at"`
-	Type               int16              `json:"type"`
-	Content            pgtype.Text        `json:"content"`
-	SystemMetadata     []byte             `json:"system_metadata"`
+	ID               pgtype.UUID        `json:"id"`
+	ChannelID        pgtype.UUID        `json:"channel_id"`
+	AuthorID         pgtype.UUID        `json:"author_id"`
+	ReplyToMessageID pgtype.UUID        `json:"reply_to_message_id"`
+	ForwardMessageID pgtype.UUID        `json:"forward_message_id"`
+	ForwardChannelID pgtype.UUID        `json:"forward_channel_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	EditedAt         pgtype.Timestamptz `json:"edited_at"`
+	PinnedAt         pgtype.Timestamptz `json:"pinned_at"`
+	Type             int16              `json:"type"`
+	Content          pgtype.Text        `json:"content"`
+	Metadata         []byte             `json:"metadata"`
 }
 
 type MessageAttachment struct {
 	ID          pgtype.UUID        `json:"id"`
 	MessageID   pgtype.UUID        `json:"message_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	FileSize    int64              `json:"file_size"`
-	Width       pgtype.Int4        `json:"width"`
-	Height      pgtype.Int4        `json:"height"`
 	FileName    string             `json:"file_name"`
 	ContentType string             `json:"content_type"`
 	URL         string             `json:"url"`
+	FileSize    int64              `json:"file_size"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type MessageReaction struct {
 	MessageID pgtype.UUID        `json:"message_id"`
 	UserID    pgtype.UUID        `json:"user_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	Emoji     string             `json:"emoji"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type OutboxEvent struct {

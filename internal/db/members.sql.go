@@ -16,22 +16,24 @@ UPDATE
     channel_members
 SET
     last_read_message_id = NULL,
-    last_read_message_at = NULL,
+    last_read_message_at = $1::timestamptz,
     mention_count = 0,
-    updated_at = $1::timestamptz
+    updated_at = $2::timestamptz
 WHERE
-    channel_id = $2::uuid
+    channel_id = $3::uuid
+    AND last_read_message_id IS NOT NULL
 RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberClearBatchLastReadMessageByChannelIDParams struct {
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
+	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ChannelID         pgtype.UUID        `json:"channel_id"`
 }
 
 func (q *Queries) ChannelMemberClearBatchLastReadMessageByChannelID(ctx context.Context, arg ChannelMemberClearBatchLastReadMessageByChannelIDParams) ([]ChannelMember, error) {
-	rows, err := q.db.Query(ctx, channelMemberClearBatchLastReadMessageByChannelID, arg.UpdatedAt, arg.ChannelID)
+	rows, err := q.db.Query(ctx, channelMemberClearBatchLastReadMessageByChannelID, arg.LastReadMessageAt, arg.UpdatedAt, arg.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +48,8 @@ func (q *Queries) ChannelMemberClearBatchLastReadMessageByChannelID(ctx context.
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastReadMessageAt,
-			&i.PinnedAt,
 			&i.MutedUntil,
+			&i.PinnedAt,
 			&i.MentionCount,
 			&i.IsVisible,
 		); err != nil {
@@ -78,40 +80,41 @@ func (q *Queries) ChannelMemberCountByChannelID(ctx context.Context, channelID p
 }
 
 const channelMemberCreateBatch = `-- name: ChannelMemberCreateBatch :many
-WITH unpacked AS (
-    SELECT
-        x.x
-    FROM
-        jsonb_to_recordset($1::jsonb)
-        WITH ORDINALITY AS x(channel_id uuid, user_id uuid, last_read_message_id uuid, created_at timestamptz, updated_at timestamptz, last_read_message_at timestamptz, pinned_at timestamptz, muted_until timestamptz, mention_count integer, is_visible boolean, ord bigint))
-    INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
-    SELECT
-        channel_id,
-        user_id,
-        last_read_message_id,
-        created_at,
-        updated_at,
-        last_read_message_at,
-        pinned_at,
-        muted_until,
-        mention_count,
-        is_visible
-    FROM
-        unpacked
-    ORDER BY
-        ord ASC
-    ON CONFLICT (channel_id,
-        user_id)
-        DO UPDATE SET
-            last_read_message_id = EXCLUDED.last_read_message_id,
-            updated_at = EXCLUDED.updated_at,
-            last_read_message_at = EXCLUDED.last_read_message_at,
-            pinned_at = EXCLUDED.pinned_at,
-            muted_until = EXCLUDED.muted_until,
-            mention_count = EXCLUDED.mention_count,
-            is_visible = EXCLUDED.is_visible
-        RETURNING
-            channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+INSERT INTO channel_members(channel_id, user_id, last_read_message_id, created_at, updated_at, last_read_message_at, pinned_at, muted_until, mention_count, is_visible)
+SELECT
+    channel_id,
+    user_id,
+    last_read_message_id,
+    created_at,
+    updated_at,
+    last_read_message_at,
+    pinned_at,
+    muted_until,
+    mention_count,
+    is_visible
+FROM
+    jsonb_to_recordset($1::jsonb) AS x(channel_id uuid,
+        user_id uuid,
+        last_read_message_id uuid,
+        created_at timestamptz,
+        updated_at timestamptz,
+        last_read_message_at timestamptz,
+        pinned_at timestamptz,
+        muted_until timestamptz,
+        mention_count integer,
+        is_visible boolean)
+ON CONFLICT (channel_id,
+    user_id)
+    DO UPDATE SET
+        last_read_message_id = EXCLUDED.last_read_message_id,
+        updated_at = EXCLUDED.updated_at,
+        last_read_message_at = EXCLUDED.last_read_message_at,
+        pinned_at = EXCLUDED.pinned_at,
+        muted_until = EXCLUDED.muted_until,
+        mention_count = EXCLUDED.mention_count,
+        is_visible = EXCLUDED.is_visible
+    RETURNING
+        channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 func (q *Queries) ChannelMemberCreateBatch(ctx context.Context, payload []byte) ([]ChannelMember, error) {
@@ -130,8 +133,8 @@ func (q *Queries) ChannelMemberCreateBatch(ctx context.Context, payload []byte) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastReadMessageAt,
-			&i.PinnedAt,
 			&i.MutedUntil,
+			&i.PinnedAt,
 			&i.MentionCount,
 			&i.IsVisible,
 		); err != nil {
@@ -163,7 +166,7 @@ func (q *Queries) ChannelMemberDelete(ctx context.Context, arg ChannelMemberDele
 
 const channelMemberGet = `-- name: ChannelMemberGet :one
 SELECT
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 FROM
     channel_members
 WHERE
@@ -186,8 +189,8 @@ func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadMessageAt,
-		&i.PinnedAt,
 		&i.MutedUntil,
+		&i.PinnedAt,
 		&i.MentionCount,
 		&i.IsVisible,
 	)
@@ -196,7 +199,7 @@ func (q *Queries) ChannelMemberGet(ctx context.Context, arg ChannelMemberGetPara
 
 const channelMemberGetBatchByChannelIDs = `-- name: ChannelMemberGetBatchByChannelIDs :many
 SELECT
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 FROM
     channel_members
 WHERE
@@ -219,8 +222,8 @@ func (q *Queries) ChannelMemberGetBatchByChannelIDs(ctx context.Context, channel
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastReadMessageAt,
-			&i.PinnedAt,
 			&i.MutedUntil,
+			&i.PinnedAt,
 			&i.MentionCount,
 			&i.IsVisible,
 		); err != nil {
@@ -261,14 +264,13 @@ func (q *Queries) ChannelMemberIncrementPeersMentionCountByChannelID(ctx context
 
 const channelMemberListVisibleByUserID = `-- name: ChannelMemberListVisibleByUserID :many
 SELECT
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 FROM
     channel_members
 WHERE
     user_id = $1::uuid
     AND is_visible = TRUE
 ORDER BY
-    (pinned_at IS NOT NULL) DESC,
     pinned_at DESC NULLS LAST,
     channel_id DESC
 LIMIT $2::int
@@ -295,8 +297,8 @@ func (q *Queries) ChannelMemberListVisibleByUserID(ctx context.Context, arg Chan
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastReadMessageAt,
-			&i.PinnedAt,
 			&i.MutedUntil,
+			&i.PinnedAt,
 			&i.MentionCount,
 			&i.IsVisible,
 		); err != nil {
@@ -320,7 +322,7 @@ WHERE
     channel_id = $3::uuid
     AND user_id = $4::uuid
 RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberUpdateIsVisibleParams struct {
@@ -345,8 +347,8 @@ func (q *Queries) ChannelMemberUpdateIsVisible(ctx context.Context, arg ChannelM
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadMessageAt,
-		&i.PinnedAt,
 		&i.MutedUntil,
+		&i.PinnedAt,
 		&i.MentionCount,
 		&i.IsVisible,
 	)
@@ -368,11 +370,9 @@ SET
 WHERE
     channel_id = $5::uuid
     AND user_id = $6::uuid
-    AND ($2::timestamptz IS NULL
-        OR last_read_message_at IS NULL
-        OR $2::timestamptz >= last_read_message_at)
+    AND $2::timestamptz >= last_read_message_at
 RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberUpdateLastReadMessageParams struct {
@@ -401,8 +401,8 @@ func (q *Queries) ChannelMemberUpdateLastReadMessage(ctx context.Context, arg Ch
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadMessageAt,
-		&i.PinnedAt,
 		&i.MutedUntil,
+		&i.PinnedAt,
 		&i.MentionCount,
 		&i.IsVisible,
 	)
@@ -419,7 +419,7 @@ WHERE
     channel_id = $3::uuid
     AND user_id = $4::uuid
 RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberUpdateMutedUntilParams struct {
@@ -444,8 +444,8 @@ func (q *Queries) ChannelMemberUpdateMutedUntil(ctx context.Context, arg Channel
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadMessageAt,
-		&i.PinnedAt,
 		&i.MutedUntil,
+		&i.PinnedAt,
 		&i.MentionCount,
 		&i.IsVisible,
 	)
@@ -462,7 +462,7 @@ WHERE
     channel_id = $3::uuid
     AND user_id = $4::uuid
 RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.pinned_at, channel_members.muted_until, channel_members.mention_count, channel_members.is_visible
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberUpdatePinnedAtParams struct {
@@ -487,8 +487,8 @@ func (q *Queries) ChannelMemberUpdatePinnedAt(ctx context.Context, arg ChannelMe
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastReadMessageAt,
-		&i.PinnedAt,
 		&i.MutedUntil,
+		&i.PinnedAt,
 		&i.MentionCount,
 		&i.IsVisible,
 	)

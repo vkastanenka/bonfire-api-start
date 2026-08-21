@@ -24,12 +24,14 @@ func NewChannelRepository(store *db.Store) *ChannelRepository {
 
 func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
 	row, err := r.store.ChannelCreate(ctx, db.ChannelCreateParams{
-		ID:        db.ToUUID(ch.ID().UUID()),
-		CreatedAt: db.ToTimestamptz(ch.CreatedAt().Time()),
-		UpdatedAt: db.ToTimestamptz(ch.UpdatedAt().Time()),
-		Type:      ch.Type().Int16(),
-		Name:      db.ToTextPtr(ch.Name().StringPtr()),
-		IconURL:   db.ToTextPtr(ch.IconURL().StringPtr()),
+		ID:            db.ToUUID(ch.ID().UUID()),
+		LastMessageID: db.ToUUIDPtr(ch.LastMessageID().UUIDPtr()),
+		CreatedAt:     db.ToTimestamptz(ch.CreatedAt().Time()),
+		UpdatedAt:     db.ToTimestamptz(ch.UpdatedAt().Time()),
+		LastMessageAt: db.ToTimestamptz(ch.LastMessageAt().Time()),
+		Type:          ch.Type().Int16(),
+		Name:          db.ToTextPtr(ch.Name().StringPtr()),
+		IconURL:       db.ToTextPtr(ch.IconURL().StringPtr()),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -116,7 +118,7 @@ func (r *ChannelRepository) UpdateLastMessage(
 	row, err := r.store.ChannelUpdateLastMessage(ctx, db.ChannelUpdateLastMessageParams{
 		ID:            db.ToUUID(id.UUID()),
 		LastMessageID: db.ToUUIDPtr(lastMessageID.UUIDPtr()),
-		LastMessageAt: db.ToTimestamptzPtr(lastMessageAt.TimePtr()),
+		LastMessageAt: db.ToTimestamptz(lastMessageAt.Time()),
 		UpdatedAt:     db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {

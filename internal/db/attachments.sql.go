@@ -34,7 +34,7 @@ FROM
         content_type text,
         url text)
 RETURNING
-    id, message_id, created_at, file_size, width, height, file_name, content_type, url
+    id, message_id, file_name, content_type, url, file_size, width, height, created_at
 `
 
 func (q *Queries) AttachmentCreateBatch(ctx context.Context, payload []byte) ([]MessageAttachment, error) {
@@ -49,13 +49,13 @@ func (q *Queries) AttachmentCreateBatch(ctx context.Context, payload []byte) ([]
 		if err := rows.Scan(
 			&i.ID,
 			&i.MessageID,
-			&i.CreatedAt,
-			&i.FileSize,
-			&i.Width,
-			&i.Height,
 			&i.FileName,
 			&i.ContentType,
 			&i.URL,
+			&i.FileSize,
+			&i.Width,
+			&i.Height,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -79,7 +79,7 @@ func (q *Queries) AttachmentDelete(ctx context.Context, attachmentID pgtype.UUID
 
 const attachmentGetBatchByMessageIDs = `-- name: AttachmentGetBatchByMessageIDs :many
 SELECT
-    id, message_id, created_at, file_size, width, height, file_name, content_type, url
+    id, message_id, file_name, content_type, url, file_size, width, height, created_at
 FROM
     message_attachments
 WHERE
@@ -101,13 +101,13 @@ func (q *Queries) AttachmentGetBatchByMessageIDs(ctx context.Context, messageIds
 		if err := rows.Scan(
 			&i.ID,
 			&i.MessageID,
-			&i.CreatedAt,
-			&i.FileSize,
-			&i.Width,
-			&i.Height,
 			&i.FileName,
 			&i.ContentType,
 			&i.URL,
+			&i.FileSize,
+			&i.Width,
+			&i.Height,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

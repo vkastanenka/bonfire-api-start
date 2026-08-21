@@ -37,7 +37,7 @@ const reactionCreate = `-- name: ReactionCreate :one
 INSERT INTO message_reactions(message_id, user_id, emoji, created_at)
     VALUES ($1::uuid, $2::uuid, $3::text, $4::timestamptz)
 RETURNING
-    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
+    message_reactions.message_id, message_reactions.user_id, message_reactions.emoji, message_reactions.created_at
 `
 
 type ReactionCreateParams struct {
@@ -58,8 +58,8 @@ func (q *Queries) ReactionCreate(ctx context.Context, arg ReactionCreateParams) 
 	err := row.Scan(
 		&i.MessageID,
 		&i.UserID,
-		&i.CreatedAt,
 		&i.Emoji,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -84,7 +84,7 @@ func (q *Queries) ReactionDelete(ctx context.Context, arg ReactionDeleteParams) 
 
 const reactionGet = `-- name: ReactionGet :one
 SELECT
-    message_reactions.message_id, message_reactions.user_id, message_reactions.created_at, message_reactions.emoji
+    message_reactions.message_id, message_reactions.user_id, message_reactions.emoji, message_reactions.created_at
 FROM
     message_reactions
 WHERE
@@ -105,8 +105,8 @@ func (q *Queries) ReactionGet(ctx context.Context, arg ReactionGetParams) (Messa
 	err := row.Scan(
 		&i.MessageID,
 		&i.UserID,
-		&i.CreatedAt,
 		&i.Emoji,
+		&i.CreatedAt,
 	)
 	return i, err
 }
