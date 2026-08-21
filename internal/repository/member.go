@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
@@ -24,15 +25,19 @@ func NewMemberRepository(store *db.Store) *MemberRepository {
 }
 
 func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.Member) ([]*channel.Member, error) {
+	if len(members) == 0 {
+		return []*channel.Member{}, nil
+	}
+
 	type memberPayload struct {
 		ChannelID         uuid.UUID  `json:"channel_id"`
 		UserID            uuid.UUID  `json:"user_id"`
 		LastReadMessageID *uuid.UUID `json:"last_read_message_id,omitempty"`
-		CreatedAt         string     `json:"created_at"`
-		UpdatedAt         string     `json:"updated_at"`
-		LastReadMessageAt *string    `json:"last_read_message_at,omitempty"`
-		PinnedAt          *string    `json:"pinned_at,omitempty"`
-		MutedUntil        *string    `json:"muted_until,omitempty"`
+		CreatedAt         time.Time  `json:"created_at"`
+		UpdatedAt         time.Time  `json:"updated_at"`
+		LastReadMessageAt time.Time  `json:"last_read_message_at"`
+		PinnedAt          *time.Time `json:"pinned_at,omitempty"`
+		MutedUntil        *time.Time `json:"muted_until,omitempty"`
 		MentionCount      int32      `json:"mention_count"`
 		IsVisible         bool       `json:"is_visible"`
 	}
@@ -43,11 +48,11 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 			ChannelID:         m.ChannelID().UUID(),
 			UserID:            m.UserID().UUID(),
 			LastReadMessageID: m.LastReadMessageID().UUIDPtr(),
-			CreatedAt:         m.CreatedAt().String(),
-			UpdatedAt:         m.UpdatedAt().String(),
-			LastReadMessageAt: m.LastReadMessageAt().StringPtr(),
-			PinnedAt:          m.PinnedAt().StringPtr(),
-			MutedUntil:        m.MutedUntil().StringPtr(),
+			CreatedAt:         m.CreatedAt().Time(),
+			UpdatedAt:         m.UpdatedAt().Time(),
+			LastReadMessageAt: m.LastReadMessageAt().Time(),
+			PinnedAt:          m.PinnedAt().TimePtr(),
+			MutedUntil:        m.MutedUntil().TimePtr(),
 			MentionCount:      m.MentionCount(),
 			IsVisible:         m.IsVisible(),
 		}
@@ -89,8 +94,8 @@ func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID)
 	return memberFromRow(row)
 }
 
-func (r *MemberRepository) Require(ctx context.Context, channelID, actorID fields.ID) (*channel.Member, error) {
-	member, err := r.Get(ctx, channelID, actorID)
+func (r *MemberRepository) Require(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
+	member, err := r.Get(ctx, channelID, userID)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			return nil, errs.PermissionDenied("You are not a member of this channel.")
@@ -104,18 +109,17 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
 	channelIDs []fields.ID,
 ) (map[fields.ID][]*channel.Member, error) {
-	result := make(map[fields.ID][]*channel.Member, len(channelIDs))
 	if len(channelIDs) == 0 {
-		return result, nil
+		return make(map[fields.ID][]*channel.Member), nil
 	}
 
-	for _, cid := range channelIDs {
-		result[cid] = []*channel.Member{}
-	}
-
+	result := make(map[fields.ID][]*channel.Member, len(channelIDs))
 	uuids := make([]uuid.UUID, len(channelIDs))
+
 	for i, id := range channelIDs {
-		uuids[i] = id.UUID()
+		uuidVal := id.UUID()
+		uuids[i] = uuidVal
+		result[id] = []*channel.Member{}
 	}
 
 	rows, err := r.store.ChannelMemberGetBatchByChannelIDs(ctx, db.ToUUIDs(uuids))
@@ -153,10 +157,10 @@ func (r *MemberRepository) GetBatchByChannelID(
 	return members, nil
 }
 
-func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, error) {
+func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*channel.Member, error) {
 	rows, err := r.store.ChannelMemberListVisibleByUserID(ctx, db.ChannelMemberListVisibleByUserIDParams{
 		UserID:   db.ToUUID(userID.UUID()),
-		LimitVal: limit,
+		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -206,12 +210,12 @@ func (r *MemberRepository) UpdateLastReadMessage(
 	ctx context.Context,
 	channelID, userID, lastReadMessageID fields.ID,
 	lastReadMessageAt, updatedAt fields.Timestamp,
-	mentionCount *int32,
+	mentionCount *int,
 ) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberUpdateLastReadMessage(ctx, db.ChannelMemberUpdateLastReadMessageParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
 		UserID:            db.ToUUID(userID.UUID()),
-		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
+		LastReadMessageID: db.ToUUIDPtr(lastReadMessageID.UUIDPtr()),
 		LastReadMessageAt: db.ToTimestamptz(lastReadMessageAt.Time()),
 		MentionCount:      db.ToInt4Ptr(mentionCount),
 		UpdatedAt:         db.ToTimestamptz(updatedAt.Time()),
@@ -291,11 +295,12 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.
 func (r *MemberRepository) ClearBatchLastReadMessageByChannelID(
 	ctx context.Context,
 	channelID fields.ID,
-	updatedAt fields.Timestamp,
+	lastReadAt, updatedAt fields.Timestamp,
 ) ([]*channel.Member, error) {
 	rows, err := r.store.ChannelMemberClearBatchLastReadMessageByChannelID(ctx, db.ChannelMemberClearBatchLastReadMessageByChannelIDParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		ChannelID:         db.ToUUID(channelID.UUID()),
+		LastReadMessageAt: db.ToTimestamptz(lastReadAt.Time()),
+		UpdatedAt:         db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
