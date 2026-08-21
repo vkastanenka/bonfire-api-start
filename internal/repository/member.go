@@ -178,13 +178,13 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID field
 	return members, nil
 }
 
-func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error) {
+func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int, error) {
 	count, err := r.store.ChannelMemberCountByChannelID(ctx, db.ToUUID(channelID.UUID()))
 	if err != nil {
 		return 0, r.store.Err(err)
 	}
 
-	return count, nil
+	return int(count), nil
 }
 
 func (r *MemberRepository) UpdateIsVisible(

@@ -202,13 +202,13 @@ func (r *MessageRepository) ListPinnedByChannelID(
 	return messagesFromRows(rows)
 }
 
-func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error) {
+func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int, error) {
 	count, err := r.store.MessageCountByChannelID(ctx, db.ToUUID(channelID.UUID()))
 	if err != nil {
 		return 0, r.store.Err(err)
 	}
 
-	return count, nil
+	return int(count), nil
 }
 
 func (r *MessageRepository) UpdateContent(

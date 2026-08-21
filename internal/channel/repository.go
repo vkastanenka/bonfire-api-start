@@ -20,16 +20,16 @@ type ChannelRepository interface {
 }
 
 type MemberRepository interface {
-	ClearBatchLastReadMessageByChannelID(ctx context.Context, channelID fields.ID, updatedAt fields.Timestamp) ([]*Member, error)
-	CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error)
+	ClearBatchLastReadMessageByChannelID(ctx context.Context, channelID fields.ID, lastReadAt fields.Timestamp, updatedAt fields.Timestamp) ([]*Member, error)
+	CountByChannelID(ctx context.Context, channelID fields.ID) (int, error)
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
-	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	GetBatchByChannelID(ctx context.Context, channelID fields.ID) ([]*Member, error)
+	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID fields.ID, userID fields.ID, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*Member, error)
-	Require(ctx context.Context, channelID fields.ID, actorID fields.ID) (*Member, error)
+	Require(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)
 	UpdateLastReadMessage(ctx context.Context, channelID fields.ID, userID fields.ID, lastReadMessageID fields.ID, lastReadMessageAt fields.Timestamp, updatedAt fields.Timestamp, mentionCount *int) (*Member, error)
 	UpdateMutedUntil(ctx context.Context, channelID fields.ID, userID fields.ID, mutedUntil fields.Timestamp, updatedAt fields.Timestamp) (*Member, error)
@@ -37,7 +37,7 @@ type MemberRepository interface {
 }
 
 type MessageRepository interface {
-	CountByChannelID(ctx context.Context, channelID fields.ID) (int64, error)
+	CountByChannelID(ctx context.Context, channelID fields.ID) (int, error)
 	Create(ctx context.Context, msg *Message) (*Message, error)
 	CreateBatch(ctx context.Context, messages []*Message) ([]*Message, error)
 	Delete(ctx context.Context, id fields.ID) error
