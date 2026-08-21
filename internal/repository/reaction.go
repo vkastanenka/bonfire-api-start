@@ -41,13 +41,13 @@ func (r *ReactionRepository) Get(
 	messageID, userID fields.ID,
 	emoji channel.ReactionEmoji,
 ) (*channel.Reaction, error) {
-	row, dbErr := r.store.ReactionGet(ctx, db.ReactionGetParams{
+	row, err := r.store.ReactionGet(ctx, db.ReactionGetParams{
 		MessageID: db.ToUUID(messageID.UUID()),
 		UserID:    db.ToUUID(userID.UUID()),
 		Emoji:     emoji.String(),
 	})
-	if dbErr != nil {
-		return nil, r.store.Err(dbErr)
+	if err != nil {
+		return nil, r.store.Err(err)
 	}
 
 	return reactionFromRow(row)
@@ -63,16 +63,13 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 		return summaries, nil
 	}
 
-	for _, msgID := range messageIDs {
-		summaries[msgID] = &channel.ReactionSummary{
-			MessageID: msgID,
-			Counts:    []channel.EmojiCount{},
-		}
-	}
-
 	uuidMsgs := make([]uuid.UUID, len(messageIDs))
 	for i, id := range messageIDs {
 		uuidMsgs[i] = id.UUID()
+		summaries[id] = &channel.ReactionSummary{
+			MessageID: id,
+			Counts:    []channel.EmojiCount{},
+		}
 	}
 
 	dbRows, err := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs(uuidMsgs))
@@ -83,9 +80,12 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 	countsMap := make(map[fields.ID]map[string]int, len(messageIDs))
 	for _, row := range dbRows {
 		rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
-		msgID, parseErr := fields.ParseRequiredID("id", rawMsgID)
+		msgID, parseErr := fields.ParseRequiredID("message_id", rawMsgID)
 		if parseErr != nil {
-			return nil, parseErr
+			return nil, errs.Internal("failed to parse message id from reaction summary row").
+				Wrap(parseErr).
+				Reason("CORRUPT_DATABASE_RECORD").
+				Meta("message_id", rawMsgID.String())
 		}
 
 		if countsMap[msgID] == nil {
@@ -106,9 +106,12 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 
 		for _, row := range userRows {
 			rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
-			msgID, parseErr := fields.ParseRequiredID("id", rawMsgID)
+			msgID, parseErr := fields.ParseRequiredID("message_id", rawMsgID)
 			if parseErr != nil {
-				return nil, parseErr
+				return nil, errs.Internal("failed to parse message id from user reaction row").
+					Wrap(parseErr).
+					Reason("CORRUPT_DATABASE_RECORD").
+					Meta("message_id", rawMsgID.String())
 			}
 
 			if userReactions[msgID] == nil {
@@ -155,7 +158,11 @@ func (r *ReactionRepository) CountByEmoji(
 	return int(count), nil
 }
 
-func (r *ReactionRepository) Delete(ctx context.Context, messageID, userID fields.ID, emoji channel.ReactionEmoji) error {
+func (r *ReactionRepository) Delete(
+	ctx context.Context,
+	messageID, userID fields.ID,
+	emoji channel.ReactionEmoji,
+) error {
 	err := r.store.ReactionDelete(ctx, db.ReactionDeleteParams{
 		MessageID: db.ToUUID(messageID.UUID()),
 		UserID:    db.ToUUID(userID.UUID()),
