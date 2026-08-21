@@ -11,19 +11,19 @@ const (
 )
 
 type Message struct {
-	id                 fields.ID
-	channelID          fields.ID
-	authorID           fields.ID
-	msgType            MessageType
-	content            MessageContent
-	systemMetadata     fields.JSON
-	replyToMessageID   fields.ID
-	forwardedMessageID fields.ID
-	forwardedChannelID fields.ID
-	pinnedAt           fields.Timestamp
-	createdAt          fields.Timestamp
-	updatedAt          fields.Timestamp
-	editedAt           fields.Timestamp
+	id               fields.ID
+	channelID        fields.ID
+	authorID         fields.ID
+	msgType          MessageType
+	content          MessageContent
+	metadata         fields.JSON
+	replyToMessageID fields.ID
+	forwardMessageID fields.ID
+	forwardChannelID fields.ID
+	pinnedAt         fields.Timestamp
+	createdAt        fields.Timestamp
+	updatedAt        fields.Timestamp
+	editedAt         fields.Timestamp
 }
 
 func ParseMessage(
@@ -32,29 +32,29 @@ func ParseMessage(
 	authorID fields.ID,
 	msgType MessageType,
 	content MessageContent,
-	systemMetadata fields.JSON,
+	metadata fields.JSON,
 	replyToMessageID fields.ID,
-	forwardedMessageID fields.ID,
-	forwardedChannelID fields.ID,
+	forwardMessageID fields.ID,
+	forwardChannelID fields.ID,
 	pinnedAt fields.Timestamp,
 	createdAt fields.Timestamp,
 	updatedAt fields.Timestamp,
 	editedAt fields.Timestamp,
 ) *Message {
 	return &Message{
-		id:                 id,
-		channelID:          channelID,
-		authorID:           authorID,
-		msgType:            msgType,
-		content:            content,
-		systemMetadata:     systemMetadata,
-		replyToMessageID:   replyToMessageID,
-		forwardedMessageID: forwardedMessageID,
-		forwardedChannelID: forwardedChannelID,
-		pinnedAt:           pinnedAt,
-		createdAt:          createdAt,
-		updatedAt:          updatedAt,
-		editedAt:           editedAt,
+		id:               id,
+		channelID:        channelID,
+		authorID:         authorID,
+		msgType:          msgType,
+		content:          content,
+		metadata:         metadata,
+		replyToMessageID: replyToMessageID,
+		forwardMessageID: forwardMessageID,
+		forwardChannelID: forwardChannelID,
+		pinnedAt:         pinnedAt,
+		createdAt:        createdAt,
+		updatedAt:        updatedAt,
+		editedAt:         editedAt,
 	}
 }
 
@@ -63,10 +63,10 @@ func NewRawMessage(
 	authorID fields.ID,
 	msgType MessageType,
 	content MessageContent,
-	systemMetadata fields.JSON,
+	metadata fields.JSON,
 	replyToMessageID,
-	forwardedMessageID,
-	forwardedChannelID fields.ID,
+	forwardMessageID,
+	forwardChannelID fields.ID,
 	now fields.Timestamp,
 ) (*Message, error) {
 	id, err := fields.NewID()
@@ -80,10 +80,10 @@ func NewRawMessage(
 		authorID,
 		msgType,
 		content,
-		systemMetadata,
+		metadata,
 		replyToMessageID,
-		forwardedMessageID,
-		forwardedChannelID,
+		forwardMessageID,
+		forwardChannelID,
 		fields.Timestamp{},
 		now,
 		now,
@@ -96,8 +96,8 @@ func NewMessage(
 	authorID fields.ID,
 	content MessageContent,
 	replyToMessageID,
-	forwardedMessageID,
-	forwardedChannelID fields.ID,
+	forwardMessageID,
+	forwardChannelID fields.ID,
 	now fields.Timestamp,
 ) (*Message, error) {
 	return NewRawMessage(
@@ -107,8 +107,8 @@ func NewMessage(
 		content,
 		fields.JSON{},
 		replyToMessageID,
-		forwardedMessageID,
-		forwardedChannelID,
+		forwardMessageID,
+		forwardChannelID,
 		now,
 	)
 }
@@ -117,7 +117,7 @@ func NewSystemMessage(
 	channelID,
 	authorID fields.ID,
 	msgType MessageType,
-	systemMetadata fields.JSON,
+	metadata fields.JSON,
 	now fields.Timestamp,
 ) (*Message, error) {
 	return NewRawMessage(
@@ -125,7 +125,7 @@ func NewSystemMessage(
 		authorID,
 		msgType,
 		MessageContent{},
-		systemMetadata,
+		metadata,
 		fields.ID{},
 		fields.ID{},
 		fields.ID{},
@@ -212,16 +212,16 @@ func NewMessagePin(
 	)
 }
 
-func (m *Message) ID() fields.ID                 { return m.id }
-func (m *Message) ChannelID() fields.ID          { return m.channelID }
-func (m *Message) AuthorID() fields.ID           { return m.authorID }
-func (m *Message) Type() MessageType             { return m.msgType }
-func (m *Message) Content() MessageContent       { return m.content }
-func (m *Message) SystemMetadata() fields.JSON   { return m.systemMetadata }
-func (m *Message) ReplyToMessageID() fields.ID   { return m.replyToMessageID }
-func (m *Message) ForwardedMessageID() fields.ID { return m.forwardedMessageID }
-func (m *Message) ForwardedChannelID() fields.ID { return m.forwardedChannelID }
-func (m *Message) PinnedAt() fields.Timestamp    { return m.pinnedAt }
-func (m *Message) CreatedAt() fields.Timestamp   { return m.createdAt }
-func (m *Message) UpdatedAt() fields.Timestamp   { return m.updatedAt }
-func (m *Message) EditedAt() fields.Timestamp    { return m.editedAt }
+func (m *Message) ID() fields.ID               { return m.id }
+func (m *Message) ChannelID() fields.ID        { return m.channelID }
+func (m *Message) AuthorID() fields.ID         { return m.authorID }
+func (m *Message) Type() MessageType           { return m.msgType }
+func (m *Message) Content() MessageContent     { return m.content }
+func (m *Message) Metadata() fields.JSON       { return m.metadata }
+func (m *Message) ReplyToMessageID() fields.ID { return m.replyToMessageID }
+func (m *Message) ForwardMessageID() fields.ID { return m.forwardMessageID }
+func (m *Message) ForwardChannelID() fields.ID { return m.forwardChannelID }
+func (m *Message) PinnedAt() fields.Timestamp  { return m.pinnedAt }
+func (m *Message) CreatedAt() fields.Timestamp { return m.createdAt }
+func (m *Message) UpdatedAt() fields.Timestamp { return m.updatedAt }
+func (m *Message) EditedAt() fields.Timestamp  { return m.editedAt }

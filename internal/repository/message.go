@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
@@ -25,17 +27,19 @@ func NewMessageRepository(store *db.Store) *MessageRepository {
 
 func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	row, err := r.store.MessageCreate(ctx, db.MessageCreateParams{
-		ID:                 db.ToUUID(msg.ID().UUID()),
-		ChannelID:          db.ToUUID(msg.ChannelID().UUID()),
-		AuthorID:           db.ToUUIDPtr(msg.AuthorID().UUIDPtr()),
-		ReplyToMessageID:   db.ToUUIDPtr(msg.ReplyToMessageID().UUIDPtr()),
-		ForwardedMessageID: db.ToUUIDPtr(msg.ForwardedMessageID().UUIDPtr()),
-		ForwardedChannelID: db.ToUUIDPtr(msg.ForwardedChannelID().UUIDPtr()),
-		CreatedAt:          db.ToTimestamptz(msg.CreatedAt().Time()),
-		UpdatedAt:          db.ToTimestamptz(msg.UpdatedAt().Time()),
-		Type:               msg.Type().Int16(),
-		Content:            db.ToTextPtr(msg.Content().StringPtr()),
-		SystemMetadata:     msg.SystemMetadata().Bytes(),
+		ID:               db.ToUUID(msg.ID().UUID()),
+		ChannelID:        db.ToUUID(msg.ChannelID().UUID()),
+		AuthorID:         db.ToUUIDPtr(msg.AuthorID().UUIDPtr()),
+		ReplyToMessageID: db.ToUUIDPtr(msg.ReplyToMessageID().UUIDPtr()),
+		ForwardMessageID: db.ToUUIDPtr(msg.ForwardMessageID().UUIDPtr()),
+		ForwardChannelID: db.ToUUIDPtr(msg.ForwardChannelID().UUIDPtr()),
+		CreatedAt:        db.ToTimestamptz(msg.CreatedAt().Time()),
+		UpdatedAt:        db.ToTimestamptz(msg.UpdatedAt().Time()),
+		EditedAt:         db.ToTimestamptzPtr(msg.EditedAt().TimePtr()),
+		PinnedAt:         db.ToTimestamptzPtr(msg.PinnedAt().TimePtr()),
+		Type:             msg.Type().Int16(),
+		Content:          db.ToTextPtr(msg.Content().StringPtr()),
+		Metadata:         msg.Metadata().Bytes(),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -48,34 +52,42 @@ func (r *MessageRepository) CreateBatch(
 	ctx context.Context,
 	messages []*channel.Message,
 ) ([]*channel.Message, error) {
+	if len(messages) == 0 {
+		return []*channel.Message{}, nil
+	}
+
 	type messagePayload struct {
-		ID                 uuid.UUID       `json:"id"`
-		ChannelID          uuid.UUID       `json:"channel_id"`
-		AuthorID           *uuid.UUID      `json:"author_id,omitempty"`
-		ReplyToMessageID   *uuid.UUID      `json:"reply_to_message_id,omitempty"`
-		ForwardedMessageID *uuid.UUID      `json:"forwarded_message_id,omitempty"`
-		ForwardedChannelID *uuid.UUID      `json:"forwarded_channel_id,omitempty"`
-		CreatedAt          string          `json:"created_at"`
-		UpdatedAt          string          `json:"updated_at"`
-		Type               int16           `json:"type"`
-		Content            *string         `json:"content,omitempty"`
-		SystemMetadata     json.RawMessage `json:"system_metadata,omitempty"`
+		ID               uuid.UUID       `json:"id"`
+		ChannelID        uuid.UUID       `json:"channel_id"`
+		AuthorID         *uuid.UUID      `json:"author_id,omitempty"`
+		ReplyToMessageID *uuid.UUID      `json:"reply_to_message_id,omitempty"`
+		ForwardMessageID *uuid.UUID      `json:"forward_message_id,omitempty"`
+		ForwardChannelID *uuid.UUID      `json:"forward_channel_id,omitempty"`
+		CreatedAt        time.Time       `json:"created_at"`
+		UpdatedAt        time.Time       `json:"updated_at"`
+		EditedAt         *time.Time      `json:"edited_at,omitempty"`
+		PinnedAt         *time.Time      `json:"pinned_at,omitempty"`
+		Type             int16           `json:"type"`
+		Content          *string         `json:"content,omitempty"`
+		Metadata         json.RawMessage `json:"metadata,omitempty"`
 	}
 
 	payloads := make([]messagePayload, len(messages))
 	for i, msg := range messages {
 		payloads[i] = messagePayload{
-			ID:                 msg.ID().UUID(),
-			ChannelID:          msg.ChannelID().UUID(),
-			AuthorID:           msg.AuthorID().UUIDPtr(),
-			ReplyToMessageID:   msg.ReplyToMessageID().UUIDPtr(),
-			ForwardedMessageID: msg.ForwardedMessageID().UUIDPtr(),
-			ForwardedChannelID: msg.ForwardedChannelID().UUIDPtr(),
-			CreatedAt:          msg.CreatedAt().String(),
-			UpdatedAt:          msg.UpdatedAt().String(),
-			Type:               msg.Type().Int16(),
-			Content:            msg.Content().StringPtr(),
-			SystemMetadata:     json.RawMessage(msg.SystemMetadata().Bytes()),
+			ID:               msg.ID().UUID(),
+			ChannelID:        msg.ChannelID().UUID(),
+			AuthorID:         msg.AuthorID().UUIDPtr(),
+			ReplyToMessageID: msg.ReplyToMessageID().UUIDPtr(),
+			ForwardMessageID: msg.ForwardMessageID().UUIDPtr(),
+			ForwardChannelID: msg.ForwardChannelID().UUIDPtr(),
+			CreatedAt:        msg.CreatedAt().Time(),
+			UpdatedAt:        msg.UpdatedAt().Time(),
+			EditedAt:         msg.EditedAt().TimePtr(),
+			PinnedAt:         msg.PinnedAt().TimePtr(),
+			Type:             msg.Type().Int16(),
+			Content:          msg.Content().StringPtr(),
+			Metadata:         json.RawMessage(msg.Metadata().Bytes()),
 		}
 	}
 
@@ -144,7 +156,13 @@ func (r *MessageRepository) ListBeforeByChannelID(
 		return nil, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err := messagesFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	slices.Reverse(messages)
+	return messages, nil
 }
 
 func (r *MessageRepository) ListAfterByChannelID(
@@ -282,14 +300,14 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		return nil, mapErr("failed to parse reply to message id from database", "reply_to_message_id", row.ReplyToMessageID, err)
 	}
 
-	forwardedMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardedMessageID))
+	forwardMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardMessageID))
 	if err != nil {
-		return nil, mapErr("failed to parse forwarded message id from database", "forwarded_message_id", row.ForwardedMessageID, err)
+		return nil, mapErr("failed to parse forward message id from database", "forward_message_id", row.ForwardMessageID, err)
 	}
 
-	forwardedChannelID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardedChannelID))
+	forwardChannelID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardChannelID))
 	if err != nil {
-		return nil, mapErr("failed to parse forwarded channel id from database", "forwarded_channel_id", row.ForwardedChannelID, err)
+		return nil, mapErr("failed to parse forward channel id from database", "forward_channel_id", row.ForwardChannelID, err)
 	}
 
 	msgType, err := channel.ParseMessageType(row.Type)
@@ -302,9 +320,9 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		return nil, mapErr("failed to parse message content from database", "content", row.Content, err)
 	}
 
-	systemMetadata, err := fields.ParseJSON("system_metadata", row.SystemMetadata)
+	metadata, err := fields.ParseJSON("system_metadata", row.Metadata)
 	if err != nil {
-		return nil, mapErr("failed to parse system metadata from database", "system_metadata", string(row.SystemMetadata), err)
+		return nil, mapErr("failed to parse system metadata from database", "system_metadata", string(row.Metadata), err)
 	}
 
 	editedAt := fields.NewTimestamp(db.FromTimestamptz(row.EditedAt))
@@ -318,10 +336,10 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 		authorID,
 		msgType,
 		content,
-		systemMetadata,
+		metadata,
 		replyToMessageID,
-		forwardedMessageID,
-		forwardedChannelID,
+		forwardMessageID,
+		forwardChannelID,
 		editedAt,
 		pinnedAt,
 		createdAt,
