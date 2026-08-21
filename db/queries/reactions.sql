@@ -52,10 +52,3 @@ WHERE message_id = @message_id::uuid
     AND user_id = @user_id::uuid
     AND emoji = @emoji::text;
 
--- -- name: ReactionGetBatchByMessageIDs :many
--- SELECT
---     *
--- FROM
---     message_reactions
--- WHERE
---     message_id = ANY (@message_ids::uuid[]);
