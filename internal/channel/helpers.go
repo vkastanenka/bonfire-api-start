@@ -7,7 +7,40 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
+
+func BuildUpdateGroupSystemMessages(
+	channelID, actorID fields.ID,
+	name ChannelName,
+	iconURL fields.URL,
+	now fields.Timestamp,
+) ([]*Message, error) {
+	var systemMessages []*Message
+
+	if name.IsValid() {
+		msg, err := NewMessageNameChange(channelID, actorID, name, now)
+		if err != nil {
+			return nil, err
+		}
+		systemMessages = append(systemMessages, msg)
+	}
+
+	if iconURL.IsValid() {
+		iconTime := now
+		if len(systemMessages) > 0 {
+			iconTime = now.Add(time.Microsecond)
+		}
+
+		msg, err := NewMessageIconChange(channelID, actorID, iconTime)
+		if err != nil {
+			return nil, err
+		}
+		systemMessages = append(systemMessages, msg)
+	}
+
+	return systemMessages, nil
+}
 
 func FilterNewMemberIDs(userID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
 	existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
@@ -122,4 +155,69 @@ func SortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
 		// 4. Guaranteed deterministic ID tie-breaker
 		return a.ID().Compare(b.ID())
 	})
+}
+
+func GetMemberIDs(members []*Member) []fields.ID {
+	rawIDs := make([]fields.ID, 0, len(members))
+	for _, m := range members {
+		rawIDs = append(rawIDs, m.UserID())
+	}
+	return fields.DedupeIDs(rawIDs)
+}
+
+func FilterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
+	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
+}
+
+func NewMessageCursor(
+	actorLastReadID fields.ID,
+	fallbackMessageID fields.ID,
+) fields.Cursor {
+	cursorID := fallbackMessageID
+	beforeLimit := MessageListBeforeLimit
+	afterLimit := MessageListAfterLimit
+
+	if !cursorID.IsValid() {
+		if actorLastReadID.IsValid() {
+			cursorID = actorLastReadID
+		}
+
+		if !cursorID.IsValid() {
+			beforeLimit = MessageListLimit
+			afterLimit = 0
+		}
+	}
+
+	return fields.NewCursor(cursorID, beforeLimit, afterLimit)
+}
+
+func GetMessageIDs(messages []*Message) []fields.ID {
+	rawIDs := make([]fields.ID, 0, len(messages))
+	for _, m := range messages {
+		rawIDs = append(rawIDs, m.ID())
+	}
+	return fields.DedupeIDs(rawIDs)
+}
+
+func GetSidebarUserIDs(actorID fields.ID, channelMap map[fields.ID]*Channel, memberMap map[fields.ID][]*Member) (peerIDs []fields.ID, directPeerIDs []fields.ID) {
+	var rawPeerIDs []fields.ID
+	var rawDirectPeerIDs []fields.ID
+
+	for chID, members := range memberMap {
+		ch, exists := channelMap[chID]
+		if !exists || ch == nil {
+			continue
+		}
+		for _, m := range members {
+			if m.UserID().Equals(actorID) {
+				continue
+			}
+			rawPeerIDs = append(rawPeerIDs, m.UserID())
+			if ch.Type().IsDirect() {
+				rawDirectPeerIDs = append(rawDirectPeerIDs, m.UserID())
+			}
+		}
+	}
+
+	return fields.DedupeIDs(rawPeerIDs), fields.DedupeIDs(rawDirectPeerIDs)
 }

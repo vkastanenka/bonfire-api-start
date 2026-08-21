@@ -26,10 +26,12 @@ type MemberRepository interface {
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
+	GetBatchByChannelID(ctx context.Context, channelID fields.ID) ([]*Member, error)
 	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID fields.ID, userID fields.ID, updatedAt fields.Timestamp) error
-	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*Member, error)
+	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*Member, error)
+	Require(ctx context.Context, channelID fields.ID, actorID fields.ID) (*Member, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)
-	UpdateLastReadMessage(ctx context.Context, channelID fields.ID, userID fields.ID, lastReadMessageID fields.ID, lastReadMessageAt fields.Timestamp, updatedAt fields.Timestamp, mentionCount *int32) (*Member, error)
+	UpdateLastReadMessage(ctx context.Context, channelID fields.ID, userID fields.ID, lastReadMessageID fields.ID, lastReadMessageAt fields.Timestamp, updatedAt fields.Timestamp, mentionCount *int) (*Member, error)
 	UpdateMutedUntil(ctx context.Context, channelID fields.ID, userID fields.ID, mutedUntil fields.Timestamp, updatedAt fields.Timestamp) (*Member, error)
 	UpdatePinnedAt(ctx context.Context, channelID fields.ID, userID fields.ID, pinnedAt fields.Timestamp, updatedAt fields.Timestamp) (*Member, error)
 }
@@ -40,10 +42,10 @@ type MessageRepository interface {
 	CreateBatch(ctx context.Context, messages []*Message) ([]*Message, error)
 	Delete(ctx context.Context, id fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Message, error)
-	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*Message, error)
-	ListAroundByChannelID(ctx context.Context, channelID fields.ID, lastReadMessageID fields.ID, beforeLimit int32, afterLimit int32) ([]*Message, error)
-	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int32) ([]*Message, error)
-	ListPinnedByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, cursorPinnedAt fields.Timestamp, limit int32) ([]*Message, error)
+	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*Message, error)
+	ListAroundByChannelID(ctx context.Context, channelID fields.ID, lastReadMessageID fields.ID, beforeLimit int, afterLimit int) ([]*Message, error)
+	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*Message, error)
+	ListPinnedByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, cursorPinnedAt fields.Timestamp, limit int) ([]*Message, error)
 	UpdateContent(ctx context.Context, id fields.ID, content MessageContent, editedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
 	UpdatePinnedAt(ctx context.Context, id fields.ID, pinnedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
 }

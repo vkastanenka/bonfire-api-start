@@ -89,6 +89,17 @@ func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID)
 	return memberFromRow(row)
 }
 
+func (r *MemberRepository) Require(ctx context.Context, channelID, actorID fields.ID) (*channel.Member, error) {
+	member, err := r.Get(ctx, channelID, actorID)
+	if err != nil {
+		if errs.IsNotFound(err) {
+			return nil, errs.PermissionDenied("You are not a member of this channel.")
+		}
+		return nil, err
+	}
+	return member, nil
+}
+
 func (r *MemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
 	channelIDs []fields.ID,
@@ -123,6 +134,23 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	}
 
 	return result, nil
+}
+
+func (r *MemberRepository) GetBatchByChannelID(
+	ctx context.Context,
+	channelID fields.ID,
+) ([]*channel.Member, error) {
+	memberMap, err := r.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	if err != nil {
+		return nil, err
+	}
+
+	members, ok := memberMap[channelID]
+	if !ok || len(members) == 0 {
+		return nil, errs.NotFound("entity not found")
+	}
+
+	return members, nil
 }
 
 func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int32) ([]*channel.Member, error) {

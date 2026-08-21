@@ -1,13 +1,11 @@
 package channel
 
 import (
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -50,13 +48,13 @@ func NewChannelService(
 }
 
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, rawPeerIDs []uuid.UUID) error {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) error {
 	err := ValidateMaxPeers(rawPeerIDs)
 	if err != nil {
 		return err
 	}
 
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
 		return err
 	}
@@ -66,10 +64,10 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		return err
 	}
 
-	peerIDs := FilterPeerIDs(userID, memberIDs)
+	peerIDs := FilterPeerIDs(actorID, memberIDs)
 
 	if len(peerIDs) > 0 {
-		err = s.relationRepo.HasIncomingBlock(ctx, userID, peerIDs)
+		err = s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs)
 		if err != nil {
 			return err
 		}
@@ -77,12 +75,12 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 
 	now := fields.Now()
 
-	ch, err := NewDirectChannel(now)
+	ch, err := NewGroupChannel(now)
 	if err != nil {
 		return err
 	}
 
-	membs := NewMembers(ch.ID(), userID, peerIDs, now)
+	membs := NewMembers(ch.ID(), actorID, peerIDs, now)
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if _, err = s.repo.Create(txCtx, ch); err != nil {
@@ -102,9 +100,8 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 }
 
 // Get fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMessageID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
-	// Validate
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -119,19 +116,12 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 		return nil, nil, nil, err
 	}
 
-	// Fetch members
-	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	members, ok := memberMap[channelID]
-	if !ok || len(members) == 0 {
-		return nil, nil, nil, ErrMembersNotFound()
-	}
-
-	// Validate membership
-	currentMember, err := ValidateMembership(userID, members)
+	actorMember, err := ValidateMembership(actorID, members)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -141,38 +131,25 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 		messages []*Message
 	)
 
-	// Fetch channel and messages
 	g1, ctx1 := errgroup.WithContext(ctx)
 
 	g1.Go(func() error {
-		channel, err = s.repo.Get(ctx1, channelID)
-		if err != nil {
+		if channel, err = s.repo.Get(ctx1, channelID); err != nil {
 			return err
 		}
 		return nil
 	})
 
 	g1.Go(func() error {
-		anchorMessageID := messageID
-		beforeLimit := MessageListBeforeLimit
-		afterLimit := MessageListAfterLimit
-
-		if !anchorMessageID.IsValid() {
-			anchorMessageID = currentMember.LastReadMessageID()
-
-			if !anchorMessageID.IsValid() {
-				beforeLimit = MessageListLimit
-				afterLimit = 0
-			}
-		}
+		cursor := NewMessageCursor(actorMember.LastReadMessageID(), messageID)
 
 		var err error
 		messages, err = s.messageRepo.ListAroundByChannelID(
 			ctx1,
 			channelID,
-			anchorMessageID,
-			beforeLimit,
-			afterLimit,
+			cursor.ID(),
+			cursor.BeforeLimit(),
+			cursor.AfterLimit(),
 		)
 		return err
 	})
@@ -181,50 +158,36 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 		return nil, nil, nil, err
 	}
 
-	// Dedupe IDs
-	rawUserIDs := make([]fields.ID, 0, len(members)+len(messages))
-
-	for _, m := range members {
-		rawUserIDs = append(rawUserIDs, m.UserID())
-	}
-	for _, msg := range messages {
-		rawUserIDs = append(rawUserIDs, msg.AuthorID())
-	}
-
-	userIDs := fields.DedupeIDs(rawUserIDs)
+	memberIDs := GetMemberIDs(members)
 
 	var (
-		reactionMap map[fields.ID]*ReactionSummary
 		userMap     map[fields.ID]*user.User
 		presenceMap map[fields.ID]presence.Presence
+		reactionMap map[fields.ID]*ReactionSummary
 	)
 
-	// Fetch reactions, profiles, and presences
 	g2, ctx2 := errgroup.WithContext(ctx)
+
+	g2.Go(func() error {
+		var err error
+		userMap, err = s.userRepo.GetBatch(ctx2, memberIDs)
+		return err
+	})
+
+	g2.Go(func() error {
+		var err error
+		presenceMap, err = s.userCache.GetBatchPresence(ctx2, memberIDs)
+		return err
+	})
 
 	g2.Go(func() error {
 		if len(messages) == 0 {
 			reactionMap = make(map[fields.ID]*ReactionSummary)
 			return nil
 		}
-		messageIDs := make([]fields.ID, len(messages))
-		for i, msg := range messages {
-			messageIDs[i] = msg.ID()
-		}
+		messageIDs := GetMessageIDs(messages)
 		var err error
-		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, userID, messageIDs)
-		return err
-	})
-
-	g2.Go(func() error {
-		var err error
-		userMap, err = s.userRepo.GetBatch(ctx2, userIDs)
-		return err
-	})
-
-	g2.Go(func() error {
-		var err error
-		presenceMap, err = s.userCache.GetBatchPresence(ctx2, userIDs)
+		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, actorID, messageIDs)
 		return err
 	})
 
@@ -232,11 +195,9 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 		return nil, nil, nil, err
 	}
 
-	// Sort
 	SortMembers(members, userMap)
 	SortMessages(messages)
 
-	// Hydrate
 	memberViews := HydrateMemberViews(members, userMap, presenceMap)
 	messageViews := HydrateMessageViews(messages, userMap, reactionMap)
 
@@ -244,15 +205,13 @@ func (s *ChannelService) Get(ctx context.Context, rawUserID, rawChannelID, rawMe
 }
 
 // GetSidebar fetches all sidebar needed to load a user's sidebar, including details, members, and presences.
-func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([]SidebarView, error) {
-	// Validate
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) ([]SidebarView, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
 		return nil, err
 	}
 
-	// List user memberships
-	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, userID, ChannelMaxSidebarItems)
+	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, actorID, ChannelMaxSidebarItems)
 	if err != nil {
 		return nil, err
 	}
@@ -261,56 +220,31 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		return []SidebarView{}, nil
 	}
 
-	// Index user memberships
-	channelIDs, userMembersMap := IndexMemberships(userMemberships)
+	channelIDs, actorMembershipMap := IndexMemberships(userMemberships)
 
-	// Fetch channels and members
 	channelMap, err := s.repo.GetBatch(ctx, channelIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	channelMembersMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
+	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Collect peer IDs
-	var rawUserIDs []fields.ID
-	var rawDirectPeerIDs []fields.ID
-
-	for chID, members := range channelMembersMap {
-		ch, exists := channelMap[chID]
-		if !exists || ch == nil {
-			continue
-		}
-		for _, m := range members {
-			if m.UserID() == userID {
-				continue
-			}
-			rawUserIDs = append(rawUserIDs, m.UserID())
-			if ch.Type().IsDirect() {
-				rawDirectPeerIDs = append(rawDirectPeerIDs, m.UserID())
-			}
-		}
-	}
-
-	// Dedupe IDs
-	userIDs := fields.DedupeIDs(rawUserIDs)
-	directPeerIDs := fields.DedupeIDs(rawDirectPeerIDs)
+	peerIDs, directPeerIDs := GetSidebarUserIDs(actorID, channelMap, memberMap)
 
 	var (
 		userMap     map[fields.ID]*user.User
 		presenceMap map[fields.ID]presence.Presence
 	)
 
-	// Fetch users and presences
 	g, gCtx := errgroup.WithContext(ctx)
 
-	if len(userIDs) > 0 {
+	if len(peerIDs) > 0 {
 		g.Go(func() error {
 			var err error
-			userMap, err = s.userRepo.GetBatch(gCtx, userIDs)
+			userMap, err = s.userRepo.GetBatch(gCtx, peerIDs)
 			return err
 		})
 	}
@@ -327,7 +261,6 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		return nil, err
 	}
 
-	// Prepare channels
 	channels := make([]*Channel, 0, len(channelMap))
 	for _, ch := range channelMap {
 		if ch != nil {
@@ -335,19 +268,14 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawUserID uuid.UUID) ([
 		}
 	}
 
-	// Sort
-	SortSidebar(channels, userMembersMap)
+	SortSidebar(channels, actorMembershipMap)
 
-	// Hydrate
-	views := HydrateSidebarViews(userID, channels, userMembersMap, channelMembersMap, userMap, presenceMap)
-
-	return views, nil
+	return HydrateSidebarViews(actorID, channels, actorMembershipMap, memberMap, userMap, presenceMap), nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
-func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
-	// Validate inputs
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
 		return nil, err
 	}
@@ -367,72 +295,32 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawUserID, rawChannelI
 		return nil, err
 	}
 
-	// Validate membership
-	_, err = s.memberRepo.Get(ctx, channelID, userID)
+	_, err = s.memberRepo.Require(ctx, channelID, actorID)
 	if err != nil {
-		if errs.IsNotFound(err) {
-			return nil, errs.PermissionDenied("You are not a member of this channel.")
-		}
 		return nil, err
 	}
 
 	now := fields.Now()
 
 	var channel *Channel
-	var systemMessages []*Message
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Update group
 		channel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
 		if err != nil {
 			return err
 		}
 
-		// Create system messages
-		if rawName != nil && !name.IsZero() {
-			messageNameChangeID, err := fields.NewID()
-			if err != nil {
-				return err
-			}
-
-			msg := ParseMessageNameChange(
-				messageNameChangeID,
-				channel.ID(),
-				userID,
-				name,
-				now,
-			)
-			systemMessages = append(systemMessages, msg)
-		}
-
-		if rawIconURL != nil {
-			messageIconChangeID, err := fields.NewID()
-			if err != nil {
-				return err
-			}
-
-			iconTime := now
-			if len(systemMessages) > 0 {
-				iconTime = now.Add(time.Microsecond)
-			}
-
-			msg := ParseMessageIconChange(
-				messageIconChangeID,
-				channel.ID(),
-				userID,
-				iconTime,
-			)
-			systemMessages = append(systemMessages, msg)
+		systemMessages, err := BuildUpdateGroupSystemMessages(channel.ID(), actorID, name, iconURL, now)
+		if err != nil {
+			return err
 		}
 
 		if len(systemMessages) > 0 {
-			_, err = s.messageRepo.CreateBatch(txCtx, systemMessages)
-			if err != nil {
+			if _, err := s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
 				return err
 			}
 		}
 
-		// Publish event
 		_, err = s.outboxRepo.Publish(txCtx, EventChannelUpdated, ChannelUpdatedPayload{})
 		if err != nil {
 			return err

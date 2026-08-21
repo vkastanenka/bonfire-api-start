@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -61,6 +62,103 @@ func (b Bytes) MarshalBinary() ([]byte, error) {
 func (b *Bytes) UnmarshalBinary(data []byte) error {
 	*b = NewBytes(data)
 	return nil
+}
+
+// ============================================================================
+// Cursor
+// ============================================================================
+
+const (
+	DefaultCursorLimit = 50
+	MaxCursorLimit     = 100
+)
+
+type Cursor struct {
+	id          ID
+	beforeLimit int
+	afterLimit  int
+}
+
+func NewCursor(id ID, beforeLimit, afterLimit int) Cursor {
+	return Cursor{
+		id:          id,
+		beforeLimit: beforeLimit,
+		afterLimit:  afterLimit,
+	}
+}
+
+func ParseCursor(idRaw string, beforeLimitRaw, afterLimitRaw string) (Cursor, error) {
+	var (
+		id          ID
+		beforeLimit int
+		afterLimit  int
+		err         error
+	)
+
+	if idRaw != "" {
+		id, err = ParseIDFromString("anchor_message_id", idRaw)
+		if err != nil {
+			return Cursor{}, err
+		}
+	}
+
+	if beforeLimitRaw != "" {
+		beforeLimit, err = parseCursorLimit("before_limit", beforeLimitRaw)
+		if err != nil {
+			return Cursor{}, err
+		}
+	}
+
+	if afterLimitRaw != "" {
+		afterLimit, err = parseCursorLimit("after_limit", afterLimitRaw)
+		if err != nil {
+			return Cursor{}, err
+		}
+	}
+
+	if id.IsValid() && beforeLimit == 0 && afterLimit == 0 {
+		beforeLimit = DefaultCursorLimit
+	}
+
+	return NewCursor(id, beforeLimit, afterLimit), nil
+}
+
+func parseCursorLimit(fieldName, raw string) (int, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return 0, nil
+	}
+
+	val, err := strconv.Atoi(s)
+	if err != nil || val < 0 {
+		return 0, errs.InvalidArgument("Limit must be a non-negative integer.").
+			Reason("INVALID_LIMIT").
+			FieldViolation(fieldName, "Must be a non-negative integer.", "INVALID_FORMAT")
+	}
+
+	if val > MaxCursorLimit {
+		return 0, errs.InvalidArgument(fmt.Sprintf("Limit cannot exceed %d.", MaxCursorLimit)).
+			Reason("LIMIT_EXCEEDED").
+			FieldViolation(fieldName, fmt.Sprintf("Limit cannot exceed %d.", MaxCursorLimit), "MAX_LIMIT_EXCEEDED")
+	}
+
+	return val, nil
+}
+
+func (c Cursor) ID() ID           { return c.id }
+func (c Cursor) BeforeLimit() int { return c.beforeLimit }
+func (c Cursor) AfterLimit() int  { return c.afterLimit }
+
+func (c Cursor) IsZero() bool {
+	return c.id.IsZero() && c.beforeLimit == 0 && c.afterLimit == 0
+}
+
+func (c Cursor) IsValid() bool { return !c.IsZero() }
+
+func (c Cursor) Equals(other Cursor) bool {
+	return c.id.Equals(other.id) &&
+		c.beforeLimit == other.beforeLimit &&
+		c.afterLimit == other.afterLimit
 }
 
 // ============================================================================

@@ -35,6 +35,31 @@ type SidebarView struct {
 	memberTotal       int
 }
 
+type MessageView struct {
+	id                 fields.ID
+	authorID           fields.ID
+	displayName        user.DisplayName
+	avatarURL          fields.URL
+	msgType            MessageType
+	content            MessageContent
+	systemMetadata     fields.JSON
+	replyToMessageID   fields.ID
+	forwardedMessageID fields.ID
+	forwardedChannelID fields.ID
+	createdAt          fields.Timestamp
+	editedAt           fields.Timestamp
+	reactions          []EmojiCount
+}
+
+type MessagePinnedView struct {
+	id          fields.ID
+	avatarURL   fields.URL
+	displayName user.DisplayName
+	content     MessageContent
+	pinnedAt    fields.Timestamp
+	createdAt   fields.Timestamp
+}
+
 func HydrateMemberView(
 	m *Member,
 	userMap map[fields.ID]*user.User,

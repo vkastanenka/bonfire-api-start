@@ -115,13 +115,13 @@ func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Mes
 func (r *MessageRepository) ListAroundByChannelID(
 	ctx context.Context,
 	channelID, lastReadMessageID fields.ID,
-	beforeLimit, afterLimit int32,
+	beforeLimit, afterLimit int,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
 		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
-		BeforeLimit:       beforeLimit,
-		AfterLimit:        afterLimit,
+		BeforeLimit:       int32(beforeLimit),
+		AfterLimit:        int32(afterLimit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -133,12 +133,12 @@ func (r *MessageRepository) ListAroundByChannelID(
 func (r *MessageRepository) ListBeforeByChannelID(
 	ctx context.Context,
 	channelID, cursorID fields.ID,
-	limit int32,
+	limit int,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
-		LimitVal:  limit,
+		LimitVal:  int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -150,12 +150,12 @@ func (r *MessageRepository) ListBeforeByChannelID(
 func (r *MessageRepository) ListAfterByChannelID(
 	ctx context.Context,
 	channelID, cursorID fields.ID,
-	limit int32,
+	limit int,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
-		LimitVal:  limit,
+		LimitVal:  int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -169,13 +169,13 @@ func (r *MessageRepository) ListPinnedByChannelID(
 	channelID fields.ID,
 	cursorID fields.ID,
 	cursorPinnedAt fields.Timestamp,
-	limit int32,
+	limit int,
 ) ([]*channel.Message, error) {
 	rows, err := r.store.MessageListPinnedByChannelID(ctx, db.MessageListPinnedByChannelIDParams{
 		ChannelID:      db.ToUUID(channelID.UUID()),
 		CursorID:       db.ToUUIDPtr(cursorID.UUIDPtr()),
 		CursorPinnedAt: db.ToTimestamptzPtr(cursorPinnedAt.TimePtr()),
-		LimitVal:       limit,
+		LimitVal:       int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)

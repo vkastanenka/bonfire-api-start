@@ -133,10 +133,6 @@ func NewMembers(
 	return members
 }
 
-func FilterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
-	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
-}
-
 func (m *Member) ChannelID() fields.ID                { return m.channelID }
 func (m *Member) UserID() fields.ID                   { return m.userID }
 func (m *Member) LastReadMessageID() fields.ID        { return m.lastReadMessageID }
@@ -147,38 +143,3 @@ func (m *Member) MentionCount() int32                 { return m.mentionCount }
 func (m *Member) IsVisible() bool                     { return m.isVisible }
 func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
 func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
-
-func (m *Member) SetLastReadMessage(id fields.ID, at fields.Timestamp, now fields.Timestamp) {
-	m.lastReadMessageID = id
-	m.lastReadMessageAt = at
-	m.touch(now)
-}
-
-func (m *Member) SetPinnedAt(now fields.Timestamp) {
-	m.pinnedAt = now
-	m.touch(now)
-}
-
-func (m *Member) SetMutedUntil(now fields.Timestamp) {
-	m.mutedUntil = now
-	m.touch(now)
-}
-
-func (m *Member) IncrementMention(now fields.Timestamp) {
-	m.mentionCount++
-	m.touch(now)
-}
-
-func (m *Member) ResetMentions(now fields.Timestamp) {
-	m.mentionCount = 0
-	m.touch(now)
-}
-
-func (m *Member) SetIsVisible(isVisible bool, now fields.Timestamp) {
-	m.isVisible = isVisible
-	m.touch(now)
-}
-
-func (m *Member) touch(at fields.Timestamp) {
-	m.updatedAt = at
-}
