@@ -37,7 +37,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*
 		UpdatedAt:        db.ToTimestamptz(msg.UpdatedAt().Time()),
 		EditedAt:         db.ToTimestamptzPtr(msg.EditedAt().TimePtr()),
 		PinnedAt:         db.ToTimestamptzPtr(msg.PinnedAt().TimePtr()),
-		Type:             msg.Type().Int16(),
+		Type:             int16(msg.Type().Int()),
 		Content:          db.ToTextPtr(msg.Content().StringPtr()),
 		Metadata:         msg.Metadata().Bytes(),
 	})
@@ -85,7 +85,7 @@ func (r *MessageRepository) CreateBatch(
 			UpdatedAt:        msg.UpdatedAt().Time(),
 			EditedAt:         msg.EditedAt().TimePtr(),
 			PinnedAt:         msg.PinnedAt().TimePtr(),
-			Type:             msg.Type().Int16(),
+			Type:             int16(msg.Type().Int()),
 			Content:          msg.Content().StringPtr(),
 			Metadata:         json.RawMessage(msg.Metadata().Bytes()),
 		}

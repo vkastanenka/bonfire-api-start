@@ -29,7 +29,7 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 		CreatedAt:     db.ToTimestamptz(ch.CreatedAt().Time()),
 		UpdatedAt:     db.ToTimestamptz(ch.UpdatedAt().Time()),
 		LastMessageAt: db.ToTimestamptz(ch.LastMessageAt().Time()),
-		Type:          ch.Type().Int16(),
+		Type:          int16(ch.Type().Int()),
 		Name:          db.ToTextPtr(ch.Name().StringPtr()),
 		IconURL:       db.ToTextPtr(ch.IconURL().StringPtr()),
 	})
@@ -178,7 +178,7 @@ func channelFromRow(row db.Channel) (*channel.Channel, error) {
 	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
 	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
 
-	return channel.ParseChannel(
+	return channel.ReconstituteChannel(
 		id,
 		chType,
 		name,
