@@ -22,7 +22,7 @@ type Channel struct {
 	updatedAt     fields.Timestamp
 }
 
-func ParseChannel(
+func ReconstituteChannel(
 	id fields.ID,
 	chType ChannelType,
 	name ChannelName,
@@ -50,7 +50,7 @@ func NewChannel(chType ChannelType, now fields.Timestamp) (*Channel, error) {
 		return nil, err
 	}
 
-	return ParseChannel(
+	return ReconstituteChannel(
 		id,
 		chType,
 		ChannelName{},
@@ -80,9 +80,9 @@ func (c *Channel) CreatedAt() fields.Timestamp     { return c.createdAt }
 func (c *Channel) UpdatedAt() fields.Timestamp     { return c.updatedAt }
 
 func (c *Channel) IsDirect() bool {
-	return c.chType.Raw() == ChannelTypeDirect
+	return c.chType.IsDirect()
 }
 
 func (c *Channel) IsGroup() bool {
-	return c.chType.Raw() == ChannelTypeGroup
+	return c.chType.IsGroup()
 }

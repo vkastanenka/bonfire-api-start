@@ -2,9 +2,11 @@ package fields
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,6 +63,30 @@ func (b Bytes) MarshalBinary() ([]byte, error) {
 
 func (b *Bytes) UnmarshalBinary(data []byte) error {
 	*b = NewBytes(data)
+	return nil
+}
+
+func (b Bytes) MarshalJSON() ([]byte, error) {
+	if b.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(base64.StdEncoding.EncodeToString(b.value))
+}
+
+func (b *Bytes) UnmarshalJSON(data []byte) error {
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+	if encoded == "" {
+		*b = Bytes{}
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+	*b = NewBytes(decoded)
 	return nil
 }
 
@@ -131,15 +157,11 @@ func parseCursorLimit(fieldName, raw string) (int, error) {
 
 	val, err := strconv.Atoi(s)
 	if err != nil || val < 0 {
-		return 0, errs.InvalidArgument("Limit must be a non-negative integer.").
-			Reason("INVALID_LIMIT").
-			FieldViolation(fieldName, "Must be a non-negative integer.", "INVALID_FORMAT")
+		return 0, ErrLimitInvalid(fieldName)
 	}
 
 	if val > MaxCursorLimit {
-		return 0, errs.InvalidArgument(fmt.Sprintf("Limit cannot exceed %d.", MaxCursorLimit)).
-			Reason("LIMIT_EXCEEDED").
-			FieldViolation(fieldName, fmt.Sprintf("Limit cannot exceed %d.", MaxCursorLimit), "MAX_LIMIT_EXCEEDED")
+		return 0, ErrLimitExceeded(fieldName)
 	}
 
 	return val, nil
@@ -167,90 +189,112 @@ func (c Cursor) Equals(other Cursor) bool {
 
 type EnumSpec struct {
 	Domain string
-	Max    uint8
+	Max    int
 	Names  []string
 	Bytes  [][]byte
 }
 
-type Enum[T ~uint8] struct {
-	Value uint8
-	Desc  *EnumSpec
+type Enum[T IntegerType] struct {
+	Integer[T]
+	desc *EnumSpec
 }
 
-func NewEnum[T ~uint8](val T, desc *EnumSpec) Enum[T] {
-	return Enum[T]{Value: uint8(val), Desc: desc}
+func NewEnum[T IntegerType](val T, desc *EnumSpec) Enum[T] {
+	return Enum[T]{
+		Integer: NewInteger(val),
+		desc:    desc,
+	}
 }
 
 func (e Enum[T]) IsValid() bool {
-	return e.Desc != nil && e.Value > 0 && e.Value < e.Desc.Max
-}
-
-func (e Enum[T]) Raw() T {
-	return T(e.Value)
-}
-
-func (e Enum[T]) Uint8() uint8 {
-	return uint8(e.Value)
-}
-
-func (e Enum[T]) Uint8Ptr() *uint8 {
-	if !e.IsValid() {
-		return nil
+	if e.desc == nil {
+		return false
 	}
-	return ptr.To(uint8(e.Value))
+	val := e.Integer.Int()
+	return val >= 0 && val < e.desc.Max && val < len(e.desc.Names)
 }
 
-func (e Enum[T]) Int16() int16 {
-	return int16(e.Value)
-}
-
-func (e Enum[T]) Int16Ptr() *int16 {
-	if !e.IsValid() {
-		return nil
-	}
-	return ptr.To(int16(e.Value))
+func (e Enum[T]) Is(target T) bool {
+	return e.Value() == target
 }
 
 func (e Enum[T]) String() string {
-	if e.Desc == nil {
+	if e.desc == nil {
 		return "UNKNOWN"
 	}
-	if e.IsValid() && int(e.Value) < len(e.Desc.Names) {
-		return e.Desc.Names[e.Value]
+	val := e.Integer.Int()
+	if e.IsValid() {
+		return e.desc.Names[val]
 	}
-	if len(e.Desc.Names) > 0 {
-		return e.Desc.Names[0]
+	if len(e.desc.Names) > 0 {
+		return e.desc.Names[0]
 	}
 	return "UNKNOWN"
 }
 
 func (e Enum[T]) MarshalText() ([]byte, error) {
-	if e.Desc == nil {
+	if e.desc == nil {
 		return []byte("UNKNOWN"), nil
 	}
-	if e.IsValid() && int(e.Value) < len(e.Desc.Bytes) {
-		return e.Desc.Bytes[e.Value], nil
+	val := e.Integer.Int()
+	if e.IsValid() && val < len(e.desc.Bytes) && len(e.desc.Bytes[val]) > 0 {
+		return e.desc.Bytes[val], nil
 	}
-	if len(e.Desc.Bytes) > 0 {
-		return e.Desc.Bytes[0], nil
+	if len(e.desc.Bytes) > 0 && len(e.desc.Bytes[0]) > 0 {
+		return e.desc.Bytes[0], nil
 	}
 	return []byte("UNKNOWN"), nil
 }
 
-func ParseEnumString[T ~uint8](s string, desc *EnumSpec) (T, bool) {
+func (e *Enum[T]) UnmarshalText(text []byte) error {
+	if e.desc == nil {
+		return ErrEnumInvalidDomain()
+	}
+	str := string(text)
+	val, ok := ParseEnumString[T](str, e.desc)
+	if !ok {
+		return ErrEnumInvalidValue(str)
+	}
+	e.Integer = NewInteger(val)
+	return nil
+}
+
+func (e Enum[T]) MarshalJSON() ([]byte, error) {
+	b, err := e.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(string(b))
+}
+
+func (e *Enum[T]) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		var numericVal T
+		if numErr := json.Unmarshal(data, &numericVal); numErr == nil {
+			e.Integer = NewInteger(numericVal)
+			return nil
+		}
+		return err
+	}
+	return e.UnmarshalText([]byte(s))
+}
+
+func ParseEnumString[T IntegerType](s string, desc *EnumSpec) (T, bool) {
+	var zero T
 	if desc == nil {
-		return 0, false
+		return zero, false
 	}
 	str := strings.TrimSpace(s)
 	if str == "" {
-		return 0, false
+		return zero, false
 	}
-	for i := 1; i < len(desc.Names); i++ {
+	for i := 0; i < len(desc.Names) && i < desc.Max; i++ {
 		if strings.EqualFold(desc.Names[i], str) {
 			return T(i), true
 		}
 	}
-	return 0, false
+	return zero, false
 }
 
 // ============================================================================
@@ -274,9 +318,7 @@ func ParseHexColor(fieldName, raw string) (HexColor, error) {
 	}
 
 	if !rgxHexColor.MatchString(s) {
-		return HexColor{}, errs.InvalidArgument("Invalid hex color format.").
-			Reason("INVALID_HEX_COLOR").
-			FieldViolation(fieldName, "Must be a 6-character hex color (e.g. #FF0000).", "INVALID_FORMAT")
+		return HexColor{}, ErrHexColorInvalid(fieldName)
 	}
 
 	return NewHexColor(strings.ToUpper(s)), nil
@@ -288,9 +330,7 @@ func ParseRequiredHexColor(fieldName, raw string) (HexColor, error) {
 		return HexColor{}, err
 	}
 	if color.IsZero() {
-		return HexColor{}, errs.InvalidArgument("Hex color is required.").
-			Reason("HEX_COLOR_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+		return HexColor{}, ErrHexColorRequired(fieldName)
 	}
 	return color, nil
 }
@@ -320,9 +360,7 @@ func ParseID(raw uuid.UUID) (ID, error) {
 func ParseRequiredID(fieldName string, raw uuid.UUID) (ID, error) {
 	id := ID(raw)
 	if id.IsZero() {
-		return ID{}, errs.InvalidArgument(fieldName+" is required.").
-			Reason("ID_REQUIRED").
-			FieldViolation(fieldName, fieldName+" is required.", "REQUIRED")
+		return ID{}, ErrIDRequired(fieldName)
 	}
 	return id, nil
 }
@@ -355,9 +393,7 @@ func ParseIDFromString(fieldName, raw string) (ID, error) {
 
 	parsed, err := uuid.Parse(s)
 	if err != nil {
-		return ID{}, errs.InvalidArgument("Invalid ID format.").
-			Reason("INVALID_ID_FORMAT").
-			FieldViolation(fieldName, "Must be a valid UUID.", "INVALID_FORMAT")
+		return ID{}, ErrIDInvalid(fieldName)
 	}
 
 	return ID(parsed), nil
@@ -369,9 +405,7 @@ func ParseRequiredIDFromString(fieldName, raw string) (ID, error) {
 		return ID{}, err
 	}
 	if id.IsZero() {
-		return ID{}, errs.InvalidArgument(fieldName+" is required.").
-			Reason("ID_REQUIRED").
-			FieldViolation(fieldName, fieldName+" is required.", "REQUIRED")
+		return ID{}, ErrIDRequired(fieldName)
 	}
 	return id, nil
 }
@@ -447,6 +481,123 @@ func (id *ID) UnmarshalText(text []byte) error {
 }
 
 // ============================================================================
+// Int
+// ============================================================================
+
+type IntegerType interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}
+
+type Integer[T IntegerType] struct {
+	val T
+}
+
+func NewInteger[T IntegerType](val T) Integer[T] {
+	return Integer[T]{val: val}
+}
+
+func (i Integer[T]) Int() int {
+	return int(i.val)
+}
+
+func (i Integer[T]) Value() T {
+	return i.val
+}
+
+func ParseInteger[T IntegerType](fieldName, raw string) (Integer[T], error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return Integer[T]{}, nil
+	}
+
+	var zero T
+	switch any(zero).(type) {
+	case uint, uint8, uint16, uint32, uint64, uintptr:
+		parsed, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return Integer[T]{}, ErrIntInvalid(fieldName)
+		}
+		return NewInteger(T(parsed)), nil
+	default:
+		parsed, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return Integer[T]{}, ErrIntInvalid(fieldName)
+		}
+		return NewInteger(T(parsed)), nil
+	}
+}
+
+func ParseRequiredInteger[T IntegerType](fieldName, raw string) (Integer[T], error) {
+	i, err := ParseInteger[T](fieldName, raw)
+	if err != nil {
+		return Integer[T]{}, err
+	}
+	if i.IsZero() {
+		return Integer[T]{}, ErrIntRequired(fieldName)
+	}
+	return i, nil
+}
+
+func (i Integer[T]) IsZero() bool                 { var zero T; return i.val == zero }
+func (i Integer[T]) IsValid() bool                { return !i.IsZero() }
+func (i Integer[T]) Equals(other Integer[T]) bool { return i.val == other.val }
+
+func (i Integer[T]) ValuePtr() *T {
+	if i.IsZero() {
+		return nil
+	}
+	return ptr.To(i.val)
+}
+
+func (i Integer[T]) IntPtr() *int {
+	if i.IsZero() {
+		return nil
+	}
+	return ptr.To(i.Int())
+}
+
+func (i Integer[T]) String() string {
+	return fmt.Sprintf("%d", i.val)
+}
+
+func (i Integer[T]) StringPtr() *string {
+	if i.IsZero() {
+		return nil
+	}
+	return ptr.To(i.String())
+}
+
+func (i Integer[T]) MarshalText() ([]byte, error) {
+	if i.IsZero() {
+		return nil, nil
+	}
+	return []byte(i.String()), nil
+}
+
+func (i *Integer[T]) UnmarshalText(text []byte) error {
+	v, err := ParseInteger[T]("int", string(text))
+	if err != nil {
+		return err
+	}
+	*i = v
+	return nil
+}
+
+func (i Integer[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(i.val)
+}
+
+func (i *Integer[T]) UnmarshalJSON(data []byte) error {
+	var val T
+	if err := json.Unmarshal(data, &val); err != nil {
+		return ErrIntJSONInvalid("int")
+	}
+	*i = NewInteger(val)
+	return nil
+}
+
+// ============================================================================
 // JSON
 // ============================================================================
 
@@ -473,24 +624,18 @@ func ParseJSON(fieldName string, raw []byte) (JSON, error) {
 	}
 
 	if len(trimmed) > MaxJSONBytes {
-		return JSON{}, errs.InvalidArgument("JSON payload is too large.").
-			Reason("METADATA_TOO_LARGE").
-			FieldViolation(fieldName, fmt.Sprintf("Payload must be %d bytes or fewer.", MaxJSONBytes), "MAX_SIZE_EXCEEDED")
+		return JSON{}, ErrJSONTooLarge(fieldName)
 	}
 
 	if !bytes.HasPrefix(trimmed, []byte("{")) || !bytes.HasSuffix(trimmed, []byte("}")) {
-		return JSON{}, errs.InvalidArgument("Invalid JSON format.").
-			Reason("INVALID_METADATA_FORMAT").
-			FieldViolation(fieldName, "Payload must be a JSON object.", "INVALID_TYPE")
+		return JSON{}, ErrJSONInvalidFormat(fieldName)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 
 	var val map[string]any
 	if err := decoder.Decode(&val); err != nil {
-		return JSON{}, errs.InvalidArgument("Invalid JSON payload.").
-			Reason("MALFORMED_JSON").
-			FieldViolation(fieldName, "Payload must be valid JSON.", "MALFORMED_JSON")
+		return JSON{}, ErrJSONMalformed(fieldName)
 	}
 
 	if len(val) == 0 {
@@ -510,9 +655,7 @@ func ParseRequiredJSON(fieldName string, raw []byte) (JSON, error) {
 		return JSON{}, err
 	}
 	if j.IsZero() {
-		return JSON{}, errs.InvalidArgument("JSON payload is required.").
-			Reason("METADATA_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+		return JSON{}, ErrJSONRequired(fieldName)
 	}
 	return j, nil
 }
@@ -531,9 +674,7 @@ func ParseRequiredJSONFromString(fieldName, raw string) (JSON, error) {
 		return JSON{}, err
 	}
 	if j.IsZero() {
-		return JSON{}, errs.InvalidArgument("JSON payload is required.").
-			Reason("METADATA_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+		return JSON{}, ErrJSONRequired(fieldName)
 	}
 	return j, nil
 }
@@ -545,9 +686,7 @@ func ParseJSONFromMap(fieldName string, raw map[string]any) (JSON, error) {
 
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return JSON{}, errs.InvalidArgument("Invalid JSON structure.").
-			Reason("MALFORMED_JSON").
-			FieldViolation(fieldName, "Failed to process JSON map.", "INVALID_STRUCTURE")
+		return JSON{}, ErrJSONMapInvalid(fieldName)
 	}
 
 	return ParseJSON(fieldName, b)
@@ -585,12 +724,10 @@ func (j JSON) Equals(other JSON) bool {
 	if j.IsZero() && other.IsZero() {
 		return true
 	}
-	b1, err1 := j.MarshalJSON()
-	b2, err2 := other.MarshalJSON()
-	if err1 != nil || err2 != nil {
+	if j.IsZero() || other.IsZero() {
 		return false
 	}
-	return bytes.Equal(b1, b2)
+	return reflect.DeepEqual(j.value, other.value)
 }
 
 func (j JSON) MarshalJSON() ([]byte, error) {
@@ -609,16 +746,21 @@ func (j *JSON) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func validateDepthAndTypes(fieldName string, curr map[string]any, depth int) error {
+func validateDepthAndTypes(fieldName string, v any, depth int) error {
 	if depth > MaxMetadataDepth {
-		return errs.InvalidArgument("JSON nesting is too deep.").
-			Reason("METADATA_NESTING_EXCEEDED").
-			FieldViolation(fieldName, fmt.Sprintf("Nesting level cannot exceed %d.", MaxMetadataDepth), "MAX_DEPTH_EXCEEDED")
+		return ErrJSONNestingExceeded(fieldName)
 	}
 
-	for _, v := range curr {
-		if childMap, ok := v.(map[string]any); ok {
-			if err := validateDepthAndTypes(fieldName, childMap, depth+1); err != nil {
+	switch node := v.(type) {
+	case map[string]any:
+		for _, child := range node {
+			if err := validateDepthAndTypes(fieldName, child, depth+1); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range node {
+			if err := validateDepthAndTypes(fieldName, child, depth+1); err != nil {
 				return err
 			}
 		}
@@ -691,9 +833,10 @@ func ParseTimestamp(fieldName, raw string) (Timestamp, error) {
 
 	parsed, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
-		return Timestamp{}, errs.InvalidArgument("Invalid timestamp format.").
-			Reason("INVALID_TIMESTAMP_FORMAT").
-			FieldViolation(fieldName, "Timestamp must be a valid RFC 3339 date-time format.", "INVALID_FORMAT")
+		parsed, err = time.Parse(time.RFC3339, s)
+		if err != nil {
+			return Timestamp{}, ErrTimestampInvalid(fieldName)
+		}
 	}
 
 	return NewTimestamp(parsed), nil
@@ -705,9 +848,7 @@ func ParseRequiredTimestamp(fieldName, raw string) (Timestamp, error) {
 		return Timestamp{}, err
 	}
 	if t.IsZero() {
-		return Timestamp{}, errs.InvalidArgument("Timestamp is required.").
-			Reason("TIMESTAMP_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+		return Timestamp{}, ErrTimestampRequired(fieldName)
 	}
 	return t, nil
 }
@@ -824,16 +965,12 @@ func ParseURL(fieldName, raw string) (URL, error) {
 	}
 
 	if len(cleaned) > URLMaxLength {
-		return URL{}, errs.InvalidArgument("URL exceeds maximum length.").
-			Reason("URL_TOO_LONG").
-			FieldViolation(fieldName, fmt.Sprintf("Must not exceed %d characters.", URLMaxLength), "MAX_LENGTH_EXCEEDED")
+		return URL{}, ErrURLTooLong(fieldName)
 	}
 
 	parsed, err := url.ParseRequestURI(cleaned)
 	if err != nil || parsed.Host == "" || (!strings.HasPrefix(cleaned, "http://") && !strings.HasPrefix(cleaned, "https://")) {
-		return URL{}, errs.InvalidArgument("Invalid URL format.").
-			Reason("INVALID_URL_FORMAT").
-			FieldViolation(fieldName, "URL must be a valid HTTP or HTTPS address.", "INVALID_FORMAT")
+		return URL{}, ErrURLInvalid(fieldName)
 	}
 
 	return NewURL(parsed.String()), nil
@@ -845,9 +982,7 @@ func ParseRequiredURL(fieldName, raw string) (URL, error) {
 		return URL{}, err
 	}
 	if u.IsZero() {
-		return URL{}, errs.InvalidArgument("URL is required.").
-			Reason("URL_REQUIRED").
-			FieldViolation(fieldName, "Field is required.", "REQUIRED")
+		return URL{}, ErrURLRequired(fieldName)
 	}
 	return u, nil
 }
