@@ -103,131 +103,109 @@ WHERE
     revoked_at IS NULL;
 
 CREATE TABLE channels(
-    id uuid NOT NULL,
-    last_message_id uuid DEFAULT NULL,
+    id uuid PRIMARY KEY,
+    last_message_id uuid,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_message_at timestamptz DEFAULT NULL,
-    type smallint NOT NULL,
-    name text DEFAULT NULL,
-    icon_url text DEFAULT NULL,
-    CONSTRAINT channels_pkey PRIMARY KEY (id),
-    CONSTRAINT type_valid CHECK (type IN (1, 2)),
-    CONSTRAINT name_length CHECK (char_length(name) BETWEEN 1 AND 100),
-    CONSTRAINT icon_url_length CHECK (char_length(icon_url) BETWEEN 1 AND 2048)
+    last_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    type smallint NOT NULL DEFAULT 1 CONSTRAINT type_valid CHECK (type IN (1, 2)),
+    name text CHECK (char_length(name) BETWEEN 1 AND 100),
+    icon_url text CHECK (char_length(icon_url) BETWEEN 1 AND 2048)
 );
 
-CREATE INDEX idx_channels_last_message ON channels(last_message_id)
+CREATE INDEX idx_channels_last_message_id ON channels(last_message_id)
 WHERE
     last_message_id IS NOT NULL;
 
-CREATE TABLE messages(
-    id uuid NOT NULL,
-    channel_id uuid NOT NULL,
-    author_id uuid DEFAULT NULL,
-    reply_to_message_id uuid DEFAULT NULL,
-    forwarded_message_id uuid DEFAULT NULL,
-    forwarded_channel_id uuid DEFAULT NULL,
-    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    edited_at timestamptz DEFAULT NULL,
-    pinned_at timestamptz DEFAULT NULL,
-    type smallint NOT NULL DEFAULT 1,
-    content text DEFAULT NULL,
-    system_metadata jsonb DEFAULT NULL,
-    CONSTRAINT messages_pkey PRIMARY KEY (id),
-    CONSTRAINT fk_messages_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT fk_messages_reply_to FOREIGN KEY (reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL,
-    CONSTRAINT fk_messages_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
-    CONSTRAINT fk_messages_forwarded_message FOREIGN KEY (forwarded_message_id) REFERENCES messages(id) ON DELETE SET NULL,
-    CONSTRAINT fk_messages_forwarded_channel FOREIGN KEY (forwarded_channel_id) REFERENCES channels(id) ON DELETE SET NULL,
-    CONSTRAINT type_valid CHECK (type IN (1, 2, 3, 4, 5)),
-    CONSTRAINT content_length CHECK (content IS NULL OR char_length(trim(content)) BETWEEN 1 AND 4000),
-    CONSTRAINT forward_valid CHECK ((forwarded_message_id IS NULL AND forwarded_channel_id IS NULL) OR (forwarded_message_id IS NOT NULL AND forwarded_channel_id IS NOT NULL))
-);
-
-CREATE INDEX idx_messages_author ON messages(author_id)
-WHERE
-    author_id IS NOT NULL;
-
-CREATE INDEX idx_messages_reply_to ON messages(reply_to_message_id)
-WHERE
-    reply_to_message_id IS NOT NULL;
-
-CREATE INDEX idx_messages_forwarded_msg ON messages(forwarded_message_id)
-WHERE
-    forwarded_message_id IS NOT NULL;
-
-CREATE INDEX idx_messages_forwarded_chan ON messages(forwarded_channel_id)
-WHERE
-    forwarded_channel_id IS NOT NULL;
-
-CREATE INDEX idx_messages_channel_created ON messages(channel_id, id DESC);
-
-CREATE INDEX idx_messages_pinned ON messages(channel_id, pinned_at DESC, id DESC)
-WHERE
-    pinned_at IS NOT NULL;
-
-ALTER TABLE channels
-    ADD CONSTRAINT fk_channels_last_message FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
-
 CREATE TABLE channel_members(
-    channel_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    last_read_message_id uuid DEFAULT NULL,
+    channel_id uuid NOT NULL CONSTRAINT fk_channel_members_channel REFERENCES channels(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL CONSTRAINT fk_channel_members_user REFERENCES users(id) ON DELETE CASCADE,
+    last_read_message_id uuid CONSTRAINT fk_channel_members_last_read_message REFERENCES messages(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    pinned_at timestamptz DEFAULT NULL,
-    muted_until timestamptz DEFAULT NULL,
+    muted_until timestamptz,
+    pinned_at timestamptz,
     mention_count int NOT NULL DEFAULT 0,
     is_visible boolean NOT NULL DEFAULT TRUE,
-    CONSTRAINT channel_members_pkey PRIMARY KEY (channel_id, user_id),
-    CONSTRAINT fk_channel_members_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
-    CONSTRAINT fk_channel_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_channel_members_last_read_message FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    CONSTRAINT channel_members_pkey PRIMARY KEY (channel_id, user_id)
 );
 
 CREATE INDEX idx_channel_members_last_read_message_id ON channel_members(last_read_message_id)
 WHERE
     last_read_message_id IS NOT NULL;
 
-CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, is_visible, pinned_at DESC NULLS LAST, channel_id DESC);
+CREATE INDEX idx_channel_members_user_sidebar ON channel_members(user_id, pinned_at DESC NULLS LAST, channel_id)
+WHERE
+    is_visible = TRUE;
 
-CREATE TABLE message_attachments(
-    id uuid NOT NULL,
-    message_id uuid NOT NULL,
+CREATE TABLE messages(
+    id uuid PRIMARY KEY,
+    channel_id uuid NOT NULL CONSTRAINT fk_messages_channel REFERENCES channels(id) ON DELETE CASCADE,
+    author_id uuid CONSTRAINT fk_messages_author REFERENCES users(id) ON DELETE SET NULL,
+    reply_to_message_id uuid CONSTRAINT fk_messages_reply_to REFERENCES messages(id) ON DELETE SET NULL,
+    forward_message_id uuid CONSTRAINT fk_messages_forward_message REFERENCES messages(id) ON DELETE SET NULL,
+    forward_channel_id uuid CONSTRAINT fk_messages_forward_channel REFERENCES channels(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    file_size bigint NOT NULL,
-    width integer DEFAULT NULL,
-    height integer DEFAULT NULL,
-    file_name text NOT NULL,
-    content_type text NOT NULL,
-    url text NOT NULL,
-    CONSTRAINT message_attachments_pkey PRIMARY KEY (id),
-    CONSTRAINT fk_message_attachments_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
-    CONSTRAINT file_name_validity CHECK (length(trim(file_name)) BETWEEN 1 AND 255),
-    CONSTRAINT file_size_positive CHECK (file_size > 0),
-    CONSTRAINT content_type_validity CHECK (length(trim(content_type)) BETWEEN 1 AND 128),
-    CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048)
+    updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    edited_at timestamptz,
+    pinned_at timestamptz,
+    type smallint NOT NULL DEFAULT 1 CONSTRAINT type_valid CHECK (type IN (1, 2, 3, 4, 5, 6, 7, 8, 9)),
+    content text CONSTRAINT content_length CHECK (content IS NULL OR char_length(trim(content)) BETWEEN 1 AND 4000),
+    metadata jsonb,
+    CONSTRAINT forward_valid CHECK ((forward_message_id IS NULL AND forward_channel_id IS NULL) OR (forward_message_id IS NOT NULL AND forward_channel_id IS NOT NULL))
 );
 
-CREATE INDEX idx_message_attachments_message_id_id ON message_attachments(message_id, id ASC);
+CREATE INDEX idx_messages_channel_id_id_desc ON messages(channel_id, id DESC);
+
+CREATE INDEX idx_messages_author_id ON messages(author_id)
+WHERE
+    author_id IS NOT NULL;
+
+CREATE INDEX idx_messages_reply_to_message_id ON messages(reply_to_message_id)
+WHERE
+    reply_to_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forward_message_id ON messages(forward_message_id)
+WHERE
+    forward_message_id IS NOT NULL;
+
+CREATE INDEX idx_messages_forward_channel_id ON messages(forward_channel_id)
+WHERE
+    forward_channel_id IS NOT NULL;
+
+CREATE INDEX idx_messages_pinned_at_desc ON messages(channel_id, pinned_at DESC)
+WHERE
+    pinned_at IS NOT NULL;
+
+ALTER TABLE channels
+    ADD CONSTRAINT fk_channels_last_message_id FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
 CREATE TABLE message_reactions(
-    message_id uuid NOT NULL,
-    user_id uuid NOT NULL,
+    message_id uuid NOT NULL CONSTRAINT fk_message_reactions_message REFERENCES messages(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL CONSTRAINT fk_message_reactions_user REFERENCES users(id) ON DELETE CASCADE,
+    emoji text NOT NULL CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64),
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    emoji text NOT NULL,
-    CONSTRAINT message_reactions_pkey PRIMARY KEY (message_id, user_id, emoji),
-    CONSTRAINT fk_message_reactions_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
-    CONSTRAINT fk_message_reactions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT emoji_length CHECK (char_length(trim(emoji)) BETWEEN 1 AND 64)
+    CONSTRAINT message_reactions_pkey PRIMARY KEY (message_id, user_id, emoji)
 );
 
-CREATE INDEX idx_message_reactions_message_id_created_at ON message_reactions(message_id, created_at ASC);
+CREATE INDEX idx_message_reactions_message_id_created_at ON message_reactions(message_id, created_at);
 
 CREATE INDEX idx_message_reactions_user_id ON message_reactions(user_id);
+
+CREATE TABLE message_attachments(
+    id uuid PRIMARY KEY,
+    message_id uuid NOT NULL CONSTRAINT fk_message_attachments_message REFERENCES messages(id) ON DELETE CASCADE,
+    file_name text NOT NULL CONSTRAINT file_name_validity CHECK (length(trim(file_name)) BETWEEN 1 AND 255),
+    content_type text NOT NULL CONSTRAINT content_type_validity CHECK (length(trim(content_type)) BETWEEN 1 AND 128),
+    url text NOT NULL CONSTRAINT url_validity CHECK (length(trim(url)) BETWEEN 3 AND 2048),
+    file_size bigint NOT NULL CONSTRAINT file_size_positive CHECK (file_size > 0),
+    width integer,
+    height integer,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id, id);
 
 CREATE TABLE relations(
     user1_id uuid NOT NULL,
