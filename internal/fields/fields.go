@@ -229,7 +229,7 @@ func ParseRequiredID(fieldName string, raw uuid.UUID) (ID, error) {
 	return id, nil
 }
 
-func ParseIDs(fieldName string, raws []uuid.UUID) ([]ID, error) {
+func ParseIDs(raws []uuid.UUID) ([]ID, error) {
 	if len(raws) == 0 {
 		return []ID{}, nil
 	}

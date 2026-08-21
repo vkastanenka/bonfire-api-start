@@ -324,9 +324,14 @@ func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (
 	return relationFromRow(row)
 }
 
-func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) (bool, error) {
+func ErrIncomingBlock() *errs.Error {
+	return errs.InvalidArgument("Cannot interact with users who have blocked you.").
+		Reason("INCOMING_BLOCK_DETECTED")
+}
+
+func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) error {
 	if len(peerIDs) == 0 {
-		return false, nil
+		return nil
 	}
 
 	uuids := make([]uuid.UUID, len(peerIDs))
@@ -339,10 +344,14 @@ func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID field
 		PeerIds: db.ToUUIDs(uuids),
 	})
 	if err != nil {
-		return false, r.store.Err(err)
+		return r.store.Err(err)
 	}
 
-	return hasBlock, nil
+	if hasBlock {
+		return ErrIncomingBlock()
+	}
+
+	return nil
 }
 
 // -----------------------------------------------------------------------------

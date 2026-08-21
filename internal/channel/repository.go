@@ -61,7 +61,7 @@ type OutboxRepository interface {
 }
 
 type RelationRepository interface {
-	HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) (bool, error)
+	HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) error
 }
 
 type UserRepository interface {

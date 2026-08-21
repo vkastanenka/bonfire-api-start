@@ -51,7 +51,6 @@ func NewChannelService(
 
 // CreateGroup creates a new group channel with members.
 func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, rawPeerIDs []uuid.UUID) error {
-	// Validate
 	err := ValidateMaxPeers(rawPeerIDs)
 	if err != nil {
 		return err
@@ -62,109 +61,44 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawUserID uuid.UUID, r
 		return err
 	}
 
-	memberIDs, err := fields.ParseIDs("member_id", rawPeerIDs)
+	memberIDs, err := fields.ParseIDs(rawPeerIDs)
 	if err != nil {
 		return err
 	}
 
-	// Dedupe peers and remove requesting user
-	peerIDs := fields.RemoveID(fields.DedupeIDs(memberIDs), userID)
+	peerIDs := FilterPeerIDs(userID, memberIDs)
 
-	allMemberIDs := make([]fields.ID, 0, len(peerIDs)+1)
-	allMemberIDs = append(allMemberIDs, userID)
-	allMemberIDs = append(allMemberIDs, peerIDs...)
-
-	// Verify blocks
 	if len(peerIDs) > 0 {
-		hasBlock, err := s.relationRepo.HasIncomingBlock(ctx, userID, peerIDs)
+		err = s.relationRepo.HasIncomingBlock(ctx, userID, peerIDs)
 		if err != nil {
 			return err
 		}
-		if hasBlock {
-			return errs.InvalidArgument("Cannot interact with users who have blocked you.").
-				Reason("INCOMING_BLOCK_DETECTED")
-		}
-	}
-
-	// Parse models
-	channelID, err := fields.NewID()
-	if err != nil {
-		return err
 	}
 
 	now := fields.Now()
 
-	parsedChannel := ParseChannel(
-		channelID,
-		NewChannelTypeGroup(),
-		ChannelName{},
-		fields.URL{},
-		fields.ID{},
-		fields.Timestamp{},
-		now,
-		now,
-	)
+	ch, err := NewDirectChannel(now)
+	if err != nil {
+		return err
+	}
 
-	parsedUser := ParseMember(
-		channelID,
-		userID,
-		fields.ID{},
-		fields.Timestamp{},
-		fields.Timestamp{},
-		fields.Timestamp{},
-		0,
-		true,
-		now,
-		now,
-	)
+	membs := NewMembers(ch.ID(), userID, peerIDs, now)
 
-	parsedPeers := ParseMembers(
-		channelID,
-		peerIDs,
-		fields.ID{},
-		fields.Timestamp{},
-		fields.Timestamp{},
-		fields.Timestamp{},
-		1,
-		true,
-		now,
-		now,
-	)
-
-	parsedMembers := make([]*Member, 0, len(allMemberIDs))
-	parsedMembers = append(parsedMembers, parsedUser)
-	parsedMembers = append(parsedMembers, parsedPeers...)
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// Create channel
-		_, err = s.repo.Create(txCtx, parsedChannel)
-		if err != nil {
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if _, err = s.repo.Create(txCtx, ch); err != nil {
 			return err
 		}
 
-		// Create members
-		_, err = s.memberRepo.CreateBatch(txCtx, parsedMembers)
-		if err != nil {
+		if _, err = s.memberRepo.CreateBatch(txCtx, membs); err != nil {
 			return err
 		}
 
-		// Publish event
-		_, err = s.outboxRepo.Publish(
-			txCtx,
-			EventChannelCreated,
-			ChannelCreatedPayload{},
-		)
-		if err != nil {
+		if _, err = s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{}); err != nil {
 			return err
 		}
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Get fetches all channel data needed to load a channel, including details, members, and messages.

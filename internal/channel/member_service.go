@@ -66,7 +66,7 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
-	memberIDs, err := fields.ParseIDs("member_ids", rawMemberIDs)
+	memberIDs, err := fields.ParseIDs(rawMemberIDs)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (s *MemberService) AddMembers(
 
 	g.Go(func() error {
 		var err error
-		hasBlock, err = s.relationRepo.HasIncomingBlock(ctxGrp, userID, newPeerIDs)
+		err = s.relationRepo.HasIncomingBlock(ctxGrp, userID, newPeerIDs)
 		return err
 	})
 
