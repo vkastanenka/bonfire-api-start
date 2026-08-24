@@ -53,7 +53,7 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 			LastReadMessageAt: m.LastReadMessageAt().Time(),
 			PinnedAt:          m.PinnedAt().TimePtr(),
 			MutedUntil:        m.MutedUntil().TimePtr(),
-			MentionCount:      m.MentionCount(),
+			MentionCount:      int32(m.MentionCount()),
 			IsVisible:         m.IsVisible(),
 		}
 	}
@@ -354,14 +354,14 @@ func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
 	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
 	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
 
-	return channel.ParseMember(
+	return channel.ReconstituteMember(
 		parsedChannelID,
 		parsedUserID,
 		lastReadMessageID,
 		lastReadMessageAt,
 		pinnedAt,
 		mutedUntil,
-		row.MentionCount,
+		int(row.MentionCount),
 		row.IsVisible,
 		createdAt,
 		updatedAt,

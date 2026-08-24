@@ -205,7 +205,7 @@ func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {
 
 	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
 
-	return channel.ParseReaction(
+	return channel.ReconstituteReaction(
 		parsedMessageID,
 		parsedUserID,
 		emoji,
