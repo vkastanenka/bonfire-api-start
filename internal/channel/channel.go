@@ -91,54 +91,39 @@ func (c *Channel) IsGroup() bool {
 }
 
 func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
+	pinnedAt := func(c *Channel) fields.Timestamp {
+		if m := userMembersMap[c.ID()]; m != nil && m.PinnedAt().IsValid() {
+			return m.PinnedAt()
+		}
+		return fields.Timestamp{}
+	}
+
 	slices.SortFunc(channels, func(a, b *Channel) int {
-		mA := userMembersMap[a.ID()]
-		mB := userMembersMap[b.ID()]
+		pinA, pinB := pinnedAt(a), pinnedAt(b)
 
-		aPinned := mA != nil && mA.PinnedAt().IsValid()
-		bPinned := mB != nil && mB.PinnedAt().IsValid()
-		if aPinned != bPinned {
-			if aPinned {
-				return -1
-			}
-			return 1
-		}
-		if aPinned {
-			if mA.PinnedAt().After(mB.PinnedAt()) {
-				return -1
-			}
-			if mB.PinnedAt().After(mA.PinnedAt()) {
-				return 1
+		if pinA.IsValid() || pinB.IsValid() {
+			if cmp := pinB.Compare(pinA); cmp != 0 {
+				return cmp
 			}
 		}
 
-		aLast := a.LastMessageAt()
-		bLast := b.LastMessageAt()
-		if !aLast.Equals(bLast) {
-			if aLast.After(bLast) {
-				return -1
-			}
-			return 1
+		if cmp := b.LastMessageAt().Compare(a.LastMessageAt()); cmp != 0 {
+			return cmp
 		}
 
-		if a.CreatedAt().After(b.CreatedAt()) {
-			return -1
-		}
-		if b.CreatedAt().After(a.CreatedAt()) {
-			return 1
+		if cmp := b.CreatedAt().Compare(a.CreatedAt()); cmp != 0 {
+			return cmp
 		}
 
 		return a.ID().Compare(b.ID())
 	})
 }
 
-func validateIDs(rawActorID, rawChannelID uuid.UUID) (fields.ID, fields.ID, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
+func validateIDs(rawActorID, rawChannelID uuid.UUID) (actorID, channelID fields.ID, err error) {
+	if actorID, err = fields.ParseRequiredID("actor_id", rawActorID); err != nil {
 		return fields.ID{}, fields.ID{}, err
 	}
-	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
-	if err != nil {
+	if channelID, err = fields.ParseRequiredID("channel_id", rawChannelID); err != nil {
 		return fields.ID{}, fields.ID{}, err
 	}
 	return actorID, channelID, nil

@@ -1,8 +1,9 @@
 package channel
 
 import (
-	"bonfire-api/internal/errs"
 	"fmt"
+
+	"bonfire-api/internal/errs"
 )
 
 // -----------------------------------------------------------------------------
@@ -63,6 +64,12 @@ func ErrMinMembersInvalid() error {
 	return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
 		Reason("MIN_MEMBERS_INVALID").
 		FieldViolation("member_ids", fmt.Sprintf("List must be at least %d items.", ChannelMinMembers), "MAX_LENGTH_EXCEEDED").
+		Meta("domain", "channels")
+}
+
+func ErrNoNewMembers() error {
+	return errs.InvalidArgument("No new members to add.").
+		Reason("NO_NEW_MEMBERS").
 		Meta("domain", "channels")
 }
 

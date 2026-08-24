@@ -571,10 +571,7 @@ func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, 
 
 	g.Go(func() error {
 		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
-		if err != nil {
-			return err
-		}
-		return nil
+		return err
 	})
 
 	if err := g.Wait(); err != nil {
@@ -588,14 +585,16 @@ func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, 
 	return msg, nil
 }
 
-func (s *MessageService) validateParams(ctx context.Context, rawActorID, rawChannelID, rawMsgID uuid.UUID) (fields.ID, fields.ID, fields.ID, error) {
-	actorID, channelID, msgID, err := validateMessageIDs(rawActorID, rawChannelID, rawMsgID)
+func (s *MessageService) validateParams(
+	ctx context.Context,
+	rawActorID, rawChannelID, rawMsgID uuid.UUID,
+) (actorID, channelID, msgID fields.ID, err error) {
+	actorID, channelID, msgID, err = validateMessageIDs(rawActorID, rawChannelID, rawMsgID)
 	if err != nil {
 		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 
-	_, err = s.memberRepo.Require(ctx, channelID, actorID)
-	if err != nil {
+	if _, err = s.memberRepo.Require(ctx, channelID, actorID); err != nil {
 		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 

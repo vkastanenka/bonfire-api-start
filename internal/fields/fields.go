@@ -928,6 +928,19 @@ func (t Timestamp) Add(d time.Duration) Timestamp {
 	return NewTimestamp(t.Time().Add(d))
 }
 
+func (t Timestamp) Compare(other Timestamp) int {
+	if t.IsZero() && other.IsZero() {
+		return 0
+	}
+	if t.IsZero() {
+		return -1
+	}
+	if other.IsZero() {
+		return 1
+	}
+	return t.value.Compare(other.value)
+}
+
 func (t Timestamp) MarshalText() ([]byte, error) {
 	if t.IsZero() {
 		return nil, nil

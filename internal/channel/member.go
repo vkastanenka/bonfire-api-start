@@ -1,11 +1,10 @@
 package channel
 
 import (
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
+	"cmp"
 	"slices"
-	"strings"
 )
 
 type Member struct {
@@ -129,52 +128,59 @@ func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
 func filterRequiredPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) ([]fields.ID, error) {
 	peerIDs := filterPeerIDs(actorID, parsedPeerIDs)
 	if len(peerIDs) == 0 {
-		return nil, errs.InvalidArgument("No new members to add.").
-			Reason("NO_NEW_MEMBERS")
+		return nil, ErrNoNewMembers()
 	}
 	return peerIDs, nil
 }
 
 func getMemberIDs(members []*Member) []fields.ID {
-	rawIDs := make([]fields.ID, 0, len(members))
+	ids := make([]fields.ID, 0, len(members))
 	for _, m := range members {
-		rawIDs = append(rawIDs, m.UserID())
+		if m != nil {
+			ids = append(ids, m.UserID())
+		}
 	}
-	return fields.DedupeIDs(rawIDs)
+	return fields.DedupeIDs(ids)
 }
 
 func indexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
-	channelIDs := make([]fields.ID, len(members))
+	channelIDs := make([]fields.ID, 0, len(members))
 	membershipMap := make(map[fields.ID]*Member, len(members))
-	for i, m := range members {
+
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
 		chID := m.ChannelID()
-		channelIDs[i] = chID
+		channelIDs = append(channelIDs, chID)
 		membershipMap[chID] = m
 	}
+
 	return channelIDs, membershipMap
 }
 
 func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
+	displayName := func(m *Member) string {
+		if m == nil {
+			return ""
+		}
+		if u := userMap[m.UserID()]; u != nil {
+			return u.DisplayName().String()
+		}
+		return ""
+	}
+
 	slices.SortFunc(members, func(a, b *Member) int {
-		uA, okA := userMap[a.UserID()]
-		uB, okB := userMap[b.UserID()]
-
-		nameA := ""
-		if okA && uA != nil {
-			nameA = uA.DisplayName().String()
+		if cmp := cmp.Compare(displayName(a), displayName(b)); cmp != 0 {
+			return cmp
 		}
-		nameB := ""
-		if okB && uB != nil {
-			nameB = uB.DisplayName().String()
-		}
-
-		return strings.Compare(nameA, nameB)
+		return a.UserID().Compare(b.UserID())
 	})
 }
 
 func validateMembership(userID fields.ID, members []*Member) (*Member, error) {
 	for _, m := range members {
-		if m != nil && m.UserID() == userID {
+		if m != nil && m.UserID().Equals(userID) {
 			return m, nil
 		}
 	}

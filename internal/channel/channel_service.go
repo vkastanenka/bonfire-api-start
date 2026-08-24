@@ -102,12 +102,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 
 // Get fetches all channel data needed to load a channel, including details, members, and messages.
 func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -142,7 +137,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 	})
 
 	g1.Go(func() error {
-		cursor := getMessageCursor(actorMember.LastReadMessageID(), messageID)
+		cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
 
 		var err error
 		messages, err = s.messageRepo.ListAroundByChannelID(
@@ -199,10 +194,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 	sortMembers(members, userMap)
 	sortMessages(messages)
 
-	memberViews := hydrateMemberViews(members, userMap, presenceMap)
-	messageViews := hydrateMessageViews(messages, userMap, reactionMap)
-
-	return channel, memberViews, messageViews, nil
+	return channel, hydrateMemberViews(members, userMap, presenceMap), hydrateMessageViews(messages, userMap, reactionMap), nil
 }
 
 // GetSidebar fetches all sidebar needed to load a user's sidebar, including details, members, and presences.
@@ -276,12 +268,7 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 
 // UpdateGroup updates the group channel properties name and icon_url.
 func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return nil, err
-	}
-
-	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -301,9 +288,9 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 		return nil, err
 	}
 
-	now := fields.Now()
-
 	var channel *Channel
+
+	now := fields.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		channel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
@@ -374,47 +361,45 @@ func buildUpdateGroupSystemMessages(
 	return systemMessages, nil
 }
 
-func getMessageCursor(
+func getMessagesCursor(
 	actorLastReadID fields.ID,
 	fallbackMessageID fields.ID,
 ) fields.Cursor {
-	cursorID := fallbackMessageID
-	beforeLimit := MessageListBeforeLimit
-	afterLimit := MessageListAfterLimit
-
-	if !cursorID.IsValid() {
-		if actorLastReadID.IsValid() {
-			cursorID = actorLastReadID
-		}
-
-		if !cursorID.IsValid() {
-			beforeLimit = MessageListLimit
-			afterLimit = 0
-		}
+	if fallbackMessageID.IsValid() {
+		return fields.NewCursor(fallbackMessageID, MessageListBeforeLimit, MessageListAfterLimit)
 	}
 
-	return fields.NewCursor(cursorID, beforeLimit, afterLimit)
+	if actorLastReadID.IsValid() {
+		return fields.NewCursor(actorLastReadID, MessageListBeforeLimit, MessageListAfterLimit)
+	}
+
+	return fields.NewCursor(fallbackMessageID, MessageListLimit, 0)
 }
 
-func getSidebarUserIDs(actorID fields.ID, channelMap map[fields.ID]*Channel, memberMap map[fields.ID][]*Member) (peerIDs []fields.ID, directPeerIDs []fields.ID) {
-	var rawPeerIDs []fields.ID
-	var rawDirectPeerIDs []fields.ID
-
+func getSidebarUserIDs(
+	actorID fields.ID,
+	channelMap map[fields.ID]*Channel,
+	memberMap map[fields.ID][]*Member,
+) (peerIDs, directPeerIDs []fields.ID) {
 	for chID, members := range memberMap {
-		ch, exists := channelMap[chID]
-		if !exists || ch == nil {
+		ch := channelMap[chID]
+		if ch == nil {
 			continue
 		}
+
+		isDirect := ch.Type().IsDirect()
 		for _, m := range members {
-			if m.UserID().Equals(actorID) {
+			userID := m.UserID()
+			if userID.Equals(actorID) {
 				continue
 			}
-			rawPeerIDs = append(rawPeerIDs, m.UserID())
-			if ch.Type().IsDirect() {
-				rawDirectPeerIDs = append(rawDirectPeerIDs, m.UserID())
+
+			peerIDs = append(peerIDs, userID)
+			if isDirect {
+				directPeerIDs = append(directPeerIDs, userID)
 			}
 		}
 	}
 
-	return fields.DedupeIDs(rawPeerIDs), fields.DedupeIDs(rawDirectPeerIDs)
+	return fields.DedupeIDs(peerIDs), fields.DedupeIDs(directPeerIDs)
 }

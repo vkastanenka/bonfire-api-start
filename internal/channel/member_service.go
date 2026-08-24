@@ -69,9 +69,7 @@ func (s *MemberService) AddMembers(
 		return err
 	}
 
-	var (
-		existingMembersMap map[fields.ID][]*Member
-	)
+	var existingMembers []*Member
 
 	g, ctxGrp := errgroup.WithContext(ctx)
 
@@ -83,17 +81,12 @@ func (s *MemberService) AddMembers(
 
 	g.Go(func() error {
 		var err error
-		existingMembersMap, err = s.repo.GetBatchByChannelIDs(ctxGrp, []fields.ID{channelID})
+		existingMembers, err = s.repo.GetBatchByChannelID(ctxGrp, channelID)
 		return err
 	})
 
 	if err := g.Wait(); err != nil {
 		return err
-	}
-
-	existingMembers, ok := existingMembersMap[channelID]
-	if !ok || len(existingMembers) == 0 {
-		return ErrMembersNotFound()
 	}
 
 	if _, err := validateMembership(actorID, existingMembers); err != nil {
@@ -160,7 +153,11 @@ func buildAddMembersSystemMessages(
 	newMemberIDs []fields.ID,
 	now fields.Timestamp,
 ) ([]*Message, error) {
-	var systemMessages []*Message
+	if len(newMemberIDs) == 0 {
+		return nil, nil
+	}
+
+	systemMessages := make([]*Message, 0, len(newMemberIDs))
 	msgTime := now
 
 	for _, addedUserID := range newMemberIDs {
@@ -180,19 +177,17 @@ func buildAddMemberPayloads(
 	channelID, actorID fields.ID,
 	newMemberIDs []fields.ID,
 	now fields.Timestamp,
-) ([]*Member, []*Message, error) {
+) (members []*Member, systemMessages []*Message, err error) {
 	if isDirect {
-		members := NewMembers(channelID, actorID, newMemberIDs, now)
-		return members, nil, nil
+		return NewMembers(channelID, actorID, newMemberIDs, now), nil, nil
 	}
 
-	members := NewPeers(channelID, newMemberIDs, now)
-	systemMessages, err := buildAddMembersSystemMessages(channelID, actorID, newMemberIDs, now)
+	systemMessages, err = buildAddMembersSystemMessages(channelID, actorID, newMemberIDs, now)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return members, systemMessages, nil
+	return NewPeers(channelID, newMemberIDs, now), systemMessages, nil
 }
 
 // CloseDirect updates the visibility of a channel membership to false.
@@ -249,12 +244,7 @@ func (s *MemberService) UpdateLastReadMessage(
 	rawChannelID,
 	rawLastReadMessageID uuid.UUID,
 ) (*Member, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	lastReadMessageID, err := fields.ParseRequiredID("last_read_message_id", rawLastReadMessageID)
+	actorID, channelID, lastReadMessageID, err := validateMessageIDs(rawActorID, rawChannelID, rawLastReadMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -320,8 +310,8 @@ func (s *MemberService) UpdatePinnedAt(
 	}
 
 	var updatedMember *Member
-	now := fields.Now()
 	pinnedAt := fields.Timestamp{}
+	now := fields.Now()
 
 	if isPinned {
 		pinnedAt = now
@@ -478,16 +468,17 @@ func (s *MemberService) LeaveGroup(
 }
 
 func filterNewMemberIDs(actorID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
-	existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
+	existingSet := make(map[fields.ID]struct{}, len(existingMembers))
 	for _, m := range existingMembers {
-		existingMemberSet[m.UserID()] = struct{}{}
+		existingSet[m.UserID()] = struct{}{}
 	}
 
-	cleanNewPeerIDs := fields.RemoveID(newPeerIDs, actorID)
-	toAddIDs := make([]fields.ID, 0, len(cleanNewPeerIDs))
-
-	for _, id := range cleanNewPeerIDs {
-		if _, exists := existingMemberSet[id]; !exists {
+	toAddIDs := make([]fields.ID, 0, len(newPeerIDs))
+	for _, id := range newPeerIDs {
+		if id.Equals(actorID) {
+			continue
+		}
+		if _, exists := existingSet[id]; !exists {
 			toAddIDs = append(toAddIDs, id)
 		}
 	}
