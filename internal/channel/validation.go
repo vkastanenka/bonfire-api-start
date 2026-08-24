@@ -9,8 +9,7 @@ import (
 )
 
 func ValidateMaxPeers(rawPeerIDs []uuid.UUID) error {
-	count := (len(rawPeerIDs))
-	if count > ChannelMaxPeers {
+	if len(rawPeerIDs) > ChannelMaxPeers {
 		return errs.InvalidArgument(fmt.Sprintf("Peer list cannot exceed %d items.", ChannelMaxPeers)).
 			Reason("MAX_PEERS_EXCEEDED")
 	}
@@ -18,8 +17,7 @@ func ValidateMaxPeers(rawPeerIDs []uuid.UUID) error {
 }
 
 func ValidateMinMembers(rawMemberIDs []uuid.UUID) error {
-	count := (len(rawMemberIDs))
-	if count < ChannelMinMembers {
+	if len(rawMemberIDs) < ChannelMinMembers {
 		return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
 			Reason("MIN_MEMBERS_INVALID")
 	}
@@ -28,7 +26,7 @@ func ValidateMinMembers(rawMemberIDs []uuid.UUID) error {
 
 func ValidateMembership(userID fields.ID, members []*Member) (*Member, error) {
 	for _, m := range members {
-		if m.UserID() == userID {
+		if m != nil && m.UserID() == userID {
 			return m, nil
 		}
 	}
