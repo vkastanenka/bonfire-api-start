@@ -149,3 +149,12 @@ func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
 		return strings.Compare(nameA, nameB)
 	})
 }
+
+func validateMembership(userID fields.ID, members []*Member) (*Member, error) {
+	for _, m := range members {
+		if m != nil && m.UserID() == userID {
+			return m, nil
+		}
+	}
+	return nil, ErrNotChannelMember()
+}

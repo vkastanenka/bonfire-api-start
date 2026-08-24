@@ -3,6 +3,8 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"slices"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -128,4 +130,18 @@ func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
 
 		return a.ID().Compare(b.ID())
 	})
+}
+
+func validateMaxPeers(rawPeerIDs []uuid.UUID) error {
+	if len(rawPeerIDs) > ChannelMaxPeers {
+		return ErrMaxPeersExceeded(ChannelMaxPeers)
+	}
+	return nil
+}
+
+func validateMinMembers(rawMemberIDs []uuid.UUID) error {
+	if len(rawMemberIDs) < ChannelMinMembers {
+		return ErrMinMembersInvalid(ChannelMinMembers)
+	}
+	return nil
 }
