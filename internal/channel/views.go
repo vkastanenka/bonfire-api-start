@@ -50,7 +50,7 @@ type SidebarView struct {
 	PinnedAt          fields.Timestamp `json:"pinned_at"`
 	MutedUntil        fields.Timestamp `json:"muted_until"`
 	MemberTotal       int              `json:"member_total"`
-	MentionCount      int32            `json:"mention_count"`
+	MentionCount      int            `json:"mention_count"`
 }
 
 func HydrateMemberView(

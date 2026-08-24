@@ -11,20 +11,20 @@ type Member struct {
 	lastReadMessageAt fields.Timestamp
 	pinnedAt          fields.Timestamp
 	mutedUntil        fields.Timestamp
-	mentionCount      int32
+	mentionCount      int
 	isVisible         bool
 	createdAt         fields.Timestamp
 	updatedAt         fields.Timestamp
 }
 
-func ParseMember(
+func ReconstituteMember(
 	channelID fields.ID,
 	userID fields.ID,
 	lastReadMessageID fields.ID,
 	lastReadMessageAt fields.Timestamp,
 	pinnedAt fields.Timestamp,
 	mutedUntil fields.Timestamp,
-	mentionCount int32,
+	mentionCount int,
 	isVisible bool,
 	createdAt fields.Timestamp,
 	updatedAt fields.Timestamp,
@@ -43,40 +43,24 @@ func ParseMember(
 	}
 }
 
-// TOODO: Deprecate
-func ParseMembers(
+func NewMember(
 	channelID fields.ID,
-	userIDs []fields.ID,
-	lastReadMessageID fields.ID,
-	lastReadMessageAt fields.Timestamp,
-	pinnedAt fields.Timestamp,
-	mutedUntil fields.Timestamp,
-	mentionCount int32,
-	isVisible bool,
-	createdAt fields.Timestamp,
-	updatedAt fields.Timestamp,
-) []*Member {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	members := make([]*Member, 0, len(userIDs))
-	for _, userID := range userIDs {
-		members = append(members, ParseMember(
-			channelID,
-			userID,
-			lastReadMessageID,
-			lastReadMessageAt,
-			pinnedAt,
-			mutedUntil,
-			mentionCount,
-			isVisible,
-			createdAt,
-			updatedAt,
-		))
-	}
-
-	return members
+	userID fields.ID,
+	mentionCount int,
+	now fields.Timestamp,
+) *Member {
+	return ReconstituteMember(
+		channelID,
+		userID,
+		fields.ID{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		mentionCount,
+		true,
+		now,
+		now,
+	)
 }
 
 func NewCreator(
@@ -84,18 +68,7 @@ func NewCreator(
 	userID fields.ID,
 	now fields.Timestamp,
 ) *Member {
-	return &Member{
-		channelID:         channelID,
-		userID:            userID,
-		lastReadMessageID: fields.ID{},
-		lastReadMessageAt: fields.Timestamp{},
-		pinnedAt:          fields.Timestamp{},
-		mutedUntil:        fields.Timestamp{},
-		mentionCount:      0,
-		isVisible:         true,
-		createdAt:         now,
-		updatedAt:         now,
-	}
+	return NewMember(channelID, userID, 0, now)
 }
 
 func NewPeer(
@@ -103,18 +76,7 @@ func NewPeer(
 	userID fields.ID,
 	now fields.Timestamp,
 ) *Member {
-	return &Member{
-		channelID:         channelID,
-		userID:            userID,
-		lastReadMessageID: fields.ID{},
-		lastReadMessageAt: fields.Timestamp{},
-		pinnedAt:          fields.Timestamp{},
-		mutedUntil:        fields.Timestamp{},
-		mentionCount:      1,
-		isVisible:         true,
-		createdAt:         now,
-		updatedAt:         now,
-	}
+	return NewMember(channelID, userID, 1, now)
 }
 
 func NewMembers(
@@ -139,7 +101,7 @@ func (m *Member) LastReadMessageID() fields.ID        { return m.lastReadMessage
 func (m *Member) LastReadMessageAt() fields.Timestamp { return m.lastReadMessageAt }
 func (m *Member) PinnedAt() fields.Timestamp          { return m.pinnedAt }
 func (m *Member) MutedUntil() fields.Timestamp        { return m.mutedUntil }
-func (m *Member) MentionCount() int32                 { return m.mentionCount }
+func (m *Member) MentionCount() int                   { return m.mentionCount }
 func (m *Member) IsVisible() bool                     { return m.isVisible }
 func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
 func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
