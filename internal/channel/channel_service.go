@@ -50,7 +50,7 @@ func NewChannelService(
 
 // CreateGroup creates a new group channel with members.
 func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) error {
-	err := ValidateMaxPeers(rawPeerIDs)
+	err := validateMaxPeers(rawPeerIDs)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 		return err
 	}
 
-	peerIDs := FilterPeerIDs(actorID, memberIDs)
+	peerIDs := filterPeerIDs(actorID, memberIDs)
 
 	if len(peerIDs) > 0 {
 		err = s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs)
@@ -122,7 +122,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 		return nil, nil, nil, err
 	}
 
-	actorMember, err := ValidateMembership(actorID, members)
+	actorMember, err := validateMembership(actorID, members)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -159,7 +159,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 		return nil, nil, nil, err
 	}
 
-	memberIDs := GetMemberIDs(members)
+	memberIDs := getMemberIDs(members)
 
 	var (
 		userMap     map[fields.ID]*user.User
@@ -186,7 +186,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 			reactionMap = make(map[fields.ID]*ReactionSummary)
 			return nil
 		}
-		messageIDs := GetMessageIDs(messages)
+		messageIDs := getMessageIDs(messages)
 		var err error
 		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, actorID, messageIDs)
 		return err
@@ -196,11 +196,11 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 		return nil, nil, nil, err
 	}
 
-	SortMembers(members, userMap)
-	SortMessages(messages)
+	sortMembers(members, userMap)
+	sortMessages(messages)
 
-	memberViews := HydrateMemberViews(members, userMap, presenceMap)
-	messageViews := HydrateMessageViews(messages, userMap, reactionMap)
+	memberViews := hydrateMemberViews(members, userMap, presenceMap)
+	messageViews := hydrateMessageViews(messages, userMap, reactionMap)
 
 	return channel, memberViews, messageViews, nil
 }
@@ -221,7 +221,7 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 		return []SidebarView{}, nil
 	}
 
-	channelIDs, actorMembershipMap := IndexMemberships(userMemberships)
+	channelIDs, actorMembershipMap := indexMemberships(userMemberships)
 
 	channelMap, err := s.repo.GetBatch(ctx, channelIDs)
 	if err != nil {
@@ -269,9 +269,9 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 		}
 	}
 
-	SortSidebar(channels, actorMembershipMap)
+	sortSidebar(channels, actorMembershipMap)
 
-	return HydrateSidebarViews(actorID, channels, actorMembershipMap, memberMap, userMap, presenceMap), nil
+	return hydrateSidebarViews(actorID, channels, actorMembershipMap, memberMap, userMap, presenceMap), nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
