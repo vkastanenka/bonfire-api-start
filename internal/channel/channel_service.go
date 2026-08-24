@@ -3,7 +3,6 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
@@ -158,7 +157,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 
 	var (
 		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]presence.Presence
+		presenceMap map[fields.ID]user.Presence
 		reactionMap map[fields.ID]*ReactionSummary
 	)
 
@@ -229,7 +228,7 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 
 	var (
 		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]presence.Presence
+		presenceMap map[fields.ID]user.Presence
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)

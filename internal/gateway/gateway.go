@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -18,7 +18,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type PresenceStore interface {
-	SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error
+	SetPresence(ctx context.Context, userID uuid.UUID, p user.Presence) error
 }
 
 type TicketStore interface {
@@ -60,9 +60,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Safely evaluate and resolve user presence
-	userPresence, err := presence.New(query.Presence)
+	userPresence, err := user.ParsePresenceString(query.Presence)
 	if err != nil || !userPresence.IsValid() {
-		userPresence = presence.PresenceOnline
+		userPresence = user.NewPresenceOnline()
 	}
 
 	// Set presence using a decoupled/safe context so it doesn't get aborted mid-flight

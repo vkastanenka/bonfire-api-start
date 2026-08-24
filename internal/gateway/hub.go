@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"bonfire-api/internal/cache"
 	"bonfire-api/internal/db"
 
 	"github.com/google/uuid"
@@ -24,17 +23,20 @@ type Hub struct {
 	mu         sync.RWMutex
 
 	store db.Store
-	cache cache.Store
+	// cache cache.Store
 }
 
-func NewHub(store db.Store, cache cache.Store) *Hub {
+func NewHub(
+	store db.Store,
+	// cache cache.Store
+) *Hub {
 	return &Hub{
 		clients:    make(map[uuid.UUID]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		handlers:   make(map[string]MessageHandler),
 		store:      store,
-		cache:      cache,
+		// cache:      cache,
 	}
 }
 
@@ -77,28 +79,28 @@ func (h *Hub) Run(ctx context.Context) {
 // listenRedisUserEvents subscribes to individual user event streams using pattern matching.
 // Channel pattern: "user:*:events"
 func (h *Hub) listenRedisUserEvents(ctx context.Context) {
-	pattern := "user:*:events"
-	sub, err := h.cache.PSubscribe(ctx, pattern)
-	if err != nil {
-		slog.Error("Failed to psubscribe to user events", "pattern", pattern, "error", err)
-		return
-	}
-	defer sub.Close()
+	// pattern := "user:*:events"
+	// sub, err := h.cache.PSubscribe(ctx, pattern)
+	// if err != nil {
+	// 	slog.Error("Failed to psubscribe to user events", "pattern", pattern, "error", err)
+	// 	return
+	// }
+	// defer sub.Close()
 
-	ch := sub.Channel()
+	// ch := sub.Channel()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-ch:
-			if !ok {
-				return
-			}
-			// Pass a detached/non-cancelable context to prevent context cancellation leaks
-			go h.dispatchUserEvent(context.WithoutCancel(ctx), msg.Channel, msg.Payload)
-		}
-	}
+	// for {
+	// 	select {
+	// 	case <-ctx.Done():
+	// 		return
+	// 	case msg, ok := <-ch:
+	// 		if !ok {
+	// 			return
+	// 		}
+	// 		// Pass a detached/non-cancelable context to prevent context cancellation leaks
+	// 		go h.dispatchUserEvent(context.WithoutCancel(ctx), msg.Channel, msg.Payload)
+	// 	}
+	// }
 }
 
 // dispatchUserEvent parses incoming Redis messages and routes them to the connected client.

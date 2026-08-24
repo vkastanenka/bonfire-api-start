@@ -130,12 +130,22 @@ func ErrURLRequired(fieldName string) error {
 
 var ErrEnumNilDomain = errors.New("enum descriptor is nil")
 
-// ErrEnumInvalidDomain returns an error when the EnumSpec descriptor is missing.
 func ErrEnumInvalidDomain() error {
 	return ErrEnumNilDomain
 }
 
-// ErrEnumInvalidValue returns a formatted error when the string cannot be parsed into the enum.
 func ErrEnumInvalidValue(val string) error {
 	return fmt.Errorf("invalid enum value: %q", val)
+}
+
+func ErrTraceIDRequired() error {
+	return errs.InvalidArgument("Trace ID is required.").
+		Reason("TRACE_ID_REQUIRED").
+		FieldViolation("trace_id", "Field is required.", "REQUIRED")
+}
+
+func ErrTraceIDTooLong() error {
+	return errs.InvalidArgument("Trace ID exceeds maximum length.").
+		Reason("TRACE_ID_TOO_LONG").
+		FieldViolation("trace_id", fmt.Sprintf("Must not exceed %d characters.", traceIDMaxLength), "MAX_LENGTH_EXCEEDED")
 }

@@ -958,6 +958,57 @@ func (t *Timestamp) UnmarshalText(text []byte) error {
 }
 
 // ============================================================================
+// TraceID
+// ============================================================================
+
+const traceIDMaxLength = 256
+
+type TraceID struct {
+	Text
+}
+
+func NewTraceID(v string) TraceID {
+	return TraceID{Text: NewText(v)}
+}
+
+func ParseTraceID(raw string) (TraceID, error) {
+	cleaned := sanitize.Text(raw)
+	if cleaned == "" {
+		return TraceID{}, nil
+	}
+
+	if utf8.RuneCountInString(cleaned) > traceIDMaxLength {
+		return TraceID{}, ErrTraceIDTooLong()
+	}
+
+	return NewTraceID(cleaned), nil
+}
+
+func ParseRequiredTraceID(raw string) (TraceID, error) {
+	traceID, err := ParseTraceID(raw)
+	if err != nil {
+		return TraceID{}, err
+	}
+	if traceID.IsZero() {
+		return TraceID{}, ErrTraceIDRequired()
+	}
+	return traceID, nil
+}
+
+func (t TraceID) Equals(other TraceID) bool {
+	return t.Text.Equals(other.Text)
+}
+
+func (t *TraceID) UnmarshalText(text []byte) error {
+	v, err := ParseTraceID(string(text))
+	if err != nil {
+		return err
+	}
+	*t = v
+	return nil
+}
+
+// ============================================================================
 // URL
 // ============================================================================
 

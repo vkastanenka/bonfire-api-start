@@ -3,15 +3,14 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
 
 type MemberView struct {
-	ID          fields.ID         `json:"id"`
-	DisplayName user.DisplayName  `json:"display_name"`
-	AvatarURL   fields.URL        `json:"avatar_url"`
-	Presence    presence.Presence `json:"presence"`
+	ID          fields.ID        `json:"id"`
+	DisplayName user.DisplayName `json:"display_name"`
+	AvatarURL   fields.URL       `json:"avatar_url"`
+	Presence    user.Presence    `json:"presence"`
 }
 
 type MessageView struct {
@@ -57,7 +56,7 @@ type SidebarView struct {
 func hydrateMemberView(
 	memberID fields.ID,
 	u *user.User,
-	p presence.Presence,
+	p user.Presence,
 ) (MemberView, bool) {
 	if u == nil {
 		return MemberView{}, false
@@ -74,7 +73,7 @@ func hydrateMemberView(
 func hydrateMemberViews(
 	members []*Member,
 	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]presence.Presence,
+	presenceMap map[fields.ID]user.Presence,
 ) []MemberView {
 	views := make([]MemberView, 0, len(members))
 
@@ -90,7 +89,7 @@ func hydrateMemberViews(
 
 		p, ok := presenceMap[m.UserID()]
 		if !ok {
-			p = presence.New(presence.PresenceOffline)
+			p = user.NewPresence(user.PresenceOffline)
 		}
 
 		if view, ok := hydrateMemberView(m.UserID(), u, p); ok {
@@ -202,7 +201,7 @@ func hydrateSidebarPeer(
 	currentUserID fields.ID,
 	pMem *Member,
 	u *user.User,
-	p presence.Presence,
+	p user.Presence,
 ) (MemberView, bool) {
 	if pMem == nil || pMem.UserID() == currentUserID {
 		return MemberView{}, false
@@ -215,7 +214,7 @@ func hydrateSidebarPeers(
 	currentUserID fields.ID,
 	rawPeers []*Member,
 	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]presence.Presence,
+	presenceMap map[fields.ID]user.Presence,
 ) []MemberView {
 	views := make([]MemberView, 0, len(rawPeers))
 	for _, pMem := range rawPeers {
@@ -230,7 +229,7 @@ func hydrateSidebarPeers(
 
 		p, ok := presenceMap[pMem.UserID()]
 		if !ok {
-			p = presence.New(presence.PresenceOffline)
+			p = user.NewPresence(user.PresenceOffline)
 		}
 
 		if view, ok := hydrateSidebarPeer(currentUserID, pMem, u, p); ok {
@@ -272,7 +271,7 @@ func hydrateSidebarViews(
 	userMembersMap map[fields.ID]*Member,
 	peerMembersMap map[fields.ID][]*Member,
 	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]presence.Presence,
+	presenceMap map[fields.ID]user.Presence,
 ) []SidebarView {
 	views := make([]SidebarView, 0, len(channels))
 

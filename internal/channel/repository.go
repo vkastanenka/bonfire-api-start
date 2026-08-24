@@ -5,7 +5,6 @@ import (
 
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
 
@@ -73,10 +72,10 @@ type UserRepository interface {
 }
 
 type UserCache interface {
-	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
-	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
-	SetBatchPresence(ctx context.Context, items map[fields.ID]presence.Presence) error
+	GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
+	SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error
+	SetBatchPresence(ctx context.Context, items map[fields.ID]user.Presence) error
 }
 
 type TX interface {

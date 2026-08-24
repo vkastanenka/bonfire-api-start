@@ -12,10 +12,10 @@ type Event struct {
 	aggregateType  AggregateType
 	eventType      EventType
 	payload        Payload
-	traceID        TraceID
+	traceID        fields.TraceID
 	processedAt    fields.Timestamp
-	attempts       int32
-	maxAttempts    int32
+	attempts       int
+	maxAttempts    int
 	nextAttemptAt  fields.Timestamp
 	lockedBy       fields.ID
 	leaseExpiresAt fields.Timestamp
@@ -24,59 +24,16 @@ type Event struct {
 	updatedAt      fields.Timestamp
 }
 
-// ============================================================================
-// Getters
-// ============================================================================
-
-func (e *Event) ID() fields.ID                    { return e.id }
-func (e *Event) AggregateID() fields.ID           { return e.aggregateID }
-func (e *Event) AggregateType() AggregateType     { return e.aggregateType }
-func (e *Event) EventType() EventType             { return e.eventType }
-func (e *Event) Payload() Payload                 { return e.payload }
-func (e *Event) TraceID() TraceID                 { return e.traceID }
-func (e *Event) ProcessedAt() fields.Timestamp    { return e.processedAt }
-func (e *Event) Attempts() int32                  { return e.attempts }
-func (e *Event) MaxAttempts() int32               { return e.maxAttempts }
-func (e *Event) NextAttemptAt() fields.Timestamp  { return e.nextAttemptAt }
-func (e *Event) LockedBy() fields.ID              { return e.lockedBy }
-func (e *Event) LeaseExpiresAt() fields.Timestamp { return e.leaseExpiresAt }
-func (e *Event) LastError() LastError             { return e.lastError }
-func (e *Event) CreatedAt() fields.Timestamp      { return e.createdAt }
-func (e *Event) UpdatedAt() fields.Timestamp      { return e.updatedAt }
-
-// ============================================================================
-// Meta
-// ============================================================================
-
-func (e *Event) IsProcessed() bool  { return e.processedAt.IsValid() }
-func (e *Event) IsDeadLetter() bool { return e.attempts >= e.maxAttempts }
-func (e *Event) IsLocked() bool     { return e.lockedBy.IsValid() }
-
-func (e *Event) CanProcess(now fields.Timestamp) bool {
-	if e.IsProcessed() || e.IsDeadLetter() {
-		return false
-	}
-	if e.nextAttemptAt.HasPassed(now.Time()) {
-		return true
-	}
-	return e.nextAttemptAt.Equals(now)
-}
-
-// ============================================================================
-// Mappers
-// ============================================================================
-
-// Reconstitute restores an OutboxEvent directly from persistence.
-func New(
+func ReconstituteEvent(
 	id fields.ID,
 	aggregateID fields.ID,
 	aggregateType AggregateType,
 	eventType EventType,
 	payload Payload,
-	traceID TraceID,
+	traceID fields.TraceID,
 	processedAt fields.Timestamp,
-	attempts int32,
-	maxAttempts int32,
+	attempts int,
+	maxAttempts int,
 	nextAttemptAt fields.Timestamp,
 	lockedBy fields.ID,
 	leaseExpiresAt fields.Timestamp,
@@ -103,9 +60,35 @@ func New(
 	}
 }
 
-// ============================================================================
-// Mutations
-// ============================================================================
+func (e *Event) ID() fields.ID                    { return e.id }
+func (e *Event) AggregateID() fields.ID           { return e.aggregateID }
+func (e *Event) AggregateType() AggregateType     { return e.aggregateType }
+func (e *Event) EventType() EventType             { return e.eventType }
+func (e *Event) Payload() Payload                 { return e.payload }
+func (e *Event) TraceID() fields.TraceID          { return e.traceID }
+func (e *Event) ProcessedAt() fields.Timestamp    { return e.processedAt }
+func (e *Event) Attempts() int                    { return e.attempts }
+func (e *Event) MaxAttempts() int                 { return e.maxAttempts }
+func (e *Event) NextAttemptAt() fields.Timestamp  { return e.nextAttemptAt }
+func (e *Event) LockedBy() fields.ID              { return e.lockedBy }
+func (e *Event) LeaseExpiresAt() fields.Timestamp { return e.leaseExpiresAt }
+func (e *Event) LastError() LastError             { return e.lastError }
+func (e *Event) CreatedAt() fields.Timestamp      { return e.createdAt }
+func (e *Event) UpdatedAt() fields.Timestamp      { return e.updatedAt }
+
+func (e *Event) IsProcessed() bool  { return e.processedAt.IsValid() }
+func (e *Event) IsDeadLetter() bool { return e.attempts >= e.maxAttempts }
+func (e *Event) IsLocked() bool     { return e.lockedBy.IsValid() }
+
+func (e *Event) CanProcess(now fields.Timestamp) bool {
+	if e.IsProcessed() || e.IsDeadLetter() {
+		return false
+	}
+	if e.nextAttemptAt.HasPassed(now.Time()) {
+		return true
+	}
+	return e.nextAttemptAt.Equals(now)
+}
 
 // Claim updates worker lock ownership and sets the lease duration.
 func (e *Event) Claim(workerID fields.ID, leaseExpiresAt fields.Timestamp, at fields.Timestamp) {
@@ -129,14 +112,14 @@ func (e *Event) MarkFailure(reason string, at fields.Timestamp) {
 	e.leaseExpiresAt = fields.Timestamp{}
 
 	if reason != "" {
-		if parsed, err := ParseLastError("last_error", reason); err == nil {
+		if parsed, err := ParseLastError(reason); err == nil {
 			e.lastError = parsed
 		}
 	}
 
 	// Exponential backoff: 2^attempts seconds (e.g., 2s, 4s, 8s, 16s...)
 	backoffSec := time.Duration(1<<e.attempts) * time.Second
-	e.nextAttemptAt = fields.NewTimestampFromTime(at.Time().Add(backoffSec))
+	e.nextAttemptAt = fields.NewTimestamp(at.Time().Add(backoffSec))
 	e.touch(at)
 }
 
@@ -147,7 +130,7 @@ func (e *Event) MarkDeadLetter(reason string, at fields.Timestamp) {
 	e.leaseExpiresAt = fields.Timestamp{}
 
 	if reason != "" {
-		if parsed, err := ParseLastError("last_error", reason); err == nil {
+		if parsed, err := ParseLastError(reason); err == nil {
 			e.lastError = parsed
 		}
 	}

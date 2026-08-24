@@ -50,7 +50,7 @@ func ParseRequiredChannelName(raw string) (ChannelName, error) {
 // Channel Type
 // -----------------------------------------------------------------------------
 
-type ChannelTypeValue int16
+type ChannelTypeValue int
 
 const (
 	ChannelTypeUnknown ChannelTypeValue = iota

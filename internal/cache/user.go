@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
+	"bonfire-api/internal/user"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
@@ -30,18 +30,18 @@ func NewUserCache(client redisdriver.Cmdable, scope redis.Scope, ttl time.Durati
 	}
 }
 
-func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error) {
+func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error) {
 	val, err := c.client.Get(ctx, userPresenceKey(userID)).Uint64()
 	if redis.IsCacheMiss(err) {
-		return presence.New(presence.PresenceOffline), nil
+		return user.NewPresenceOffline(), nil
 	}
 	if err != nil {
-		return presence.New(presence.PresenceUnknown), redis.NewError(err, c.scope)
+		return user.NewPresence(user.PresenceUnknown), redis.NewError(err, c.scope)
 	}
 
-	p, err := presence.Parse(uint8(val))
+	p, err := user.ParsePresence(int(val))
 	if err != nil {
-		return presence.New(presence.PresenceOffline), nil
+		return user.NewPresenceOffline(), nil
 	}
 
 	return p, nil
@@ -50,8 +50,8 @@ func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (presence
 func (c *UserCache) GetBatchPresence(
 	ctx context.Context,
 	userIDs []fields.ID,
-) (map[fields.ID]presence.Presence, error) {
-	result := make(map[fields.ID]presence.Presence, len(userIDs))
+) (map[fields.ID]user.Presence, error) {
+	result := make(map[fields.ID]user.Presence, len(userIDs))
 	if len(userIDs) == 0 {
 		return result, nil
 	}
@@ -71,19 +71,19 @@ func (c *UserCache) GetBatchPresence(
 
 		valStr, ok := raw.(string)
 		if !ok || raw == nil {
-			result[userID] = presence.New(presence.PresenceOffline)
+			result[userID] = user.NewPresenceOffline()
 			continue
 		}
 
 		val, parseErr := strconv.ParseUint(valStr, 10, 8)
 		if parseErr != nil {
-			result[userID] = presence.New(presence.PresenceOffline)
+			result[userID] = user.NewPresenceOffline()
 			continue
 		}
 
-		p, parseErr := presence.Parse(uint8(val))
+		p, parseErr := user.ParsePresence(int(val))
 		if parseErr != nil {
-			result[userID] = presence.New(presence.PresenceOffline)
+			result[userID] = user.NewPresenceOffline()
 			continue
 		}
 
@@ -93,21 +93,21 @@ func (c *UserCache) GetBatchPresence(
 	return result, nil
 }
 
-func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error {
-	if err := c.client.Set(ctx, userPresenceKey(userID), p.Uint8(), c.ttl).Err(); err != nil {
+func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error {
+	if err := c.client.Set(ctx, userPresenceKey(userID), uint8(p.Int()), c.ttl).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
 	return nil
 }
 
-func (c *UserCache) SetBatchPresence(ctx context.Context, items map[fields.ID]presence.Presence) error {
+func (c *UserCache) SetBatchPresence(ctx context.Context, items map[fields.ID]user.Presence) error {
 	if len(items) == 0 {
 		return nil
 	}
 
 	pipe := c.client.Pipeline()
 	for userID, p := range items {
-		pipe.Set(ctx, userPresenceKey(userID), p.Uint8(), c.ttl)
+		pipe.Set(ctx, userPresenceKey(userID), uint8(p.Int()), c.ttl)
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
