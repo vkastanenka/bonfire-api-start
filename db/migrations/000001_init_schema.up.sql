@@ -120,7 +120,7 @@ WHERE
 CREATE TABLE channel_members(
     channel_id uuid NOT NULL CONSTRAINT fk_channel_members_channel REFERENCES channels(id) ON DELETE CASCADE,
     user_id uuid NOT NULL CONSTRAINT fk_channel_members_user REFERENCES users(id) ON DELETE CASCADE,
-    last_read_message_id uuid CONSTRAINT fk_channel_members_last_read_message REFERENCES messages(id) ON DELETE SET NULL,
+    last_read_message_id uuid,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_read_message_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -180,6 +180,9 @@ WHERE
 
 ALTER TABLE channels
     ADD CONSTRAINT fk_channels_last_message_id FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
+
+ALTER TABLE channel_memberss
+    ADD CONSTRAINT fk_channels_last_read_message_id FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
 CREATE TABLE message_reactions(
     message_id uuid NOT NULL CONSTRAINT fk_message_reactions_message REFERENCES messages(id) ON DELETE CASCADE,

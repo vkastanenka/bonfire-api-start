@@ -6,8 +6,6 @@ import (
 	"bonfire-api/internal/user"
 	"slices"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type Member struct {
@@ -181,16 +179,4 @@ func validateMembership(userID fields.ID, members []*Member) (*Member, error) {
 		}
 	}
 	return nil, ErrNotChannelMember()
-}
-
-func validateIDs(rawActorID, rawChannelID uuid.UUID) (fields.ID, fields.ID, error) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, err
-	}
-	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, err
-	}
-	return actorID, channelID, nil
 }

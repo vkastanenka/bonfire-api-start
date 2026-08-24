@@ -11,58 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const channelMemberClearBatchLastReadMessageByChannelID = `-- name: ChannelMemberClearBatchLastReadMessageByChannelID :many
-UPDATE
-    channel_members
-SET
-    last_read_message_id = NULL,
-    last_read_message_at = $1::timestamptz,
-    mention_count = 0,
-    updated_at = $2::timestamptz
-WHERE
-    channel_id = $3::uuid
-    AND last_read_message_id IS NOT NULL
-RETURNING
-    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
-`
-
-type ChannelMemberClearBatchLastReadMessageByChannelIDParams struct {
-	LastReadMessageAt pgtype.Timestamptz `json:"last_read_message_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ChannelID         pgtype.UUID        `json:"channel_id"`
-}
-
-func (q *Queries) ChannelMemberClearBatchLastReadMessageByChannelID(ctx context.Context, arg ChannelMemberClearBatchLastReadMessageByChannelIDParams) ([]ChannelMember, error) {
-	rows, err := q.db.Query(ctx, channelMemberClearBatchLastReadMessageByChannelID, arg.LastReadMessageAt, arg.UpdatedAt, arg.ChannelID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ChannelMember
-	for rows.Next() {
-		var i ChannelMember
-		if err := rows.Scan(
-			&i.ChannelID,
-			&i.UserID,
-			&i.LastReadMessageID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.LastReadMessageAt,
-			&i.MutedUntil,
-			&i.PinnedAt,
-			&i.MentionCount,
-			&i.IsVisible,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const channelMemberCountByChannelID = `-- name: ChannelMemberCountByChannelID :one
 SELECT
     COUNT(*)::bigint

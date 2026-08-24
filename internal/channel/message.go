@@ -3,6 +3,8 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"slices"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -227,12 +229,16 @@ func (m *Message) CreatedAt() fields.Timestamp { return m.createdAt }
 func (m *Message) UpdatedAt() fields.Timestamp { return m.updatedAt }
 func (m *Message) EditedAt() fields.Timestamp  { return m.editedAt }
 
-func getMessageIDs(messages []*Message) []fields.ID {
-	rawIDs := make([]fields.ID, 0, len(messages))
+func getMessageIDs(messages []*Message) ([]fields.ID, []fields.ID) {
+	msgIDs := make([]fields.ID, 0, len(messages))
+	authorIDs := make([]fields.ID, 0, len(messages))
 	for _, m := range messages {
-		rawIDs = append(rawIDs, m.ID())
+		msgIDs = append(msgIDs, m.ID())
+		if m.authorID.IsValid() {
+			authorIDs = append(authorIDs, m.AuthorID())
+		}
 	}
-	return fields.DedupeIDs(rawIDs)
+	return msgIDs, fields.DedupeIDs(authorIDs)
 }
 
 func sortMessages(messages []*Message) {
@@ -245,4 +251,32 @@ func sortPinnedMessages(messages []*Message) {
 	slices.SortFunc(messages, func(a, b *Message) int {
 		return b.ID().Compare(a.ID())
 	})
+}
+
+func validateReply(hasReply bool, hasFwdMsg, hasFwdChan bool) error {
+	if hasReply && (hasFwdMsg || hasFwdChan) {
+		return ErrMessageReplyConflict()
+	}
+	return nil
+}
+
+func validateForward(hasFwdMsg, hasFwdChan bool) error {
+	if hasFwdMsg != hasFwdChan {
+		return ErrMessageForwardIncomplete()
+	}
+	return nil
+}
+
+func validateMessageIDs(rawActorID, rawChannelID, rawMsgID uuid.UUID) (fields.ID, fields.ID, fields.ID, error) {
+	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	if err != nil {
+		return fields.ID{}, fields.ID{}, fields.ID{}, err
+	}
+
+	msgID, err := fields.ParseRequiredID("message_id", rawMsgID)
+	if err != nil {
+		return fields.ID{}, fields.ID{}, fields.ID{}, err
+	}
+
+	return actorID, channelID, msgID, nil
 }

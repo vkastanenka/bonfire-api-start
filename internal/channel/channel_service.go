@@ -186,7 +186,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 			reactionMap = make(map[fields.ID]*ReactionSummary)
 			return nil
 		}
-		messageIDs := getMessageIDs(messages)
+		messageIDs, _ := getMessageIDs(messages)
 		var err error
 		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, actorID, messageIDs)
 		return err

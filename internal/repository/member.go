@@ -294,32 +294,6 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.
 	return nil
 }
 
-func (r *MemberRepository) ClearBatchLastReadMessageByChannelID(
-	ctx context.Context,
-	channelID fields.ID,
-	lastReadAt, updatedAt fields.Timestamp,
-) ([]*channel.Member, error) {
-	rows, err := r.store.ChannelMemberClearBatchLastReadMessageByChannelID(ctx, db.ChannelMemberClearBatchLastReadMessageByChannelIDParams{
-		ChannelID:         db.ToUUID(channelID.UUID()),
-		LastReadMessageAt: db.ToTimestamptz(lastReadAt.Time()),
-		UpdatedAt:         db.ToTimestamptz(updatedAt.Time()),
-	})
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	result := make([]*channel.Member, len(rows))
-	for i, row := range rows {
-		m, err := memberFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		result[i] = m
-	}
-
-	return result, nil
-}
-
 func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
 	channelID := db.FromUUID[uuid.UUID](row.ChannelID)
 	userID := db.FromUUID[uuid.UUID](row.UserID)

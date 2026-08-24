@@ -62,7 +62,7 @@ func ErrMembersNotFound() error {
 func ErrMinMembersInvalid() error {
 	return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
 		Reason("MIN_MEMBERS_INVALID").
-		FieldViolation("member_ids", fmt.Sprintf("List must be at least %d items.", ChannelMinMembers), "MIN_LENGTH_EXCEEDED").
+		FieldViolation("member_ids", fmt.Sprintf("List must be at least %d items.", ChannelMinMembers), "MAX_LENGTH_EXCEEDED").
 		Meta("domain", "channels")
 }
 
@@ -93,6 +93,13 @@ func ErrMuteDurationInvalid() error {
 // messages
 // -----------------------------------------------------------------------------
 
+func ErrMessageContentMinLength() error {
+	return errs.InvalidArgument("Content must have at least 1 character.").
+		Reason("CONTENT_TOO_SHORT").
+		FieldViolation("content", "Content must have at least 1 character.", "MIN_LENGTH_EXCEEDED").
+		Meta("domain", "messages")
+}
+
 func ErrMessageContentRequired() error {
 	return errs.InvalidArgument("Message content is required.").
 		Reason("CONTENT_REQUIRED").
@@ -104,6 +111,42 @@ func ErrMessageContentTooLong() error {
 	return errs.InvalidArgument("Content too long.").
 		Reason("CONTENT_TOO_LONG").
 		FieldViolation("content", "Content must be 4000 characters or fewer.", "MAX_LENGTH_EXCEEDED").
+		Meta("domain", "messages")
+}
+
+func ErrMessageForwardIncomplete() error {
+	return errs.InvalidArgument("Forwarded message ID and forwarded channel ID must be provided together.").
+		Reason("FORWARD_IDS_INCOMPLETE").
+		Meta("domain", "messages")
+}
+
+func ErrMessageNotAuthorizedToDelete() error {
+	return errs.PermissionDenied("Actor is not authorized to delete this message.").
+		Reason("NOT_AUTHORIZED_TO_DELETE").
+		Meta("domain", "messages")
+}
+
+func ErrMessageNotAuthor() error {
+	return errs.PermissionDenied("Actor is not the author of the message.").
+		Reason("NOT_MESSAGE_AUTHOR").
+		Meta("domain", "messages")
+}
+
+func ErrMessageNotFoundInChannel() error {
+	return errs.NotFound("Message not found in this channel.").
+		Reason("MESSAGE_NOT_IN_CHANNEL").
+		Meta("domain", "messages")
+}
+
+func ErrMessageReplyConflict() error {
+	return errs.InvalidArgument("Cannot reply to a message and forward a message at the same time.").
+		Reason("REPLY_FORWARD_MUTUALLY_EXCLUSIVE").
+		Meta("domain", "messages")
+}
+
+func ErrMessageReplyDifferentChannel() error {
+	return errs.InvalidArgument("Cannot reply to a message in a different channel.").
+		Reason("REPLY_DIFFERENT_CHANNEL").
 		Meta("domain", "messages")
 }
 

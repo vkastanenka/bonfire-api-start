@@ -20,14 +20,13 @@ type ChannelRepository interface {
 }
 
 type MemberRepository interface {
-	ClearBatchLastReadMessageByChannelID(ctx context.Context, channelID fields.ID, lastReadAt fields.Timestamp, updatedAt fields.Timestamp) ([]*Member, error)
 	CountByChannelID(ctx context.Context, channelID fields.ID) (int, error)
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
 	GetBatchByChannelID(ctx context.Context, channelID fields.ID) ([]*Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
-	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID fields.ID, userID fields.ID, updatedAt fields.Timestamp) error
+	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID fields.ID, userID fields.ID, incrementAmount int, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*Member, error)
 	Require(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
 	UpdateIsVisible(ctx context.Context, channelID fields.ID, userID fields.ID, isVisible bool, updatedAt fields.Timestamp) (*Member, error)

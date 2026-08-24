@@ -146,17 +146,3 @@ DELETE FROM channel_members
 WHERE channel_id = @channel_id::uuid
     AND user_id = @user_id::uuid;
 
--- name: ChannelMemberClearBatchLastReadMessageByChannelID :many
-UPDATE
-    channel_members
-SET
-    last_read_message_id = NULL,
-    last_read_message_at = @last_read_message_at::timestamptz,
-    mention_count = 0,
-    updated_at = @updated_at::timestamptz
-WHERE
-    channel_id = @channel_id::uuid
-    AND last_read_message_id IS NOT NULL
-RETURNING
-    channel_members.*;
-

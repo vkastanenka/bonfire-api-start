@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
@@ -104,12 +105,8 @@ func hydrateMessageView(
 	msg *Message,
 	author *user.User,
 	reactions []EmojiCount,
-) (MessageView, bool) {
-	if msg == nil || author == nil {
-		return MessageView{}, false
-	}
-
-	return MessageView{
+) *MessageView {
+	return &MessageView{
 		ID:                 msg.ID(),
 		AuthorID:           msg.AuthorID(),
 		DisplayName:        author.DisplayName(),
@@ -123,7 +120,7 @@ func hydrateMessageView(
 		CreatedAt:          msg.CreatedAt(),
 		EditedAt:           msg.EditedAt(),
 		Reactions:          reactions,
-	}, true
+	}
 }
 
 func hydrateMessageViews(
@@ -151,9 +148,8 @@ func hydrateMessageViews(
 			reactions = summary.Counts
 		}
 
-		if view, ok := hydrateMessageView(msg, author, reactions); ok {
-			views = append(views, view)
-		}
+		view := hydrateMessageView(msg, author, reactions)
+		views = append(views, ptr.From(view))
 	}
 	return views
 }
