@@ -1,10 +1,13 @@
 package channel
 
 import (
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 	"slices"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type Member struct {
@@ -82,6 +85,18 @@ func NewPeer(
 	return NewMember(channelID, userID, 1, now)
 }
 
+func NewPeers(
+	channelID fields.ID,
+	userIDs []fields.ID,
+	now fields.Timestamp,
+) []*Member {
+	peers := make([]*Member, 0, len(userIDs))
+	for _, userID := range userIDs {
+		peers = append(peers, NewPeer(channelID, userID, now))
+	}
+	return peers
+}
+
 func NewMembers(
 	channelID fields.ID,
 	creatorID fields.ID,
@@ -111,6 +126,15 @@ func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
 
 func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
 	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
+}
+
+func filterRequiredPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) ([]fields.ID, error) {
+	peerIDs := filterPeerIDs(actorID, parsedPeerIDs)
+	if len(peerIDs) == 0 {
+		return nil, errs.InvalidArgument("No new members to add.").
+			Reason("NO_NEW_MEMBERS")
+	}
+	return peerIDs, nil
 }
 
 func getMemberIDs(members []*Member) []fields.ID {
@@ -157,4 +181,16 @@ func validateMembership(userID fields.ID, members []*Member) (*Member, error) {
 		}
 	}
 	return nil, ErrNotChannelMember()
+}
+
+func validateIDs(rawActorID, rawChannelID uuid.UUID) (fields.ID, fields.ID, error) {
+	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return fields.ID{}, fields.ID{}, err
+	}
+	channelID, err := fields.ParseRequiredID("channel_id", rawChannelID)
+	if err != nil {
+		return fields.ID{}, fields.ID{}, err
+	}
+	return actorID, channelID, nil
 }

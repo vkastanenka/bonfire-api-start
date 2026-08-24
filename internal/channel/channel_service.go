@@ -317,7 +317,13 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 		}
 
 		if len(systemMessages) > 0 {
-			if _, err := s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
+			if _, err := s.messageRepo.CreateBatchAndMention(
+				txCtx,
+				systemMessages,
+				channel.ID(),
+				actorID,
+				now,
+			); err != nil {
 				return err
 			}
 		}

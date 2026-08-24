@@ -266,12 +266,14 @@ func (r *MemberRepository) UpdateMutedUntil(
 func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 	ctx context.Context,
 	channelID, userID fields.ID,
+	incrementAmount int,
 	updatedAt fields.Timestamp,
 ) error {
 	err := r.store.ChannelMemberIncrementPeersMentionCountByChannelID(ctx, db.ChannelMemberIncrementPeersMentionCountByChannelIDParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		IncrementAmount: int32(incrementAmount),
+		ChannelID:       db.ToUUID(channelID.UUID()),
+		UserID:          db.ToUUID(userID.UUID()),
+		UpdatedAt:       db.ToTimestamptz(updatedAt.Time()),
 	})
 	if err != nil {
 		return r.store.Err(err)

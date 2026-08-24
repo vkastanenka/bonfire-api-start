@@ -132,7 +132,7 @@ RETURNING
 UPDATE
     channel_members
 SET
-    mention_count = mention_count + 1,
+    mention_count = mention_count + @increment_amount::integer,
     is_visible = TRUE,
     updated_at = @updated_at::timestamptz
 WHERE

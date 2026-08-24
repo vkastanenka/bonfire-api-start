@@ -241,24 +241,30 @@ const channelMemberIncrementPeersMentionCountByChannelID = `-- name: ChannelMemb
 UPDATE
     channel_members
 SET
-    mention_count = mention_count + 1,
+    mention_count = mention_count + $1::integer,
     is_visible = TRUE,
-    updated_at = $1::timestamptz
+    updated_at = $2::timestamptz
 WHERE
-    channel_id = $2::uuid
-    AND user_id != $3::uuid
+    channel_id = $3::uuid
+    AND user_id != $4::uuid
     AND (muted_until IS NULL
-        OR muted_until < $1::timestamptz)
+        OR muted_until < $2::timestamptz)
 `
 
 type ChannelMemberIncrementPeersMentionCountByChannelIDParams struct {
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	UserID    pgtype.UUID        `json:"user_id"`
+	IncrementAmount int32              `json:"increment_amount"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ChannelID       pgtype.UUID        `json:"channel_id"`
+	UserID          pgtype.UUID        `json:"user_id"`
 }
 
 func (q *Queries) ChannelMemberIncrementPeersMentionCountByChannelID(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountByChannelIDParams) error {
-	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCountByChannelID, arg.UpdatedAt, arg.ChannelID, arg.UserID)
+	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCountByChannelID,
+		arg.IncrementAmount,
+		arg.UpdatedAt,
+		arg.ChannelID,
+		arg.UserID,
+	)
 	return err
 }
 

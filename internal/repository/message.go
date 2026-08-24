@@ -16,12 +16,14 @@ import (
 )
 
 type MessageRepository struct {
-	store *db.Store
+	store      *db.Store
+	memberRepo MemberRepository
 }
 
-func NewMessageRepository(store *db.Store) *MessageRepository {
+func NewMessageRepository(store *db.Store, memberRepo MemberRepository) *MessageRepository {
 	return &MessageRepository{
-		store: store.WithEntity(db.EntityMessage),
+		store:      store.WithEntity(db.EntityMessage),
+		memberRepo: memberRepo,
 	}
 }
 
@@ -46,6 +48,31 @@ func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*
 	}
 
 	return messageFromRow(row)
+}
+
+func (r *MessageRepository) CreateAndMention(
+	ctx context.Context,
+	msg *channel.Message,
+	channelID, userID fields.ID,
+	updatedAt fields.Timestamp,
+) (*channel.Message, error) {
+	newMsg, err := r.Create(ctx, msg)
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	err = r.memberRepo.IncrementPeersMentionCountByChannelID(
+		ctx,
+		channelID,
+		userID,
+		1,
+		updatedAt,
+	)
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return newMsg, nil
 }
 
 func (r *MessageRepository) CreateBatch(
@@ -113,6 +140,35 @@ func (r *MessageRepository) CreateBatch(
 	}
 
 	return result, nil
+}
+
+func (r *MessageRepository) CreateBatchAndMention(
+	ctx context.Context,
+	messages []*channel.Message,
+	channelID, userID fields.ID,
+	updatedAt fields.Timestamp,
+) ([]*channel.Message, error) {
+	if len(messages) == 0 {
+		return []*channel.Message{}, nil
+	}
+
+	newMsgs, err := r.CreateBatch(ctx, messages)
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	err = r.memberRepo.IncrementPeersMentionCountByChannelID(
+		ctx,
+		channelID,
+		userID,
+		len(messages),
+		updatedAt,
+	)
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return newMsgs, nil
 }
 
 func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
@@ -330,7 +386,7 @@ func messageFromRow(row db.Message) (*channel.Message, error) {
 	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
 	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
 
-	return channel.ParseMessage(
+	return channel.ReconstituteMessage(
 		id,
 		channelID,
 		authorID,

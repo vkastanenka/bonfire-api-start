@@ -151,7 +151,7 @@ func NewMessageMemberAdd(
 	)
 }
 
-func NewMessageMemberRemove(
+func NewMessageMemberLeave(
 	channelID,
 	authorID fields.ID,
 	now fields.Timestamp,

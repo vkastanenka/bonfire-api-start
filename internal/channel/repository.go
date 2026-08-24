@@ -39,7 +39,9 @@ type MemberRepository interface {
 type MessageRepository interface {
 	CountByChannelID(ctx context.Context, channelID fields.ID) (int, error)
 	Create(ctx context.Context, msg *Message) (*Message, error)
+	CreateAndMention(ctx context.Context, msg *Message, channelID fields.ID, userID fields.ID, updatedAt fields.Timestamp) (*Message, error)
 	CreateBatch(ctx context.Context, messages []*Message) ([]*Message, error)
+	CreateBatchAndMention(ctx context.Context, messages []*Message, channelID fields.ID, userID fields.ID, updatedAt fields.Timestamp) ([]*Message, error)
 	Delete(ctx context.Context, id fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*Message, error)
 	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*Message, error)
