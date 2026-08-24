@@ -22,12 +22,7 @@ type ReactionSummary struct {
 	Counts    []EmojiCount
 }
 
-func (r *Reaction) MessageID() fields.ID        { return r.messageID }
-func (r *Reaction) UserID() fields.ID           { return r.userID }
-func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
-func (r *Reaction) CreatedAt() fields.Timestamp { return r.createdAt }
-
-func ParseReaction(
+func ReconstituteReaction(
 	messageID fields.ID,
 	userID fields.ID,
 	emoji ReactionEmoji,
@@ -40,3 +35,8 @@ func ParseReaction(
 		createdAt: createdAt,
 	}
 }
+
+func (r *Reaction) MessageID() fields.ID        { return r.messageID }
+func (r *Reaction) UserID() fields.ID           { return r.userID }
+func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
+func (r *Reaction) CreatedAt() fields.Timestamp { return r.createdAt }

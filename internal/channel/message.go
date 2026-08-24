@@ -26,7 +26,7 @@ type Message struct {
 	editedAt         fields.Timestamp
 }
 
-func ParseMessage(
+func ReconstituteMessage(
 	id fields.ID,
 	channelID fields.ID,
 	authorID fields.ID,
@@ -74,7 +74,7 @@ func NewRawMessage(
 		return nil, err
 	}
 
-	return ParseMessage(
+	return ReconstituteMessage(
 		id,
 		channelID,
 		authorID,
