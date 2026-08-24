@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"slices"
 )
 
 const (
@@ -225,3 +226,23 @@ func (m *Message) PinnedAt() fields.Timestamp  { return m.pinnedAt }
 func (m *Message) CreatedAt() fields.Timestamp { return m.createdAt }
 func (m *Message) UpdatedAt() fields.Timestamp { return m.updatedAt }
 func (m *Message) EditedAt() fields.Timestamp  { return m.editedAt }
+
+func getMessageIDs(messages []*Message) []fields.ID {
+	rawIDs := make([]fields.ID, 0, len(messages))
+	for _, m := range messages {
+		rawIDs = append(rawIDs, m.ID())
+	}
+	return fields.DedupeIDs(rawIDs)
+}
+
+func sortMessages(messages []*Message) {
+	slices.SortFunc(messages, func(a, b *Message) int {
+		return a.ID().Compare(b.ID())
+	})
+}
+
+func sortPinnedMessages(messages []*Message) {
+	slices.SortFunc(messages, func(a, b *Message) int {
+		return b.ID().Compare(a.ID())
+	})
+}

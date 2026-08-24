@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -141,7 +142,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 	})
 
 	g1.Go(func() error {
-		cursor := NewMessageCursor(actorMember.LastReadMessageID(), messageID)
+		cursor := getMessageCursor(actorMember.LastReadMessageID(), messageID)
 
 		var err error
 		messages, err = s.messageRepo.ListAroundByChannelID(
@@ -232,7 +233,7 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 		return nil, err
 	}
 
-	peerIDs, directPeerIDs := GetSidebarUserIDs(actorID, channelMap, memberMap)
+	peerIDs, directPeerIDs := getSidebarUserIDs(actorID, channelMap, memberMap)
 
 	var (
 		userMap     map[fields.ID]*user.User
@@ -310,7 +311,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 			return err
 		}
 
-		systemMessages, err := BuildUpdateGroupSystemMessages(channel.ID(), actorID, name, iconURL, now)
+		systemMessages, err := buildUpdateGroupSystemMessages(channel.ID(), actorID, name, iconURL, now)
 		if err != nil {
 			return err
 		}
@@ -333,4 +334,81 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 	}
 
 	return channel, nil
+}
+
+func buildUpdateGroupSystemMessages(
+	channelID, actorID fields.ID,
+	name ChannelName,
+	iconURL fields.URL,
+	now fields.Timestamp,
+) ([]*Message, error) {
+	var systemMessages []*Message
+
+	if name.IsValid() {
+		msg, err := NewMessageNameChange(channelID, actorID, name, now)
+		if err != nil {
+			return nil, err
+		}
+		systemMessages = append(systemMessages, msg)
+	}
+
+	if iconURL.IsValid() {
+		iconTime := now
+		if len(systemMessages) > 0 {
+			iconTime = now.Add(time.Microsecond)
+		}
+
+		msg, err := NewMessageIconChange(channelID, actorID, iconTime)
+		if err != nil {
+			return nil, err
+		}
+		systemMessages = append(systemMessages, msg)
+	}
+
+	return systemMessages, nil
+}
+
+func getMessageCursor(
+	actorLastReadID fields.ID,
+	fallbackMessageID fields.ID,
+) fields.Cursor {
+	cursorID := fallbackMessageID
+	beforeLimit := MessageListBeforeLimit
+	afterLimit := MessageListAfterLimit
+
+	if !cursorID.IsValid() {
+		if actorLastReadID.IsValid() {
+			cursorID = actorLastReadID
+		}
+
+		if !cursorID.IsValid() {
+			beforeLimit = MessageListLimit
+			afterLimit = 0
+		}
+	}
+
+	return fields.NewCursor(cursorID, beforeLimit, afterLimit)
+}
+
+func getSidebarUserIDs(actorID fields.ID, channelMap map[fields.ID]*Channel, memberMap map[fields.ID][]*Member) (peerIDs []fields.ID, directPeerIDs []fields.ID) {
+	var rawPeerIDs []fields.ID
+	var rawDirectPeerIDs []fields.ID
+
+	for chID, members := range memberMap {
+		ch, exists := channelMap[chID]
+		if !exists || ch == nil {
+			continue
+		}
+		for _, m := range members {
+			if m.UserID().Equals(actorID) {
+				continue
+			}
+			rawPeerIDs = append(rawPeerIDs, m.UserID())
+			if ch.Type().IsDirect() {
+				rawDirectPeerIDs = append(rawDirectPeerIDs, m.UserID())
+			}
+		}
+	}
+
+	return fields.DedupeIDs(rawPeerIDs), fields.DedupeIDs(rawDirectPeerIDs)
 }

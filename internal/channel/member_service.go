@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -566,4 +567,32 @@ func (s *MemberService) LeaveGroup(
 
 		return nil
 	})
+}
+
+func filterNewMemberIDs(userID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
+	existingMemberSet := make(map[fields.ID]struct{}, len(existingMembers))
+	for _, m := range existingMembers {
+		existingMemberSet[m.UserID()] = struct{}{}
+	}
+
+	cleanNewPeerIDs := fields.RemoveID(newPeerIDs, userID)
+	toAddIDs := make([]fields.ID, 0, len(cleanNewPeerIDs))
+
+	for _, id := range cleanNewPeerIDs {
+		if _, exists := existingMemberSet[id]; !exists {
+			toAddIDs = append(toAddIDs, id)
+		}
+	}
+
+	if len(toAddIDs) == 0 {
+		return nil, errs.InvalidArgument("All specified users are already members of this channel.").
+			Reason("ALREADY_MEMBERS")
+	}
+
+	if len(existingMembers)+len(toAddIDs) > ChannelMaxPeers+1 {
+		return nil, errs.InvalidArgument(fmt.Sprintf("Adding these members exceeds the maximum limit of %d members.", ChannelMaxPeers+1)).
+			Reason("MAX_CAPACITY_EXCEEDED")
+	}
+
+	return toAddIDs, nil
 }

@@ -50,10 +50,10 @@ type SidebarView struct {
 	PinnedAt          fields.Timestamp `json:"pinned_at"`
 	MutedUntil        fields.Timestamp `json:"muted_until"`
 	MemberTotal       int              `json:"member_total"`
-	MentionCount      int            `json:"mention_count"`
+	MentionCount      int              `json:"mention_count"`
 }
 
-func HydrateMemberView(
+func hydrateMemberView(
 	memberID fields.ID,
 	u *user.User,
 	p presence.Presence,
@@ -70,7 +70,7 @@ func HydrateMemberView(
 	}, true
 }
 
-func HydrateMemberViews(
+func hydrateMemberViews(
 	members []*Member,
 	userMap map[fields.ID]*user.User,
 	presenceMap map[fields.ID]presence.Presence,
@@ -92,7 +92,7 @@ func HydrateMemberViews(
 			p = presence.New(presence.PresenceOffline)
 		}
 
-		if view, ok := HydrateMemberView(m.UserID(), u, p); ok {
+		if view, ok := hydrateMemberView(m.UserID(), u, p); ok {
 			views = append(views, view)
 		}
 	}
@@ -100,7 +100,7 @@ func HydrateMemberViews(
 	return views
 }
 
-func HydrateMessageView(
+func hydrateMessageView(
 	msg *Message,
 	author *user.User,
 	reactions []EmojiCount,
@@ -126,7 +126,7 @@ func HydrateMessageView(
 	}, true
 }
 
-func HydrateMessageViews(
+func hydrateMessageViews(
 	messages []*Message,
 	userMap map[fields.ID]*user.User,
 	reactionMap map[fields.ID]*ReactionSummary,
@@ -151,14 +151,14 @@ func HydrateMessageViews(
 			reactions = summary.Counts
 		}
 
-		if view, ok := HydrateMessageView(msg, author, reactions); ok {
+		if view, ok := hydrateMessageView(msg, author, reactions); ok {
 			views = append(views, view)
 		}
 	}
 	return views
 }
 
-func HydrateMessagePinnedView(
+func hydrateMessagePinnedView(
 	msg *Message,
 	author *user.User,
 ) (MessagePinnedView, bool) {
@@ -176,7 +176,7 @@ func HydrateMessagePinnedView(
 	}, true
 }
 
-func HydrateMessagePinnedViews(
+func hydrateMessagePinnedViews(
 	messages []*Message,
 	userMap map[fields.ID]*user.User,
 ) []MessagePinnedView {
@@ -195,14 +195,14 @@ func HydrateMessagePinnedViews(
 			continue
 		}
 
-		if view, ok := HydrateMessagePinnedView(msg, author); ok {
+		if view, ok := hydrateMessagePinnedView(msg, author); ok {
 			views = append(views, view)
 		}
 	}
 	return views
 }
 
-func HydrateSidebarPeer(
+func hydrateSidebarPeer(
 	currentUserID fields.ID,
 	pMem *Member,
 	u *user.User,
@@ -212,10 +212,10 @@ func HydrateSidebarPeer(
 		return MemberView{}, false
 	}
 
-	return HydrateMemberView(pMem.UserID(), u, p)
+	return hydrateMemberView(pMem.UserID(), u, p)
 }
 
-func HydrateSidebarPeers(
+func hydrateSidebarPeers(
 	currentUserID fields.ID,
 	rawPeers []*Member,
 	userMap map[fields.ID]*user.User,
@@ -237,14 +237,14 @@ func HydrateSidebarPeers(
 			p = presence.New(presence.PresenceOffline)
 		}
 
-		if view, ok := HydrateSidebarPeer(currentUserID, pMem, u, p); ok {
+		if view, ok := hydrateSidebarPeer(currentUserID, pMem, u, p); ok {
 			views = append(views, view)
 		}
 	}
 	return views
 }
 
-func HydrateSidebarView(
+func hydrateSidebarView(
 	ch *Channel,
 	mem *Member,
 	peersView []MemberView,
@@ -270,7 +270,7 @@ func HydrateSidebarView(
 	}, true
 }
 
-func HydrateSidebarViews(
+func hydrateSidebarViews(
 	currentUserID fields.ID,
 	channels []*Channel,
 	userMembersMap map[fields.ID]*Member,
@@ -291,9 +291,9 @@ func HydrateSidebarViews(
 		}
 
 		rawPeers := peerMembersMap[ch.ID()]
-		peersView := HydrateSidebarPeers(currentUserID, rawPeers, userMap, presenceMap)
+		peersView := hydrateSidebarPeers(currentUserID, rawPeers, userMap, presenceMap)
 
-		if view, ok := HydrateSidebarView(ch, mem, peersView, len(rawPeers)); ok {
+		if view, ok := hydrateSidebarView(ch, mem, peersView, len(rawPeers)); ok {
 			views = append(views, view)
 		}
 	}

@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"slices"
 )
 
 const (
@@ -85,4 +86,46 @@ func (c *Channel) IsDirect() bool {
 
 func (c *Channel) IsGroup() bool {
 	return c.chType.IsGroup()
+}
+
+func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
+	slices.SortFunc(channels, func(a, b *Channel) int {
+		mA := userMembersMap[a.ID()]
+		mB := userMembersMap[b.ID()]
+
+		aPinned := mA != nil && mA.PinnedAt().IsValid()
+		bPinned := mB != nil && mB.PinnedAt().IsValid()
+		if aPinned != bPinned {
+			if aPinned {
+				return -1
+			}
+			return 1
+		}
+		if aPinned {
+			if mA.PinnedAt().After(mB.PinnedAt()) {
+				return -1
+			}
+			if mB.PinnedAt().After(mA.PinnedAt()) {
+				return 1
+			}
+		}
+
+		aLast := a.LastMessageAt()
+		bLast := b.LastMessageAt()
+		if !aLast.Equals(bLast) {
+			if aLast.After(bLast) {
+				return -1
+			}
+			return 1
+		}
+
+		if a.CreatedAt().After(b.CreatedAt()) {
+			return -1
+		}
+		if b.CreatedAt().After(a.CreatedAt()) {
+			return 1
+		}
+
+		return a.ID().Compare(b.ID())
+	})
 }

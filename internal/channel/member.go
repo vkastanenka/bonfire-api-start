@@ -2,6 +2,9 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
+	"slices"
+	"strings"
 )
 
 type Member struct {
@@ -105,3 +108,44 @@ func (m *Member) MentionCount() int                   { return m.mentionCount }
 func (m *Member) IsVisible() bool                     { return m.isVisible }
 func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
 func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
+
+func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
+	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
+}
+
+func getMemberIDs(members []*Member) []fields.ID {
+	rawIDs := make([]fields.ID, 0, len(members))
+	for _, m := range members {
+		rawIDs = append(rawIDs, m.UserID())
+	}
+	return fields.DedupeIDs(rawIDs)
+}
+
+func indexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
+	channelIDs := make([]fields.ID, len(members))
+	membershipMap := make(map[fields.ID]*Member, len(members))
+	for i, m := range members {
+		chID := m.ChannelID()
+		channelIDs[i] = chID
+		membershipMap[chID] = m
+	}
+	return channelIDs, membershipMap
+}
+
+func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
+	slices.SortFunc(members, func(a, b *Member) int {
+		uA, okA := userMap[a.UserID()]
+		uB, okB := userMap[b.UserID()]
+
+		nameA := ""
+		if okA && uA != nil {
+			nameA = uA.DisplayName().String()
+		}
+		nameB := ""
+		if okB && uB != nil {
+			nameB = uB.DisplayName().String()
+		}
+
+		return strings.Compare(nameA, nameB)
+	})
+}
