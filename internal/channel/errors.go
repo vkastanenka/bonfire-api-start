@@ -59,10 +59,10 @@ func ErrMembersNotFound() error {
 	return errs.NotFound("Channel members not found.")
 }
 
-func ErrMinMembersInvalid(min int) error {
-	return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", min)).
+func ErrMinMembersInvalid() error {
+	return errs.InvalidArgument(fmt.Sprintf("Member list must be at least %d items.", ChannelMinMembers)).
 		Reason("MIN_MEMBERS_INVALID").
-		FieldViolation("member_ids", fmt.Sprintf("List must be at least %d items.", min), "MIN_LENGTH_EXCEEDED").
+		FieldViolation("member_ids", fmt.Sprintf("List must be at least %d items.", ChannelMinMembers), "MIN_LENGTH_EXCEEDED").
 		Meta("domain", "channels")
 }
 

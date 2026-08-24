@@ -134,14 +134,14 @@ func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
 
 func validateMaxPeers(rawPeerIDs []uuid.UUID) error {
 	if len(rawPeerIDs) > ChannelMaxPeers {
-		return ErrMaxPeersExceeded(ChannelMaxPeers)
+		return ErrMaxPeersExceeded()
 	}
 	return nil
 }
 
 func validateMinMembers(rawMemberIDs []uuid.UUID) error {
 	if len(rawMemberIDs) < ChannelMinMembers {
-		return ErrMinMembersInvalid(ChannelMinMembers)
+		return ErrMinMembersInvalid()
 	}
 	return nil
 }
