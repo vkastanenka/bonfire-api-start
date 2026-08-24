@@ -71,13 +71,13 @@ type MessageReaction struct {
 
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
+	AggregateID    pgtype.UUID        `json:"aggregate_id"`
+	LockedBy       pgtype.UUID        `json:"locked_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
 	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
 	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
-	LockedBy       pgtype.UUID        `json:"locked_by"`
-	AggregateID    pgtype.UUID        `json:"aggregate_id"`
 	Attempts       int32              `json:"attempts"`
 	MaxAttempts    int32              `json:"max_attempts"`
 	EventType      string             `json:"event_type"`

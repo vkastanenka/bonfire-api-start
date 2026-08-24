@@ -40,7 +40,7 @@ FROM
 WHERE
     o.id = t.id
 RETURNING
-    o.id, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.locked_by, o.aggregate_id, o.attempts, o.max_attempts, o.event_type, o.aggregate_type, o.trace_id, o.payload, o.last_error
+    o.id, o.aggregate_id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.event_type, o.aggregate_type, o.trace_id, o.payload, o.last_error
 `
 
 type OutboxEventClaimPendingParams struct {
@@ -66,13 +66,13 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 		var i OutboxEvent
 		if err := rows.Scan(
 			&i.ID,
+			&i.AggregateID,
+			&i.LockedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.NextAttemptAt,
 			&i.LeaseExpiresAt,
 			&i.ProcessedAt,
-			&i.LockedBy,
-			&i.AggregateID,
 			&i.Attempts,
 			&i.MaxAttempts,
 			&i.EventType,

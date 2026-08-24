@@ -1,36 +1,30 @@
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE outbox_events(
-    id uuid NOT NULL,
+    id uuid PRIMARY KEY,
+    aggregate_id uuid,
+    locked_by uuid,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     next_attempt_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    lease_expires_at timestamptz DEFAULT NULL,
-    processed_at timestamptz DEFAULT NULL,
-    locked_by uuid DEFAULT NULL,
-    aggregate_id uuid DEFAULT NULL,
-    attempts integer NOT NULL DEFAULT 0,
-    max_attempts integer NOT NULL DEFAULT 5,
-    event_type text NOT NULL,
-    aggregate_type text DEFAULT NULL,
-    trace_id text DEFAULT NULL,
-    payload jsonb NOT NULL,
-    last_error text DEFAULT NULL,
-    CONSTRAINT outbox_events_pkey PRIMARY KEY (id),
-    CONSTRAINT event_type_length CHECK (char_length(event_type) BETWEEN 1 AND 100),
-    CONSTRAINT aggregate_type_length CHECK (aggregate_type IS NULL OR char_length(aggregate_type) BETWEEN 1 AND 100),
-    CONSTRAINT trace_id_length CHECK (trace_id IS NULL OR char_length(trace_id) BETWEEN 1 AND 256),
-    CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
+    lease_expires_at timestamptz,
+    processed_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0 CONSTRAINT attempts_non_negative CHECK (attempts >= 0),
+    max_attempts integer NOT NULL DEFAULT 5 CONSTRAINT max_attempts_positive CHECK (max_attempts > 0),
+    event_type text NOT NULL CONSTRAINT event_type_length CHECK (char_length(trim(event_type)) BETWEEN 1 AND 100),
+    aggregate_type text CONSTRAINT aggregate_type_length CHECK (aggregate_type IS NULL OR char_length(trim(aggregate_type)) BETWEEN 1 AND 100),
+    trace_id text CONSTRAINT trace_id_length CHECK (trace_id IS NULL OR char_length(trim(trace_id)) BETWEEN 1 AND 256),
+    payload jsonb NOT NULL CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
+    last_error text CONSTRAINT last_error_length CHECK (char_length(trim(last_error)) BETWEEN 1 AND 2000),
     CONSTRAINT payload_size_limit CHECK (octet_length(payload::text) < 102400),
-    CONSTRAINT attempts_limit CHECK (attempts <= max_attempts),
-    CONSTRAINT last_error_length CHECK (last_error IS NULL OR char_length(last_error) BETWEEN 1 AND 2000)
+    CONSTRAINT attempts_limit CHECK (attempts <= max_attempts)
 );
 
-CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at ASC, id ASC) INCLUDE (lease_expires_at)
+CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at, lease_expires_at, id) INCLUDE (locked_by)
 WHERE
     processed_at IS NULL AND attempts < max_attempts;
 
-CREATE INDEX idx_outbox_events_cleanup ON outbox_events(processed_at ASC)
+CREATE INDEX idx_outbox_events_cleanup ON outbox_events(processed_at, id)
 WHERE
     processed_at IS NOT NULL;
 
