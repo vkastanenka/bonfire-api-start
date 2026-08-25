@@ -167,9 +167,6 @@ func sessionFromRow(row db.Session) (*session.Session, error) {
 	}
 
 	clientIP := fields.NewIP(row.ClientIP)
-	if err != nil {
-		return nil, mapErr("failed to parse client ip from database", "client_ip", row.ClientIP.String(), err)
-	}
 
 	userAgent, err := fields.ParseUserAgent("user_agent", row.UserAgent)
 	if err != nil {

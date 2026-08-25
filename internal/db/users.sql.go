@@ -48,7 +48,7 @@ func (q *Queries) UserAvailability(ctx context.Context, arg UserAvailabilityPara
 
 const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    VALUES ($1::uuid, $2::citext, $3::citext, $4::citext, $5::text, $6::text, $7::text, $8::text, $9::text, $10::smallint, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16::timestamptz)
 RETURNING
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 `
@@ -153,8 +153,6 @@ FROM
     users
 WHERE
     id = ANY ($1::uuid[])
-ORDER BY
-    id ASC
 `
 
 func (q *Queries) UserGetBatch(ctx context.Context, ids []pgtype.UUID) ([]User, error) {
@@ -227,7 +225,41 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
-const userGetDeleteScheduledBatch = `-- name: UserGetDeleteScheduledBatch :many
+const userGetForUpdate = `-- name: UserGetForUpdate :one
+SELECT
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+FROM
+    users
+WHERE
+    id = $1::uuid
+FOR UPDATE
+`
+
+func (q *Queries) UserGetForUpdate(ctx context.Context, id pgtype.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userGetForUpdate, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userListDeleteScheduled = `-- name: UserListDeleteScheduled :many
 SELECT
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 FROM
@@ -240,13 +272,13 @@ ORDER BY
 LIMIT $2::int
 `
 
-type UserGetDeleteScheduledBatchParams struct {
-	Now        pgtype.Timestamptz `json:"now"`
-	BatchLimit int32              `json:"batch_limit"`
+type UserListDeleteScheduledParams struct {
+	Now      pgtype.Timestamptz `json:"now"`
+	LimitVal int32              `json:"limit_val"`
 }
 
-func (q *Queries) UserGetDeleteScheduledBatch(ctx context.Context, arg UserGetDeleteScheduledBatchParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, userGetDeleteScheduledBatch, arg.Now, arg.BatchLimit)
+func (q *Queries) UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, userListDeleteScheduled, arg.Now, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -282,32 +314,122 @@ func (q *Queries) UserGetDeleteScheduledBatch(ctx context.Context, arg UserGetDe
 	return items, nil
 }
 
+const userSetDeleteSchedule = `-- name: UserSetDeleteSchedule :one
+UPDATE
+    users
+SET
+    delete_scheduled_at = $1::timestamptz,
+    disabled_at = $2::timestamptz,
+    updated_at = $3::timestamptz
+WHERE
+    id = $4::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserSetDeleteScheduleParams struct {
+	DeleteScheduledAt pgtype.Timestamptz `json:"delete_scheduled_at"`
+	DisabledAt        pgtype.Timestamptz `json:"disabled_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID                pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserSetDeleteSchedule(ctx context.Context, arg UserSetDeleteScheduleParams) (User, error) {
+	row := q.db.QueryRow(ctx, userSetDeleteSchedule,
+		arg.DeleteScheduledAt,
+		arg.DisabledAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userSetDisabled = `-- name: UserSetDisabled :one
+UPDATE
+    users
+SET
+    disabled_at = $1::timestamptz,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserSetDisabledParams struct {
+	DisabledAt pgtype.Timestamptz `json:"disabled_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserSetDisabled(ctx context.Context, arg UserSetDisabledParams) (User, error) {
+	row := q.db.QueryRow(ctx, userSetDisabled, arg.DisabledAt, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
 const userUpdate = `-- name: UserUpdate :one
 UPDATE
     users
 SET
-    email = $2,
-    username = $3,
-    display_name = $4,
-    password_hash = $5,
-    phone = $6,
-    bio = $7,
-    avatar_url = $8,
-    banner_color = $9,
-    preferred_presence = $10,
-    preferred_presence_until = $11,
-    verified_at = $12,
-    disabled_at = $13,
-    delete_scheduled_at = $14,
-    updated_at = $15
+    email = $1::citext,
+    username = $2::citext,
+    display_name = $3::citext,
+    password_hash = $4::text,
+    phone = $5::text,
+    bio = $6::text,
+    avatar_url = $7::text,
+    banner_color = $8::text,
+    preferred_presence = $9::smallint,
+    preferred_presence_until = $10::timestamptz,
+    verified_at = $11::timestamptz,
+    disabled_at = $12::timestamptz,
+    delete_scheduled_at = $13::timestamptz,
+    updated_at = $14::timestamptz
 WHERE
-    id = $1
+    id = $15::uuid
 RETURNING
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
 `
 
 type UserUpdateParams struct {
-	ID                     pgtype.UUID        `json:"id"`
 	Email                  string             `json:"email"`
 	Username               string             `json:"username"`
 	DisplayName            string             `json:"display_name"`
@@ -322,11 +444,11 @@ type UserUpdateParams struct {
 	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
 	DeleteScheduledAt      pgtype.Timestamptz `json:"delete_scheduled_at"`
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	ID                     pgtype.UUID        `json:"id"`
 }
 
 func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, error) {
 	row := q.db.QueryRow(ctx, userUpdate,
-		arg.ID,
 		arg.Email,
 		arg.Username,
 		arg.DisplayName,
@@ -341,6 +463,7 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, e
 		arg.DisabledAt,
 		arg.DeleteScheduledAt,
 		arg.UpdatedAt,
+		arg.ID,
 	)
 	var i User
 	err := row.Scan(
@@ -447,4 +570,318 @@ func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User
 		return nil, err
 	}
 	return items, nil
+}
+
+const userUpdateEmail = `-- name: UserUpdateEmail :one
+UPDATE
+    users
+SET
+    email = $1::citext,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdateEmailParams struct {
+	Email     string             `json:"email"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdateEmail(ctx context.Context, arg UserUpdateEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdateEmail, arg.Email, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userUpdatePasswordHash = `-- name: UserUpdatePasswordHash :one
+UPDATE
+    users
+SET
+    password_hash = $1::text,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdatePasswordHashParams struct {
+	PasswordHash string             `json:"password_hash"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID           pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdatePasswordHash(ctx context.Context, arg UserUpdatePasswordHashParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdatePasswordHash, arg.PasswordHash, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userUpdatePhone = `-- name: UserUpdatePhone :one
+UPDATE
+    users
+SET
+    phone = $1::text,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdatePhoneParams struct {
+	Phone     pgtype.Text        `json:"phone"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdatePhone(ctx context.Context, arg UserUpdatePhoneParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdatePhone, arg.Phone, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userUpdatePresence = `-- name: UserUpdatePresence :one
+UPDATE
+    users
+SET
+    preferred_presence = $1::smallint,
+    preferred_presence_until = $2::timestamptz,
+    updated_at = $3::timestamptz
+WHERE
+    id = $4::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdatePresenceParams struct {
+	PreferredPresence      pgtype.Int2        `json:"preferred_presence"`
+	PreferredPresenceUntil pgtype.Timestamptz `json:"preferred_presence_until"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	ID                     pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdatePresence(ctx context.Context, arg UserUpdatePresenceParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdatePresence,
+		arg.PreferredPresence,
+		arg.PreferredPresenceUntil,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userUpdateProfile = `-- name: UserUpdateProfile :one
+UPDATE
+    users
+SET
+    display_name = $1::citext,
+    bio = $2::text,
+    avatar_url = $3::text,
+    banner_color = $4::text,
+    updated_at = $5::timestamptz
+WHERE
+    id = $6::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdateProfileParams struct {
+	DisplayName string             `json:"display_name"`
+	Bio         pgtype.Text        `json:"bio"`
+	AvatarURL   pgtype.Text        `json:"avatar_url"`
+	BannerColor pgtype.Text        `json:"banner_color"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID          pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdateProfile(ctx context.Context, arg UserUpdateProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdateProfile,
+		arg.DisplayName,
+		arg.Bio,
+		arg.AvatarURL,
+		arg.BannerColor,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userUpdateUsername = `-- name: UserUpdateUsername :one
+UPDATE
+    users
+SET
+    username = $1::citext,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserUpdateUsernameParams struct {
+	Username  string             `json:"username"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserUpdateUsername(ctx context.Context, arg UserUpdateUsernameParams) (User, error) {
+	row := q.db.QueryRow(ctx, userUpdateUsername, arg.Username, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userVerify = `-- name: UserVerify :one
+UPDATE
+    users
+SET
+    verified_at = $1::timestamptz,
+    updated_at = $2::timestamptz
+WHERE
+    id = $3::uuid
+RETURNING
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+`
+
+type UserVerifyParams struct {
+	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) UserVerify(ctx context.Context, arg UserVerifyParams) (User, error) {
+	row := q.db.QueryRow(ctx, userVerify, arg.VerifiedAt, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
 }

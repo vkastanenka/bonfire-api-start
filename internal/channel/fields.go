@@ -219,7 +219,6 @@ func ParseMessageType[T fields.IntegerType](raw T) (MessageType, error) {
 	return NewMessageType(val), nil
 }
 
-// String Parser
 func ParseMessageTypeString(s string) (MessageType, error) {
 	val, ok := fields.ParseEnumString[MessageTypeValue](s, messageTypeSpec)
 	if !ok || val <= MessageTypeUnknown {

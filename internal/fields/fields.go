@@ -669,6 +669,17 @@ func (i Integer[T]) IntPtr() *int {
 	return ptr.To(i.Int())
 }
 
+func (i Integer[T]) Int16() int16 {
+	return int16(i.val)
+}
+
+func (i Integer[T]) Int16Ptr() *int16 {
+	if i.IsZero() {
+		return nil
+	}
+	return ptr.To(i.Int16())
+}
+
 func (i Integer[T]) String() string {
 	return fmt.Sprintf("%d", i.val)
 }

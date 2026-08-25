@@ -2,17 +2,13 @@ package user
 
 import (
 	"fmt"
+	"time"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 )
 
-var (
-	ErrUserDisabled = errs.PermissionDenied("User account is disabled.").
-			Reason("USER_DISABLED")
-	ErrUserScheduledDeletion = errs.FailedPrecondition("User account is scheduled for deletion.").
-					Reason("USER_SCHEDULED_FOR_DELETION")
-)
+const AnonymizeBatchSize = 100
+const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type User struct {
 	id                     fields.ID
@@ -31,75 +27,6 @@ type User struct {
 	deleteScheduledAt      fields.Timestamp
 	createdAt              fields.Timestamp
 	updatedAt              fields.Timestamp
-}
-
-// ============================================================================
-// Getters
-// ============================================================================
-
-func (u *User) ID() fields.ID                            { return u.id }
-func (u *User) Email() Email                             { return u.email }
-func (u *User) Username() Username                       { return u.username }
-func (u *User) DisplayName() DisplayName                 { return u.displayName }
-func (u *User) PasswordHash() PasswordHash               { return u.passwordHash }
-func (u *User) Phone() Phone                             { return u.phone }
-func (u *User) Bio() Bio                                 { return u.bio }
-func (u *User) AvatarURL() fields.URL                    { return u.avatarURL }
-func (u *User) BannerColor() fields.HexColor             { return u.bannerColor }
-func (u *User) PreferredPresence() PreferredPresence     { return u.preferredPresence }
-func (u *User) PreferredPresenceUntil() fields.Timestamp { return u.preferredPresenceUntil }
-func (u *User) VerifiedAt() fields.Timestamp             { return u.verifiedAt }
-func (u *User) DisabledAt() fields.Timestamp             { return u.disabledAt }
-func (u *User) DeleteScheduledAt() fields.Timestamp      { return u.deleteScheduledAt }
-func (u *User) CreatedAt() fields.Timestamp              { return u.createdAt }
-func (u *User) UpdatedAt() fields.Timestamp              { return u.updatedAt }
-
-// ============================================================================
-// Meta
-// ============================================================================
-
-func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
-func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
-func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
-
-func (u *User) EffectivePresence(now fields.Timestamp) PreferredPresence {
-	if u.preferredPresenceUntil.HasPassed(now.Time()) {
-		return PreferredPresence{}
-	}
-	return u.preferredPresence
-}
-
-func (u *User) EnsureActive() error {
-	if u.IsDisabled() {
-		return ErrUserDisabled
-	}
-	if u.IsScheduledForDeletion() {
-		return ErrUserScheduledDeletion
-	}
-	return nil
-}
-
-// ============================================================================
-// Mappers
-// ============================================================================
-
-func New(
-	id fields.ID,
-	email Email,
-	username Username,
-	displayName DisplayName,
-	passwordHash PasswordHash,
-	now fields.Timestamp,
-) (*User, error) {
-	return &User{
-		id:           id,
-		email:        email,
-		username:     username,
-		displayName:  displayName,
-		passwordHash: passwordHash,
-		createdAt:    now,
-		updatedAt:    now,
-	}, nil
 }
 
 func Reconstitute(
@@ -135,9 +62,71 @@ func Reconstitute(
 	}
 }
 
-// ============================================================================
-// Mutations
-// ============================================================================
+func New(
+	id fields.ID,
+	email Email,
+	username Username,
+	displayName DisplayName,
+	passwordHash PasswordHash,
+	now fields.Timestamp,
+) *User {
+	return Reconstitute(
+		id,
+		email,
+		username,
+		passwordHash,
+		Phone{},
+		DisplayName{},
+		Bio{},
+		fields.URL{},
+		fields.HexColor{},
+		PreferredPresence{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		fields.Timestamp{},
+		now,
+		now,
+	)
+}
+
+func (u *User) ID() fields.ID                            { return u.id }
+func (u *User) Email() Email                             { return u.email }
+func (u *User) Username() Username                       { return u.username }
+func (u *User) DisplayName() DisplayName                 { return u.displayName }
+func (u *User) PasswordHash() PasswordHash               { return u.passwordHash }
+func (u *User) Phone() Phone                             { return u.phone }
+func (u *User) Bio() Bio                                 { return u.bio }
+func (u *User) AvatarURL() fields.URL                    { return u.avatarURL }
+func (u *User) BannerColor() fields.HexColor             { return u.bannerColor }
+func (u *User) PreferredPresence() PreferredPresence     { return u.preferredPresence }
+func (u *User) PreferredPresenceUntil() fields.Timestamp { return u.preferredPresenceUntil }
+func (u *User) VerifiedAt() fields.Timestamp             { return u.verifiedAt }
+func (u *User) DisabledAt() fields.Timestamp             { return u.disabledAt }
+func (u *User) DeleteScheduledAt() fields.Timestamp      { return u.deleteScheduledAt }
+func (u *User) CreatedAt() fields.Timestamp              { return u.createdAt }
+func (u *User) UpdatedAt() fields.Timestamp              { return u.updatedAt }
+
+func (u *User) IsVerified() bool             { return u.verifiedAt.IsValid() }
+func (u *User) IsDisabled() bool             { return u.disabledAt.IsValid() }
+func (u *User) IsScheduledForDeletion() bool { return u.deleteScheduledAt.IsValid() }
+
+func (u *User) EffectivePresence(now fields.Timestamp) PreferredPresence {
+	if u.preferredPresenceUntil.HasPassed(now.Time()) {
+		return PreferredPresence{}
+	}
+	return u.preferredPresence
+}
+
+func (u *User) EnsureActive() error {
+	if u.IsDisabled() {
+		return ErrUserDisabled
+	}
+	if u.IsScheduledForDeletion() {
+		return ErrUserScheduledDeletion
+	}
+	return nil
+}
 
 func (u *User) Verify(now fields.Timestamp) {
 	if !u.verifiedAt.IsValid() {
@@ -175,7 +164,7 @@ func (u *User) CancelDelete(now fields.Timestamp) {
 }
 
 func (u *User) UpdateEmail(newEmail Email, now fields.Timestamp) error {
-	if !u.email.Equals(newEmail) {
+	if !u.email.Equals(newEmail.Text) {
 		u.email = newEmail
 		u.touch(now)
 	}
@@ -183,7 +172,7 @@ func (u *User) UpdateEmail(newEmail Email, now fields.Timestamp) error {
 }
 
 func (u *User) UpdateUsername(newUsername Username, now fields.Timestamp) error {
-	if !u.username.Equals(newUsername) {
+	if !u.username.Equals(newUsername.Text) {
 		u.username = newUsername
 		u.touch(now)
 	}
@@ -191,7 +180,7 @@ func (u *User) UpdateUsername(newUsername Username, now fields.Timestamp) error 
 }
 
 func (u *User) UpdatePhone(newPhone Phone, now fields.Timestamp) error {
-	if !u.phone.Equals(newPhone) {
+	if !u.phone.Equals(newPhone.Text) {
 		u.phone = newPhone
 		u.touch(now)
 	}

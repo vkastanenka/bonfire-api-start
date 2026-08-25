@@ -2,74 +2,30 @@ package user
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
-	"time"
 
 	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
 
 	"github.com/google/uuid"
 )
 
-type Cache interface {
-	Delete(ctx context.Context, userID fields.ID) error
-	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
-}
-
-type Repository interface {
-	Get(ctx context.Context, id fields.ID) (*User, error)
-	GetCached(ctx context.Context, id fields.ID) (*User, error)
-	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*User, error)
-	Update(ctx context.Context, u *User) (*User, error)
-	UpdateBatch(ctx context.Context, usersJson []byte) ([]*User, error)
-}
-
-type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
-	PublishBatch(ctx context.Context, items []outbox.BatchItem) ([]*outbox.Event, error)
-}
-
-type TX interface {
-	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
 type Service struct {
-	c  Cache
-	r  Repository
-	o  OutboxRepository
-	tx TX
+	repo       Repository
+	outboxRepo OutboxRepository
+	tx         TX
 }
 
 func NewService(
-	c Cache,
-	r Repository,
-	o OutboxRepository,
+	repo Repository,
+	outboxRepo OutboxRepository,
 	tx TX,
 ) *Service {
 	return &Service{
-		c:  c,
-		r:  r,
-		o:  o,
-		tx: tx,
+		repo:       repo,
+		outboxRepo: outboxRepo,
+		tx:         tx,
 	}
-}
-
-func (s *Service) Get(ctx context.Context, rawID uuid.UUID) (*User, error) {
-	id, err := fields.ParseRequiredID("id", rawID)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.r.GetCached(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	return u, nil
 }
 
 type UpdateEmailParams struct {
@@ -79,60 +35,24 @@ type UpdateEmailParams struct {
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
-	id, err := fields.ParseRequiredID("id", p.UserID)
-	if err != nil {
-		return nil, err
-	}
-
 	newEmail, err := ParseEmail("email", p.NewEmail)
 	if err != nil {
 		return nil, err
 	}
 
-	password, err := ParsePassword("password", p.Password)
+	id, u, err := s.parseAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.authenticateAndFetch(ctx, id, password)
-	if err != nil {
-		return nil, err
-	}
-
-	if u.email.Equals(newEmail) {
+	if u.email.Equals(newEmail.Text) {
 		return u, nil
 	}
 
-	oldEmail := u.email.String()
-	u.UpdateEmail(newEmail, fields.NewTimestampFromTime(time.Now()))
-
-	var updatedUser *User
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.r.Update(txCtx, u)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdateEmailPayload{
-			UserID:   updatedUser.ID().String(),
-			OldEmail: oldEmail,
-			NewEmail: updatedUser.Email().String(),
-		}
-
-		if _, err := s.o.Publish(txCtx, EventUpdateEmail, payload); err != nil {
-			return err
-		}
-
-		return nil
+	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.UpdateEmail(txCtx, id, newEmail, now)
+		return updatedUser, EventUpdateEmail, EventUpdateEmailPayload{}, err
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.invalidateCache(ctx, updatedUser.ID(), "update email")
-
-	return updatedUser, nil
 }
 
 type UpdateUsernameParams struct {
@@ -142,60 +62,27 @@ type UpdateUsernameParams struct {
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
-	id, err := fields.ParseRequiredID("id", p.UserID)
-	if err != nil {
-		return nil, err
-	}
-
 	newUsername, err := ParseUsername("username", p.NewUsername)
 	if err != nil {
 		return nil, err
 	}
 
-	password, err := ParsePassword("password", p.Password)
+	id, u, err := s.parseAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.authenticateAndFetch(ctx, id, password)
-	if err != nil {
-		return nil, err
-	}
-
-	if u.username.Equals(newUsername) {
+	if u.username.Equals(newUsername.Text) {
 		return u, nil
 	}
 
-	oldUsername := u.username.String()
-	u.UpdateUsername(newUsername, fields.NewTimestampFromTime(time.Now()))
-
-	var updatedUser *User
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.r.Update(txCtx, u)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdateUsernamePayload{
-			UserID:      updatedUser.ID().String(),
-			OldUsername: oldUsername,
-			NewUsername: updatedUser.Username().String(),
-		}
-
-		if _, err := s.o.Publish(txCtx, EventUpdateUsername, payload); err != nil {
-			return err
-		}
-
-		return nil
+	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.UpdateUsername(txCtx, id, newUsername, now)
+		return updatedUser, EventUpdateUsername, EventUpdateUsernamePayload{
+			UserID:      id.String(),
+			NewUsername: newUsername.String(),
+		}, err
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.invalidateCache(ctx, updatedUser.ID(), "update username")
-
-	return updatedUser, nil
 }
 
 type UpdatePasswordParams struct {
@@ -206,11 +93,6 @@ type UpdatePasswordParams struct {
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	id, err := fields.ParseRequiredID("id", p.UserID)
-	if err != nil {
-		return err
-	}
-
 	currentPassword, err := ParsePassword("current_password", p.CurrentPassword)
 	if err != nil {
 		return err
@@ -226,19 +108,18 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return err
 	}
 
-	if !newPassword.Equals(newPasswordConfirm) {
-		return errs.InvalidArgument("Passwords must match.").
-			FieldViolation("new_password_confirm", "Passwords do not match.", "PASSWORD_MISMATCH")
+	if !newPassword.Equals(newPasswordConfirm.Text) {
+		return ErrPasswordMismatch("new_password_confirm")
 	}
 
-	u, err := s.authenticateAndFetch(ctx, id, currentPassword)
+	id, _, err := s.parseAndAuthenticate(ctx, p.UserID, currentPassword.String())
 	if err != nil {
 		return err
 	}
 
 	passwordHash, err := crypto.HashPassword(newPassword.String())
 	if err != nil {
-		return errs.Internal("Failed to hash password.").Wrap(err)
+		return ErrPasswordHashFailed(err)
 	}
 
 	newPasswordHash, err := ParsePasswordHash("new_password_hash", passwordHash)
@@ -246,12 +127,10 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return err
 	}
 
-	u.UpdatePasswordHash(newPasswordHash, fields.NewTimestampFromTime(time.Now()))
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUser, err := s.r.Update(txCtx, u)
+	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.UpdatePasswordHash(txCtx, id, newPasswordHash, now)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 
 		payload := EventUpdatePasswordPayload{
@@ -259,17 +138,8 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 			Email:  updatedUser.Email().String(),
 		}
 
-		if _, err := s.o.Publish(txCtx, EventUpdatePassword, payload); err != nil {
-			return err
-		}
-
-		return nil
+		return updatedUser, EventUpdatePassword, payload, nil
 	})
-	if err != nil {
-		return err
-	}
-
-	s.invalidateCache(ctx, u.ID(), "update password")
 
 	return nil
 }
@@ -277,7 +147,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 type UpdatePreferredPresenceParams struct {
 	UserID   uuid.UUID
 	Presence *string
-	Until    *string
+	Duration *string
 }
 
 func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
@@ -291,49 +161,36 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	until, err := fields.ParseTimestamp("preferred_presence_until", ptr.From(p.Until))
+	duration, err := ParsePreferredPresenceDurationString(ptr.From(p.Duration))
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := s.r.GetCached(ctx, id)
+	now := fields.Now()
+	until, err := duration.CalculateUntil(now)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := u.EnsureActive(); err != nil {
+	u, err := s.fetchValid(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 
-	u.UpdatePreferredPresence(preferredPresence, until, fields.NewTimestampFromTime(time.Now()))
+	if u.PreferredPresence().Equals(preferredPresence) && u.PreferredPresenceUntil().Equals(until) {
+		return u, nil
+	}
 
-	var updatedUser *User
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.r.Update(txCtx, u)
+	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.UpdatePresence(txCtx, id, preferredPresence, until, now)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 
-		payload := EventUpdatePreferredPresencePayload{
-			UserID:            updatedUser.ID().String(),
-			PreferredPresence: updatedUser.PreferredPresence().StringPtr(),
-			Until:             updatedUser.PreferredPresenceUntil().StringPtr(),
-		}
+		payload := EventUpdatePreferredPresencePayload{}
 
-		if _, err := s.o.Publish(txCtx, EventUpdatePreferredPresence, payload); err != nil {
-			return err
-		}
-
-		return nil
+		return updatedUser, EventUpdatePreferredPresence, payload, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.invalidateCache(ctx, updatedUser.ID(), "update preferred presence")
-
-	return updatedUser, nil
 }
 
 type UpdateProfileParams struct {
@@ -370,29 +227,22 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	u, err := s.r.GetCached(ctx, id)
+	u, err := s.fetchValid(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := u.EnsureActive(); err != nil {
-		return nil, err
+	if u.DisplayName().Equals(displayName.Text) &&
+		u.Bio().Equals(bio.Text) &&
+		u.AvatarURL().Equals(avatarURL) &&
+		u.BannerColor().Equals(bannerColor.Text) {
+		return u, nil
 	}
 
-	u.UpdateProfile(
-		displayName,
-		bio,
-		avatarURL,
-		bannerColor,
-		fields.NewTimestampFromTime(time.Now()),
-	)
-
-	var updatedUser *User
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.r.Update(txCtx, u)
+	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.UpdateProfile(txCtx, id, displayName, bio, avatarURL, bannerColor, now)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 
 		payload := EventUpdateProfilePayload{
@@ -403,19 +253,8 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 			BannerColor: updatedUser.BannerColor().StringPtr(),
 		}
 
-		if _, err := s.o.Publish(txCtx, EventUpdateProfile, payload); err != nil {
-			return err
-		}
-
-		return nil
+		return updatedUser, EventUpdateProfile, payload, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.invalidateCache(ctx, updatedUser.ID(), "update profile")
-
-	return updatedUser, nil
 }
 
 type DisableParams struct {
@@ -424,49 +263,29 @@ type DisableParams struct {
 }
 
 func (s *Service) Disable(ctx context.Context, p DisableParams) error {
-	id, err := fields.ParseRequiredID("id", p.UserID)
+	id, u, err := s.parseAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return err
 	}
-
-	password, err := ParsePassword("password", p.Password)
-	if err != nil {
-		return err
+	if u.IsDisabled() {
+		return nil
 	}
 
-	u, err := s.authenticateAndFetch(ctx, id, password)
-	if err != nil {
-		return err
-	}
-
-	u.Disable(fields.NewTimestampFromTime(time.Now()))
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUser, err := s.r.Update(txCtx, u)
+	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		updatedUser, err := s.repo.SetDisabled(txCtx, id, now, now)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 
 		payload := EventDisablePayload{
 			UserID: updatedUser.ID().String(),
 		}
 
-		if _, err := s.o.Publish(txCtx, EventDisable, payload); err != nil {
-			return err
-		}
-
-		return nil
+		return updatedUser, EventDisable, payload, nil
 	})
-	if err != nil {
-		return err
-	}
 
-	s.invalidateCache(ctx, u.ID(), "disable user")
-
-	return nil
+	return err
 }
-
-const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type ScheduleDeleteParams struct {
 	UserID   uuid.UUID
@@ -474,31 +293,21 @@ type ScheduleDeleteParams struct {
 }
 
 func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) error {
-	id, err := fields.ParseRequiredID("id", p.UserID)
+	id, u, err := s.parseAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return err
 	}
 
-	password, err := ParsePassword("password", p.Password)
-	if err != nil {
-		return err
+	if u.IsScheduledForDeletion() {
+		return nil
 	}
 
-	u, err := s.authenticateAndFetch(ctx, id, password)
-	if err != nil {
-		return err
-	}
+	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+		scheduledAt := fields.NewTimestamp(now.Time().Add(ScheduleDeleteGracePeriod))
 
-	t := time.Now()
-	now := fields.NewTimestampFromTime(t)
-	scheduledAt := fields.NewTimestampFromTime(t.Add(ScheduleDeleteGracePeriod))
-
-	u.ScheduleDelete(scheduledAt, now)
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUser, err := s.r.Update(txCtx, u)
+		updatedUser, err := s.repo.SetDeleteSchedule(txCtx, id, scheduledAt, now, now)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 
 		payload := EventScheduleDeletePayload{
@@ -507,26 +316,16 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			ScheduledAt: scheduledAt.String(),
 		}
 
-		if _, err := s.o.Publish(txCtx, EventScheduleDelete, payload); err != nil {
-			return err
-		}
-
-		return nil
+		return updatedUser, EventScheduleDelete, payload, nil
 	})
-	if err != nil {
-		return err
-	}
 
-	s.invalidateCache(ctx, u.ID(), "schedule delete")
-
-	return nil
+	return err
 }
 
-const AnonymizeBatchSize = 100
-
 func (s *Service) AnonymizeBatch(ctx context.Context) error {
-	now := fields.NewTimestampFromTime(time.Now())
-	users, err := s.r.GetDeleteScheduledBatch(ctx, now, AnonymizeBatchSize)
+	now := fields.Now()
+
+	users, err := s.repo.ListDeleteScheduled(ctx, now, AnonymizeBatchSize)
 	if err != nil {
 		return err
 	}
@@ -535,76 +334,107 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		return nil
 	}
 
-	userIDs := make([]fields.ID, len(users))
-	batchItems := make([]outbox.BatchItem, len(users))
-
-	for i, u := range users {
+	for _, u := range users {
 		u.Anonymize(now)
-		userIDs[i] = u.ID()
-
-		batchItems[i] = outbox.BatchItem{
-			Variant: EventAnonymized,
-			Payload: EventAnonymizedPayload{
-				UserID: u.ID().String(),
-			},
-		}
 	}
 
-	usersJSON, err := json.Marshal(users)
-	if err != nil {
-		return errs.Internal("Failed to marshal anonymized users batch.").Wrap(err)
-	}
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if _, err := s.r.UpdateBatch(txCtx, usersJSON); err != nil {
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		updatedUsers, err := s.repo.UpdateBatch(txCtx, users)
+		if err != nil {
 			return err
 		}
 
-		if _, err := s.o.PublishBatch(txCtx, batchItems); err != nil {
-			return err
+		userIDs := make([]string, len(updatedUsers))
+		for i, u := range updatedUsers {
+			userIDs[i] = u.ID().String()
 		}
+
+		// payload := EventAnonymizeBatchPayload{
+		// 	UserIDs: userIDs,
+		// 	Count:   len(userIDs),
+		// }
+
+		// if _, err := s.outboxRepo.Publish(txCtx, EventAnonymizeBatch, payload); err != nil {
+		// 	return err
+		// }
 
 		return nil
 	})
+}
+
+func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
+	u, err := s.repo.Get(ctx, actorID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := s.c.DeleteBatch(ctx, userIDs); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate batch user cache after anonymization",
-			"count", len(userIDs),
-			"error", err,
-		)
+	err = u.EnsureActive()
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return u, nil
 }
 
-func (s *Service) invalidateCache(ctx context.Context, id fields.ID, action string) {
-	if err := s.c.Delete(ctx, id); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache",
-			"user_id", id.String(),
-			"action", action,
-			"error", err,
-		)
-	}
-}
-
-func (s *Service) authenticateAndFetch(ctx context.Context, id fields.ID, password Password) (*User, error) {
-	u, err := s.r.Get(ctx, id)
+func (s *Service) fetchAndAuthenticate(ctx context.Context, actorID fields.ID, password Password) (*User, error) {
+	u, err := s.fetchValid(ctx, actorID)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, errs.Unauthenticated("Invalid password.").
-			FieldViolation("password", "Invalid password.", "INVALID_PASSWORD").
-			Wrap(err)
-	}
-
-	if err := u.EnsureActive(); err != nil {
-		return nil, err
+		return nil, ErrInvalidPassword("password").Wrap(err)
 	}
 
 	return u, nil
+}
+
+func (s *Service) parseAndAuthenticate(
+	ctx context.Context,
+	rawUserID uuid.UUID,
+	passwordRaw string,
+) (fields.ID, *User, error) {
+	id, err := fields.ParseRequiredID("id", rawUserID)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	password, err := ParsePassword("password", passwordRaw)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	u, err := s.fetchAndAuthenticate(ctx, id, password)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	return id, u, nil
+}
+
+func (s *Service) update(
+	ctx context.Context,
+	updateFn func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error),
+) (*User, error) {
+	now := fields.Now()
+	var updatedUser *User
+
+	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		var eventType string
+		var eventPayload any
+
+		updatedUser, eventType, eventPayload, err = updateFn(txCtx, now)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.outboxRepo.Publish(txCtx, eventType, eventPayload)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedUser, nil
 }

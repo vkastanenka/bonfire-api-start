@@ -29,38 +29,25 @@ WHERE
     processed_at IS NOT NULL;
 
 CREATE TABLE users(
-    id uuid NOT NULL,
+    id uuid PRIMARY KEY,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    verified_at timestamptz DEFAULT NULL,
-    disabled_at timestamptz DEFAULT NULL,
-    delete_scheduled_at timestamptz DEFAULT NULL,
-    preferred_presence_until timestamptz DEFAULT NULL,
-    preferred_presence smallint DEFAULT NULL,
-    email citext NOT NULL,
-    username citext NOT NULL,
-    display_name citext NOT NULL,
-    password_hash text NOT NULL,
-    phone text DEFAULT NULL,
-    bio text DEFAULT NULL,
-    avatar_url text DEFAULT NULL,
-    banner_color text DEFAULT NULL,
-    CONSTRAINT users_pkey PRIMARY KEY (id),
-    CONSTRAINT users_email_key UNIQUE (email),
-    CONSTRAINT users_username_key UNIQUE (username),
-    CONSTRAINT preferred_presence_valid CHECK (preferred_presence IN (4, 5, 6)),
-    CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
-    CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32),
-    CONSTRAINT username_valid CHECK (username NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
-    CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
-    CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 50 AND 255),
-    CONSTRAINT phone_valid CHECK (phone ~ '^\+[1-9]\d{1,14}$'),
-    CONSTRAINT banner_color_valid CHECK (banner_color ~* '^#[0-9a-f]{6}$'),
-    CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
-    CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) <= 2048)
+    verified_at timestamptz,
+    disabled_at timestamptz,
+    delete_scheduled_at timestamptz,
+    preferred_presence_until timestamptz,
+    preferred_presence smallint CONSTRAINT preferred_presence_valid CHECK (preferred_presence IN (4, 5, 6)),
+    email citext NOT NULL CONSTRAINT users_email_key UNIQUE CONSTRAINT email_length CHECK (char_length(email) BETWEEN 3 AND 255),
+    username citext NOT NULL CONSTRAINT users_username_key UNIQUE CONSTRAINT username_length CHECK (char_length(username) BETWEEN 3 AND 32) CONSTRAINT username_valid CHECK (username NOT IN ('admin', 'root', 'support', 'system', 'moderator', 'bonfire')),
+    display_name citext NOT NULL CONSTRAINT display_name_length CHECK (char_length(display_name) BETWEEN 1 AND 32),
+    password_hash text NOT NULL CONSTRAINT password_hash_length CHECK (char_length(password_hash) BETWEEN 50 AND 255),
+    phone text CONSTRAINT phone_valid CHECK (phone ~ '^\+[1-9]\d{1,14}$'),
+    bio text CONSTRAINT bio_length CHECK (char_length(bio) <= 190),
+    avatar_url text CONSTRAINT avatar_url_length CHECK (char_length(avatar_url) <= 2048),
+    banner_color text CONSTRAINT banner_color_valid CHECK (banner_color ~* '^#[0-9a-f]{6}$')
 );
 
-CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at ASC)
+CREATE INDEX idx_users_delete_scheduled_at ON users(delete_scheduled_at)
 WHERE
     delete_scheduled_at IS NOT NULL;
 
