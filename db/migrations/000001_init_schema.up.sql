@@ -205,21 +205,16 @@ CREATE TABLE message_attachments(
 CREATE INDEX idx_message_attachments_message_id ON message_attachments(message_id, id);
 
 CREATE TABLE relations(
-    user1_id uuid NOT NULL,
-    user2_id uuid NOT NULL,
-    actor_id uuid NOT NULL,
-    channel_id uuid DEFAULT NULL,
+    user1_id uuid NOT NULL CONSTRAINT fk_relations_user1 REFERENCES users(id) ON DELETE CASCADE,
+    user2_id uuid NOT NULL CONSTRAINT fk_relations_user2 REFERENCES users(id) ON DELETE CASCADE,
+    actor_id uuid NOT NULL CONSTRAINT fk_relations_actor REFERENCES users(id) ON DELETE CASCADE,
+    channel_id uuid CONSTRAINT fk_relations_channel REFERENCES channels(id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    type smallint NOT NULL,
+    type smallint NOT NULL CONSTRAINT type_valid CHECK (type IN (1, 2, 3)),
     CONSTRAINT relations_pkey PRIMARY KEY (user1_id, user2_id),
-    CONSTRAINT fk_relations_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relations_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relations_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_relations_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     CONSTRAINT user_order CHECK (user1_id < user2_id),
     CONSTRAINT actor_must_be_participant CHECK (actor_id IN (user1_id, user2_id)),
-    CONSTRAINT relationship_values CHECK (type IN (1, 2, 3)),
     CONSTRAINT channel_required_for_friends CHECK (type != 2 OR channel_id IS NOT NULL)
 );
 
