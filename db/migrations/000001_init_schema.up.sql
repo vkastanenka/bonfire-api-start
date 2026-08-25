@@ -69,30 +69,23 @@ WHERE
     phone IS NOT NULL;
 
 CREATE TABLE sessions(
-    id uuid NOT NULL,
-    user_id uuid NOT NULL,
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL CONSTRAINT fk_sessions_user REFERENCES users(id) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at timestamptz NOT NULL,
-    revoked_at timestamptz DEFAULT NULL,
+    revoked_at timestamptz,
     client_ip inet NOT NULL,
-    refresh_token_hash bytea NOT NULL,
-    os text NOT NULL DEFAULT 'Unknown',
-    client text NOT NULL DEFAULT 'Unknown',
-    user_agent text NOT NULL,
-    CONSTRAINT sessions_pkey PRIMARY KEY (id),
-    CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT sessions_refresh_token_hash_key UNIQUE (refresh_token_hash),
-    CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
-    CONSTRAINT user_agent_length CHECK (char_length(user_agent) BETWEEN 1 AND 1000),
-    CONSTRAINT os_length CHECK (char_length(os) BETWEEN 1 AND 100),
-    CONSTRAINT client_length CHECK (char_length(client) BETWEEN 1 AND 100)
+    refresh_token_hash bytea NOT NULL UNIQUE CONSTRAINT refresh_token_hash_length CHECK (octet_length(refresh_token_hash) = 32),
+    os text NOT NULL DEFAULT 'Unknown' CONSTRAINT os_length CHECK (char_length(os) BETWEEN 1 AND 100),
+    client text NOT NULL DEFAULT 'Unknown' CONSTRAINT client_length CHECK (char_length(client) BETWEEN 1 AND 100),
+    user_agent text NOT NULL CONSTRAINT user_agent_length CHECK (char_length(user_agent) BETWEEN 1 AND 1000)
 );
 
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at ASC);
+CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 
-CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC, expires_at)
+CREATE INDEX idx_sessions_user_active ON sessions(user_id, last_seen_at DESC)
 WHERE
     revoked_at IS NULL;
 

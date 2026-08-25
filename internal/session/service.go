@@ -12,17 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	MaxUserSessions                = 10
-	UserSessionsBatchLimit         = MaxUserSessions
-	DefaultDeleteExpiredBatchLimit = 100
-)
-
-type Cache interface {
-	Delete(ctx context.Context, sessionID fields.ID) error
-	DeleteBatch(ctx context.Context, sessionIDs []fields.ID) error
-}
-
 type Repository interface {
 	SessionUserGetBatch(ctx context.Context, userID fields.ID, now fields.Timestamp, limit int32) ([]*Session, error)
 	SessionUserRevoke(ctx context.Context, id, userID fields.ID, revokedAt, updatedAt fields.Timestamp) error
@@ -39,7 +28,6 @@ type TX interface {
 }
 
 type Service struct {
-	c  Cache
 	r  Repository
 	o  OutboxRepository
 	tx TX

@@ -2,9 +2,12 @@ package fields
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -87,6 +90,94 @@ func (b *Bytes) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*b = NewBytes(decoded)
+	return nil
+}
+
+// ============================================================================
+// Client
+// ============================================================================
+
+const (
+	MinClientLength = 1
+	MaxClientLength = 100
+)
+
+type Client struct {
+	value string
+}
+
+func NewClient(s string) Client {
+	return Client{value: s}
+}
+
+func ParseClient(fieldName, raw string) (Client, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return Client{}, nil
+	}
+
+	if len(s) > MaxClientLength {
+		return Client{}, ErrClientTooLong(fieldName)
+	}
+
+	return Client{value: s}, nil
+}
+
+func ParseRequiredClient(fieldName, raw string) (Client, error) {
+	client, err := ParseClient(fieldName, raw)
+	if err != nil {
+		return Client{}, err
+	}
+	if client.IsZero() {
+		return Client{}, ErrClientRequired(fieldName)
+	}
+	return client, nil
+}
+
+func (c Client) String() string { return c.value }
+func (c Client) StringPtr() *string {
+	if c.IsZero() {
+		return nil
+	}
+	return ptr.To(c.value)
+}
+func (c Client) IsZero() bool             { return c.value == "" }
+func (c Client) IsValid() bool            { return !c.IsZero() }
+func (c Client) Equals(other Client) bool { return c.value == other.value }
+
+func (c Client) MarshalText() ([]byte, error) {
+	if c.IsZero() {
+		return nil, nil
+	}
+	return []byte(c.value), nil
+}
+
+func (c *Client) UnmarshalText(text []byte) error {
+	v, err := ParseClient("client", string(text))
+	if err != nil {
+		return err
+	}
+	*c = v
+	return nil
+}
+
+func (c Client) MarshalJSON() ([]byte, error) {
+	if c.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(c.value)
+}
+
+func (c *Client) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	v, err := ParseClient("client", s)
+	if err != nil {
+		return err
+	}
+	*c = v
 	return nil
 }
 
@@ -619,6 +710,111 @@ func (i *Integer[T]) UnmarshalJSON(data []byte) error {
 }
 
 // ============================================================================
+// IP
+// ============================================================================
+
+type IP struct {
+	value netip.Addr
+}
+
+func NewIP(addr netip.Addr) IP {
+	if !addr.IsValid() {
+		return IP{}
+	}
+	return IP{value: addr}
+}
+
+func ParseIP(fieldName, raw string) (IP, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return IP{}, nil
+	}
+
+	addr, err := netip.ParseAddr(s)
+	if err != nil {
+		return IP{}, ErrIPInvalid(fieldName)
+	}
+
+	return NewIP(addr), nil
+}
+
+func ParseRequiredIP(fieldName, raw string) (IP, error) {
+	ip, err := ParseIP(fieldName, raw)
+	if err != nil {
+		return IP{}, err
+	}
+	if ip.IsZero() {
+		return IP{}, ErrIPRequired(fieldName)
+	}
+	return ip, nil
+}
+
+func (ip IP) Addr() netip.Addr {
+	return ip.value
+}
+
+func (ip IP) AddrPtr() *netip.Addr {
+	if ip.IsZero() {
+		return nil
+	}
+	return ptr.To(ip.value)
+}
+
+func (ip IP) IsZero() bool         { return !ip.value.IsValid() }
+func (ip IP) IsValid() bool        { return ip.value.IsValid() }
+func (ip IP) Equals(other IP) bool { return ip.value == other.value }
+
+func (ip IP) String() string {
+	if ip.IsZero() {
+		return ""
+	}
+	return ip.value.String()
+}
+
+func (ip IP) StringPtr() *string {
+	if ip.IsZero() {
+		return nil
+	}
+	return ptr.To(ip.String())
+}
+
+func (ip IP) MarshalText() ([]byte, error) {
+	if ip.IsZero() {
+		return nil, nil
+	}
+	return []byte(ip.String()), nil
+}
+
+func (ip *IP) UnmarshalText(text []byte) error {
+	v, err := ParseIP("ip", string(text))
+	if err != nil {
+		return err
+	}
+	*ip = v
+	return nil
+}
+
+func (ip IP) MarshalJSON() ([]byte, error) {
+	if ip.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(ip.value.String())
+}
+
+func (ip *IP) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	v, err := ParseIP("ip", s)
+	if err != nil {
+		return err
+	}
+	*ip = v
+	return nil
+}
+
+// ============================================================================
 // JSON
 // ============================================================================
 
@@ -787,6 +983,94 @@ func validateDepthAndTypes(fieldName string, v any, depth int) error {
 		}
 	}
 
+	return nil
+}
+
+// ============================================================================
+// OS
+// ============================================================================
+
+const (
+	MinOSLength = 1
+	MaxOSLength = 100
+)
+
+type OS struct {
+	value string
+}
+
+func NewOS(s string) OS {
+	return OS{value: s}
+}
+
+func ParseOS(fieldName, raw string) (OS, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return OS{}, nil
+	}
+
+	if len(s) > MaxOSLength {
+		return OS{}, ErrOSTooLong(fieldName)
+	}
+
+	return OS{value: s}, nil
+}
+
+func ParseRequiredOS(fieldName, raw string) (OS, error) {
+	osVal, err := ParseOS(fieldName, raw)
+	if err != nil {
+		return OS{}, err
+	}
+	if osVal.IsZero() {
+		return OS{}, ErrOSRequired(fieldName)
+	}
+	return osVal, nil
+}
+
+func (osVal OS) String() string { return osVal.value }
+func (osVal OS) StringPtr() *string {
+	if osVal.IsZero() {
+		return nil
+	}
+	return ptr.To(osVal.value)
+}
+func (osVal OS) IsZero() bool         { return osVal.value == "" }
+func (osVal OS) IsValid() bool        { return !osVal.IsZero() }
+func (osVal OS) Equals(other OS) bool { return osVal.value == other.value }
+
+func (osVal OS) MarshalText() ([]byte, error) {
+	if osVal.IsZero() {
+		return nil, nil
+	}
+	return []byte(osVal.value), nil
+}
+
+func (osVal *OS) UnmarshalText(text []byte) error {
+	v, err := ParseOS("os", string(text))
+	if err != nil {
+		return err
+	}
+	*osVal = v
+	return nil
+}
+
+func (osVal OS) MarshalJSON() ([]byte, error) {
+	if osVal.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(osVal.value)
+}
+
+func (osVal *OS) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	v, err := ParseOS("os", s)
+	if err != nil {
+		return err
+	}
+	*osVal = v
 	return nil
 }
 
@@ -979,6 +1263,109 @@ func (t *Timestamp) UnmarshalText(text []byte) error {
 }
 
 // ============================================================================
+// TokenHash
+// ============================================================================
+
+const TokenHashByteLength = 32
+
+type TokenHash struct {
+	Bytes
+}
+
+func NewTokenHash(b []byte) (TokenHash, error) {
+	if len(b) != TokenHashByteLength {
+		return TokenHash{}, ErrTokenHashInvalid("token_hash")
+	}
+	return TokenHash{Bytes: NewBytes(b)}, nil
+}
+
+func ParseTokenHash(fieldName string, raw []byte) (TokenHash, error) {
+	if len(raw) == 0 {
+		return TokenHash{}, nil
+	}
+	if len(raw) != TokenHashByteLength {
+		return TokenHash{}, ErrTokenHashInvalid(fieldName)
+	}
+	return TokenHash{Bytes: NewBytes(raw)}, nil
+}
+
+func ParseRequiredTokenHash(fieldName string, raw []byte) (TokenHash, error) {
+	th, err := ParseTokenHash(fieldName, raw)
+	if err != nil {
+		return TokenHash{}, err
+	}
+	if th.IsZero() {
+		return TokenHash{}, ErrTokenHashRequired(fieldName)
+	}
+	return th, nil
+}
+
+func ParseTokenHashFromHex(fieldName, raw string) (TokenHash, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return TokenHash{}, nil
+	}
+
+	decoded, err := hex.DecodeString(s)
+	if err != nil || len(decoded) != TokenHashByteLength {
+		return TokenHash{}, ErrTokenHashInvalid(fieldName)
+	}
+
+	return TokenHash{Bytes: NewBytes(decoded)}, nil
+}
+
+func ParseRequiredTokenHashFromHex(fieldName, raw string) (TokenHash, error) {
+	th, err := ParseTokenHashFromHex(fieldName, raw)
+	if err != nil {
+		return TokenHash{}, err
+	}
+	if th.IsZero() {
+		return TokenHash{}, ErrTokenHashRequired(fieldName)
+	}
+	return th, nil
+}
+
+func (h TokenHash) Hex() string {
+	if h.IsZero() {
+		return ""
+	}
+	return hex.EncodeToString(h.value)
+}
+
+func (h TokenHash) HexPtr() *string {
+	if h.IsZero() {
+		return nil
+	}
+	return ptr.To(h.Hex())
+}
+
+func (h TokenHash) Equals(other TokenHash) bool {
+	if h.IsZero() && other.IsZero() {
+		return true
+	}
+	if h.IsZero() || other.IsZero() {
+		return false
+	}
+	return subtle.ConstantTimeCompare(h.value, other.value) == 1
+}
+
+func (h TokenHash) MarshalText() ([]byte, error) {
+	if h.IsZero() {
+		return nil, nil
+	}
+	return []byte(h.Hex()), nil
+}
+
+func (h *TokenHash) UnmarshalText(text []byte) error {
+	v, err := ParseTokenHashFromHex("token_hash", string(text))
+	if err != nil {
+		return err
+	}
+	*h = v
+	return nil
+}
+
+// ============================================================================
 // TraceID
 // ============================================================================
 
@@ -1082,5 +1469,93 @@ func (u *URL) UnmarshalText(text []byte) error {
 		return err
 	}
 	*u = v
+	return nil
+}
+
+// ============================================================================
+// UserAgent
+// ============================================================================
+
+const (
+	MinUserAgentLength = 1
+	MaxUserAgentLength = 1000
+)
+
+type UserAgent struct {
+	value string
+}
+
+func NewUserAgent(s string) UserAgent {
+	return UserAgent{value: s}
+}
+
+func ParseUserAgent(fieldName, raw string) (UserAgent, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return UserAgent{}, nil
+	}
+
+	if len(s) < MinUserAgentLength || len(s) > MaxUserAgentLength {
+		return UserAgent{}, ErrUserAgentTooLong(fieldName)
+	}
+
+	return UserAgent{value: s}, nil
+}
+
+func ParseRequiredUserAgent(fieldName, raw string) (UserAgent, error) {
+	ua, err := ParseUserAgent(fieldName, raw)
+	if err != nil {
+		return UserAgent{}, err
+	}
+	if ua.IsZero() {
+		return UserAgent{}, ErrUserAgentRequired(fieldName)
+	}
+	return ua, nil
+}
+
+func (ua UserAgent) String() string { return ua.value }
+func (ua UserAgent) StringPtr() *string {
+	if ua.IsZero() {
+		return nil
+	}
+	return ptr.To(ua.value)
+}
+func (ua UserAgent) IsZero() bool                { return ua.value == "" }
+func (ua UserAgent) IsValid() bool               { return !ua.IsZero() }
+func (ua UserAgent) Equals(other UserAgent) bool { return ua.value == other.value }
+
+func (ua UserAgent) MarshalText() ([]byte, error) {
+	if ua.IsZero() {
+		return nil, nil
+	}
+	return []byte(ua.value), nil
+}
+
+func (ua *UserAgent) UnmarshalText(text []byte) error {
+	v, err := ParseUserAgent("user_agent", string(text))
+	if err != nil {
+		return err
+	}
+	*ua = v
+	return nil
+}
+
+func (ua UserAgent) MarshalJSON() ([]byte, error) {
+	if ua.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(ua.value)
+}
+
+func (ua *UserAgent) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	v, err := ParseUserAgent("user_agent", s)
+	if err != nil {
+		return err
+	}
+	*ua = v
 	return nil
 }

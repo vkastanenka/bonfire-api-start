@@ -149,3 +149,63 @@ func ErrTraceIDTooLong() error {
 		Reason("TRACE_ID_TOO_LONG").
 		FieldViolation("trace_id", fmt.Sprintf("Must not exceed %d characters.", traceIDMaxLength), "MAX_LENGTH_EXCEEDED")
 }
+
+func ErrTokenHashRequired(fieldName string) error {
+	return errs.InvalidArgument("Token hash is required.").
+		Reason("TOKEN_HASH_REQUIRED").
+		FieldViolation(fieldName, "Field is required.", "REQUIRED")
+}
+
+func ErrTokenHashInvalid(fieldName string) error {
+	return errs.InvalidArgument("Invalid token hash format.").
+		Reason("INVALID_TOKEN_HASH_FORMAT").
+		FieldViolation(fieldName, fmt.Sprintf("Must be exactly %d bytes.", TokenHashByteLength), "INVALID_FORMAT")
+}
+
+func ErrIPInvalid(fieldName string) error {
+	return errs.InvalidArgument("Invalid IP address format.").
+		Reason("INVALID_IP_FORMAT").
+		FieldViolation(fieldName, "Must be a valid IPv4 or IPv6 address.", "INVALID_FORMAT")
+}
+
+func ErrIPRequired(fieldName string) error {
+	return errs.InvalidArgument("IP address is required.").
+		Reason("IP_REQUIRED").
+		FieldViolation(fieldName, "Field is required.", "REQUIRED")
+}
+
+func ErrUserAgentTooLong(fieldName string) error {
+	return errs.InvalidArgument("User agent exceeds maximum length.").
+		Reason("USER_AGENT_TOO_LONG").
+		FieldViolation(fieldName, fmt.Sprintf("Must not exceed %d characters.", MaxUserAgentLength), "MAX_LENGTH_EXCEEDED")
+}
+
+func ErrUserAgentRequired(fieldName string) error {
+	return errs.InvalidArgument("User agent is required.").
+		Reason("USER_AGENT_REQUIRED").
+		FieldViolation(fieldName, "Field is required.", "REQUIRED")
+}
+
+func ErrOSTooLong(fieldName string) error {
+	return errs.InvalidArgument("OS exceeds maximum length.").
+		Reason("OS_TOO_LONG").
+		FieldViolation(fieldName, fmt.Sprintf("Must not exceed %d characters.", MaxOSLength), "MAX_LENGTH_EXCEEDED")
+}
+
+func ErrOSRequired(fieldName string) error {
+	return errs.InvalidArgument("OS is required.").
+		Reason("OS_REQUIRED").
+		FieldViolation(fieldName, "Field is required.", "REQUIRED")
+}
+
+func ErrClientTooLong(fieldName string) error {
+	return errs.InvalidArgument("Client exceeds maximum length.").
+		Reason("CLIENT_TOO_LONG").
+		FieldViolation(fieldName, fmt.Sprintf("Must not exceed %d characters.", MaxClientLength), "MAX_LENGTH_EXCEEDED")
+}
+
+func ErrClientRequired(fieldName string) error {
+	return errs.InvalidArgument("Client is required.").
+		Reason("CLIENT_REQUIRED").
+		FieldViolation(fieldName, "Field is required.", "REQUIRED")
+}

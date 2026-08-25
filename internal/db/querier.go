@@ -66,12 +66,12 @@ type Querier interface {
 	RelationListTypeByUserID(ctx context.Context, arg RelationListTypeByUserIDParams) ([]Relation, error)
 	RelationSave(ctx context.Context, arg RelationSaveParams) (Relation, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
-	SessionDeleteExpiredBatch(ctx context.Context, arg SessionDeleteExpiredBatchParams) error
+	SessionDeleteBatchExpired(ctx context.Context, arg SessionDeleteBatchExpiredParams) error
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
-	SessionRotateRefreshToken(ctx context.Context, arg SessionRotateRefreshTokenParams) (Session, error)
-	SessionUserGetBatch(ctx context.Context, arg SessionUserGetBatchParams) ([]Session, error)
-	SessionUserRevoke(ctx context.Context, arg SessionUserRevokeParams) error
-	SessionUserRevokeAll(ctx context.Context, arg SessionUserRevokeAllParams) ([]pgtype.UUID, error)
+	SessionListValidByUserID(ctx context.Context, arg SessionListValidByUserIDParams) ([]Session, error)
+	SessionRevoke(ctx context.Context, arg SessionRevokeParams) error
+	SessionRevokeAll(ctx context.Context, arg SessionRevokeAllParams) error
+	SessionRotateRefreshTokenHash(ctx context.Context, arg SessionRotateRefreshTokenHashParams) (Session, error)
 	UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
