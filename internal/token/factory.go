@@ -3,7 +3,7 @@ package token
 import (
 	"time"
 
-	"github.com/google/uuid"
+	"bonfire-api/internal/fields"
 )
 
 type Pair struct {
@@ -13,7 +13,7 @@ type Pair struct {
 	RefreshExpiresAt time.Time
 }
 
-func (p *Provider) GeneratePair(uid, sid uuid.UUID) (Pair, error) {
+func (p *Provider) GeneratePair(uid, sid fields.ID) (Pair, error) {
 	access, accessExpiresAt, err := p.GenerateAccess(uid, sid)
 	if err != nil {
 		return Pair{}, err
@@ -32,44 +32,44 @@ func (p *Provider) GeneratePair(uid, sid uuid.UUID) (Pair, error) {
 	}, nil
 }
 
-func (p *Provider) GenerateAccess(uid, sid uuid.UUID) (string, time.Time, error) {
-	return p.generate(VariantAccess, Claims{
+func (p *Provider) GenerateAccess(uid, sid fields.ID) (string, time.Time, error) {
+	return p.generate(NewTypeAccess(), Claims{
 		UserID:    uid,
 		SessionID: sid,
 	})
 }
 
-func (p *Provider) GenerateRefresh(uid, sid uuid.UUID) (string, time.Time, error) {
-	return p.generate(VariantRefresh, Claims{
+func (p *Provider) GenerateRefresh(uid, sid fields.ID) (string, time.Time, error) {
+	return p.generate(NewTypeRefresh(), Claims{
 		UserID:    uid,
 		SessionID: sid,
 	})
 }
 
-func (p *Provider) GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error) {
-	return p.generate(VariantEmailVerify, Claims{
+func (p *Provider) GenerateEmailVerify(userID fields.ID) (string, time.Time, error) {
+	return p.generate(NewTypeEmailVerify(), Claims{
 		UserID: userID,
 	})
 }
 
-func (p *Provider) GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error) {
-	return p.generate(VariantPasswordReset, Claims{
+func (p *Provider) GeneratePasswordReset(userID fields.ID) (string, time.Time, error) {
+	return p.generate(NewTypePasswordReset(), Claims{
 		UserID: userID,
 	})
 }
 
 func (p *Provider) VerifyAccess(tokenStr string) (*Claims, error) {
-	return p.verify(VariantAccess, tokenStr)
+	return p.verify(NewTypeAccess(), tokenStr)
 }
 
 func (p *Provider) VerifyRefresh(tokenStr string) (*Claims, error) {
-	return p.verify(VariantRefresh, tokenStr)
+	return p.verify(NewTypeRefresh(), tokenStr)
 }
 
 func (p *Provider) VerifyEmailVerify(tokenStr string) (*Claims, error) {
-	return p.verify(VariantEmailVerify, tokenStr)
+	return p.verify(NewTypeEmailVerify(), tokenStr)
 }
 
 func (p *Provider) VerifyPasswordReset(tokenStr string) (*Claims, error) {
-	return p.verify(VariantPasswordReset, tokenStr)
+	return p.verify(NewTypePasswordReset(), tokenStr)
 }

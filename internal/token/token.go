@@ -1,12 +1,14 @@
 package token
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"bonfire-api/internal/fields"
+
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 const (
@@ -17,44 +19,67 @@ const (
 	DefaultClockLeeway      = 5 * time.Second
 )
 
-var (
-	ErrTokenExpired          = errors.New("token has expired")
-	ErrTokenMalformed        = errors.New("token is malformed")
-	ErrTokenSignatureInvalid = errors.New("token signature is invalid")
-	ErrTokenInvalid          = errors.New("token is invalid")
-	ErrIssuerMismatch        = errors.New("token issuer is invalid")
-	ErrVariantMismatch       = errors.New("token type mismatch")
-	ErrInternal              = errors.New("internal cryptographic error")
-)
-
 type Claims struct {
-	UserID    uuid.UUID `json:"uid"`
-	SessionID uuid.UUID `json:"sid"`
-	Variant   Variant   `json:"var"`
+	UserID    fields.ID `json:"uid"`
+	SessionID fields.ID `json:"sid"`
+	TokenType Type      `json:"type"`
 	jwt.RegisteredClaims
 }
 
-type VariantConfig struct {
+func (c Claims) MarshalJSON() ([]byte, error) {
+	type Alias Claims
+	return json.Marshal(&struct {
+		Alias
+		TokenType string `json:"type"`
+	}{
+		Alias:     Alias(c),
+		TokenType: c.TokenType.String(),
+	})
+}
+
+func (c *Claims) UnmarshalJSON(data []byte) error {
+	type Alias Claims
+	aux := &struct {
+		*Alias
+		TokenType string `json:"type"`
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	tokenType, err := ParseTypeString(aux.TokenType)
+	if err != nil {
+		return err
+	}
+	c.TokenType = tokenType
+
+	return nil
+}
+
+type TypeConfig struct {
 	Secret string
 	TTL    time.Duration
 }
 
 type Config struct {
 	Issuer        string
-	Access        VariantConfig
-	Refresh       VariantConfig
-	EmailVerify   VariantConfig
-	PasswordReset VariantConfig
+	Access        TypeConfig
+	Refresh       TypeConfig
+	EmailVerify   TypeConfig
+	PasswordReset TypeConfig
 }
 
-type variantConfig struct {
+type typeConfig struct {
 	secret []byte
 	ttl    time.Duration
 }
 
 type Provider struct {
 	issuer   string
-	variants map[Variant]variantConfig
+	variants map[TypeValue]typeConfig
 }
 
 func NewProvider(cfg Config) (*Provider, error) {
@@ -62,33 +87,34 @@ func NewProvider(cfg Config) (*Provider, error) {
 		cfg.Issuer = "bonfire-api"
 	}
 
-	specs := map[Variant]VariantConfig{
-		VariantAccess:        cfg.Access,
-		VariantRefresh:       cfg.Refresh,
-		VariantEmailVerify:   cfg.EmailVerify,
-		VariantPasswordReset: cfg.PasswordReset,
+	specs := map[TypeValue]TypeConfig{
+		TypeAccess:        cfg.Access,
+		TypeRefresh:       cfg.Refresh,
+		TypeEmailVerify:   cfg.EmailVerify,
+		TypePasswordReset: cfg.PasswordReset,
 	}
 
-	defaults := map[Variant]time.Duration{
-		VariantAccess:        DefaultAccessTTL,
-		VariantRefresh:       DefaultRefreshTTL,
-		VariantEmailVerify:   DefaultEmailVerifyTTL,
-		VariantPasswordReset: DefaultPasswordResetTTL,
+	defaults := map[TypeValue]time.Duration{
+		TypeAccess:        DefaultAccessTTL,
+		TypeRefresh:       DefaultRefreshTTL,
+		TypeEmailVerify:   DefaultEmailVerifyTTL,
+		TypePasswordReset: DefaultPasswordResetTTL,
 	}
 
-	variants := make(map[Variant]variantConfig, len(specs))
+	variants := make(map[TypeValue]typeConfig, len(specs))
 
-	for variant, spec := range specs {
+	for val, spec := range specs {
+		t := NewType(val)
 		if spec.Secret == "" {
-			return nil, fmt.Errorf("token provider initialization failed: secret for %q cannot be empty", variant)
+			return nil, fmt.Errorf("token provider initialization failed: secret for %q cannot be empty", t.String())
 		}
 
 		ttl := spec.TTL
 		if ttl <= 0 {
-			ttl = defaults[variant]
+			ttl = defaults[val]
 		}
 
-		variants[variant] = variantConfig{
+		variants[val] = typeConfig{
 			secret: []byte(spec.Secret),
 			ttl:    ttl,
 		}
@@ -100,18 +126,23 @@ func NewProvider(cfg Config) (*Provider, error) {
 	}, nil
 }
 
-func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.Time, error) {
-	spec, exists := p.variants[tokenVariant]
+func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, error) {
+	spec, exists := p.variants[tokenType.Value()]
 	if !exists || len(spec.secret) == 0 {
-		return "", time.Time{}, fmt.Errorf("%w: missing signing configuration for type %s", ErrInternal, tokenVariant)
+		return "", time.Time{}, fmt.Errorf("%w: missing signing configuration for type %s", ErrInternal, tokenType.String())
 	}
 
 	now := time.Now()
 	expiresAt := now.Add(spec.ttl)
 
-	claims.Variant = tokenVariant
+	id, err := fields.NewID()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	claims.TokenType = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		ID:        uuid.NewString(),
+		ID:        id.String(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(expiresAt),
@@ -127,10 +158,10 @@ func (p *Provider) generate(tokenVariant Variant, claims Claims) (string, time.T
 	return signedToken, expiresAt, nil
 }
 
-func (p *Provider) verify(tokenVariant Variant, tokenStr string) (*Claims, error) {
-	spec, exists := p.variants[tokenVariant]
+func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
+	spec, exists := p.variants[tokenType.Value()]
 	if !exists || len(spec.secret) == 0 {
-		return nil, fmt.Errorf("%w: missing verification configuration for type %s", ErrInternal, tokenVariant)
+		return nil, fmt.Errorf("%w: missing verification configuration for type %s", ErrInternal, tokenType.String())
 	}
 
 	token, err := jwt.ParseWithClaims(
@@ -167,8 +198,8 @@ func (p *Provider) verify(tokenVariant Variant, tokenStr string) (*Claims, error
 		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, p.issuer, claims.Issuer)
 	}
 
-	if claims.Variant != tokenVariant {
-		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrVariantMismatch, tokenVariant, claims.Variant)
+	if !claims.TokenType.Is(tokenType.Value()) {
+		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrVariantMismatch, tokenType.String(), claims.TokenType.String())
 	}
 
 	return claims, nil

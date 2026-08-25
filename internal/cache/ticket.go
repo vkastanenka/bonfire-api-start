@@ -2,53 +2,49 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
-	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-type TicketStore interface {
-	Get(ctx context.Context, key string, dest interface{}) error
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Delete(ctx context.Context, key ...string) error
+func ticketKey(ticketID fields.ID) string {
+	return "ticket:" + ticketID.String()
 }
 
-type Ticket struct {
-	store TicketStore
+type TicketCache struct {
+	client redisdriver.Cmdable
+	scope  redis.Scope
+	ttl    time.Duration
 }
 
-func NewTicket(store TicketStore) *Ticket {
-	return &Ticket{store: store}
+func NewTicketCache(client redisdriver.Cmdable, scope redis.Scope, ttl time.Duration) *TicketCache {
+	return &TicketCache{
+		client: client,
+		scope:  scope,
+		ttl:    ttl,
+	}
 }
 
-func ticketKey(id uuid.UUID) string {
-	return fmt.Sprintf("ticket:{%s}", id.String())
-}
-
-func (s *Ticket) SetTicket(ctx context.Context, ticketID, userID uuid.UUID, ttl time.Duration) error {
-	k := ticketKey(ticketID)
-	if err := s.store.Set(ctx, k, userID, ttl); err != nil {
-		return redis.NewError(err, redis.ScopeTicket)
+func (c *TicketCache) Print(ctx context.Context, ticketID, userID fields.ID) error {
+	if err := c.client.Set(ctx, ticketKey(ticketID), userID.String(), c.ttl).Err(); err != nil {
+		return redis.NewError(err, c.scope)
 	}
 	return nil
 }
 
-func (s *Ticket) ConsumeTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, error) {
-	k := ticketKey(ticketID)
-
-	var userID uuid.UUID
-	err := s.store.Get(ctx, k, &userID)
-	if redis.IsNotFoundError(err) {
-		return uuid.Nil, redis.ErrNotFound
-	}
+func (c *TicketCache) Punch(ctx context.Context, ticketID fields.ID) (fields.ID, error) {
+	val, err := c.client.GetDel(ctx, ticketKey(ticketID)).Result()
 	if err != nil {
-		return uuid.Nil, redis.NewError(err, redis.ScopeTicket)
+		return fields.ID{}, redis.NewError(err, c.scope)
 	}
 
-	_ = s.store.Delete(ctx, k)
+	userID, err := fields.ParseRequiredIDFromString("user_id", val)
+	if err != nil {
+		return fields.ID{}, err
+	}
 
 	return userID, nil
 }
