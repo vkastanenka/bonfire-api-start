@@ -2,12 +2,13 @@ package session
 
 import (
 	"bonfire-api/internal/fields"
+	"slices"
 )
 
 const (
-	MaxUserSessions                = 10
-	UserSessionsBatchLimit         = MaxUserSessions
-	DefaultDeleteExpiredBatchLimit = 100
+	maxSessions             = 10
+	listValidByUserIDLimit  = maxSessions
+	deleteBatchExpiredLimit = 100
 )
 
 type Session struct {
@@ -109,4 +110,18 @@ func (s *Session) IsExpired(now fields.Timestamp) bool {
 
 func (s *Session) IsValid(now fields.Timestamp) bool {
 	return !s.IsRevoked() && !s.IsExpired(now)
+}
+
+func sort(sessions []*Session) {
+	slices.SortFunc(sessions, func(a, b *Session) int {
+		if c := b.LastSeenAt().Compare(a.LastSeenAt()); c != 0 {
+			return c
+		}
+
+		if c := b.CreatedAt().Compare(a.CreatedAt()); c != 0 {
+			return c
+		}
+
+		return a.ID().Compare(b.ID())
+	})
 }

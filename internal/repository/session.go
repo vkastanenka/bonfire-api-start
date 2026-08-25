@@ -23,7 +23,7 @@ func NewSessionRepository(store *db.Store) *SessionRepository {
 	}
 }
 
-func (r *SessionRepository) SessionCreate(ctx context.Context, s *session.Session) (*session.Session, error) {
+func (r *SessionRepository) Create(ctx context.Context, s *session.Session) (*session.Session, error) {
 	row, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
 		ID:               db.ToUUID(s.ID().UUID()),
 		UserID:           db.ToUUID(s.UserID().UUID()),
@@ -45,7 +45,7 @@ func (r *SessionRepository) SessionCreate(ctx context.Context, s *session.Sessio
 	return sessionFromRow(row)
 }
 
-func (r *SessionRepository) SessionGet(ctx context.Context, id fields.ID) (*session.Session, error) {
+func (r *SessionRepository) Get(ctx context.Context, id fields.ID) (*session.Session, error) {
 	row, err := r.store.SessionGet(ctx, db.ToUUID(id.UUID()))
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -54,7 +54,7 @@ func (r *SessionRepository) SessionGet(ctx context.Context, id fields.ID) (*sess
 	return sessionFromRow(row)
 }
 
-func (r *SessionRepository) SessionListValidByUserID(ctx context.Context, userID fields.ID, now fields.Timestamp, limit int) ([]*session.Session, error) {
+func (r *SessionRepository) ListValidByUserID(ctx context.Context, userID fields.ID, now fields.Timestamp, limit int) ([]*session.Session, error) {
 	rows, err := r.store.SessionListValidByUserID(ctx, db.SessionListValidByUserIDParams{
 		UserID:   db.ToUUID(userID.UUID()),
 		Now:      db.ToTimestamptz(now.Time()),
@@ -76,7 +76,7 @@ func (r *SessionRepository) SessionListValidByUserID(ctx context.Context, userID
 	return sessions, nil
 }
 
-func (r *SessionRepository) SessionRotateRefreshTokenHash(
+func (r *SessionRepository) RotateRefreshTokenHash(
 	ctx context.Context,
 	id fields.ID,
 	oldHash, newHash fields.TokenHash,
@@ -101,7 +101,7 @@ func (r *SessionRepository) SessionRotateRefreshTokenHash(
 	return sessionFromRow(row)
 }
 
-func (r *SessionRepository) SessionRevoke(ctx context.Context, id, userID fields.ID, now fields.Timestamp) error {
+func (r *SessionRepository) Revoke(ctx context.Context, id, userID fields.ID, now fields.Timestamp) error {
 	err := r.store.SessionRevoke(ctx, db.SessionRevokeParams{
 		ID:     db.ToUUID(id.UUID()),
 		UserID: db.ToUUID(userID.UUID()),
@@ -114,7 +114,7 @@ func (r *SessionRepository) SessionRevoke(ctx context.Context, id, userID fields
 	return nil
 }
 
-func (r *SessionRepository) SessionRevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) error {
+func (r *SessionRepository) RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) error {
 	err := r.store.SessionRevokeAll(ctx, db.SessionRevokeAllParams{
 		UserID: db.ToUUID(userID.UUID()),
 		Now:    db.ToTimestamptz(now.Time()),
@@ -126,7 +126,7 @@ func (r *SessionRepository) SessionRevokeAll(ctx context.Context, userID fields.
 	return nil
 }
 
-func (r *SessionRepository) SessionDeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error {
+func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error {
 	err := r.store.SessionDeleteBatchExpired(ctx, db.SessionDeleteBatchExpiredParams{
 		Now:      db.ToTimestamptz(now),
 		LimitVal: int32(limitVal),
