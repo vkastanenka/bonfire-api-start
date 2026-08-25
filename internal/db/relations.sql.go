@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const relationDeleteByUser = `-- name: RelationDeleteByUser :exec
+const relationDeleteByUserID = `-- name: RelationDeleteByUserID :exec
 DELETE FROM relations
 WHERE user1_id = LEAST($1::uuid, $2::uuid)
     AND user2_id = GREATEST($1::uuid, $2::uuid)
@@ -19,14 +19,14 @@ WHERE user1_id = LEAST($1::uuid, $2::uuid)
         OR actor_id = $3::uuid)
 `
 
-type RelationDeleteByUserParams struct {
+type RelationDeleteByUserIDParams struct {
 	User1ID pgtype.UUID `json:"user1_id"`
 	User2ID pgtype.UUID `json:"user2_id"`
 	ActorID pgtype.UUID `json:"actor_id"`
 }
 
-func (q *Queries) RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error {
-	_, err := q.db.Exec(ctx, relationDeleteByUser, arg.User1ID, arg.User2ID, arg.ActorID)
+func (q *Queries) RelationDeleteByUserID(ctx context.Context, arg RelationDeleteByUserIDParams) error {
+	_, err := q.db.Exec(ctx, relationDeleteByUserID, arg.User1ID, arg.User2ID, arg.ActorID)
 	return err
 }
 
@@ -60,7 +60,7 @@ func (q *Queries) RelationGet(ctx context.Context, arg RelationGetParams) (Relat
 	return i, err
 }
 
-const relationGetByChannel = `-- name: RelationGetByChannel :one
+const relationGetByChannelID = `-- name: RelationGetByChannelID :one
 SELECT
     relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
 FROM
@@ -69,8 +69,8 @@ WHERE
     channel_id = $1::uuid
 `
 
-func (q *Queries) RelationGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relation, error) {
-	row := q.db.QueryRow(ctx, relationGetByChannel, channelID)
+func (q *Queries) RelationGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relation, error) {
+	row := q.db.QueryRow(ctx, relationGetByChannelID, channelID)
 	var i Relation
 	err := row.Scan(
 		&i.User1ID,
@@ -142,19 +142,9 @@ func (q *Queries) RelationHasIncomingBlock(ctx context.Context, arg RelationHasI
 	return exists, err
 }
 
-const relationListTypeByUser = `-- name: RelationListTypeByUser :many
+const relationListTypeByUserID = `-- name: RelationListTypeByUserID :many
 SELECT
-    (
-        CASE WHEN user1_id = $1::uuid THEN
-            user2_id
-        ELSE
-            user1_id
-        END)::uuid AS peer_id,
-    actor_id,
-    channel_id,
-    created_at,
-    updated_at,
-    type
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
 FROM
     relations
 WHERE (user1_id = $1::uuid
@@ -165,32 +155,24 @@ ORDER BY
 LIMIT $3::int
 `
 
-type RelationListTypeByUserParams struct {
-	UserID     pgtype.UUID `json:"user_id"`
-	TypeVal    int16       `json:"type_val"`
-	BatchLimit int32       `json:"batch_limit"`
+type RelationListTypeByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	Type     int16       `json:"type"`
+	LimitVal int32       `json:"limit_val"`
 }
 
-type RelationListTypeByUserRow struct {
-	PeerID    pgtype.UUID        `json:"peer_id"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	ChannelID pgtype.UUID        `json:"channel_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Type      int16              `json:"type"`
-}
-
-func (q *Queries) RelationListTypeByUser(ctx context.Context, arg RelationListTypeByUserParams) ([]RelationListTypeByUserRow, error) {
-	rows, err := q.db.Query(ctx, relationListTypeByUser, arg.UserID, arg.TypeVal, arg.BatchLimit)
+func (q *Queries) RelationListTypeByUserID(ctx context.Context, arg RelationListTypeByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListTypeByUserID, arg.UserID, arg.Type, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RelationListTypeByUserRow
+	var items []Relation
 	for rows.Next() {
-		var i RelationListTypeByUserRow
+		var i Relation
 		if err := rows.Scan(
-			&i.PeerID,
+			&i.User1ID,
+			&i.User2ID,
 			&i.ActorID,
 			&i.ChannelID,
 			&i.CreatedAt,

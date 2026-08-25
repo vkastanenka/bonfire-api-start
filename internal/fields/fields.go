@@ -232,6 +232,35 @@ func (e Enum[T]) String() string {
 	return "UNKNOWN"
 }
 
+func ParseEnumString[T IntegerType](s string, desc *EnumSpec) (T, bool) {
+	var zero T
+	if desc == nil {
+		return zero, false
+	}
+	str := strings.TrimSpace(s)
+	if str == "" {
+		return zero, false
+	}
+	for i := 0; i < len(desc.Names) && i < desc.Max; i++ {
+		if strings.EqualFold(desc.Names[i], str) {
+			return T(i), true
+		}
+	}
+	return zero, false
+}
+
+func ParseEnumInt[T IntegerType, I IntegerType](raw I, desc *EnumSpec) (T, bool) {
+	var zero T
+	if desc == nil {
+		return zero, false
+	}
+	val := int(raw)
+	if val < 0 || val >= desc.Max || val >= len(desc.Names) {
+		return zero, false
+	}
+	return T(val), true
+}
+
 func (e Enum[T]) MarshalText() ([]byte, error) {
 	if e.desc == nil {
 		return []byte("UNKNOWN"), nil
@@ -278,23 +307,6 @@ func (e *Enum[T]) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return e.UnmarshalText([]byte(s))
-}
-
-func ParseEnumString[T IntegerType](s string, desc *EnumSpec) (T, bool) {
-	var zero T
-	if desc == nil {
-		return zero, false
-	}
-	str := strings.TrimSpace(s)
-	if str == "" {
-		return zero, false
-	}
-	for i := 0; i < len(desc.Names) && i < desc.Max; i++ {
-		if strings.EqualFold(desc.Names[i], str) {
-			return T(i), true
-		}
-	}
-	return zero, false
 }
 
 // ============================================================================
@@ -439,6 +451,15 @@ func RemoveID(ids []ID, target ID) []ID {
 		}
 	}
 	return result
+}
+
+func SortIDs(u1, u2 ID) (ID, ID) {
+	b1 := u1.UUID()
+	b2 := u2.UUID()
+	if bytes.Compare(b1[:], b2[:]) < 0 {
+		return u1, u2
+	}
+	return u2, u1
 }
 
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }

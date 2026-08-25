@@ -1,12 +1,16 @@
 package relation
 
 import (
-	"bytes"
+	"cmp"
+	"slices"
+	"strings"
 
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
+
+	"github.com/google/uuid"
 )
+
+const maxPeerTypeLimit int = 1000
 
 type Relation struct {
 	user1ID   fields.ID
@@ -18,20 +22,78 @@ type Relation struct {
 	updatedAt fields.Timestamp
 }
 
-type Peer struct {
-	id          fields.ID
-	actorID     fields.ID
-	channelID   fields.ID
-	avatarURL   fields.URL
-	username    user.Username
-	displayName user.DisplayName
-	relType     Type
-	presence    presence.Presence
+func Reconstitute(
+	user1ID,
+	user2ID,
+	actorID,
+	channelID fields.ID,
+	relType Type,
+	createdAt,
+	updatedAt fields.Timestamp,
+) *Relation {
+	return &Relation{
+		user1ID:   user1ID,
+		user2ID:   user2ID,
+		actorID:   actorID,
+		channelID: channelID,
+		relType:   relType,
+		createdAt: createdAt,
+		updatedAt: updatedAt,
+	}
 }
 
-// -----------------------------------------------------------------------------
-// Getters
-// -----------------------------------------------------------------------------
+func NewPending(
+	user1ID,
+	user2ID,
+	actorID,
+	channelID fields.ID,
+	now fields.Timestamp,
+) *Relation {
+	return Reconstitute(
+		user1ID,
+		user2ID,
+		actorID,
+		channelID,
+		NewTypePending(),
+		now,
+		now,
+	)
+}
+
+func NewFriends(
+	user1ID,
+	user2ID,
+	actorID,
+	channelID fields.ID,
+	now fields.Timestamp,
+) *Relation {
+	return Reconstitute(
+		user1ID,
+		user2ID,
+		actorID,
+		channelID,
+		NewTypeFriends(),
+		now,
+		now,
+	)
+}
+
+func NewBlocked(
+	user1ID,
+	user2ID,
+	actorID fields.ID,
+	now fields.Timestamp,
+) *Relation {
+	return Reconstitute(
+		user1ID,
+		user2ID,
+		actorID,
+		fields.ID{},
+		NewTypeBlocked(),
+		now,
+		now,
+	)
+}
 
 func (r *Relation) User1ID() fields.ID          { return r.user1ID }
 func (r *Relation) User2ID() fields.ID          { return r.user2ID }
@@ -41,13 +103,9 @@ func (r *Relation) Type() Type                  { return r.relType }
 func (r *Relation) CreatedAt() fields.Timestamp { return r.createdAt }
 func (r *Relation) UpdatedAt() fields.Timestamp { return r.updatedAt }
 
-// ============================================================================
-// Meta
-// ============================================================================
-
-func (r *Relation) IsPending() bool { return r.relType == TypePending }
-func (r *Relation) IsFriends() bool { return r.relType == TypeFriends }
-func (r *Relation) IsBlocked() bool { return r.relType == TypeBlocked }
+func (r *Relation) IsPending() bool { return r.relType.IsPending() }
+func (r *Relation) IsFriends() bool { return r.relType.IsFriends() }
+func (r *Relation) IsBlocked() bool { return r.relType.IsBlocked() }
 
 func (r *Relation) IsPendingActor(userID fields.ID) bool {
 	return r.IsPending() && r.actorID.Equals(userID)
@@ -72,81 +130,19 @@ func (r *Relation) PeerID(userID fields.ID) fields.ID {
 	return r.user1ID
 }
 
-// -----------------------------------------------------------------------------
-// Mappers
-// -----------------------------------------------------------------------------
-
-func New(
-	user1ID,
-	user2ID,
-	actorID,
-	channelID fields.ID,
-	relType Type,
-	createdAt,
-	updatedAt fields.Timestamp,
-) *Relation {
-	return &Relation{
-		user1ID:   user1ID,
-		user2ID:   user2ID,
-		actorID:   actorID,
-		channelID: channelID,
-		relType:   TypePending,
-		createdAt: createdAt,
-		updatedAt: updatedAt,
-	}
+func (r *Relation) PeerIDs(userID fields.ID) []fields.ID {
+	return []fields.ID{r.PeerID(userID)}
 }
-
-func NewPeer(
-	id,
-	actorID,
-	channelID fields.ID,
-	avatarURL fields.URL,
-	username user.Username,
-	displayName user.DisplayName,
-	relType Type,
-	pres presence.Presence,
-) *Peer {
-	return &Peer{
-		id:          id,
-		actorID:     actorID,
-		channelID:   channelID,
-		avatarURL:   avatarURL,
-		username:    username,
-		displayName: displayName,
-		relType:     relType,
-		presence:    pres,
-	}
-}
-
-func Reconstitute(
-	user1ID, user2ID, actorID, channelID fields.ID,
-	relType Type,
-	createdAt, updatedAt fields.Timestamp,
-) *Relation {
-	return &Relation{
-		user1ID:   user1ID,
-		user2ID:   user2ID,
-		actorID:   actorID,
-		channelID: channelID,
-		relType:   relType,
-		createdAt: createdAt,
-		updatedAt: updatedAt,
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Domain Mutations
-// -----------------------------------------------------------------------------
 
 func (r *Relation) Accept(actorID fields.ID, channelID fields.ID, now fields.Timestamp) {
-	r.relType = TypeFriends
+	r.relType = NewTypeFriends()
 	r.actorID = actorID
 	r.channelID = channelID
 	r.touch(now)
 }
 
 func (r *Relation) Block(actorID fields.ID, now fields.Timestamp) {
-	r.relType = TypeBlocked
+	r.relType = NewTypeBlocked()
 	r.actorID = actorID
 	r.touch(now)
 }
@@ -155,15 +151,50 @@ func (r *Relation) touch(at fields.Timestamp) {
 	r.updatedAt = at
 }
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-func SortUserIDs(u1, u2 fields.ID) (fields.ID, fields.ID) {
-	b1 := u1.UUID()
-	b2 := u2.UUID()
-	if bytes.Compare(b1[:], b2[:]) < 0 {
-		return u1, u2
+func getPeerDisplayName(p Peer) string {
+	if name := p.DisplayName.String(); name != "" {
+		return name
 	}
-	return u2, u1
+	return p.Username.String()
+}
+
+func sortPeers(peers []Peer) {
+	slices.SortFunc(peers, func(a, b Peer) int {
+		nameA := strings.ToLower(getPeerDisplayName(a))
+		nameB := strings.ToLower(getPeerDisplayName(b))
+
+		if c := cmp.Compare(nameA, nameB); c != 0 {
+			return c
+		}
+
+		return a.ID.Compare(b.ID)
+	})
+}
+
+func validateIDs(rawActorID, rawPeerID uuid.UUID) (actorID, peerID, u1, u2 fields.ID, err error) {
+	if actorID, err = fields.ParseRequiredID("actor_id", rawActorID); err != nil {
+		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
+	}
+	if peerID, err = fields.ParseRequiredID("channel_id", rawPeerID); err != nil {
+		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
+	}
+	if actorID.Equals(peerID) {
+		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, ErrPeerIDInvalid()
+	}
+	u1, u2 = fields.SortIDs(actorID, peerID)
+	return actorID, peerID, u1, u2, nil
+}
+
+func validateBlockedActor(actorID fields.ID, rel *Relation) error {
+	if rel.IsBlockedActor(actorID) {
+		return ErrBlockedActor()
+	}
+	return nil
+}
+
+func validateAccept(actorID fields.ID, rel *Relation) error {
+	if rel.Type().IsPending() && !rel.ActorID().Equals(actorID) {
+		return ErrNotPending()
+	}
+	return nil
 }

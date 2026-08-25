@@ -58,12 +58,12 @@ type Querier interface {
 	ReactionGet(ctx context.Context, arg ReactionGetParams) (MessageReaction, error)
 	ReactionGetBatchByUserIDAndMessageIDs(ctx context.Context, arg ReactionGetBatchByUserIDAndMessageIDsParams) ([]ReactionGetBatchByUserIDAndMessageIDsRow, error)
 	ReactionGetBatchSummaryByMessageIDs(ctx context.Context, messageIds []pgtype.UUID) ([]ReactionGetBatchSummaryByMessageIDsRow, error)
-	RelationDeleteByUser(ctx context.Context, arg RelationDeleteByUserParams) error
+	RelationDeleteByUserID(ctx context.Context, arg RelationDeleteByUserIDParams) error
 	RelationGet(ctx context.Context, arg RelationGetParams) (Relation, error)
-	RelationGetByChannel(ctx context.Context, channelID pgtype.UUID) (Relation, error)
+	RelationGetByChannelID(ctx context.Context, channelID pgtype.UUID) (Relation, error)
 	RelationGetForUpdate(ctx context.Context, arg RelationGetForUpdateParams) (Relation, error)
 	RelationHasIncomingBlock(ctx context.Context, arg RelationHasIncomingBlockParams) (bool, error)
-	RelationListTypeByUser(ctx context.Context, arg RelationListTypeByUserParams) ([]RelationListTypeByUserRow, error)
+	RelationListTypeByUserID(ctx context.Context, arg RelationListTypeByUserIDParams) ([]Relation, error)
 	RelationSave(ctx context.Context, arg RelationSaveParams) (Relation, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDeleteExpiredBatch(ctx context.Context, arg SessionDeleteExpiredBatchParams) error

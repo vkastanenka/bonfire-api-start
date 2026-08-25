@@ -1,406 +1,80 @@
 package relation
 
 import (
-	"bonfire-api/internal/channel"
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
-	"slices"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
+
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 )
 
-const maxPeerLimit int32 = 1000
-
-type Cache interface {
-	Get(ctx context.Context, u1, u2 fields.ID) (*Relation, error)
-	GetUserRelations(ctx context.Context, userID fields.ID) (map[uuid.UUID]Type, error)
-	TransitionRelation(ctx context.Context, u1, u2 fields.ID, rel *Relation) error
-	RemoveRelation(ctx context.Context, u1, u2 fields.ID) error
-	SetUserRelations(ctx context.Context, userID fields.ID, relations map[uuid.UUID]Type) error
-	InvalidateUser(ctx context.Context, userID fields.ID) error
-}
-
-type PresenceCache interface {
-	Get(ctx context.Context, userID uuid.UUID) (presence.Presence, error)
-	GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
-	Set(ctx context.Context, userID uuid.UUID, p presence.Presence) error
-}
-
-type UserCache interface {
-	Delete(ctx context.Context, userID fields.ID) error
-	DeleteBatch(ctx context.Context, userIDs []fields.ID) error
-	Get(ctx context.Context, userID fields.ID) (*user.User, error)
-	GetBatch(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
-	Set(ctx context.Context, usr *user.User) error
-	SetBatch(ctx context.Context, users []*user.User) error
-}
-
-type Repository interface {
-	DeleteByUser(ctx context.Context, user1ID fields.ID, user2ID fields.ID, actorID fields.ID) error
-	Get(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
-	GetByChannel(ctx context.Context, channelID fields.ID) (*Relation, error)
-	GetCached(ctx context.Context, u1 fields.ID, u2 fields.ID) (*Relation, error)
-	GetCachedBatch(ctx context.Context, u1 fields.ID, peers []fields.ID) (map[fields.ID]*Relation, error)
-	GetForUpdate(ctx context.Context, user1ID fields.ID, user2ID fields.ID) (*Relation, error)
-	ListCachedTypeByUser(ctx context.Context, userID fields.ID, relType Type, limit int32) ([]*Relation, error)
-	ListTypeByUser(ctx context.Context, userID fields.ID, relType Type, limit int32) ([]*Relation, error)
-	Save(ctx context.Context, rel *Relation) (*Relation, error)
-}
-
-type ChannelRepository interface {
-	Create(ctx context.Context, ch *channel.Channel) (*channel.Channel, error)
-	MemberAddBatch(ctx context.Context, members []*channel.Member) error
-}
-
-type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
-}
-
-type UserRepository interface {
-	Availability(ctx context.Context, email *user.Email, username *user.Username) (bool, bool, error)
-	Create(ctx context.Context, u *user.User) (*user.User, error)
-	Get(ctx context.Context, id fields.ID) (*user.User, error)
-	GetBatch(ctx context.Context, u1 fields.ID, peers []fields.ID) (map[fields.ID]*Relation, []fields.ID, error)
-	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
-	GetCached(ctx context.Context, id fields.ID) (*user.User, error)
-	GetCachedBatch(ctx context.Context, ids []fields.ID, batchLimit int32) (map[fields.ID]*user.User, error)
-	GetDeleteScheduledBatch(ctx context.Context, currentTime fields.Timestamp, batchLimit int32) ([]*user.User, error)
-	Update(ctx context.Context, u *user.User) (*user.User, error)
-	UpdateBatch(ctx context.Context, usersJson []byte) ([]*user.User, error)
-}
-
-type Tx interface {
-	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
 type Service struct {
-	cache     Cache
-	presence  PresenceCache
-	userCache UserCache
-	repo      Repository
-	channel   ChannelRepository
-	outbox    OutboxRepository
-	user      UserRepository
-	tx        Tx
+	repo        Repository
+	userRepo    UserRepository
+	userCache   UserCache
+	channelRepo ChannelRepository
+	memberRepo  MemberRepository
+	outboxRepo  OutboxRepository
+	tx          TX
 }
 
 func NewService(
-	cache Cache,
-	presence PresenceCache,
-	userCache UserCache,
 	repo Repository,
-	channel ChannelRepository,
-	outbox OutboxRepository,
-	user UserRepository,
-	tx Tx,
+	userRepo UserRepository,
+	userCache UserCache,
+	channelRepo ChannelRepository,
+	memberRepo MemberRepository,
+	outboxRepo OutboxRepository,
+	tx TX,
 ) *Service {
 	return &Service{
-		cache:     cache,
-		presence:  presence,
-		userCache: userCache,
-		repo:      repo,
-		channel:   channel,
-		outbox:    outbox,
-		user:      user,
-		tx:        tx,
+		repo:        repo,
+		userRepo:    userRepo,
+		userCache:   userCache,
+		channelRepo: channelRepo,
+		memberRepo:  memberRepo,
+		outboxRepo:  outboxRepo,
+		tx:          tx,
 	}
 }
 
-// AcceptFriendRequest explicitly accepts a pending incoming friend request.
-func (s *Service) AcceptFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+func (s *Service) GetPeer(ctx context.Context, rawActorID, rawPeerID uuid.UUID) (Peer, error) {
+	_, peerID, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
-		return err
+		return Peer{}, err
 	}
 
-	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	rel, err := s.repo.Get(ctx, u1, u2)
 	if err != nil {
-		return err
-	}
-
-	if actorID.Equals(peerID) {
-		return errs.InvalidArgument("Relation ids cannot match.").
-			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
-	}
-
-	u1, u2 := SortUserIDs(actorID, peerID)
-	var updatedRel *Relation
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
-		if err != nil {
-			if errs.IsNotFound(err) {
-				return errs.NotFound("no pending request to accept").Wrap(err)
-			}
-			return err
-		}
-
-		res, acceptErr := s.acceptPendingRequestTx(txCtx, actorID, rel)
-		if acceptErr != nil {
-			return acceptErr
-		}
-		updatedRel = res
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	// Post-commit relation cache update
-	if updatedRel != nil {
-		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, updatedRel); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to transition relation cache",
-				"user1_id", u1.String(),
-				"user2_id", u2.String(),
-				"actor_id", actorID.String(),
-				"error", cacheErr,
-				"scope", "relation",
-			)
-		}
-	}
-
-	return nil
-}
-
-// Block places a block on a user, overriding any existing friend or pending state.
-func (s *Service) Block(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return err
-	}
-
-	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
-	if err != nil {
-		return err
-	}
-
-	if actorID.Equals(peerID) {
-		return errs.InvalidArgument("Relation ids cannot match.").
-			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
-	}
-
-	u1, u2 := SortUserIDs(actorID, peerID)
-	var updatedRel *Relation
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		res, blockErr := s.blockTx(txCtx, actorID, peerID, u1, u2)
-		if blockErr != nil {
-			return blockErr
-		}
-		updatedRel = res
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	// Post-commit relation cache update
-	if updatedRel != nil {
-		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, updatedRel); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to transition relation cache",
-				"user1_id", u1.String(),
-				"user2_id", u2.String(),
-				"actor_id", actorID.String(),
-				"error", cacheErr,
-				"scope", "relation",
-			)
-		}
-	}
-
-	return nil
-}
-
-// Private helper for transactional state mutation, entity persistence, and outbox event publishing.
-func (s *Service) blockTx(
-	ctx context.Context,
-	actorID, peerID, u1, u2 fields.ID,
-) (*Relation, error) {
-	now := fields.NewTimestampFromTime(time.Now())
-
-	fetchedRel, err := s.repo.GetForUpdate(ctx, u1, u2)
-	if err != nil && !errs.IsNotFound(err) {
-		return nil, err
-	}
-
-	var rel *Relation
-
-	if errs.IsNotFound(err) {
-		rel = New(
-			u1,
-			u2,
-			actorID,
-			fields.ID{},
-			TypeBlocked,
-			now,
-			now,
-		)
-	} else {
-		rel = fetchedRel
-		if rel.Type() == TypeBlocked && !rel.ActorID().Equals(actorID) {
-			return rel, nil
-		}
-
-		rel.Block(actorID, now)
-	}
-
-	savedRel, err := s.repo.Save(ctx, rel)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = s.outbox.Publish(ctx, EventUserBlocked, UserBlockedPayload{
-		ActorID:  actorID.UUID(),
-		TargetID: peerID.UUID(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return savedRel, nil
-}
-
-// DeleteByUser verifies permissions before removing a friendship or friend request.
-func (s *Service) DeleteByUser(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return err
-	}
-
-	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
-	if err != nil {
-		return err
-	}
-
-	if actorID.Equals(peerID) {
-		return errs.InvalidArgument("Relation ids cannot match.").
-			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
-	}
-
-	u1, u2 := SortUserIDs(actorID, peerID)
-	var wasDeleted bool
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		deleted, deleteErr := s.deleteByUserTx(txCtx, actorID, peerID, u1, u2)
-		if deleteErr != nil {
-			return deleteErr
-		}
-		wasDeleted = deleted
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	// Post-commit relation cache eviction
-	if wasDeleted {
-		if cacheErr := s.cache.RemoveRelation(ctx, u1, u2); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to remove relation from cache",
-				"user1_id", u1.String(),
-				"user2_id", u2.String(),
-				"actor_id", actorID.String(),
-				"error", cacheErr,
-				"scope", "relation",
-			)
-		}
-	}
-
-	return nil
-}
-
-// Private helper for transactional deletion, permission checks, and outbox event publishing.
-func (s *Service) deleteByUserTx(
-	ctx context.Context,
-	actorID, peerID, u1, u2 fields.ID,
-) (bool, error) {
-	err := s.repo.DeleteByUser(ctx, u1, u2, actorID)
-	if err != nil {
-		if errs.IsNotFound(err) {
-			return false, errs.NotFound("relationship not found").Wrap(err)
-		}
-		// if errors.Is(err, ErrRelationBlocked) {
-		// 	return false, errs.PermissionDenied("cannot modify blocked relationship").Wrap(err)
-		// }
-		return false, err
-	}
-
-	// Emit outbox event for removal (unfriend / cancel request)
-	_, err = s.outbox.Publish(ctx, EventRelationRemoved, RelationRemovedPayload{
-		ActorID:  actorID.UUID(),
-		TargetID: peerID.UUID(),
-	})
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (*Peer, error) {
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
-	if err != nil {
-		return nil, err
-	}
-
-	if userID.Equals(peerID) {
-		return nil, errs.InvalidArgument("Relation ids cannot match.").
-			FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
-	}
-
-	u1, u2 := SortUserIDs(userID, peerID)
-
-	rel, err := s.cache.Get(ctx, u1, u2)
-	if err != nil {
-		slog.WarnContext(ctx, "failed to read relation cache", "error", err)
-	}
-
-	if rel == nil {
-		rel, err = s.repo.Get(ctx, u1, u2)
-		if err != nil {
-			return nil, err
-		}
-
-		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, rel); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to backfill relation cache", "error", cacheErr)
-		}
+		return Peer{}, err
 	}
 
 	var (
 		peerUser     *user.User
-		peerPresence presence.Presence
+		peerPresence user.Presence
 	)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		u, uErr := s.user.GetCached(gCtx, peerID)
-		if uErr != nil {
-			return uErr
+		u, err := s.userRepo.Get(gCtx, peerID)
+		if err != nil {
+			return err
 		}
 		peerUser = u
 		return nil
 	})
 
 	g.Go(func() error {
-		p, pErr := s.presence.Get(gCtx, peerID.UUID())
-		if pErr != nil {
-			slog.WarnContext(gCtx, "failed to fetch presence", "peer_id", peerID.String(), "error", pErr)
-			peerPresence = presence.PresenceOffline
+		p, err := s.userCache.GetPresence(gCtx, peerID)
+		if err != nil {
+			slog.WarnContext(gCtx, "failed to fetch presence", "peer_id", peerID.String(), "error", err)
+			peerPresence = user.NewPresenceOffline()
 			return nil
 		}
 		peerPresence = p
@@ -408,74 +82,60 @@ func (s *Service) GetPeer(ctx context.Context, rawUserID, rawPeerID uuid.UUID) (
 	})
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return Peer{}, err
 	}
 
-	return NewPeer(
-		peerID,
-		rel.ChannelID(),
-		rel.ActorID(),
-		peerUser.AvatarURL(),
-		peerUser.Username(),
-		peerUser.DisplayName(),
-		rel.Type(),
-		peerPresence,
-	), nil
+	peer, _ := hydratePeer(peerID, rel, peerUser, peerPresence)
+	return peer, nil
 }
 
-func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) ([]*Peer, error) {
+func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) ([]Peer, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	relType, err := Parse(rawType)
+	relType, err := ParseString(rawType)
 	if err != nil {
 		return nil, err
 	}
 
-	// 1. Fetch relations (ListCachedTypeByUser sorts by CreatedAt DESC before applying limit)
-	relations, err := s.repo.ListCachedTypeByUser(ctx, userID, relType, maxPeerLimit)
+	relations, err := s.repo.ListTypeByUserID(ctx, userID, relType, maxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(relations) == 0 {
-		return []*Peer{}, nil
+		return []Peer{}, nil
 	}
 
 	peerIDs := make([]fields.ID, len(relations))
-	peerUUIDs := make([]uuid.UUID, len(relations))
 	for i, rel := range relations {
-		peerID := rel.PeerID(userID)
-		peerIDs[i] = peerID
-		peerUUIDs[i] = peerID.UUID()
+		peerIDs[i] = rel.PeerID(userID)
 	}
 
 	var (
 		usersMap    map[fields.ID]*user.User
-		presenceMap map[uuid.UUID]presence.Presence
+		presenceMap map[fields.ID]user.Presence
 	)
 
-	// 2. Parallel Fan-Out
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		var uErr error
-		usersMap, uErr = s.user.GetCachedBatch(gCtx, peerIDs, int32(len(peerIDs)))
-		return uErr
+		var err error
+		usersMap, err = s.userRepo.GetBatch(gCtx, peerIDs)
+		return err
 	})
 
 	g.Go(func() error {
-		var pErr error
-		presenceMap, pErr = s.presence.GetBatch(gCtx, peerUUIDs)
-		if pErr != nil {
+		var err error
+		presenceMap, err = s.userCache.GetBatchPresence(gCtx, peerIDs)
+		if err != nil {
 			slog.WarnContext(gCtx, "presence batch fetch failed, defaulting peers to offline",
 				"user_id", userID.String(),
-				"count", len(peerUUIDs),
-				"error", pErr,
+				"count", len(peerIDs),
+				"error", err,
 			)
-			// Default to nil so missing entries gracefully fall back to PresenceOffline
 			presenceMap = nil
 		}
 		return nil
@@ -485,214 +145,170 @@ func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType str
 		return nil, err
 	}
 
-	// 3. Assemble Peers
-	peers := make([]*Peer, 0, len(relations))
-	for _, rel := range relations {
-		peerID := rel.PeerID(userID)
-		u, ok := usersMap[peerID]
-		if !ok || u == nil {
-			continue // Gracefully skip deleted/purged user profiles
-		}
-
-		status := presence.PresenceOffline
-		if presenceMap != nil {
-			if p, found := presenceMap[peerID.UUID()]; found {
-				status = p
-			}
-		}
-
-		peers = append(peers, NewPeer(
-			peerID,
-			rel.ActorID(),
-			rel.ChannelID(),
-			u.AvatarURL(),
-			u.Username(),
-			u.DisplayName(),
-			rel.Type(),
-			status,
-		))
-	}
-
-	// 4. Sort peers alphabetically by display_name ascending (falling back to username)
-	slices.SortFunc(peers, func(a, b *Peer) int {
-		nameA := a.displayName.String()
-		if nameA == "" {
-			nameA = a.username.String()
-		}
-
-		nameB := b.displayName.String()
-		if nameB == "" {
-			nameB = b.username.String()
-		}
-
-		// Case-insensitive comparison fallback
-		if cmpVal := strings.Compare(strings.ToLower(nameA), strings.ToLower(nameB)); cmpVal != 0 {
-			return cmpVal
-		}
-
-		// Secondary tie-breaker on peer ID for strict stability
-		return strings.Compare(a.id.String(), b.id.String())
-	})
-
-	return peers, nil
+	return hydratePeers(userID, relations, usersMap, presenceMap), nil
 }
 
-func (s *Service) SendFriendRequest(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
 		return err
 	}
 
-	peerID, err := fields.ParseRequiredID("peer_id", rawPeerID)
+	channelID, err := fields.NewID()
 	if err != nil {
 		return err
 	}
 
-	if actorID.Equals(peerID) {
-		return errs.InvalidArgument("Cannot friend yourself.").
-			FieldViolation("peer_id", "ID is the same as actor ID", "PEER_ID_INVALID")
-	}
+	now := fields.Now()
+	rel := NewPending(u1, u2, actorID, channelID, now)
 
-	u1, u2 := SortUserIDs(actorID, peerID)
-	now := fields.NewTimestampFromTime(time.Now())
-	channelID, _ := fields.ParseID("channel_id", uuid.Nil)
-	newRel := New(u1, u2, actorID, channelID, TypePending, now, now)
-
-	var updatedRel *Relation
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
-		if err != nil {
-			if errs.IsNotFound(err) {
-				relRow, err := s.repo.Save(txCtx, newRel)
-				if err != nil {
-					return err
-				}
-
-				updatedRel = relRow
-
-				_, err = s.outbox.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{
-					ActorID:  actorID.UUID(),
-					TargetID: peerID.UUID(),
-				})
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		relLock, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		if errs.IsNotFound(err) {
+			if _, err := s.repo.Save(txCtx, rel); err != nil {
 				return err
 			}
+
+			_, err = s.outboxRepo.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{})
+			return err
+		}
+		if err != nil {
 			return err
 		}
 
-		switch rel.Type() {
-		case TypeFriends:
-			return errs.AlreadyExists("Already friends with this user.")
+		if relLock.Type().IsFriends() {
+			return ErrAlreadyFriends()
+		}
 
-		case TypeBlocked:
-			return errs.PermissionDenied("Cannot interact with this user.")
-
-		case TypePending:
-			if !rel.ActorID().Equals(actorID) {
-				acceptedRel, acceptErr := s.acceptPendingRequestTx(txCtx, actorID, rel)
-				if acceptErr != nil {
-					return acceptErr
-				}
-				updatedRel = acceptedRel
-				return nil
+		if relLock.Type().IsPending() {
+			if err := validateAccept(actorID, relLock); err == nil {
+				return s.acceptPendingRequestTx(txCtx, actorID, relLock, now)
 			}
-			return errs.AlreadyExists("Friend request already pending.")
+			return ErrAlreadyPending()
 		}
 
 		return nil
 	})
+}
 
+// TransitionFriends explicitly accepts a pending incoming friend request.
+func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
 		return err
 	}
 
-	// Post-commit cache write
-	if updatedRel != nil {
-		if cacheErr := s.cache.TransitionRelation(ctx, u1, u2, updatedRel); cacheErr != nil {
-			slog.WarnContext(ctx, "failed to transition relation cache",
-				"user1_id", u1.String(),
-				"user2_id", u2.String(),
-				"actor_id", actorID.String(),
-				"error", cacheErr,
-				"scope", "relation",
-			)
-		}
-	}
+	now := fields.Now()
 
-	return nil
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		if err != nil {
+			return err
+		}
+
+		return s.acceptPendingRequestTx(txCtx, actorID, rel, now)
+	})
 }
 
-// Private helper for transactional acceptance, DM channel creation, and outbox event publishing.
-func (s *Service) acceptPendingRequestTx(ctx context.Context, actorID fields.ID, rel *Relation) (*Relation, error) {
-	if rel.Type() != TypePending {
-		return nil, errs.InvalidArgument("relation is not pending")
-	}
-
-	if rel.ActorID().Equals(actorID) {
-		return nil, errs.PermissionDenied("cannot accept your own outgoing friend request")
-	}
-
-	var channelID fields.ID
-
-	// 1. Check if a DM channel already exists for this relationship (e.g., re-friending)
-	if existingChID := rel.ChannelID(); existingChID.UUIDPtr() != nil {
-		channelID = existingChID
-	} else {
-		// 2. Instantiate new 1:1 Direct Message Channel entity
-		ch, err := channel.New(channel.TypeDirect, nil, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		// 3. Persist Channel record inside current transaction
-		createdCh, err := s.channel.Create(ctx, ch)
-		if err != nil {
-			return nil, err
-		}
-
-		// 4. Construct & batch-add members
-		chUUID := createdCh.ID().UUID()
-		u1ID := rel.User1ID().UUID()
-		u2ID := rel.User2ID().UUID()
-
-		m1, err := channel.NewMember(chUUID, u1ID)
-		if err != nil {
-			return nil, err
-		}
-
-		m2, err := channel.NewMember(chUUID, u2ID)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := s.channel.MemberAddBatch(ctx, []*channel.Member{m1, m2}); err != nil {
-			return nil, err
-		}
-
-		// channelID = createdCh.ID()
-	}
-
-	now := fields.NewTimestampFromTime(time.Now())
-
-	// 5. Transition relationship state to TypeFriends with the active channel ID
-	rel.Accept(actorID, channelID, now)
-
-	// 6. Save updated relationship state
-	savedRel, err := s.repo.Save(ctx, rel)
+// TransitionBlocked places a block on a user, overriding any existing friend or pending state.
+func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// 7. Emit outbox event
-	peerID := rel.PeerID(actorID)
-	_, err = s.outbox.Publish(ctx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{
-		ActorID:   actorID.UUID(),
-		TargetID:  peerID.UUID(),
-		ChannelID: channelID.UUID(),
+	now := fields.Now()
+
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		relLock, getErr := s.repo.GetForUpdate(txCtx, u1, u2)
+		if getErr != nil && !errs.IsNotFound(getErr) {
+			return getErr
+		}
+
+		if err := validateBlockedActor(actorID, relLock); err != nil {
+			return err
+		}
+
+		if errs.IsNotFound(getErr) {
+			relLock = NewBlocked(u1, u2, actorID, now)
+		} else {
+			if relLock.Type().IsBlocked() {
+				return nil
+			}
+			relLock.Block(actorID, now)
+		}
+
+		if _, err := s.repo.Save(txCtx, relLock); err != nil {
+			return err
+		}
+
+		_, err = s.outboxRepo.Publish(txCtx, EventUserBlocked, UserBlockedPayload{})
+		return err
 	})
+}
+
+// DeleteByUserID verifies permissions before removing a friendship or friend request.
+func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return savedRel, nil
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
+		if err != nil {
+			return err
+		}
+
+		if err := validateBlockedActor(actorID, rel); err != nil {
+			return err
+		}
+
+		if err := s.repo.DeleteByUserID(txCtx, u1, u2, actorID); err != nil {
+			return err
+		}
+
+		_, err = s.outboxRepo.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{})
+		return err
+	})
+}
+
+func (s *Service) acceptPendingRequestTx(txCtx context.Context, actorID fields.ID, rel *Relation, now fields.Timestamp) error {
+	if err := validateBlockedActor(actorID, rel); err != nil {
+		return err
+	}
+
+	if err := validateAccept(actorID, rel); err != nil {
+		return err
+	}
+
+	ch := channel.ReconstituteChannel(
+		rel.ChannelID(),
+		channel.NewChannelTypeDirect(),
+		channel.ChannelName{},
+		fields.URL{},
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+	)
+
+	newCh, err := s.channelRepo.Create(txCtx, ch)
+	if err != nil {
+		return err
+	}
+
+	members := channel.NewMembers(newCh.ID(), actorID, rel.PeerIDs(actorID), now)
+	if _, err := s.memberRepo.CreateBatch(txCtx, members); err != nil {
+		return err
+	}
+
+	rel.Accept(actorID, newCh.ID(), now)
+
+	if _, err := s.repo.Save(txCtx, rel); err != nil {
+		return err
+	}
+
+	_, err = s.outboxRepo.Publish(txCtx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{})
+	return err
 }
