@@ -347,7 +347,7 @@ func (s *MemberService) UpdatePinnedAt(
 	return updatedMember, nil
 }
 
-// UpdateMuted until updates a members muted until timestamp.
+// UpdateMutedUntil updates a members muted until timestamp.
 func (s *MemberService) UpdateMutedUntil(
 	ctx context.Context,
 	rawActorID,

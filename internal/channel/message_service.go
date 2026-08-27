@@ -43,7 +43,7 @@ func NewMessageService(
 	}
 }
 
-// Create generates a new message and related channel and member side effects.
+// Create generates a new message and related channel + member side effects.
 func (s *MessageService) Create(
 	ctx context.Context,
 	rawAuthorID,
@@ -233,7 +233,7 @@ func (s *MessageService) ListBefore(
 	return s.getMessageViews(ctx, actorID, messages)
 }
 
-// ListBefore fetches messages directly before rawMsgCursorID.
+// ListAfter fetches messages directly before rawMsgCursorID.
 func (s *MessageService) ListAfter(
 	ctx context.Context,
 	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
