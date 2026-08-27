@@ -94,7 +94,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	now := fields.Now()
 
-	newSession, tokenPair, err := s.generateSession(ctx, u, p.ClientMeta, now)
+	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if err := s.sessionRepo.RevokeAll(txCtx, u.ID(), now); err != nil {

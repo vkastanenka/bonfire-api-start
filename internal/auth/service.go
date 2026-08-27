@@ -88,7 +88,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	now := fields.Now()
 
-	newSession, tokenPair, err := s.generateSession(ctx, u, p.ClientMeta, now)
+	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
 
 	_, err = s.sessionRepo.Create(ctx, newSession)
 	if err != nil {
@@ -183,7 +183,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	now := fields.Now()
 	newUser := user.New(userID, email, username, displayName, passwordHash, now)
-	newSession, tokenPair, err := s.generateSession(ctx, newUser, p.ClientMeta, now)
+	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
 
 	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID().UUID())
 	if err != nil {
@@ -222,7 +222,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) generateSession(ctx context.Context, u *user.User, clientMeta httpio.ClientMeta, now fields.Timestamp) (*session.Session, token.Pair, error) {
+func (s *Service) generateSession(u *user.User, clientMeta httpio.ClientMeta, now fields.Timestamp) (*session.Session, token.Pair, error) {
 	sessionID, err := fields.NewID()
 	if err != nil {
 		return nil, token.Pair{}, err
