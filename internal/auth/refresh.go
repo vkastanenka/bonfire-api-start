@@ -1,14 +1,13 @@
 package auth
 
 import (
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/sanitize"
 	"context"
 	"crypto/subtle"
 	"log/slog"
 	"time"
-
-	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/sanitize"
 )
 
 type RefreshParams struct {

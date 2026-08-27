@@ -1,18 +1,19 @@
 package auth
 
 import (
-	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/sanitize"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/user"
 	"context"
-	"errors"
-	"log/slog"
-	"net/netip"
 	"time"
 
-	"github.com/google/uuid"
+	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type Service struct {
@@ -43,55 +44,13 @@ func NewService(
 }
 
 const (
-	forgotPasswordTimingWindow = 35 * time.Millisecond
-)
-
-func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
-	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
-
-	email, err := user.ParseRequiredEmail("email", rawEmail)
-	if err != nil || !email.IsValid() {
-		return ErrEmailInvalid()
-	}
-
-	userRow, err := s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		if errs.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID().UUID())
-	if err != nil {
-		return err
-	}
-
-	_, err = s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
-		Email: userRow.Email().String(),
-		Token: t,
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-const (
-	loginTimingWindow    = 35 * time.Millisecond
-	loginMaxAttempts     = 5
-	loginFailureTTL      = 1 * time.Hour
-	loginLockoutDuration = 15 * time.Minute
+	loginTimingWindow = 35 * time.Millisecond
 )
 
 type LoginParams struct {
-	Email     string
-	Password  string
-	IP        netip.Addr
-	UserAgent string
-	OS        string
-	Browser   string
+	Email      string
+	Password   string
+	ClientMeta httpio.ClientMeta
 }
 
 type LoginResult struct {
@@ -100,78 +59,40 @@ type LoginResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-// auth/login.go
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
 	defer crypto.ConstantWindow(loginTimingWindow)()
 
-	email, err := user.NewEmail(sanitize.Email(p.Email))
-	if err != nil || !email.IsValid() {
-		return LoginResult{}, errs.InvalidArgument("Invalid email address.").
-			FieldViolation("email", "Must be a valid email address.", "INVALID_EMAIL").
-			Wrap(errors.New("invalid email address"))
-	}
-
-	isLocked, err := s.shield.IsLocked(ctx, email.String())
+	email, err := user.ParseRequiredEmail("email", p.Email)
 	if err != nil {
-		slog.ErrorContext(ctx, "login lockout cache lookup failed", "error", err, "email", email.String())
-	} else if isLocked {
-		return LoginResult{}, newLockedError()
+		return LoginResult{}, err
 	}
 
-	userRow, err := s.users.GetByEmail(ctx, email)
+	password, err := user.ParseRequiredPassword("password", p.Password)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	u, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			crypto.CompareDummyPassword(p.Password)
-			return LoginResult{}, s.handleInvalidPassword(ctx, email.String())
+			return LoginResult{}, ErrCredentialsInvalid()
 		}
 		return LoginResult{}, err
 	}
 
-	if err = crypto.ComparePassword(userRow.PasswordHash(), p.Password); err != nil {
-		return LoginResult{}, s.handleInvalidPassword(ctx, email.String())
-	}
-
-	sessionID, err := uuid.NewV7()
+	err = crypto.ComparePassword(u.PasswordHash().String(), password.String())
 	if err != nil {
-		return LoginResult{}, errs.Internal("failed to generate session ID").Wrap(err)
+		return LoginResult{}, ErrCredentialsInvalid()
 	}
 
-	tokenPair, err := s.tokens.GeneratePair(userRow.ID(), sessionID)
+	now := fields.Now()
+
+	newSession, tokenPair, err := s.generateSession(ctx, u, p.ClientMeta, now)
+
+	_, err = s.sessionRepo.Create(ctx, newSession)
 	if err != nil {
-		return LoginResult{}, errs.Internal("failed to generate token pair").Wrap(err)
-	}
-
-	tokenHash, err := session.NewRefreshTokenHash(crypto.HashToken(tokenPair.Refresh))
-	if err != nil {
-		return LoginResult{}, errs.Internal("failed to hash refresh token").Wrap(err)
-	}
-
-	newSession, err := session.New(
-		sessionID,
-		userRow.ID(),
-		tokenHash,
-		tokenPair.RefreshExpiresAt,
-		p.IP,
-		p.UserAgent,
-		p.OS,
-		p.Browser,
-	)
-	if err != nil {
-		return LoginResult{}, errs.Internal("failed to create session entity").Wrap(err)
-	}
-
-	persistCtx := context.WithoutCancel(ctx)
-
-	if err := s.sessions.Create(persistCtx, newSession); err != nil {
 		return LoginResult{}, err
-	}
-
-	if err := s.sessionStore.Set(persistCtx, newSession); err != nil {
-		slog.WarnContext(persistCtx, "failed to update session cache during login", "error", err, "session_id", newSession.ID())
-	}
-
-	if err := s.shield.ResetFailures(persistCtx, email.String()); err != nil {
-		slog.WarnContext(persistCtx, "failed to reset login failure count", "error", err, "email", email.String())
 	}
 
 	return LoginResult{
@@ -181,21 +102,156 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	}, nil
 }
 
-func (s *Service) handleInvalidPassword(ctx context.Context, email string) error {
-	persistCtx := context.WithoutCancel(ctx)
+type RegisterParams struct {
+	Email       string
+	Username    string
+	DisplayName *string
+	Password    string
+	ClientMeta  httpio.ClientMeta
+}
 
-	attempts, err := s.shield.IncrementFailures(persistCtx, email, loginFailureTTL)
+func (p RegisterParams) ResolveDisplayName() string {
+	if p.DisplayName != nil && *p.DisplayName != "" {
+		return *p.DisplayName
+	}
+	return p.Username
+}
+
+type RegisterResult struct {
+	AccessToken           string
+	RefreshToken          string
+	RefreshTokenExpiresAt time.Time
+}
+
+func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
+	email, err := user.ParseRequiredEmail("email", p.Email)
 	if err != nil {
-		slog.ErrorContext(persistCtx, "failed to increment login failures", "error", err, "email", email)
-		return newCredentialsError()
+		return RegisterResult{}, err
 	}
 
-	if attempts >= loginMaxAttempts {
-		if err := s.shield.Lockout(persistCtx, email, loginLockoutDuration); err != nil {
-			slog.ErrorContext(persistCtx, "failed to set login lockout", "error", err, "email", email)
+	username, err := user.ParseRequiredUsername("username", p.Username)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	displayName, err := user.ParseDisplayName("display_name", p.ResolveDisplayName())
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	password, err := user.ParseRequiredPassword("password", p.Password)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	var (
+		passwordHash   user.PasswordHash
+		emailAvailable bool
+		userAvailable  bool
+	)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var hErr error
+		rawPassHash, hErr := crypto.HashPassword(password.String())
+		if hErr != nil {
+			return err
 		}
-		return newLockedError()
+		passwordHash = user.NewPasswordHash(rawPassHash)
+		return nil
+	})
+
+	g.Go(func() error {
+		var aErr error
+		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, ptr.To(email), ptr.To(username))
+		return aErr
+	})
+
+	if err := g.Wait(); err != nil {
+		return RegisterResult{}, err
 	}
 
-	return newCredentialsError()
+	if !emailAvailable || !userAvailable {
+		return RegisterResult{}, ErrConflict(emailAvailable, userAvailable)
+	}
+
+	userID, err := fields.NewID()
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	now := fields.Now()
+	newUser := user.New(userID, email, username, displayName, passwordHash, now)
+	newSession, tokenPair, err := s.generateSession(ctx, newUser, p.ClientMeta, now)
+
+	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID().UUID())
+	if err != nil {
+		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
+	}
+
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if _, err := s.userRepo.Create(txCtx, newUser); err != nil {
+			return err
+		}
+
+		if _, err := s.sessionRepo.Create(txCtx, newSession); err != nil {
+			return err
+		}
+
+		_, err := s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
+			Email:    newUser.Email().String(),
+			Username: newUser.Username().String(),
+			Token:    evToken,
+		})
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if txErr != nil {
+		return RegisterResult{}, txErr
+	}
+
+	return RegisterResult{
+		AccessToken:           tokenPair.Access,
+		RefreshToken:          tokenPair.Refresh,
+		RefreshTokenExpiresAt: tokenPair.RefreshExpiresAt,
+	}, nil
+}
+
+func (s *Service) generateSession(ctx context.Context, u *user.User, clientMeta httpio.ClientMeta, now fields.Timestamp) (*session.Session, token.Pair, error) {
+	sessionID, err := fields.NewID()
+	if err != nil {
+		return nil, token.Pair{}, err
+	}
+
+	tokenPair, err := s.tokenProvider.GeneratePair(u.ID().UUID(), sessionID.UUID())
+	if err != nil {
+		return nil, token.Pair{}, errs.Internal("failed to generate token pair").Wrap(err)
+	}
+
+	tokenHash, err := fields.NewTokenHash(crypto.HashToken(tokenPair.Refresh))
+	if err != nil {
+		return nil, token.Pair{}, errs.Internal("failed to hash refresh token").Wrap(err)
+	}
+
+	newSession := session.Reconstitute(
+		sessionID,
+		u.ID(),
+		tokenHash,
+		clientMeta.IP,
+		clientMeta.UserAgent,
+		clientMeta.OS,
+		clientMeta.Browser,
+		fields.NewTimestamp(tokenPair.RefreshExpiresAt),
+		now,
+		fields.Timestamp{},
+		now,
+		now,
+	)
+
+	return newSession, tokenPair, nil
 }

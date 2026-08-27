@@ -2,10 +2,12 @@ package fields
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -1271,6 +1273,93 @@ func (t *Timestamp) UnmarshalText(text []byte) error {
 	}
 	*t = v
 	return nil
+}
+
+// ============================================================================
+// Token
+// ============================================================================
+
+// MaxTokenLength prevents allocation DoS attacks when processing untrusted tokens.
+const MaxTokenLength = 4096
+
+type Token struct {
+	value string
+}
+
+func NewToken(raw string) (Token, error) {
+	return ParseRequiredToken("token", raw)
+}
+
+func ParseToken(fieldName, raw string) (Token, error) {
+	s := sanitize.Text(raw)
+	if s == "" {
+		return Token{}, nil
+	}
+	if len(s) > MaxTokenLength {
+		return Token{}, errors.New("") // ErrTokenInvalid(fieldName)
+	}
+	return Token{value: s}, nil
+}
+
+func ParseRequiredToken(fieldName, raw string) (Token, error) {
+	t, err := ParseToken(fieldName, raw)
+	if err != nil {
+		return Token{}, err
+	}
+	if t.IsZero() {
+		return Token{}, errors.New("") // ErrTokenRequired(fieldName)
+	}
+	return t, nil
+}
+
+func (t Token) String() string {
+	return t.value
+}
+
+func (t Token) IsZero() bool {
+	return t.value == ""
+}
+
+func (t Token) StringPtr() *string {
+	if t.IsZero() {
+		return nil
+	}
+	return ptr.To(t.value)
+}
+
+func (t Token) Equals(other Token) bool {
+	if t.IsZero() && other.IsZero() {
+		return true
+	}
+	if t.IsZero() || other.IsZero() {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(t.value), []byte(other.value)) == 1
+}
+
+func (t Token) MarshalText() ([]byte, error) {
+	if t.IsZero() {
+		return nil, nil
+	}
+	return []byte(t.value), nil
+}
+
+// func (t *Token) UnmarshalText(text []byte) error {
+// 	v, err := ParseToken("token", string(text))
+// 	if err != nil {
+// 		return err
+// 	}
+// 	*h = v
+// 	return nil
+// }
+
+// Hash creates a 32-byte SHA-256 TokenHash of the raw token string.
+func (t Token) Hash() (TokenHash, error) {
+	if t.IsZero() {
+		return TokenHash{}, nil
+	}
+	h := sha256.Sum256([]byte(t.value))
+	return NewTokenHash(h[:])
 }
 
 // ============================================================================

@@ -1,6 +1,7 @@
 package httpio
 
 import (
+	"bonfire-api/internal/fields"
 	"context"
 	"net"
 	"net/http"
@@ -8,25 +9,38 @@ import (
 	"strings"
 )
 
+// type ClientMeta struct {
+// 	IP        netip.Addr
+// 	UserAgent string
+// 	OS        string
+// 	Browser   string
+// }
+
 type ClientMeta struct {
-	IP        netip.Addr
-	UserAgent string
-	OS        string
-	Browser   string
+	IP        fields.IP
+	UserAgent fields.UserAgent
+	OS        fields.OS
+	Browser   fields.Client
 }
 
 // WithClientMeta populates request context with IP, UserAgent, OS, and Browser details.
 func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := (extractIP(r, trustProxy))
 			ua := r.UserAgent()
 			os, browser := parseUserAgent(ua)
 
+			parsedIP := fields.NewIP(ip)
+			parsedUserAgent := fields.NewUserAgent(ua)
+			parsedOS := fields.NewOS(os)
+			parsedBrowser := fields.NewClient(browser)
+
 			meta := ClientMeta{
-				IP:        extractIP(r, trustProxy),
-				UserAgent: ua,
-				OS:        os,
-				Browser:   browser,
+				IP:        parsedIP,
+				UserAgent: parsedUserAgent,
+				OS:        parsedOS,
+				Browser:   parsedBrowser,
 			}
 
 			ctx := context.WithValue(r.Context(), CtxMetaKey, meta)
