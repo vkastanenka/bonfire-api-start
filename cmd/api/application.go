@@ -16,13 +16,15 @@ import (
 )
 
 type Handlers struct {
-	Auth    *handler.Auth
-	Channel *handler.Channel
-	Gateway *gateway.Handler
-	Health  *handler.Health
-	Me      *handler.Me
-	Outbox  *handler.Outbox
-	User    *handler.User
+	Auth     *handler.AuthHandler
+	Channel  *handler.ChannelHandler
+	Gateway  *gateway.Handler
+	Health   *handler.HealthHandler
+	Member   *handler.MemberHandler
+	Message  *handler.MessageHandler
+	Relation *handler.RelationHandler
+	Session  *handler.SessionHandler
+	User     *handler.UserHandler
 }
 
 type Application struct {

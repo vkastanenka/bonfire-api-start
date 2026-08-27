@@ -19,19 +19,19 @@ type HealthCache interface {
 	Ping(context.Context) *redis.StatusCmd
 }
 
-type Health struct {
+type HealthHandler struct {
 	store HealthStore
 	cache HealthCache
 }
 
-func NewHealth(store HealthStore, cache HealthCache) *Health {
-	return &Health{
+func NewHealth(store HealthStore, cache HealthCache) *HealthHandler {
+	return &HealthHandler{
 		store: store,
 		cache: cache,
 	}
 }
 
-func (h *Health) Check(w http.ResponseWriter, r *http.Request) error {
+func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 

@@ -9,13 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type Channel struct {
+type ChannelHandler struct {
 	service ChannelService
 	bind    *httpio.Bind
 }
 
-func NewChannel(service ChannelService, bind *httpio.Bind) *Channel {
-	return &Channel{
+func NewChannel(service ChannelService, bind *httpio.Bind) *ChannelHandler {
+	return &ChannelHandler{
 		service: service,
 		bind:    bind,
 	}
@@ -25,7 +25,7 @@ type CreateGroupRequest struct {
 	PeerIDs []uuid.UUID `json:"peerIds" validate:"required"`
 }
 
-func (h *Channel) CreateGroup(w http.ResponseWriter, r *http.Request) error {
+func (h *ChannelHandler) CreateGroup(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ type GetChannelResponse struct {
 	Messages []channel.MessageView `json:"messages"`
 }
 
-func (h *Channel) Get(w http.ResponseWriter, r *http.Request) error {
+func (h *ChannelHandler) Get(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ type UpdateGroupRequest struct {
 	IconURL *string `json:"iconUrl,omitempty" mod:"text" validate:"omitempty,url"`
 }
 
-func (h *Channel) UpdateGroup(w http.ResponseWriter, r *http.Request) error {
+func (h *ChannelHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
