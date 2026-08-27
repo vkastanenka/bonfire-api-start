@@ -70,49 +70,6 @@ func NewMe(
 	}
 }
 
-type MeGetResponse struct {
-	Me    MeResponse      `json:"me"`
-	Peers []relation.Peer `json:"peers"`
-	// Channels []channel.PrivateChannelResponse `json:"channels"`
-}
-
-func (h *Me) Get(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
-	if err != nil {
-		return err
-	}
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	var (
-		meUser *user.User
-		peers  []relation.Peer
-		// privChannels []channel.PrivateChannel
-	)
-
-	g.Go(func() error {
-		var err error
-		meUser, err = h.users.Get(gCtx, userID)
-		return err
-	})
-
-	g.Go(func() error {
-		var err error
-		peers, err = h.relations.GetPeers(gCtx, userID)
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, MeGetResponse{
-		Me:    ToMeResponse(*meUser),
-		Peers: peers,
-	})
-	return nil
-}
 
 type UpdateEmailRequest struct {
 	NewEmail string `json:"newEmail" mod:"email" validate:"required,email,max=255"`

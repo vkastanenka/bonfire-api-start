@@ -10,7 +10,6 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/relationship"
 	"bonfire-api/internal/session"
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -112,58 +111,6 @@ func ToSessionResponse(s session.Session) SessionResponse {
 		Browser:    s.Browser(),
 		CreatedAt:  s.CreatedAt(),
 		UpdatedAt:  s.UpdatedAt(),
-	}
-}
-
-type UserResponse struct {
-	ID          uuid.UUID `json:"id"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"displayName"`
-	AvatarURL   *string   `json:"avatarUrl,omitempty"`
-	IsVerified  bool      `json:"isVerified"`
-	CreatedAt   time.Time `json:"createdAt"`
-}
-
-func ToUserResponse(u user.User) UserResponse {
-	prof := u.Profile()
-
-	return UserResponse{
-		ID:          u.ID(),
-		Username:    u.Username().String(),
-		DisplayName: prof.DisplayName().String(),
-		AvatarURL:   prof.AvatarURL(),
-		IsVerified:  u.VerifiedAt() != nil,
-		CreatedAt:   u.CreatedAt(),
-	}
-}
-
-type MeResponse struct {
-	ID                uuid.UUID          `json:"id"`
-	Email             string             `json:"email"`
-	Username          string             `json:"username"`
-	DisplayName       string             `json:"displayName"`
-	AvatarURL         *string            `json:"avatarUrl,omitempty"`
-	PreferredPresence *presence.Presence `json:"preferredPresence,omitempty"`
-	IsVerified        bool               `json:"isVerified"`
-	VerifiedAt        *time.Time         `json:"verifiedAt,omitempty"`
-	CreatedAt         time.Time          `json:"createdAt"`
-	UpdatedAt         time.Time          `json:"updatedAt"`
-}
-
-func ToMeResponse(u user.User) MeResponse {
-	prof := u.Profile()
-
-	return MeResponse{
-		ID:                u.ID(),
-		Email:             u.Email().String(),
-		Username:          u.Username().String(),
-		DisplayName:       prof.DisplayName().String(),
-		AvatarURL:         prof.AvatarURL(),
-		PreferredPresence: u.PreferredPresence(),
-		IsVerified:        u.VerifiedAt() != nil,
-		VerifiedAt:        u.VerifiedAt(),
-		CreatedAt:         u.CreatedAt(),
-		UpdatedAt:         u.UpdatedAt(),
 	}
 }
 

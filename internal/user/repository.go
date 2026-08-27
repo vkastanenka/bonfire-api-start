@@ -6,6 +6,13 @@ import (
 	"context"
 )
 
+type Cache interface {
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
+	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
+	SetBatchPresence(ctx context.Context, items map[fields.ID]Presence) error
+	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
+}
+
 type Repository interface {
 	Availability(ctx context.Context, email *Email, username *Username) (bool, bool, error)
 	Create(ctx context.Context, u *User) (*User, error)

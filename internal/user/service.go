@@ -11,6 +11,7 @@ import (
 )
 
 type Service struct {
+	cache      Cache
 	repo       Repository
 	outboxRepo OutboxRepository
 	tx         TX
@@ -26,6 +27,31 @@ func NewService(
 		outboxRepo: outboxRepo,
 		tx:         tx,
 	}
+}
+
+func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
+	id, err := fields.ParseRequiredID("id", userID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := s.fetchValid(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (s *Service) GetView(ctx context.Context, userID uuid.UUID) (UserView, error) {
+	user, err := s.Get(ctx, userID)
+	if err != nil {
+		return UserView{}, err
+	}
+
+	userPresence, _ := s.cache.GetPresence(ctx, user.ID())
+
+	return ToUserView(user, userPresence, fields.Now()), nil
 }
 
 type UpdateEmailParams struct {

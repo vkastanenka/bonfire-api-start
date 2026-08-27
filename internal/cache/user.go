@@ -36,7 +36,7 @@ func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (user.Pre
 		return user.NewPresenceOffline(), nil
 	}
 	if err != nil {
-		return user.NewPresence(user.PresenceUnknown), redis.NewError(err, c.scope)
+		return user.NewPresenceOffline(), redis.NewError(err, c.scope)
 	}
 
 	p, err := user.ParsePresence(int(val))

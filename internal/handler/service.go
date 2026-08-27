@@ -71,10 +71,12 @@ type SessionService interface {
 type UserService interface {
 	AnonymizeBatch(ctx context.Context) error
 	Disable(ctx context.Context, p user.DisableParams) error
+	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
+	GetView(ctx context.Context, userID uuid.UUID) (user.UserView, error)
 	ScheduleDelete(ctx context.Context, p user.ScheduleDeleteParams) error
-	UpdateEmail(ctx context.Context, p user.UpdateEmailParams) (*User, error)
+	UpdateEmail(ctx context.Context, p user.UpdateEmailParams) (*user.User, error)
 	UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) error
-	UpdatePreferredPresence(ctx context.Context, p user.UpdatePreferredPresenceParams) (*User, error)
-	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*User, error)
-	UpdateUsername(ctx context.Context, p user.UpdateUsernameParams) (*User, error)
+	UpdatePreferredPresence(ctx context.Context, p user.UpdatePreferredPresenceParams) (*user.User, error)
+	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*user.User, error)
+	UpdateUsername(ctx context.Context, p user.UpdateUsernameParams) (*user.User, error)
 }
