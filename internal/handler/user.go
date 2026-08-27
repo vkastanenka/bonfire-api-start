@@ -1,24 +1,12 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
-
-type UserService interface {
-	CheckAvailability(ctx context.Context, email user.Email, username user.Username) (emailAvail bool, usernameAvail bool, err error)
-	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
-	GetByEmail(ctx context.Context, email user.Email) (*user.User, error)
-	GetByUsername(ctx context.Context, username user.Username) (*user.User, error)
-	SetPreferredPresence(ctx context.Context, id uuid.UUID, presence *presence.Presence) (*user.User, error)
-	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*user.User, error)
-}
 
 type User struct {
 	service UserService

@@ -1,22 +1,13 @@
 package handler
 
 import (
-	"context"
-	"net/http"
-
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/ptr"
+	"net/http"
 
 	"github.com/google/uuid"
 )
-
-type ChannelService interface {
-	CreateChannel(ctx context.Context, chType channel.Type, creatorID uuid.UUID, recipientIDs []uuid.UUID, name *string, iconURL *string) (*channel.Channel, error)
-	PostMessage(ctx context.Context, channelID, authorID uuid.UUID, rawContent string, replyToID *uuid.UUID) (*channel.Message, error)
-	EditMessage(ctx context.Context, messageID, authorID uuid.UUID, newRawContent string) (*channel.Message, error)
-	DeleteMessage(ctx context.Context, messageID, actorID uuid.UUID) error
-	ListMessages(ctx context.Context, channelID, userID uuid.UUID, before *uuid.UUID, limit int) ([]channel.Message, error)
-}
 
 type Channel struct {
 	service ChannelService
@@ -30,126 +21,24 @@ func NewChannel(service ChannelService, bind *httpio.Bind) *Channel {
 	}
 }
 
-// --- Requests ---
-
-type CreateChannelRequest struct {
-	Type         channel.Type `json:"type" validate:"required"`
-	RecipientIDs []uuid.UUID  `json:"recipientIds" validate:"required,min=1"`
-	Name         *string      `json:"name,omitempty" validate:"omitempty,min=1,max=100"`
-	IconURL      *string      `json:"iconUrl,omitempty" validate:"omitempty,url"`
+type CreateGroupRequest struct {
+	PeerIDs []uuid.UUID `json:"peerIds" validate:"required"`
 }
 
-type ChannelPath struct {
-	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
-}
-
-type MessagePath struct {
-	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
-	MessageID uuid.UUID `path:"messageId" validate:"required,uuid"`
-}
-
-type PostMessageRequest struct {
-	Content   string     `json:"content" validate:"required,min=1,max=2000"`
-	ReplyToID *uuid.UUID `json:"replyToId,omitempty" validate:"omitempty,uuid"`
-}
-
-type EditMessageRequest struct {
-	Content string `json:"content" validate:"required,min=1,max=2000"`
-}
-
-type ListMessagesQuery struct {
-	Before *uuid.UUID `query:"before" validate:"omitempty,uuid"`
-	Limit  int        `query:"limit" validate:"omitempty,min=1,max=100"`
-}
-
-// --- Handler Methods ---
-
-func (h *Channel) Create(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	creatorID, err := httpio.CtxGetUserID(ctx)
+func (h *Channel) CreateGroup(w http.ResponseWriter, r *http.Request) error {
+	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
 
-	var req CreateChannelRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
-		return err
-	}
-
-	ch, err := h.service.CreateChannel(ctx, req.Type, creatorID, req.RecipientIDs, req.Name, req.IconURL)
+	var req CreateGroupRequest
+	err = h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondCreated(w, r, ToChannelResponse(*ch))
-	return nil
-}
-
-func (h *Channel) PostMessage(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
+	err = h.service.CreateGroup(r.Context(), actorID.UUID(), req.PeerIDs)
 	if err != nil {
-		return err
-	}
-
-	var path ChannelPath
-	if err := h.bind.Path(r, &path); err != nil {
-		return err
-	}
-
-	var req PostMessageRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
-		return err
-	}
-
-	msg, err := h.service.PostMessage(ctx, path.ChannelID, userID, req.Content, req.ReplyToID)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondCreated(w, r, ToMessageResponse(*msg))
-	return nil
-}
-
-func (h *Channel) EditMessage(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
-	if err != nil {
-		return err
-	}
-
-	var path MessagePath
-	if err := h.bind.Path(r, &path); err != nil {
-		return err
-	}
-
-	var req EditMessageRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
-		return err
-	}
-
-	msg, err := h.service.EditMessage(ctx, path.MessageID, userID, req.Content)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, ToMessageResponse(*msg))
-	return nil
-}
-
-func (h *Channel) DeleteMessage(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
-	if err != nil {
-		return err
-	}
-
-	var path MessagePath
-	if err := h.bind.Path(r, &path); err != nil {
-		return err
-	}
-
-	if err := h.service.DeleteMessage(ctx, path.MessageID, userID); err != nil {
 		return err
 	}
 
@@ -157,33 +46,90 @@ func (h *Channel) DeleteMessage(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *Channel) ListMessages(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
+type ChannelGetPath struct {
+	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
+}
+
+type ChannelGetQuery struct {
+	MessageID *uuid.UUID `form:"messageID,omitempty" validate:"omitempty,uuid"`
+}
+
+type GetChannelResponse struct {
+	Channel  *channel.Channel      `json:"channel"`
+	Members  []channel.MemberView  `json:"members"`
+	Messages []channel.MessageView `json:"messages"`
+}
+
+func (h *Channel) Get(w http.ResponseWriter, r *http.Request) error {
+	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
 
-	var path ChannelPath
+	var path ChannelGetPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	var query ListMessagesQuery
+	var query ChannelGetQuery
 	if err := h.bind.Query(r, &query); err != nil {
 		return err
 	}
 
-	messages, err := h.service.ListMessages(ctx, path.ChannelID, userID, query.Before, query.Limit)
+	ch, members, messages, err := h.service.Get(
+		r.Context(),
+		actorID.UUID(),
+		path.ChannelID,
+		ptr.From(query.MessageID),
+	)
 	if err != nil {
 		return err
 	}
 
-	responses := make([]MessageResponse, len(messages))
-	for i, msg := range messages {
-		responses[i] = ToMessageResponse(msg)
+	httpio.RespondOK(w, r, GetChannelResponse{
+		Channel:  ch,
+		Members:  members,
+		Messages: messages,
+	})
+	return nil
+}
+
+type UpdateGroupPath struct {
+	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
+}
+
+type UpdateGroupRequest struct {
+	Name    *string `json:"name,omitempty" mod:"text" validate:"omitempty,min=1,max=100"`
+	IconURL *string `json:"iconUrl,omitempty" mod:"text" validate:"omitempty,url"`
+}
+
+func (h *Channel) UpdateGroup(w http.ResponseWriter, r *http.Request) error {
+	actorID, err := httpio.CtxGetUserID(r.Context())
+	if err != nil {
+		return err
 	}
 
-	httpio.RespondOK(w, r, responses)
+	var path UpdateGroupPath
+	if err := h.bind.Path(r, &path); err != nil {
+		return err
+	}
+
+	var req UpdateGroupRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
+		return err
+	}
+
+	ch, err := h.service.UpdateGroup(
+		r.Context(),
+		actorID.UUID(),
+		path.ChannelID,
+		req.Name,
+		req.IconURL,
+	)
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, ch)
 	return nil
 }
