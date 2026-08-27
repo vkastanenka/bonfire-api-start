@@ -64,7 +64,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, ErrRefreshTokenInvalidReuse()
 	}
 
-	tokenPair, err := s.tokenProvider.GeneratePair(sess.UserID().UUID(), sess.ID().UUID())
+	tokenPair, err := s.tokenProvider.GeneratePair(sess.UserID(), sess.ID())
 	if err != nil {
 		return RefreshResult{}, err
 	}

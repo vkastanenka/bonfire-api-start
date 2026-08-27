@@ -14,7 +14,7 @@ type ChannelHandler struct {
 	bind    *httpio.Bind
 }
 
-func NewChannel(service ChannelService, bind *httpio.Bind) *ChannelHandler {
+func NewChannelHandler(service ChannelService, bind *httpio.Bind) *ChannelHandler {
 	return &ChannelHandler{
 		service: service,
 		bind:    bind,

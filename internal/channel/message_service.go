@@ -16,9 +16,9 @@ type MessageService struct {
 	repo         MessageRepository
 	channelRepo  ChannelRepository
 	memberRepo   MemberRepository
+	reactionRepo ReactionRepository
 	userRepo     UserRepository
 	userCache    UserCache
-	reactionRepo ReactionRepository
 	outboxRepo   OutboxRepository
 	tx           TX
 }
@@ -30,6 +30,7 @@ func NewMessageService(
 	reactionRepo ReactionRepository,
 	userRepo UserRepository,
 	userCache UserCache,
+	outboxRepo OutboxRepository,
 	tx TX,
 ) *MessageService {
 	return &MessageService{
@@ -173,16 +174,11 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMessageCreated,
 			MessageCreatedPayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -331,12 +327,11 @@ func (s *MessageService) UpdateContent(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMessageUpdateContent,
 			MessageUpdateContentPayload{},
 		)
-		return err
 	})
 	if err != nil {
 		return nil, err
@@ -392,16 +387,11 @@ func (s *MessageService) UpdatePinnedAt(
 			}
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMessageUpdatePinnedAt,
 			MessageUpdatePinnedAtPayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -434,16 +424,11 @@ func (s *MessageService) Delete(
 			return txErr
 		}
 
-		_, txErr := s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMessageDelete,
 			MessageDeletePayload{},
 		)
-		if txErr != nil {
-			return txErr
-		}
-
-		return nil
 	})
 	if err != nil {
 		return err
@@ -505,12 +490,11 @@ func (s *MessageService) ToggleReaction(
 			return txErr
 		}
 
-		_, txErr = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventReactionToggle,
 			ReactionTogglePayload{},
 		)
-		return txErr
 	})
 	if err != nil {
 		return nil, err

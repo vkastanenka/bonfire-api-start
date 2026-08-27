@@ -31,20 +31,15 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 		return err
 	}
 
-	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID().UUID())
+	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
 	if err != nil {
 		return err
 	}
 
-	_, err = s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
+	return s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
 		Email: userRow.Email().String(),
 		Token: t,
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 type ResetPasswordParams struct {

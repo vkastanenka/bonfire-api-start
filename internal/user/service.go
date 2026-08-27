@@ -11,19 +11,21 @@ import (
 )
 
 type Service struct {
-	cache      Cache
 	repo       Repository
+	cache      Cache
 	outboxRepo OutboxRepository
 	tx         TX
 }
 
 func NewService(
 	repo Repository,
+	cache Cache,
 	outboxRepo OutboxRepository,
 	tx TX,
 ) *Service {
 	return &Service{
 		repo:       repo,
+		cache:      cache,
 		outboxRepo: outboxRepo,
 		tx:         tx,
 	}
@@ -455,8 +457,7 @@ func (s *Service) update(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, eventType, eventPayload)
-		return err
+		return s.outboxRepo.Publish(txCtx, eventType, eventPayload)
 	})
 	if err != nil {
 		return nil, err

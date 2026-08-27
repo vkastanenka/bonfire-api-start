@@ -2,14 +2,11 @@ package auth
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type UserRepository interface {
@@ -43,7 +40,7 @@ type SessionRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+	Publish(ctx context.Context, variant string, payload any) error
 }
 
 type TX interface {
@@ -56,10 +53,13 @@ type TicketCache interface {
 }
 
 type TokenProvider interface {
-	GeneratePair(uid, sid uuid.UUID) (token.Pair, error)
-	GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error)
-	GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error)
-	VerifyPasswordReset(tokenStr string) (*token.Claims, error)
+	GenerateAccess(uid fields.ID, sid fields.ID) (string, time.Time, error)
+	GenerateEmailVerify(userID fields.ID) (string, time.Time, error)
+	GeneratePair(uid fields.ID, sid fields.ID) (token.Pair, error)
+	GeneratePasswordReset(userID fields.ID) (string, time.Time, error)
+	GenerateRefresh(uid fields.ID, sid fields.ID) (string, time.Time, error)
+	VerifyAccess(tokenStr string) (*token.Claims, error)
 	VerifyEmailVerify(tokenStr string) (*token.Claims, error)
+	VerifyPasswordReset(tokenStr string) (*token.Claims, error)
 	VerifyRefresh(tokenStr string) (*token.Claims, error)
 }

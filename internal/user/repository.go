@@ -2,7 +2,6 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"context"
 )
 
@@ -34,8 +33,7 @@ type Repository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
-	PublishBatch(ctx context.Context, items []any) ([]*outbox.Event, error)
+	Publish(ctx context.Context, variant string, payload any) error
 }
 
 type TX interface {

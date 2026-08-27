@@ -11,11 +11,11 @@ import (
 )
 
 type MessageHandler struct {
-	service *channel.MessageService
+	service MessageService
 	bind    *httpio.Bind
 }
 
-func NewMessageHandler(service *channel.MessageService, bind *httpio.Bind) *MessageHandler {
+func NewMessageHandler(service MessageService, bind *httpio.Bind) *MessageHandler {
 	return &MessageHandler{
 		service: service,
 		bind:    bind,

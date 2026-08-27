@@ -271,6 +271,38 @@ func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventM
 	return err
 }
 
+const outboxEventPublish = `-- name: OutboxEventPublish :exec
+INSERT INTO outbox_events (
+    id,
+    event_type,
+    aggregate_type,
+    payload,
+    status,
+    attempts,
+    scheduled_at,
+    created_at
+) VALUES (
+    $1, $2, $3, $4, 'PENDING', 0, NOW(), NOW()
+)
+`
+
+type OutboxEventPublishParams struct {
+	ID            pgtype.UUID `json:"id"`
+	EventType     string      `json:"event_type"`
+	AggregateType pgtype.Text `json:"aggregate_type"`
+	Payload       []byte      `json:"payload"`
+}
+
+func (q *Queries) OutboxEventPublish(ctx context.Context, arg OutboxEventPublishParams) error {
+	_, err := q.db.Exec(ctx, outboxEventPublish,
+		arg.ID,
+		arg.EventType,
+		arg.AggregateType,
+		arg.Payload,
+	)
+	return err
+}
+
 const outboxEventReleaseLease = `-- name: OutboxEventReleaseLease :exec
 UPDATE
     outbox_events

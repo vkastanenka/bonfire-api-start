@@ -91,11 +91,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 			return err
 		}
 
-		if _, err = s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{}); err != nil {
-			return err
-		}
-
-		return nil
+		return s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{})
 	})
 }
 
@@ -314,12 +310,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 			}
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventChannelUpdated, ChannelUpdatedPayload{})
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return s.outboxRepo.Publish(txCtx, EventChannelUpdated, ChannelUpdatedPayload{})
 	})
 	if err != nil {
 		return nil, err

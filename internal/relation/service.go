@@ -169,8 +169,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 				return err
 			}
 
-			_, err = s.outboxRepo.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{})
-			return err
+			return s.outboxRepo.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{})
 		}
 		if err != nil {
 			return err
@@ -242,8 +241,7 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventUserBlocked, UserBlockedPayload{})
-		return err
+		return s.outboxRepo.Publish(txCtx, EventUserBlocked, UserBlockedPayload{})
 	})
 }
 
@@ -268,8 +266,7 @@ func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{})
-		return err
+		return s.outboxRepo.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{})
 	})
 }
 
@@ -309,6 +306,5 @@ func (s *Service) acceptPendingRequestTx(txCtx context.Context, actorID fields.I
 		return err
 	}
 
-	_, err = s.outboxRepo.Publish(txCtx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{})
-	return err
+	return s.outboxRepo.Publish(txCtx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{})
 }

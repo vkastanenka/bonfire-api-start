@@ -225,40 +225,6 @@ func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
-const userGetForUpdate = `-- name: UserGetForUpdate :one
-SELECT
-    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
-FROM
-    users
-WHERE
-    id = $1::uuid
-FOR UPDATE
-`
-
-func (q *Queries) UserGetForUpdate(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, userGetForUpdate, id)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.VerifiedAt,
-		&i.DisabledAt,
-		&i.DeleteScheduledAt,
-		&i.PreferredPresenceUntil,
-		&i.PreferredPresence,
-		&i.Email,
-		&i.Username,
-		&i.DisplayName,
-		&i.PasswordHash,
-		&i.Phone,
-		&i.Bio,
-		&i.AvatarURL,
-		&i.BannerColor,
-	)
-	return i, err
-}
-
 const userListDeleteScheduled = `-- name: UserListDeleteScheduled :many
 SELECT
     users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
@@ -270,6 +236,8 @@ WHERE
 ORDER BY
     delete_scheduled_at ASC
 LIMIT $2::int
+FOR UPDATE
+    SKIP LOCKED
 `
 
 type UserListDeleteScheduledParams struct {

@@ -5,7 +5,6 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 )
 
@@ -45,7 +44,7 @@ type MemberRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+	Publish(ctx context.Context, variant string, payload any) error
 }
 
 type UserRepository interface {

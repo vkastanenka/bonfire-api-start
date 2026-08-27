@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"bonfire-api/internal/db"
@@ -186,6 +187,30 @@ func (r *OutboxRepository) DeleteProcessedBatch(ctx context.Context, before fiel
 	}
 
 	return rowsAffected, nil
+}
+
+func (r *OutboxRepository) Publish(ctx context.Context, aggregateType string, payload any) error {
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("outbox repository publish: failed to marshal payload: %w", err)
+	}
+
+	id, err := fields.NewID()
+	if err != nil {
+		return err
+	}
+
+	err = r.store.OutboxEventPublish(ctx, db.OutboxEventPublishParams{
+		ID:            db.ToUUID(id),
+		EventType:     aggregateType,
+		AggregateType: db.ToText(aggregateType),
+		Payload:       rawPayload,
+	})
+	if err != nil {
+		return fmt.Errorf("outbox repository publish: %w", err)
+	}
+
+	return nil
 }
 
 // ============================================================================

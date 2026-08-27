@@ -3,18 +3,17 @@ package handler
 import (
 	"net/http"
 
-	"bonfire-api/internal/channel"
 	"bonfire-api/internal/httpio"
 
 	"github.com/google/uuid"
 )
 
 type MemberHandler struct {
-	service channel.MemberService
+	service MemberService
 	bind    *httpio.Bind
 }
 
-func NewMemberHandler(service channel.MemberService, bind *httpio.Bind) *MemberHandler {
+func NewMemberHandler(service MemberService, bind *httpio.Bind) *MemberHandler {
 	return &MemberHandler{
 		service: service,
 		bind:    bind,

@@ -68,12 +68,7 @@ func (s *Service) Revoke(ctx context.Context, rawID, rawUserID uuid.UUID) error 
 			return err
 		}
 
-		_, err := s.outboxRepo.Publish(txCtx, EventSessionRevoke, EventSessionRevokePayload{})
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return s.outboxRepo.Publish(txCtx, EventSessionRevoke, EventSessionRevokePayload{})
 	})
 }
 
@@ -91,12 +86,7 @@ func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventSessionRevokeAll, EventSessionRevokeAllPayload{})
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return s.outboxRepo.Publish(txCtx, EventSessionRevokeAll, EventSessionRevokeAllPayload{})
 	})
 }
 

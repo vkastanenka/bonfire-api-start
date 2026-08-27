@@ -50,6 +50,7 @@ type Querier interface {
 	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
 	OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error
 	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error
+	OutboxEventPublish(ctx context.Context, arg OutboxEventPublishParams) error
 	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error
 	ReactionCountByEmoji(ctx context.Context, arg ReactionCountByEmojiParams) (int64, error)
@@ -77,7 +78,6 @@ type Querier interface {
 	UserGet(ctx context.Context, id pgtype.UUID) (User, error)
 	UserGetBatch(ctx context.Context, ids []pgtype.UUID) ([]User, error)
 	UserGetByEmail(ctx context.Context, email string) (User, error)
-	UserGetForUpdate(ctx context.Context, id pgtype.UUID) (User, error)
 	UserListDeleteScheduled(ctx context.Context, arg UserListDeleteScheduledParams) ([]User, error)
 	UserSetDeleteSchedule(ctx context.Context, arg UserSetDeleteScheduleParams) (User, error)
 	UserSetDisabled(ctx context.Context, arg UserSetDisabledParams) (User, error)

@@ -6,22 +6,19 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/cache"
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/email"
-	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/logger"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relationship"
+	"bonfire-api/internal/redis"
+	"bonfire-api/internal/relation"
 	"bonfire-api/internal/repository"
-	"bonfire-api/internal/store"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"bonfire-api/internal/validator"
@@ -69,7 +66,7 @@ func run(cfg *config.Config) error {
 	}
 	defer dbConn.Close()
 
-	cacheConn, err := cache.NewConn(ctx, cache.ConnConfig{
+	cacheConn, err := redis.NewConn(ctx, redis.ConnConfig{
 		ConnString:      cfg.RedisURL,
 		PoolSize:        cfg.RedisPoolSize,
 		MinIdleConns:    cfg.RedisMinIdleConns,
@@ -81,21 +78,21 @@ func run(cfg *config.Config) error {
 	}
 	defer cacheConn.Close()
 
-	tokens, err := token.NewProvider(token.Config{
+	tokenProvider, err := token.NewProvider(token.Config{
 		Issuer: cfg.TokenIssuer,
-		Access: token.VariantConfig{
+		Access: token.TypeConfig{
 			Secret: cfg.AccessSecret,
 			TTL:    cfg.JWTAccessTTL,
 		},
-		Refresh: token.VariantConfig{
+		Refresh: token.TypeConfig{
 			Secret: cfg.RefreshSecret,
 			TTL:    cfg.JWTRefreshTTL,
 		},
-		EmailVerify: token.VariantConfig{
+		EmailVerify: token.TypeConfig{
 			Secret: cfg.EmailVerifySecret,
 			TTL:    cfg.JWTEmailVerifyTTL,
 		},
-		PasswordReset: token.VariantConfig{
+		PasswordReset: token.TypeConfig{
 			Secret: cfg.PasswordResetSecret,
 			TTL:    cfg.JWTPasswordResetTTL,
 		},
@@ -104,78 +101,101 @@ func run(cfg *config.Config) error {
 		return err
 	}
 	dbStore := db.NewStore(dbConn)
-	cacheStore := cache.NewStore(cacheConn)
 	rateLimiter := redis_rate.NewLimiter(cacheConn)
 	val := validator.New()
 	bind := httpio.NewBind(val)
-	mailer := email.NewMailer(email.Config{
-		ResendAPIKey: cfg.ResendApiKey,
-		FromAddress:  cfg.EmailFromAddress,
-		FrontendURL:  cfg.FrontendURL,
-		OverrideTo:   cfg.EmailOverrideTo,
-	})
+	// mailer := email.NewMailer(email.Config{
+	// 	ResendAPIKey: cfg.ResendApiKey,
+	// 	FromAddress:  cfg.EmailFromAddress,
+	// 	FrontendURL:  cfg.FrontendURL,
+	// 	OverrideTo:   cfg.EmailOverrideTo,
+	// })
 
-	// channelRepo := repository.NewChannel(dbStore)
-	outboxRepo := repository.NewOutbox(dbStore)
-	relationshipRepo := repository.NewRelationship(dbStore)
-	sessionRepo := repository.NewSession(dbStore)
-	userRepo := repository.NewUser(dbStore)
+	ticketCache := cache.NewTicketCache(cacheConn, redis.ScopeTicket, cfg.TicketTTL)
+	userCache := cache.NewUserCache(cacheConn, redis.ScopeUser, cfg.UserTTL)
 
-	presenceStore := store.NewPresence(cacheStore, cfg.PresenceTTL)
-	sessionStore := store.NewSession(cacheStore)
-	shieldStore := store.NewShield(cacheStore)
-	ticketStore := store.NewTicket(cacheStore)
-	// typingStore := store.NewTyping(cacheStore, 5*time.Second)
+	channelRepo := repository.NewChannelRepository(dbStore)
+	memberRepo := repository.NewMemberRepository(dbStore)
+	messageRepo := repository.NewMessageRepository(dbStore, memberRepo)
+	outboxRepo := repository.NewOutboxRepository(dbStore)
+	reactionRepo := repository.NewReactionRepository(dbStore)
+	relationRepo := repository.NewRelationRepository(dbStore)
+	sessionRepo := repository.NewSessionRepository(dbStore)
+	userRepo := repository.NewUserRepository(dbStore)
 
-	relationshipSvc := relationship.NewService(relationshipRepo, outboxRepo, dbStore)
-	presenceSvc := presence.NewService(presenceStore)
-	userSvc := user.NewService(userRepo)
-	// channelSvc := channel.NewService(channelRepo, outboxRepo, typingStore, dbStore)
 	authSvc := auth.NewService(
-		outboxRepo,
-		sessionRepo,
 		userRepo,
-		sessionStore,
-		shieldStore,
-		ticketStore,
-		tokens,
+		sessionRepo,
+		outboxRepo,
+		ticketCache,
+		tokenProvider,
 		dbStore,
 	)
-
-	outboxWorker := outbox.NewWorker(
+	channelSvc := channel.NewChannelService(
+		channelRepo,
+		memberRepo,
+		messageRepo,
+		reactionRepo,
+		userRepo,
+		userCache,
 		outboxRepo,
-		2*time.Second,
-		int32(10),
-		int32(50),
-		int(4),
+		relationRepo,
+		dbStore,
 	)
-	auth.RegisterOutboxHandlers(outboxWorker, mailer)
-	outboxWorker.Start(ctx)
-	defer outboxWorker.Stop()
+	memberSvc := channel.NewMemberService(
+		memberRepo,
+		channelRepo,
+		messageRepo,
+		userRepo,
+		userCache,
+		outboxRepo,
+		relationRepo,
+		dbStore,
+	)
+	messageSvc := channel.NewMessageService(
+		messageRepo,
+		channelRepo,
+		memberRepo,
+		reactionRepo,
+		userRepo,
+		userCache,
+		outboxRepo,
+		dbStore,
+	)
+	relationSvc := relation.NewService(
+		relationRepo,
+		userRepo,
+		userCache,
+		channelRepo,
+		memberRepo,
+		outboxRepo,
+		dbStore,
+	)
+	sessionSvc := session.NewService(sessionRepo, outboxRepo, dbStore)
+	userSvc := user.NewService(userRepo, userCache, outboxRepo, dbStore)
 
-	hub := gateway.NewHub(*dbStore, *cacheStore)
-	go hub.Run(ctx)
-
-	authHandler := handler.NewAuth(authSvc, bind)
-	// channelHandler := handler.NewChannel(channelSvc, bind)
-	gatewayHandler := gateway.NewHandler(hub, presenceStore, ticketStore, bind)
-	healthHandler := handler.NewHealth(dbConn, cacheConn)
-	meHandler := handler.NewMe(relationshipSvc, userSvc, presenceSvc, bind)
-	outboxHandler := handler.NewOutbox(outboxRepo, bind)
-	userHandler := handler.NewUser(userSvc, bind)
+	authHandler := handler.NewAuthHandler(authSvc, bind)
+	channelHandler := handler.NewChannelHandler(channelSvc, bind)
+	healthHandler := handler.NewHealthHandler(dbConn, cacheConn)
+	memberHandler := handler.NewMemberHandler(memberSvc, bind)
+	messageHandler := handler.NewMessageHandler(messageSvc, bind)
+	relationHandler := handler.NewRelationHandler(relationSvc, bind)
+	sessionHandler := handler.NewSessionHandler(sessionSvc, bind)
+	userHandler := handler.NewUserHandler(userSvc, relationSvc, channelSvc, bind)
 
 	app := &Application{
 		Config:      cfg,
 		RateLimiter: rateLimiter,
-		Tokens:      tokens,
+		Tokens:      tokenProvider,
 		Handlers: Handlers{
-			Auth:    authHandler,
-			Channel: nil,
-			Gateway: gatewayHandler,
-			Health:  healthHandler,
-			Me:      meHandler,
-			Outbox:  outboxHandler,
-			User:    userHandler,
+			Auth:     authHandler,
+			Channel:  channelHandler,
+			Health:   healthHandler,
+			Member:   memberHandler,
+			Message:  messageHandler,
+			Relation: relationHandler,
+			Session:  sessionHandler,
+			User:     userHandler,
 		},
 	}
 

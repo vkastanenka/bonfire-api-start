@@ -17,10 +17,10 @@ import (
 
 type MessageRepository struct {
 	store      *db.Store
-	memberRepo MemberRepository
+	memberRepo *MemberRepository
 }
 
-func NewMessageRepository(store *db.Store, memberRepo MemberRepository) *MessageRepository {
+func NewMessageRepository(store *db.Store, memberRepo *MemberRepository) *MessageRepository {
 	return &MessageRepository{
 		store:      store.WithEntity(db.EntityMessage),
 		memberRepo: memberRepo,

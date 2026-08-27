@@ -143,8 +143,7 @@ func (s *MemberService) AddMembers(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
-		return err
+		return s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
 	})
 }
 
@@ -224,16 +223,11 @@ func (s *MemberService) CloseDirect(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdateUpdateVisibility,
 			MemberUpdateVisibilityPayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 }
 
@@ -279,16 +273,11 @@ func (s *MemberService) UpdateLastReadMessage(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdateLastReadMessage,
 			MemberUpdateLastReadMessagePayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -329,16 +318,11 @@ func (s *MemberService) UpdatePinnedAt(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdatePinnedAt,
 			MemberUpdatePinnedAtPayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -388,16 +372,11 @@ func (s *MemberService) UpdateMutedUntil(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMemberUpdateMutedUntil,
 			MemberUpdateMutedUntilPayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -454,16 +433,11 @@ func (s *MemberService) LeaveGroup(
 			return err
 		}
 
-		_, err = s.outboxRepo.Publish(
+		return s.outboxRepo.Publish(
 			txCtx,
 			EventMemberDelete,
 			MemberDeletePayload{},
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 }
 

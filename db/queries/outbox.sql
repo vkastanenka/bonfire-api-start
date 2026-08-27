@@ -120,3 +120,16 @@ WITH targets AS (
 DELETE FROM outbox_events o USING targets t
 WHERE o.id = t.id;
 
+-- name: OutboxEventPublish :exec
+INSERT INTO outbox_events (
+    id,
+    event_type,
+    aggregate_type,
+    payload,
+    status,
+    attempts,
+    scheduled_at,
+    created_at
+) VALUES (
+    $1, $2, $3, $4, 'PENDING', 0, NOW(), NOW()
+);

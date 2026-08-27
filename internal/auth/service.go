@@ -18,8 +18,8 @@ import (
 
 type Service struct {
 	userRepo      UserRepository
-	outboxRepo    OutboxRepository
 	sessionRepo   SessionRepository
+	outboxRepo    OutboxRepository
 	ticketCache   TicketCache
 	tokenProvider TokenProvider
 	tx            TX
@@ -27,16 +27,16 @@ type Service struct {
 
 func NewService(
 	userRepo UserRepository,
-	outboxRepo OutboxRepository,
 	sessionRepo SessionRepository,
+	outboxRepo OutboxRepository,
 	ticketCache TicketCache,
 	tokenProvider TokenProvider,
 	tx TX,
 ) *Service {
 	return &Service{
 		userRepo:      userRepo,
-		outboxRepo:    outboxRepo,
 		sessionRepo:   sessionRepo,
+		outboxRepo:    outboxRepo,
 		ticketCache:   ticketCache,
 		tokenProvider: tokenProvider,
 		tx:            tx,
@@ -185,7 +185,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	newUser := user.New(userID, email, username, displayName, passwordHash, now)
 	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
 
-	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID().UUID())
+	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
 	if err != nil {
 		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
 	}
@@ -199,16 +199,11 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return err
 		}
 
-		_, err := s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
+		return s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
 			Email:    newUser.Email().String(),
 			Username: newUser.Username().String(),
 			Token:    evToken,
 		})
-		if err != nil {
-			return err
-		}
-
-		return nil
 	})
 
 	if txErr != nil {
@@ -228,7 +223,7 @@ func (s *Service) generateSession(u *user.User, clientMeta httpio.ClientMeta, no
 		return nil, token.Pair{}, err
 	}
 
-	tokenPair, err := s.tokenProvider.GeneratePair(u.ID().UUID(), sessionID.UUID())
+	tokenPair, err := s.tokenProvider.GeneratePair(u.ID(), sessionID)
 	if err != nil {
 		return nil, token.Pair{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}

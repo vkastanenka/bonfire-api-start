@@ -24,7 +24,7 @@ type HealthHandler struct {
 	cache HealthCache
 }
 
-func NewHealth(store HealthStore, cache HealthCache) *HealthHandler {
+func NewHealthHandler(store HealthStore, cache HealthCache) *HealthHandler {
 	return &HealthHandler{
 		store: store,
 		cache: cache,

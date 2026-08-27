@@ -2,7 +2,6 @@ package session
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"context"
 	"time"
 )
@@ -18,7 +17,7 @@ type Repository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) (*outbox.Event, error)
+	Publish(ctx context.Context, variant string, payload any) error
 }
 
 type TX interface {
