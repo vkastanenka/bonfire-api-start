@@ -19,7 +19,7 @@ type Hub struct {
 	clients    map[uuid.UUID]*Client
 	register   chan *Client
 	unregister chan *Client
-	handlers   map[string]MessageHandler // <--- Added handler registry
+	handlers   map[string]MessageHandler
 	mu         sync.RWMutex
 
 	store db.Store

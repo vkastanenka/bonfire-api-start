@@ -48,8 +48,8 @@ type TX interface {
 }
 
 type TicketCache interface {
-	Print(ctx context.Context, ticketID fields.ID, userID fields.ID) error
-	Punch(ctx context.Context, ticketID fields.ID) (fields.ID, error)
+	Print(ctx context.Context, ticketID fields.ID, userID fields.ID, sessionID fields.ID) error
+	Punch(ctx context.Context, ticketID fields.ID) (fields.ID, fields.ID, error)
 }
 
 type TokenProvider interface {
