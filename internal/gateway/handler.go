@@ -71,8 +71,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := NewClient(ctx, userID.UUID(), sessionID.UUID(), conn)
-	h.hub.register <- client
-
+	h.hub.Register(client)
 	client.StartPumps(h.hub)
 
 	return nil

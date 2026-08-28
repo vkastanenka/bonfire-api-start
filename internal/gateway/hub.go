@@ -3,148 +3,225 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"bonfire-api/internal/db"
+	pkgredis "bonfire-api/internal/redis" // Adjust import path to your redis package location
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // MessageHandler defines the signature for processing incoming client messages.
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
+// Hub manages active client connections, routes inbound messages,
+// and bridges Pub/Sub events from Redis.
 type Hub struct {
-	clients    map[uuid.UUID]*Client
+	mu        sync.RWMutex
+	clients   map[uuid.UUID]*Client               // Keyed by SessionID
+	userIndex map[uuid.UUID]map[uuid.UUID]*Client // UserID -> Set of SessionIDs
+
 	register   chan *Client
 	unregister chan *Client
-	handlers   map[string]MessageHandler
-	mu         sync.RWMutex
 
-	store db.Store
-	// cache cache.Store
+	handlers map[string]MessageHandler
+	store    db.Store
+
+	redisClient *redis.Client
+	sub         *pkgredis.Subscription
 }
 
-func NewHub(
-	store db.Store,
-	// cache cache.Store
-) *Hub {
+func NewHub(store db.Store, rdb *redis.Client) *Hub {
 	return &Hub{
-		clients:    make(map[uuid.UUID]*Client),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		handlers:   make(map[string]MessageHandler),
-		store:      store,
-		// cache:      cache,
+		clients:     make(map[uuid.UUID]*Client),
+		userIndex:   make(map[uuid.UUID]map[uuid.UUID]*Client),
+		register:    make(chan *Client, 64),
+		unregister:  make(chan *Client, 64),
+		handlers:    make(map[string]MessageHandler),
+		store:       store,
+		redisClient: rdb,
 	}
 }
 
-// RegisterHandler allows external packages (domains) to hook into client actions
-// without the gateway knowing anything about business rules.
 func (h *Hub) RegisterHandler(msgType string, handler MessageHandler) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.handlers[msgType] = handler
 }
 
+func (h *Hub) Register(client *Client) {
+	h.register <- client
+}
+
+func (h *Hub) Unregister(client *Client) {
+	h.unregister <- client
+}
+
 func (h *Hub) Run(ctx context.Context) {
-	// Listen to pattern-based user events from Redis Pub/Sub
-	go h.listenRedisUserEvents(ctx)
+	// Start background Redis listener
+	if h.redisClient != nil {
+		go h.listenRedisUserEvents(ctx)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			h.shutdown()
 			return
 
 		case client := <-h.register:
-			h.mu.Lock()
-			if oldClient, exists := h.clients[client.UserID]; exists {
-				oldClient.Close()
-			}
-			h.clients[client.UserID] = client
-			h.mu.Unlock()
+			h.handleRegister(client)
 
 		case client := <-h.unregister:
-			h.mu.Lock()
-			if current, exists := h.clients[client.UserID]; exists && current == client {
-				delete(h.clients, client.UserID)
-				client.Close()
-			}
-			h.mu.Unlock()
+			h.handleUnregister(client)
 		}
 	}
 }
 
-// listenRedisUserEvents subscribes to individual user event streams using pattern matching.
-// Channel pattern: "user:*:events"
-func (h *Hub) listenRedisUserEvents(ctx context.Context) {
-	// pattern := "user:*:events"
-	// sub, err := h.cache.PSubscribe(ctx, pattern)
-	// if err != nil {
-	// 	slog.Error("Failed to psubscribe to user events", "pattern", pattern, "error", err)
-	// 	return
-	// }
-	// defer sub.Close()
+func (h *Hub) handleRegister(client *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	// ch := sub.Channel()
+	// Close old session connection if re-registering
+	if oldClient, exists := h.clients[client.SessionID]; exists {
+		oldClient.Close()
+	}
 
-	// for {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return
-	// 	case msg, ok := <-ch:
-	// 		if !ok {
-	// 			return
-	// 		}
-	// 		// Pass a detached/non-cancelable context to prevent context cancellation leaks
-	// 		go h.dispatchUserEvent(context.WithoutCancel(ctx), msg.Channel, msg.Payload)
-	// 	}
-	// }
+	h.clients[client.SessionID] = client
+
+	sessions, exists := h.userIndex[client.UserID]
+	if !exists {
+		sessions = make(map[uuid.UUID]*Client)
+		h.userIndex[client.UserID] = sessions
+	}
+	sessions[client.SessionID] = client
+
+	slog.Info("Client connected to gateway", "user_id", client.UserID, "session_id", client.SessionID)
 }
 
-// dispatchUserEvent parses incoming Redis messages and routes them to the connected client.
-func (h *Hub) dispatchUserEvent(ctx context.Context, channel string, payload string) {
-	// Extract user ID from channel format "user:<uuid>:events"
-	var targetUserIDStr string
-	_, err := fmt.Sscanf(channel, "user:%s:events", &targetUserIDStr)
+func (h *Hub) handleUnregister(client *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	current, exists := h.clients[client.SessionID]
+	if !exists || current != client {
+		return
+	}
+
+	delete(h.clients, client.SessionID)
+
+	if sessions, ok := h.userIndex[client.UserID]; ok {
+		delete(sessions, client.SessionID)
+		if len(sessions) == 0 {
+			delete(h.userIndex, client.UserID)
+		}
+	}
+
+	client.Close()
+	slog.Info("Client disconnected from gateway", "user_id", client.UserID, "session_id", client.SessionID)
+}
+
+func (h *Hub) shutdown() {
+	if h.sub != nil {
+		_ = h.sub.Unsubscribe()
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, client := range h.clients {
+		client.Close()
+	}
+	h.clients = make(map[uuid.UUID]*Client)
+	h.userIndex = make(map[uuid.UUID]map[uuid.UUID]*Client)
+}
+
+func (h *Hub) DispatchHandler(msgType string) (MessageHandler, bool) {
+	handler, exists := h.handlers[msgType]
+	return handler, exists
+}
+
+// --- Redis Event Routing ---
+
+type RedisUserEvent struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+func (h *Hub) listenRedisUserEvents(ctx context.Context) {
+	sub, err := pkgredis.PSubscribe(ctx, h.redisClient, pkgredis.ScopeOutboxEvent, "user:*:events")
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to parse user ID from channel", "channel", channel, "error", err)
+		slog.ErrorContext(ctx, "Failed to subscribe to Redis user events", "error", err)
 		return
 	}
+	h.sub = sub
 
-	targetUserID, err := uuid.Parse(targetUserIDStr)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to parse UUID from string", "uuid_str", targetUserIDStr, "error", err)
-		return
-	}
+	slog.Info("Subscribed to Redis user event stream", "pattern", "user:*:events")
 
-	// Unmarshal the raw JSON payload produced by RegisterOutboxHandlers
-	var rawEvent map[string]interface{}
-	if err := json.Unmarshal([]byte(payload), &rawEvent); err != nil {
-		slog.ErrorContext(ctx, "Failed to unmarshal raw Redis event payload", "error", err)
-		return
-	}
-
-	eventType, _ := rawEvent["type"].(string)
-	eventData, _ := rawEvent["data"]
-
-	innerData, _ := json.Marshal(eventData)
-	outboundPayload, _ := json.Marshal(WSMessage{
-		Type: eventType,
-		Data: innerData,
-	})
-
-	h.mu.RLock()
-	client, online := h.clients[targetUserID]
-	h.mu.RUnlock()
-
-	if online {
+	ch := h.sub.Channel()
+	for {
 		select {
-		case client.Send <- outboundPayload:
+		case <-ctx.Done():
+			return
+		case evt, ok := <-ch:
+			if !ok {
+				slog.WarnContext(ctx, "Redis subscription channel closed")
+				return
+			}
+			h.dispatchUserEvent(ctx, evt.Channel, evt.Payload)
+		}
+	}
+}
+
+func (h *Hub) dispatchUserEvent(ctx context.Context, channel, payload string) {
+	// Pattern format: user:{user_id}:events
+	parts := strings.Split(channel, ":")
+	if len(parts) < 3 || parts[0] != "user" || parts[2] != "events" {
+		slog.ErrorContext(ctx, "Invalid Redis channel pattern received", "channel", channel)
+		return
+	}
+
+	targetUserID, err := uuid.Parse(parts[1])
+	if err != nil {
+		slog.ErrorContext(ctx, "Invalid User ID in Redis channel pattern", "channel", channel, "error", err)
+		return
+	}
+
+	var event RedisUserEvent
+	if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		slog.ErrorContext(ctx, "Failed to unmarshal Redis event payload", "error", err)
+		return
+	}
+
+	outboundPayload, err := json.Marshal(WSMessage{
+		Type: event.Type,
+		Data: event.Data,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to encode outbound WS frame", "error", err)
+		return
+	}
+
+	h.SendToUser(targetUserID, outboundPayload)
+}
+
+// SendToUser pushes a message to all active local WS connections for a specific user.
+func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	sessions, exists := h.userIndex[userID]
+	if !exists {
+		return // User has no active connections on this gateway node
+	}
+
+	for _, client := range sessions {
+		select {
+		case client.Send <- message:
 		default:
-			slog.WarnContext(ctx, "Client send buffer full, dropping connection", "user_id", targetUserID)
-			go client.Close()
+			// Buffer full: drop frame or close client if connection is stalled
+			slog.Warn("Client send buffer full, dropping message", "user_id", userID, "session_id", client.SessionID)
 		}
 	}
 }

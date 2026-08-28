@@ -205,23 +205,17 @@ func (c *Client) configureReadSocket() {
 	})
 }
 
-// dispatchFrame parses raw JSON payload framing and routes matching event types to handlers.
 func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
 	var wsMsg WSMessage
 	if err := json.Unmarshal(rawMsg, &wsMsg); err != nil || wsMsg.Type == "" {
 		return
 	}
 
-	// Look up event type handler under a read lock.
-	hub.mu.RLock()
-	handler, exists := hub.handlers[wsMsg.Type]
-	hub.mu.RUnlock()
-
+	handler, exists := hub.DispatchHandler(wsMsg.Type)
 	if !exists {
 		return
 	}
 
-	// Dispatch handler asynchronously.
 	go c.executeHandler(handler, wsMsg)
 }
 
