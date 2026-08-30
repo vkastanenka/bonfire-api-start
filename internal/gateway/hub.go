@@ -3,8 +3,8 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"bonfire-api/internal/db"
@@ -17,9 +17,18 @@ import (
 // MessageHandler defines the signature for processing incoming client messages.
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
+// NodeEventPayload defines the structure of events routed via node-specific channels.
+type NodeEventPayload struct {
+	Type       string          `json:"type"`
+	TargetUser uuid.UUID       `json:"target_user_id"`
+	SessionID  *uuid.UUID      `json:"target_session_id,omitempty"` // Optional targeted delivery
+	Data       json.RawMessage `json:"data"`
+}
+
 // Hub manages active client connections, routes inbound messages,
 // and bridges Pub/Sub events from Redis.
 type Hub struct {
+	nodeID    uuid.UUID
 	mu        sync.RWMutex
 	clients   map[uuid.UUID]*Client               // Keyed by SessionID
 	userIndex map[uuid.UUID]map[uuid.UUID]*Client // UserID -> Set of SessionIDs
@@ -36,6 +45,7 @@ type Hub struct {
 
 func NewHub(store db.Store, rdb *redis.Client) *Hub {
 	return &Hub{
+		nodeID:      uuid.New(),
 		clients:     make(map[uuid.UUID]*Client),
 		userIndex:   make(map[uuid.UUID]map[uuid.UUID]*Client),
 		register:    make(chan *Client, 64),
@@ -44,6 +54,11 @@ func NewHub(store db.Store, rdb *redis.Client) *Hub {
 		store:       store,
 		redisClient: rdb,
 	}
+}
+
+// NodeID returns the unique identifier for this gateway instance.
+func (h *Hub) NodeID() uuid.UUID {
+	return h.nodeID
 }
 
 func (h *Hub) RegisterHandler(msgType string, handler MessageHandler) {
@@ -59,9 +74,9 @@ func (h *Hub) Unregister(client *Client) {
 }
 
 func (h *Hub) Run(ctx context.Context) {
-	// Start background Redis listener
+	// Start background Redis listener targeting this specific node
 	if h.redisClient != nil {
-		go h.listenRedisUserEvents(ctx)
+		go h.listenRedisNodeEvents(ctx)
 	}
 
 	for {
@@ -97,7 +112,11 @@ func (h *Hub) handleRegister(client *Client) {
 	}
 	sessions[client.SessionID] = client
 
-	slog.Info("Client connected to gateway", "user_id", client.UserID, "session_id", client.SessionID)
+	slog.Info("Client connected to gateway",
+		"node_id", h.nodeID,
+		"user_id", client.UserID,
+		"session_id", client.SessionID,
+	)
 }
 
 func (h *Hub) handleUnregister(client *Client) {
@@ -119,7 +138,11 @@ func (h *Hub) handleUnregister(client *Client) {
 	}
 
 	client.Close()
-	slog.Info("Client disconnected from gateway", "user_id", client.UserID, "session_id", client.SessionID)
+	slog.Info("Client disconnected from gateway",
+		"node_id", h.nodeID,
+		"user_id", client.UserID,
+		"session_id", client.SessionID,
+	)
 }
 
 func (h *Hub) shutdown() {
@@ -142,22 +165,27 @@ func (h *Hub) DispatchHandler(msgType string) (MessageHandler, bool) {
 	return handler, exists
 }
 
-// --- Redis Event Routing ---
+// --- Node-Specific Redis Event Routing ---
 
-type RedisUserEvent struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-}
+func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
+	channelName := fmt.Sprintf("gateway:%s:events", h.nodeID.String())
 
-func (h *Hub) listenRedisUserEvents(ctx context.Context) {
-	sub, err := pkgredis.PSubscribe(ctx, h.redisClient, pkgredis.ScopeOutboxEvent, "user:*:events")
+	// Exact subscribe to node channel instead of pattern matching
+	sub, err := pkgredis.Subscribe(ctx, h.redisClient, pkgredis.ScopeOutboxEvent, channelName)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to subscribe to Redis user events", "error", err)
+		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
+			"node_id", h.nodeID,
+			"channel", channelName,
+			"error", err,
+		)
 		return
 	}
 	h.sub = sub
 
-	slog.Info("Subscribed to Redis user event stream", "pattern", "user:*:events")
+	slog.InfoContext(ctx, "Subscribed to node event stream",
+		"node_id", h.nodeID,
+		"channel", channelName,
+	)
 
 	ch := h.sub.Channel()
 	for {
@@ -166,31 +194,18 @@ func (h *Hub) listenRedisUserEvents(ctx context.Context) {
 			return
 		case evt, ok := <-ch:
 			if !ok {
-				slog.WarnContext(ctx, "Redis subscription channel closed")
+				slog.WarnContext(ctx, "Redis node subscription channel closed", "node_id", h.nodeID)
 				return
 			}
-			h.dispatchUserEvent(ctx, evt.Channel, evt.Payload)
+			h.dispatchNodeEvent(ctx, evt.Payload)
 		}
 	}
 }
 
-func (h *Hub) dispatchUserEvent(ctx context.Context, channel, payload string) {
-	// Pattern format: user:{user_id}:events
-	parts := strings.Split(channel, ":")
-	if len(parts) < 3 || parts[0] != "user" || parts[2] != "events" {
-		slog.ErrorContext(ctx, "Invalid Redis channel pattern received", "channel", channel)
-		return
-	}
-
-	targetUserID, err := uuid.Parse(parts[1])
-	if err != nil {
-		slog.ErrorContext(ctx, "Invalid User ID in Redis channel pattern", "channel", channel, "error", err)
-		return
-	}
-
-	var event RedisUserEvent
+func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
+	var event NodeEventPayload
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		slog.ErrorContext(ctx, "Failed to unmarshal Redis event payload", "error", err)
+		slog.ErrorContext(ctx, "Failed to unmarshal Redis node event payload", "error", err)
 		return
 	}
 
@@ -203,7 +218,12 @@ func (h *Hub) dispatchUserEvent(ctx context.Context, channel, payload string) {
 		return
 	}
 
-	h.SendToUser(targetUserID, outboundPayload)
+	if event.SessionID != nil {
+		h.SendToSession(*event.SessionID, outboundPayload)
+		return
+	}
+
+	h.SendToUser(event.TargetUser, outboundPayload)
 }
 
 // SendToUser pushes a message to all active local WS connections for a specific user.
@@ -213,15 +233,38 @@ func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 
 	sessions, exists := h.userIndex[userID]
 	if !exists {
-		return // User has no active connections on this gateway node
+		return
 	}
 
 	for _, client := range sessions {
 		select {
 		case client.Send <- message:
 		default:
-			// Buffer full: drop frame or close client if connection is stalled
-			slog.Warn("Client send buffer full, dropping message", "user_id", userID, "session_id", client.SessionID)
+			slog.Warn("Client send buffer full, dropping message",
+				"node_id", h.nodeID,
+				"user_id", userID,
+				"session_id", client.SessionID,
+			)
 		}
+	}
+}
+
+// SendToSession delivers a frame directly to a single connection on this node.
+func (h *Hub) SendToSession(sessionID uuid.UUID, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	client, exists := h.clients[sessionID]
+	if !exists {
+		return
+	}
+
+	select {
+	case client.Send <- message:
+	default:
+		slog.Warn("Client send buffer full, dropping direct message",
+			"node_id", h.nodeID,
+			"session_id", sessionID,
+		)
 	}
 }
