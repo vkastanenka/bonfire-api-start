@@ -67,9 +67,9 @@ func CtxGetReqID(ctx context.Context) string {
 	return ""
 }
 
-func CtxGetTraceID(ctx context.Context) string {
+func CtxGetTraceID(ctx context.Context) fields.TraceID {
 	if v, ok := ctx.Value(CtxTraceIDKey).(string); ok {
-		return v
+		return fields.NewTraceID(v)
 	}
-	return ""
+	return fields.TraceID{}
 }

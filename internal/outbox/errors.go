@@ -6,28 +6,16 @@ import (
 	"bonfire-api/internal/errs"
 )
 
-func ErrAggregateTypeRequired() *errs.Error {
-	return errs.InvalidArgument("Aggregate type is required.").
-		Reason("AGGREGATE_TYPE_REQUIRED").
-		FieldViolation("aggregate_type", "Field is required.", "REQUIRED")
-}
-
-func ErrAggregateTypeTooLong() *errs.Error {
-	return errs.InvalidArgument("Aggregate type exceeds maximum length.").
-		Reason("AGGREGATE_TYPE_TOO_LONG").
-		FieldViolation("aggregate_type", fmt.Sprintf("Must not exceed %d characters.", aggregateTypeMaxLength), "MAX_LENGTH_EXCEEDED")
-}
-
-func ErrEventTypeRequired() *errs.Error {
+func ErrTypeRequired() *errs.Error {
 	return errs.InvalidArgument("Event type is required.").
 		Reason("EVENT_TYPE_REQUIRED").
 		FieldViolation("event_type", "Field is required.", "REQUIRED")
 }
 
-func ErrEventTypeTooLong() *errs.Error {
+func ErrTypeTooLong() *errs.Error {
 	return errs.InvalidArgument("Event type exceeds maximum length.").
 		Reason("EVENT_TYPE_TOO_LONG").
-		FieldViolation("event_type", fmt.Sprintf("Must not exceed %d characters.", eventTypeMaxLength), "MAX_LENGTH_EXCEEDED")
+		FieldViolation("event_type", fmt.Sprintf("Must not exceed %d characters.", typeMaxLength), "MAX_LENGTH_EXCEEDED")
 }
 
 func ErrPayloadEmpty() *errs.Error {

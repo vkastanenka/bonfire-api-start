@@ -71,7 +71,6 @@ type MessageReaction struct {
 
 type OutboxEvent struct {
 	ID             pgtype.UUID        `json:"id"`
-	AggregateID    pgtype.UUID        `json:"aggregate_id"`
 	LockedBy       pgtype.UUID        `json:"locked_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
@@ -80,11 +79,9 @@ type OutboxEvent struct {
 	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
 	Attempts       int32              `json:"attempts"`
 	MaxAttempts    int32              `json:"max_attempts"`
-	EventType      string             `json:"event_type"`
-	AggregateType  pgtype.Text        `json:"aggregate_type"`
+	Type           string             `json:"type"`
 	TraceID        pgtype.Text        `json:"trace_id"`
 	Payload        []byte             `json:"payload"`
-	LastError      pgtype.Text        `json:"last_error"`
 }
 
 type Relation struct {

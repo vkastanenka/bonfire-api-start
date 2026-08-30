@@ -10,79 +10,41 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Event Type
+// Type
 // -----------------------------------------------------------------------------
 
-const eventTypeMaxLength = 100
+const typeMaxLength = 100
 
-type EventType struct {
+type Type struct {
 	fields.Text
 }
 
-func NewEventType(v string) EventType {
-	return EventType{Text: fields.NewText(v)}
+func NewType(v string) Type {
+	return Type{Text: fields.NewText(v)}
 }
 
-func ParseEventType(raw string) (EventType, error) {
+func ParseType(raw string) (Type, error) {
 	cleaned := sanitize.Text(raw)
 	if cleaned == "" {
-		return EventType{}, nil
+		return Type{}, nil
 	}
 
-	if utf8.RuneCountInString(cleaned) > eventTypeMaxLength {
-		return EventType{}, ErrEventTypeTooLong()
+	if utf8.RuneCountInString(cleaned) > typeMaxLength {
+		return Type{}, ErrTypeTooLong()
 	}
 
-	return NewEventType(cleaned), nil
+	return NewType(cleaned), nil
 }
 
-func ParseRequiredEventType(raw string) (EventType, error) {
-	eventType, err := ParseEventType(raw)
+func ParseRequiredType(raw string) (Type, error) {
+	eventType, err := ParseType(raw)
 	if err != nil {
-		return EventType{}, err
+		return Type{}, err
 	}
 	if eventType.IsZero() {
-		return EventType{}, ErrEventTypeRequired()
+		return Type{}, ErrTypeRequired()
 	}
 	return eventType, nil
-}
-
-// -----------------------------------------------------------------------------
-// Aggregate Type
-// -----------------------------------------------------------------------------
-
-const aggregateTypeMaxLength = 100
-
-type AggregateType struct {
-	fields.Text
-}
-
-func NewAggregateType(v string) AggregateType {
-	return AggregateType{Text: fields.NewText(v)}
-}
-
-func ParseAggregateType(raw string) (AggregateType, error) {
-	cleaned := sanitize.Text(raw)
-	if cleaned == "" {
-		return AggregateType{}, nil
-	}
-
-	if utf8.RuneCountInString(cleaned) > aggregateTypeMaxLength {
-		return AggregateType{}, ErrAggregateTypeTooLong()
-	}
-
-	return NewAggregateType(cleaned), nil
-}
-
-func ParseRequiredAggregateType(raw string) (AggregateType, error) {
-	aggregateType, err := ParseAggregateType(raw)
-	if err != nil {
-		return AggregateType{}, err
-	}
-	if aggregateType.IsZero() {
-		return AggregateType{}, ErrAggregateTypeRequired()
-	}
-	return aggregateType, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -141,32 +103,4 @@ func (p Payload) IsValid() bool {
 
 func (p Payload) IsZero() bool {
 	return len(p.raw) == 0
-}
-
-// -----------------------------------------------------------------------------
-// Last Error
-// -----------------------------------------------------------------------------
-
-const lastErrorMaxLength = 2000
-
-type LastError struct {
-	fields.Text
-}
-
-func NewLastError(v string) LastError {
-	return LastError{Text: fields.NewText(v)}
-}
-
-func ParseLastError(raw string) (LastError, error) {
-	cleaned := sanitize.Text(raw)
-	if cleaned == "" {
-		return LastError{}, nil
-	}
-
-	if utf8.RuneCountInString(cleaned) > lastErrorMaxLength {
-		runes := []rune(cleaned)
-		cleaned = string(runes[:lastErrorMaxLength])
-	}
-
-	return NewLastError(cleaned), nil
 }

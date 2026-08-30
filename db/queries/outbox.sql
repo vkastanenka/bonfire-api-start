@@ -1,10 +1,10 @@
 -- name: OutboxEventCreate :exec
-INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES (@id::uuid, sqlc.narg('aggregate_id')::uuid, sqlc.narg('aggregate_type')::text, @event_type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
+INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES (@id::uuid, @type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
 
 -- name: OutboxEventCreateBatch :copyfrom
-INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: OutboxEventClaimPending :many
 WITH target_events AS (
@@ -20,6 +20,7 @@ WITH target_events AS (
             OR lease_expires_at < @now::timestamptz)
     ORDER BY
         next_attempt_at ASC,
+        lease_expires_at ASC NULLS FIRST,
         id ASC
     LIMIT @limit_val::int
     FOR UPDATE
@@ -56,7 +57,6 @@ UPDATE
 SET
     attempts = attempts + 1,
     next_attempt_at = @next_attempt_at::timestamptz,
-    last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -70,7 +70,6 @@ UPDATE
     outbox_events
 SET
     attempts = max_attempts,
-    last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -120,16 +119,3 @@ WITH targets AS (
 DELETE FROM outbox_events o USING targets t
 WHERE o.id = t.id;
 
--- name: OutboxEventPublish :exec
-INSERT INTO outbox_events (
-    id,
-    event_type,
-    aggregate_type,
-    payload,
-    status,
-    attempts,
-    scheduled_at,
-    created_at
-) VALUES (
-    $1, $2, $3, $4, 'PENDING', 0, NOW(), NOW()
-);

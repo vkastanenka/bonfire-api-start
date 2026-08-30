@@ -1,16 +1,18 @@
 package outbox
 
 import (
+	"context"
 	"time"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/httpio"
 )
+
+const maxAttemptsDefault = 5
 
 type Event struct {
 	id             fields.ID
-	aggregateID    fields.ID
-	aggregateType  AggregateType
-	eventType      EventType
+	eventType      Type
 	payload        Payload
 	traceID        fields.TraceID
 	processedAt    fields.Timestamp
@@ -19,16 +21,13 @@ type Event struct {
 	nextAttemptAt  fields.Timestamp
 	lockedBy       fields.ID
 	leaseExpiresAt fields.Timestamp
-	lastError      LastError
 	createdAt      fields.Timestamp
 	updatedAt      fields.Timestamp
 }
 
 func ReconstituteEvent(
 	id fields.ID,
-	aggregateID fields.ID,
-	aggregateType AggregateType,
-	eventType EventType,
+	eventType Type,
 	payload Payload,
 	traceID fields.TraceID,
 	processedAt fields.Timestamp,
@@ -37,14 +36,11 @@ func ReconstituteEvent(
 	nextAttemptAt fields.Timestamp,
 	lockedBy fields.ID,
 	leaseExpiresAt fields.Timestamp,
-	lastError LastError,
 	createdAt fields.Timestamp,
 	updatedAt fields.Timestamp,
 ) *Event {
 	return &Event{
 		id:             id,
-		aggregateID:    aggregateID,
-		aggregateType:  aggregateType,
 		eventType:      eventType,
 		payload:        payload,
 		traceID:        traceID,
@@ -54,16 +50,42 @@ func ReconstituteEvent(
 		nextAttemptAt:  nextAttemptAt,
 		lockedBy:       lockedBy,
 		leaseExpiresAt: leaseExpiresAt,
-		lastError:      lastError,
 		createdAt:      createdAt,
 		updatedAt:      updatedAt,
 	}
 }
 
+func New(
+	ctx context.Context,
+	eventType Type,
+	payload Payload,
+	now fields.Timestamp,
+) (*Event, error) {
+	id, err := fields.NewID()
+	if err != nil {
+		return nil, err
+	}
+
+	traceID := httpio.CtxGetTraceID(ctx)
+
+	return ReconstituteEvent(
+		id,
+		eventType,
+		payload,
+		traceID,
+		fields.Timestamp{},
+		0,
+		maxAttemptsDefault,
+		now,
+		fields.ID{},
+		fields.Timestamp{},
+		now,
+		now,
+	), nil
+}
+
 func (e *Event) ID() fields.ID                    { return e.id }
-func (e *Event) AggregateID() fields.ID           { return e.aggregateID }
-func (e *Event) AggregateType() AggregateType     { return e.aggregateType }
-func (e *Event) EventType() EventType             { return e.eventType }
+func (e *Event) EventType() Type                  { return e.eventType }
 func (e *Event) Payload() Payload                 { return e.payload }
 func (e *Event) TraceID() fields.TraceID          { return e.traceID }
 func (e *Event) ProcessedAt() fields.Timestamp    { return e.processedAt }
@@ -72,7 +94,6 @@ func (e *Event) MaxAttempts() int                 { return e.maxAttempts }
 func (e *Event) NextAttemptAt() fields.Timestamp  { return e.nextAttemptAt }
 func (e *Event) LockedBy() fields.ID              { return e.lockedBy }
 func (e *Event) LeaseExpiresAt() fields.Timestamp { return e.leaseExpiresAt }
-func (e *Event) LastError() LastError             { return e.lastError }
 func (e *Event) CreatedAt() fields.Timestamp      { return e.createdAt }
 func (e *Event) UpdatedAt() fields.Timestamp      { return e.updatedAt }
 
@@ -111,12 +132,6 @@ func (e *Event) MarkFailure(reason string, at fields.Timestamp) {
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}
 
-	if reason != "" {
-		if parsed, err := ParseLastError(reason); err == nil {
-			e.lastError = parsed
-		}
-	}
-
 	// Exponential backoff: 2^attempts seconds (e.g., 2s, 4s, 8s, 16s...)
 	backoffSec := time.Duration(1<<e.attempts) * time.Second
 	e.nextAttemptAt = fields.NewTimestamp(at.Time().Add(backoffSec))
@@ -128,12 +143,6 @@ func (e *Event) MarkDeadLetter(reason string, at fields.Timestamp) {
 	e.attempts = e.maxAttempts
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}
-
-	if reason != "" {
-		if parsed, err := ParseLastError(reason); err == nil {
-			e.lastError = parsed
-		}
-	}
 
 	e.touch(at)
 }

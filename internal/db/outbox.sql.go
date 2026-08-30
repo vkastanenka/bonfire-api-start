@@ -25,6 +25,7 @@ WITH target_events AS (
             OR lease_expires_at < $3::timestamptz)
     ORDER BY
         next_attempt_at ASC,
+        lease_expires_at ASC NULLS FIRST,
         id ASC
     LIMIT $4::int
     FOR UPDATE
@@ -40,7 +41,7 @@ FROM
 WHERE
     o.id = t.id
 RETURNING
-    o.id, o.aggregate_id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.event_type, o.aggregate_type, o.trace_id, o.payload, o.last_error
+    o.id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.type, o.trace_id, o.payload
 `
 
 type OutboxEventClaimPendingParams struct {
@@ -66,7 +67,6 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 		var i OutboxEvent
 		if err := rows.Scan(
 			&i.ID,
-			&i.AggregateID,
 			&i.LockedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -75,11 +75,9 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 			&i.ProcessedAt,
 			&i.Attempts,
 			&i.MaxAttempts,
-			&i.EventType,
-			&i.AggregateType,
+			&i.Type,
 			&i.TraceID,
 			&i.Payload,
-			&i.LastError,
 		); err != nil {
 			return nil, err
 		}
@@ -92,15 +90,13 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 }
 
 const outboxEventCreate = `-- name: OutboxEventCreate :exec
-INSERT INTO outbox_events(id, aggregate_id, aggregate_type, event_type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES ($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::timestamptz, $8::timestamptz, $9::timestamptz, $10::int, $11::int)
+INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES ($1::uuid, $2::text, $3::jsonb, $4::text, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::int, $9::int)
 `
 
 type OutboxEventCreateParams struct {
 	ID            pgtype.UUID        `json:"id"`
-	AggregateID   pgtype.UUID        `json:"aggregate_id"`
-	AggregateType pgtype.Text        `json:"aggregate_type"`
-	EventType     string             `json:"event_type"`
+	Type          string             `json:"type"`
 	Payload       []byte             `json:"payload"`
 	TraceID       pgtype.Text        `json:"trace_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
@@ -113,9 +109,7 @@ type OutboxEventCreateParams struct {
 func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) error {
 	_, err := q.db.Exec(ctx, outboxEventCreate,
 		arg.ID,
-		arg.AggregateID,
-		arg.AggregateType,
-		arg.EventType,
+		arg.Type,
 		arg.Payload,
 		arg.TraceID,
 		arg.CreatedAt,
@@ -129,9 +123,7 @@ func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreatePa
 
 type OutboxEventCreateBatchParams struct {
 	ID            pgtype.UUID        `json:"id"`
-	AggregateID   pgtype.UUID        `json:"aggregate_id"`
-	AggregateType pgtype.Text        `json:"aggregate_type"`
-	EventType     string             `json:"event_type"`
+	Type          string             `json:"type"`
 	Payload       []byte             `json:"payload"`
 	TraceID       pgtype.Text        `json:"trace_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
@@ -178,30 +170,23 @@ UPDATE
     outbox_events
 SET
     attempts = max_attempts,
-    last_error = $1::text,
     locked_by = NULL,
     lease_expires_at = NULL,
-    updated_at = $2::timestamptz
+    updated_at = $1::timestamptz
 WHERE
-    id = $3::uuid
-    AND locked_by = $4::uuid
+    id = $2::uuid
+    AND locked_by = $3::uuid
     AND processed_at IS NULL
 `
 
 type OutboxEventMarkDeadLetterParams struct {
-	LastError pgtype.Text        `json:"last_error"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 	WorkerID  pgtype.UUID        `json:"worker_id"`
 }
 
 func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
-		arg.LastError,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.WorkerID,
-	)
+	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter, arg.UpdatedAt, arg.ID, arg.WorkerID)
 	return err
 }
 
@@ -211,19 +196,17 @@ UPDATE
 SET
     attempts = attempts + 1,
     next_attempt_at = $1::timestamptz,
-    last_error = $2::text,
     locked_by = NULL,
     lease_expires_at = NULL,
-    updated_at = $3::timestamptz
+    updated_at = $2::timestamptz
 WHERE
-    id = $4::uuid
-    AND locked_by = $5::uuid
+    id = $3::uuid
+    AND locked_by = $4::uuid
     AND processed_at IS NULL
 `
 
 type OutboxEventMarkFailureParams struct {
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError     pgtype.Text        `json:"last_error"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	ID            pgtype.UUID        `json:"id"`
 	WorkerID      pgtype.UUID        `json:"worker_id"`
@@ -232,7 +215,6 @@ type OutboxEventMarkFailureParams struct {
 func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error {
 	_, err := q.db.Exec(ctx, outboxEventMarkFailure,
 		arg.NextAttemptAt,
-		arg.LastError,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.WorkerID,
@@ -267,38 +249,6 @@ func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventM
 		arg.UpdatedAt,
 		arg.ID,
 		arg.WorkerID,
-	)
-	return err
-}
-
-const outboxEventPublish = `-- name: OutboxEventPublish :exec
-INSERT INTO outbox_events (
-    id,
-    event_type,
-    aggregate_type,
-    payload,
-    status,
-    attempts,
-    scheduled_at,
-    created_at
-) VALUES (
-    $1, $2, $3, $4, 'PENDING', 0, NOW(), NOW()
-)
-`
-
-type OutboxEventPublishParams struct {
-	ID            pgtype.UUID `json:"id"`
-	EventType     string      `json:"event_type"`
-	AggregateType pgtype.Text `json:"aggregate_type"`
-	Payload       []byte      `json:"payload"`
-}
-
-func (q *Queries) OutboxEventPublish(ctx context.Context, arg OutboxEventPublishParams) error {
-	_, err := q.db.Exec(ctx, outboxEventPublish,
-		arg.ID,
-		arg.EventType,
-		arg.AggregateType,
-		arg.Payload,
 	)
 	return err
 }

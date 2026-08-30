@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"bonfire-api/internal/db"
@@ -27,16 +26,14 @@ func NewOutboxRepository(store *db.Store) *OutboxRepository {
 func (r *OutboxRepository) Create(ctx context.Context, e *outbox.Event) error {
 	err := r.store.OutboxEventCreate(ctx, db.OutboxEventCreateParams{
 		ID:            db.ToUUID(e.ID().UUID()),
-		AggregateID:   db.ToUUIDPtr(e.AggregateID().UUIDPtr()),
-		AggregateType: db.ToTextPtr(e.AggregateType().StringPtr()),
-		EventType:     e.EventType().String(),
+		Type:          e.EventType().String(),
 		Payload:       e.Payload().Raw(),
 		TraceID:       db.ToTextPtr(e.TraceID().StringPtr()),
-		CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
-		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
 		Attempts:      int32(e.Attempts()),
 		MaxAttempts:   int32(e.MaxAttempts()),
+		CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
+		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
 	})
 	if err != nil {
 		return r.store.Err(err)
@@ -51,9 +48,7 @@ func (r *OutboxRepository) CreateBatch(ctx context.Context, events []*outbox.Eve
 	for _, e := range events {
 		params = append(params, db.OutboxEventCreateBatchParams{
 			ID:            db.ToUUID(e.ID().UUID()),
-			AggregateID:   db.ToUUIDPtr(e.AggregateID().UUIDPtr()),
-			AggregateType: db.ToTextPtr(e.AggregateType().StringPtr()),
-			EventType:     e.EventType().String(),
+			Type:          e.EventType().String(),
 			Payload:       e.Payload().Raw(),
 			TraceID:       db.ToTextPtr(e.TraceID().StringPtr()),
 			CreatedAt:     db.ToTimestamptz(e.CreatedAt().Time()),
@@ -120,7 +115,6 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, e *outbox.Event, w
 func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
 	err := r.store.OutboxEventMarkFailure(ctx, db.OutboxEventMarkFailureParams{
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt().Time()),
-		LastError:     db.ToTextPtr(e.LastError().StringPtr()),
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt().Time()),
 		ID:            db.ToUUID(e.ID().UUID()),
 		WorkerID:      db.ToUUID(workerID.UUID()),
@@ -135,7 +129,6 @@ func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, wor
 // MarkDeadLetter transitions an event to max attempts and records the error.
 func (r *OutboxRepository) MarkDeadLetter(ctx context.Context, e *outbox.Event, workerID fields.ID) error {
 	err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
-		LastError: db.ToTextPtr(e.LastError().StringPtr()),
 		UpdatedAt: db.ToTimestamptz(e.UpdatedAt().Time()),
 		ID:        db.ToUUID(e.ID().UUID()),
 		WorkerID:  db.ToUUID(workerID.UUID()),
@@ -189,28 +182,52 @@ func (r *OutboxRepository) DeleteProcessedBatch(ctx context.Context, before fiel
 	return rowsAffected, nil
 }
 
-func (r *OutboxRepository) Publish(ctx context.Context, aggregateType string, payload any) error {
-	rawPayload, err := json.Marshal(payload)
+func (r *OutboxRepository) Publish(
+	ctx context.Context,
+	eventType outbox.Type,
+	payload outbox.Payload,
+	now fields.Timestamp,
+) (*outbox.Event, error) {
+	evt, err := outbox.New(ctx, eventType, payload, now)
 	if err != nil {
-		return fmt.Errorf("outbox repository publish: failed to marshal payload: %w", err)
+		return nil, errs.Internal("failed to generate outbox event").Wrap(err)
 	}
 
-	id, err := fields.NewID()
-	if err != nil {
-		return err
+	if err := r.Create(ctx, evt); err != nil {
+		return nil, err
 	}
 
-	err = r.store.OutboxEventPublish(ctx, db.OutboxEventPublishParams{
-		ID:            db.ToUUID(id),
-		EventType:     aggregateType,
-		AggregateType: db.ToText(aggregateType),
-		Payload:       rawPayload,
-	})
-	if err != nil {
-		return fmt.Errorf("outbox repository publish: %w", err)
+	return evt, nil
+}
+
+type PublishRequest struct {
+	Type    outbox.Type
+	Payload outbox.Payload
+}
+
+func (r *OutboxRepository) PublishBatch(
+	ctx context.Context,
+	reqs []PublishRequest,
+	now fields.Timestamp,
+) ([]*outbox.Event, error) {
+	if len(reqs) == 0 {
+		return nil, nil
 	}
 
-	return nil
+	events := make([]*outbox.Event, 0, len(reqs))
+	for _, req := range reqs {
+		evt, err := outbox.New(ctx, req.Type, req.Payload, now)
+		if err != nil {
+			return nil, errs.Internal("failed to generate outbox event in batch").Wrap(err)
+		}
+		events = append(events, evt)
+	}
+
+	if err := r.CreateBatch(ctx, events); err != nil {
+		return nil, err
+	}
+
+	return events, nil
 }
 
 // ============================================================================
@@ -234,26 +251,9 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 		return nil, mapErr("failed to parse outbox event id from database", "id", eventIDStr, err)
 	}
 
-	var aggregateID fields.ID
-	if row.AggregateID.Valid {
-		aggUUID := db.FromUUID[uuid.UUID](row.AggregateID)
-		aggregateID, err = fields.ParseRequiredID("aggregate_id", aggUUID)
-		if err != nil {
-			return nil, mapErr("failed to parse aggregate_id from database", "aggregate_id", aggUUID.String(), err)
-		}
-	}
-
-	var aggregateType outbox.AggregateType
-	if aggTypePtr := db.FromTextPtr[string](row.AggregateType); aggTypePtr != nil && *aggTypePtr != "" {
-		aggregateType, err = outbox.ParseAggregateType(*aggTypePtr)
-		if err != nil {
-			return nil, mapErr("failed to parse aggregate_type from database", "aggregate_type", *aggTypePtr, err)
-		}
-	}
-
-	eventType, err := outbox.ParseEventType(row.EventType)
+	eventType, err := outbox.ParseType(row.Type)
 	if err != nil {
-		return nil, mapErr("failed to parse outbox event type from database", "event_type", row.EventType, err)
+		return nil, mapErr("failed to parse outbox event type from database", "event_type", row.Type, err)
 	}
 
 	payload, err := outbox.ParsePayload(row.Payload)
@@ -278,14 +278,6 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 		}
 	}
 
-	var lastError outbox.LastError
-	if lastErrPtr := db.FromTextPtr[string](row.LastError); lastErrPtr != nil && *lastErrPtr != "" {
-		lastError, err = outbox.ParseLastError(*lastErrPtr)
-		if err != nil {
-			return nil, mapErr("failed to parse last_error from database", "last_error", *lastErrPtr, err)
-		}
-	}
-
 	processedAt := fields.NewTimestamp(db.FromTimestamptz(row.ProcessedAt))
 	nextAttemptAt := fields.NewTimestamp(db.FromTimestamptz(row.NextAttemptAt))
 	leaseExpiresAt := fields.NewTimestamp(db.FromTimestamptz(row.LeaseExpiresAt))
@@ -294,8 +286,6 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 
 	return outbox.ReconstituteEvent(
 		id,
-		aggregateID,
-		aggregateType,
 		eventType,
 		payload,
 		traceID,
@@ -305,7 +295,6 @@ func outboxFromRow(row db.OutboxEvent) (*outbox.Event, error) {
 		nextAttemptAt,
 		lockedBy,
 		leaseExpiresAt,
-		lastError,
 		createdAt,
 		updatedAt,
 	), nil
