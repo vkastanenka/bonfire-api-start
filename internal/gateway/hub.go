@@ -8,30 +8,26 @@ import (
 	"sync"
 
 	"bonfire-api/internal/db"
-	pkgredis "bonfire-api/internal/redis" // Adjust import path to your redis package location
+	pkgredis "bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
-// MessageHandler defines the signature for processing incoming client messages.
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
-// NodeEventPayload defines the structure of events routed via node-specific channels.
 type NodeEventPayload struct {
 	Type       string          `json:"type"`
 	TargetUser uuid.UUID       `json:"target_user_id"`
-	SessionID  *uuid.UUID      `json:"target_session_id,omitempty"` // Optional targeted delivery
+	SessionID  *uuid.UUID      `json:"target_session_id,omitempty"`
 	Data       json.RawMessage `json:"data"`
 }
 
-// Hub manages active client connections, routes inbound messages,
-// and bridges Pub/Sub events from Redis.
 type Hub struct {
 	nodeID    uuid.UUID
 	mu        sync.RWMutex
-	clients   map[uuid.UUID]*Client               // Keyed by SessionID
-	userIndex map[uuid.UUID]map[uuid.UUID]*Client // UserID -> Set of SessionIDs
+	clients   map[uuid.UUID]*Client
+	userIndex map[uuid.UUID]map[uuid.UUID]*Client
 
 	register   chan *Client
 	unregister chan *Client
@@ -40,6 +36,7 @@ type Hub struct {
 	store    *db.Store
 
 	redisClient *redis.Client
+	subMu       sync.Mutex
 	sub         *pkgredis.Subscription
 }
 
@@ -56,7 +53,6 @@ func NewHub(store *db.Store, rdb *redis.Client) *Hub {
 	}
 }
 
-// NodeID returns the unique identifier for this gateway instance.
 func (h *Hub) NodeID() uuid.UUID {
 	return h.nodeID
 }
@@ -74,7 +70,6 @@ func (h *Hub) Unregister(client *Client) {
 }
 
 func (h *Hub) Run(ctx context.Context) {
-	// Start background Redis listener targeting this specific node
 	if h.redisClient != nil {
 		go h.listenRedisNodeEvents(ctx)
 	}
@@ -82,23 +77,21 @@ func (h *Hub) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			h.shutdown()
+			h.shutdown(context.WithoutCancel(ctx))
 			return
 
 		case client := <-h.register:
-			h.handleRegister(client)
+			h.handleRegister(ctx, client)
 
 		case client := <-h.unregister:
-			h.handleUnregister(client)
+			h.handleUnregister(ctx, client)
 		}
 	}
 }
 
-func (h *Hub) handleRegister(client *Client) {
+func (h *Hub) handleRegister(ctx context.Context, client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
-	// Close old session connection if re-registering
 	if oldClient, exists := h.clients[client.SessionID]; exists {
 		oldClient.Close()
 	}
@@ -106,11 +99,25 @@ func (h *Hub) handleRegister(client *Client) {
 	h.clients[client.SessionID] = client
 
 	sessions, exists := h.userIndex[client.UserID]
+	isFirstUserSession := !exists || len(sessions) == 0
 	if !exists {
 		sessions = make(map[uuid.UUID]*Client)
 		h.userIndex[client.UserID] = sessions
 	}
 	sessions[client.SessionID] = client
+	h.mu.Unlock()
+
+	// Update Redis presence state when user first connects to this node
+	if isFirstUserSession && h.redisClient != nil {
+		presenceKey := fmt.Sprintf("gateway:user_nodes:%s", client.UserID)
+		if err := h.redisClient.SAdd(ctx, presenceKey, h.nodeID.String()).Err(); err != nil {
+			slog.ErrorContext(ctx, "failed to track user node presence in redis",
+				"user_id", client.UserID,
+				"node_id", h.nodeID,
+				"error", err,
+			)
+		}
+	}
 
 	slog.Info("Client connected to gateway",
 		"node_id", h.nodeID,
@@ -119,25 +126,41 @@ func (h *Hub) handleRegister(client *Client) {
 	)
 }
 
-func (h *Hub) handleUnregister(client *Client) {
+func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	current, exists := h.clients[client.SessionID]
 	if !exists || current != client {
+		h.mu.Unlock()
 		return
 	}
 
 	delete(h.clients, client.SessionID)
 
+	isLastUserSession := false
 	if sessions, ok := h.userIndex[client.UserID]; ok {
 		delete(sessions, client.SessionID)
 		if len(sessions) == 0 {
 			delete(h.userIndex, client.UserID)
+			isLastUserSession = true
+		}
+	}
+	h.mu.Unlock()
+
+	client.Close()
+
+	// Remove Redis presence state when user has no active sessions left on this node
+	if isLastUserSession && h.redisClient != nil {
+		presenceKey := fmt.Sprintf("gateway:user_nodes:%s", client.UserID)
+		if err := h.redisClient.SRem(ctx, presenceKey, h.nodeID.String()).Err(); err != nil {
+			slog.ErrorContext(ctx, "failed to remove user node presence from redis",
+				"user_id", client.UserID,
+				"node_id", h.nodeID,
+				"error", err,
+			)
 		}
 	}
 
-	client.Close()
 	slog.Info("Client disconnected from gateway",
 		"node_id", h.nodeID,
 		"user_id", client.UserID,
@@ -145,13 +168,23 @@ func (h *Hub) handleUnregister(client *Client) {
 	)
 }
 
-func (h *Hub) shutdown() {
+func (h *Hub) shutdown(shutdownCtx context.Context) {
+	h.subMu.Lock()
 	if h.sub != nil {
 		_ = h.sub.Unsubscribe()
 	}
+	h.subMu.Unlock()
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// Clean up user node mappings in Redis for all connected users on this node
+	if h.redisClient != nil {
+		for userID := range h.userIndex {
+			presenceKey := fmt.Sprintf("gateway:user_nodes:%s", userID)
+			_ = h.redisClient.SRem(shutdownCtx, presenceKey, h.nodeID.String()).Err()
+		}
+	}
 
 	for _, client := range h.clients {
 		client.Close()
@@ -165,12 +198,9 @@ func (h *Hub) DispatchHandler(msgType string) (MessageHandler, bool) {
 	return handler, exists
 }
 
-// --- Node-Specific Redis Event Routing ---
-
 func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
 	channelName := fmt.Sprintf("gateway:%s:events", h.nodeID.String())
 
-	// Exact subscribe to node channel instead of pattern matching
 	sub, err := pkgredis.Subscribe(ctx, h.redisClient, pkgredis.ScopeOutboxEvent, channelName)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
@@ -180,7 +210,10 @@ func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
 		)
 		return
 	}
+
+	h.subMu.Lock()
 	h.sub = sub
+	h.subMu.Unlock()
 
 	slog.InfoContext(ctx, "Subscribed to node event stream",
 		"node_id", h.nodeID,
@@ -226,7 +259,6 @@ func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
 	h.SendToUser(event.TargetUser, outboundPayload)
 }
 
-// SendToUser pushes a message to all active local WS connections for a specific user.
 func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -249,7 +281,6 @@ func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 	}
 }
 
-// SendToSession delivers a frame directly to a single connection on this node.
 func (h *Hub) SendToSession(sessionID uuid.UUID, message []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

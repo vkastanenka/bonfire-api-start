@@ -182,6 +182,7 @@ func run(cfg *config.Config) error {
 	wsHub := gateway.NewHub(dbStore, cacheConn)
 	go wsHub.Run(ctx)
 	gatewayHandler := gateway.NewHandler(wsHub, userCache, ticketCache, bind)
+	// broadcaster := gateway.NewBroadcaster(cacheConn)
 
 	outboxWorker, err := outbox.NewWorker(
 		outboxRepo,
