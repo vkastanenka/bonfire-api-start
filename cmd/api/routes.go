@@ -43,7 +43,7 @@ func (app *Application) routes() http.Handler {
 			public.Post("/auth/reset-password", httpio.ToHTTPErr(app.Handlers.Auth.ResetPassword))
 
 			// Realtime Gateway WS Handshake
-			// public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
+			public.Get("/gateway/ws", httpio.ToHTTPErr(app.Handlers.Gateway.ServeWS))
 
 		})
 

@@ -12,6 +12,7 @@ import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/logger"
@@ -105,12 +106,6 @@ func run(cfg *config.Config) error {
 	rateLimiter := redis_rate.NewLimiter(cacheConn)
 	val := validator.New()
 	bind := httpio.NewBind(val)
-	// mailer := email.NewMailer(email.Config{
-	// 	ResendAPIKey: cfg.ResendApiKey,
-	// 	FromAddress:  cfg.EmailFromAddress,
-	// 	FrontendURL:  cfg.FrontendURL,
-	// 	OverrideTo:   cfg.EmailOverrideTo,
-	// })
 
 	ticketCache := cache.NewWSTicketCache(cacheConn, redis.ScopeTicket, cfg.TicketTTL)
 	userCache := cache.NewUserCache(cacheConn, redis.ScopeUser, cfg.UserTTL)
@@ -184,6 +179,10 @@ func run(cfg *config.Config) error {
 	sessionHandler := handler.NewSessionHandler(sessionSvc, bind)
 	userHandler := handler.NewUserHandler(userSvc, relationSvc, channelSvc, bind)
 
+	wsHub := gateway.NewHub(dbStore, cacheConn)
+	go wsHub.Run(ctx)
+	gatewayHandler := gateway.NewHandler(wsHub, userCache, ticketCache, bind)
+
 	outboxWorker, err := outbox.NewWorker(
 		outboxRepo,
 		cfg.OutboxPollInterval,
@@ -195,10 +194,6 @@ func run(cfg *config.Config) error {
 		return err
 	}
 
-	// 2. Register your event handlers here
-	// outboxWorker.RegisterHandler("user.email.send", emailHandler.HandleSendEmail)
-	// outboxWorker.RegisterHandler("message.created", realtimeHandler.HandleMessageBroadcast)
-
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop()
 
@@ -209,6 +204,7 @@ func run(cfg *config.Config) error {
 		Handlers: Handlers{
 			Auth:     authHandler,
 			Channel:  channelHandler,
+			Gateway:  gatewayHandler,
 			Health:   healthHandler,
 			Member:   memberHandler,
 			Message:  messageHandler,

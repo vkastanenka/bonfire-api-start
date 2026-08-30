@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/config"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/token"
 
@@ -15,9 +16,9 @@ import (
 )
 
 type Handlers struct {
-	Auth    *handler.AuthHandler
-	Channel *handler.ChannelHandler
-	// Gateway  *gateway.Handler
+	Auth     *handler.AuthHandler
+	Channel  *handler.ChannelHandler
+	Gateway  *gateway.Handler
 	Health   *handler.HealthHandler
 	Member   *handler.MemberHandler
 	Message  *handler.MessageHandler

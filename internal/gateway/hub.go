@@ -37,13 +37,13 @@ type Hub struct {
 	unregister chan *Client
 
 	handlers map[string]MessageHandler
-	store    db.Store
+	store    *db.Store
 
 	redisClient *redis.Client
 	sub         *pkgredis.Subscription
 }
 
-func NewHub(store db.Store, rdb *redis.Client) *Hub {
+func NewHub(store *db.Store, rdb *redis.Client) *Hub {
 	return &Hub{
 		nodeID:      uuid.New(),
 		clients:     make(map[uuid.UUID]*Client),
