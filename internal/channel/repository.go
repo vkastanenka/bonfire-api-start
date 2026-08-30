@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 )
 
@@ -58,7 +59,7 @@ type ReactionRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, variant string, payload any) error
+	Publish(ctx context.Context, eventType outbox.Type, payload outbox.Payload, now fields.Timestamp) error
 }
 
 type RelationRepository interface {

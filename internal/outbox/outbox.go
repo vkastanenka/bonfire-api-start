@@ -127,7 +127,7 @@ func (e *Event) MarkProcessed(at fields.Timestamp) {
 }
 
 // MarkFailure increments attempts, calculates exponential backoff, and releases worker locks.
-func (e *Event) MarkFailure(reason string, at fields.Timestamp) {
+func (e *Event) MarkFailure(at fields.Timestamp) {
 	e.attempts++
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}
@@ -139,7 +139,7 @@ func (e *Event) MarkFailure(reason string, at fields.Timestamp) {
 }
 
 // MarkDeadLetter maxes out attempts and parks the event without scheduling future attempts.
-func (e *Event) MarkDeadLetter(reason string, at fields.Timestamp) {
+func (e *Event) MarkDeadLetter(at fields.Timestamp) {
 	e.attempts = e.maxAttempts
 	e.lockedBy = fields.ID{}
 	e.leaseExpiresAt = fields.Timestamp{}

@@ -174,11 +174,12 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMessageCreated,
-			MessageCreatedPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMessageCreated,
+		// 	MessageCreatedPayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -327,11 +328,12 @@ func (s *MessageService) UpdateContent(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMessageUpdateContent,
-			MessageUpdateContentPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMessageUpdateContent,
+		// 	MessageUpdateContentPayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -387,11 +389,12 @@ func (s *MessageService) UpdatePinnedAt(
 			}
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMessageUpdatePinnedAt,
-			MessageUpdatePinnedAtPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMessageUpdatePinnedAt,
+		// 	MessageUpdatePinnedAtPayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -424,11 +427,12 @@ func (s *MessageService) Delete(
 			return txErr
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMessageDelete,
-			MessageDeletePayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMessageDelete,
+		// 	MessageDeletePayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return err
@@ -490,11 +494,12 @@ func (s *MessageService) ToggleReaction(
 			return txErr
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventReactionToggle,
-			ReactionTogglePayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventReactionToggle,
+		// 	ReactionTogglePayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err

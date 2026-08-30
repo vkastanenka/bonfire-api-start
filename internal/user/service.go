@@ -444,20 +444,21 @@ func (s *Service) update(
 	ctx context.Context,
 	updateFn func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error),
 ) (*User, error) {
-	now := fields.Now()
+	// now := fields.Now()
 	var updatedUser *User
 
 	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		var eventType string
-		var eventPayload any
+		// var err error
+		// var eventType string
+		// var eventPayload any
 
-		updatedUser, eventType, eventPayload, err = updateFn(txCtx, now)
-		if err != nil {
-			return err
-		}
+		// updatedUser, eventType, eventPayload, err = updateFn(txCtx, now)
+		// if err != nil {
+		// 	return err
+		// }
 
-		return s.outboxRepo.Publish(txCtx, eventType, eventPayload)
+		// return s.outboxRepo.Publish(txCtx, eventType, eventPayload, now)
+		return nil
 	})
 	if err != nil {
 		return nil, err

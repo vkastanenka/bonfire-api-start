@@ -50,6 +50,10 @@ type Config struct {
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
 	TicketTTL            time.Duration `env:"TICKET_TTL" envDefault:"30s"`
 	UserTTL              time.Duration `env:"USER_TTL" envDefault:"30s"`
+	OutboxPollInterval   time.Duration `env:"OUTBOX_POLL_INTERVAL" envDefault:"1s"`
+	OutboxLeaseDuration  int           `env:"OUTBOX_LEASE_DURATION" envDefault:"30"`
+	OutboxBatchSize      int           `env:"OUTBOX_BATCH_SIZE" envDefault:"50"`
+	OutboxMaxWorkers     int           `env:"OUTBOX_MAX_WORKERS" envDefault:"10"`
 }
 
 func (c *Config) IsDevelopment() bool {

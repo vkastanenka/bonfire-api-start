@@ -220,7 +220,7 @@ func (h *AuthHandler) PrintWSTicket(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	ticket, err := h.service.PrintWSTicket(r.Context(), claims.UserID.UUID())
+	ticket, err := h.service.PrintWSTicket(r.Context(), claims.UserID.UUID(), claims.SessionID.UUID())
 	if err != nil {
 		return err
 	}

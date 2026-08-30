@@ -18,28 +18,29 @@ const (
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
-	email, err := user.ParseRequiredEmail("email", rawEmail)
-	if err != nil || !email.IsValid() {
-		return nil
-	}
+	// email, err := user.ParseRequiredEmail("email", rawEmail)
+	// if err != nil || !email.IsValid() {
+	// 	return nil
+	// }
 
-	userRow, err := s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		if errs.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
+	// userRow, err := s.userRepo.GetByEmail(ctx, email)
+	// if err != nil {
+	// 	if errs.IsNotFound(err) {
+	// 		return nil
+	// 	}
+	// 	return err
+	// }
 
-	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
-	if err != nil {
-		return err
-	}
+	// t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
+	// if err != nil {
+	// 	return err
+	// }
 
-	return s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
-		Email: userRow.Email().String(),
-		Token: t,
-	})
+	// return s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
+	// 	Email: userRow.Email().String(),
+	// 	Token: t,
+	// })
+	return nil
 }
 
 type ResetPasswordParams struct {

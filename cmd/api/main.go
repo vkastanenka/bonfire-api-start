@@ -15,6 +15,7 @@ import (
 	"bonfire-api/internal/handler"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/logger"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/repository"
@@ -111,7 +112,7 @@ func run(cfg *config.Config) error {
 	// 	OverrideTo:   cfg.EmailOverrideTo,
 	// })
 
-	ticketCache := cache.NewTicketCache(cacheConn, redis.ScopeTicket, cfg.TicketTTL)
+	ticketCache := cache.NewWSTicketCache(cacheConn, redis.ScopeTicket, cfg.TicketTTL)
 	userCache := cache.NewUserCache(cacheConn, redis.ScopeUser, cfg.UserTTL)
 
 	channelRepo := repository.NewChannelRepository(dbStore)
@@ -182,6 +183,24 @@ func run(cfg *config.Config) error {
 	relationHandler := handler.NewRelationHandler(relationSvc, bind)
 	sessionHandler := handler.NewSessionHandler(sessionSvc, bind)
 	userHandler := handler.NewUserHandler(userSvc, relationSvc, channelSvc, bind)
+
+	outboxWorker, err := outbox.NewWorker(
+		outboxRepo,
+		cfg.OutboxPollInterval,
+		cfg.OutboxLeaseDuration,
+		cfg.OutboxBatchSize,
+		cfg.OutboxMaxWorkers,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 2. Register your event handlers here
+	// outboxWorker.RegisterHandler("user.email.send", emailHandler.HandleSendEmail)
+	// outboxWorker.RegisterHandler("message.created", realtimeHandler.HandleMessageBroadcast)
+
+	outboxWorker.Start(ctx)
+	defer outboxWorker.Stop()
 
 	app := &Application{
 		Config:      cfg,

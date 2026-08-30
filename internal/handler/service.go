@@ -16,7 +16,7 @@ import (
 type AuthService interface {
 	ForgotPassword(ctx context.Context, rawEmail string) error
 	Login(ctx context.Context, p auth.LoginParams) (auth.LoginResult, error)
-	PrintWSTicket(ctx context.Context, rawUserID uuid.UUID) (fields.ID, error)
+	PrintWSTicket(ctx context.Context, rawUserID uuid.UUID, rawSessionID uuid.UUID) (fields.ID, error)
 	Refresh(ctx context.Context, p auth.RefreshParams) (auth.RefreshResult, error)
 	Register(ctx context.Context, p auth.RegisterParams) (auth.RegisterResult, error)
 	ResendVerify(ctx context.Context, rawUserID uuid.UUID) error

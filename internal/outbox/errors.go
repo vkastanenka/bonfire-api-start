@@ -1,10 +1,15 @@
 package outbox
 
 import (
+	"errors"
 	"fmt"
 
 	"bonfire-api/internal/errs"
 )
+
+// ErrFatal can be wrapped or returned by Handlers to signal a non-retryable failure.
+// The worker will immediately move the event to the dead letter state.
+var ErrFatal = errors.New("fatal non-retryable outbox error")
 
 func ErrTypeRequired() *errs.Error {
 	return errs.InvalidArgument("Event type is required.").

@@ -69,14 +69,15 @@ func (s *Service) ResendVerify(ctx context.Context, rawUserID uuid.UUID) error {
 		return nil
 	}
 
-	verifyToken, _, err := s.tokenProvider.GenerateEmailVerify(u.ID())
-	if err != nil {
-		return err
-	}
+	// verifyToken, _, err := s.tokenProvider.GenerateEmailVerify(u.ID())
+	// if err != nil {
+	// 	return err
+	// }
 
-	return s.outboxRepo.Publish(ctx, EventResendVerification, ResendVerificationEventPayload{
-		Email:    u.Email().String(),
-		Username: u.Username().String(),
-		Token:    verifyToken,
-	})
+	// return s.outboxRepo.Publish(ctx, EventResendVerification, ResendVerificationEventPayload{
+	// 	Email:    u.Email().String(),
+	// 	Username: u.Username().String(),
+	// 	Token:    verifyToken,
+	// })
+	return nil
 }

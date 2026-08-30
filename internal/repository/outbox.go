@@ -187,17 +187,13 @@ func (r *OutboxRepository) Publish(
 	eventType outbox.Type,
 	payload outbox.Payload,
 	now fields.Timestamp,
-) (*outbox.Event, error) {
+) error {
 	evt, err := outbox.New(ctx, eventType, payload, now)
 	if err != nil {
-		return nil, errs.Internal("failed to generate outbox event").Wrap(err)
+		return errs.Internal("failed to generate outbox event").Wrap(err)
 	}
 
-	if err := r.Create(ctx, evt); err != nil {
-		return nil, err
-	}
-
-	return evt, nil
+	return r.Create(ctx, evt)
 }
 
 type PublishRequest struct {
@@ -209,25 +205,21 @@ func (r *OutboxRepository) PublishBatch(
 	ctx context.Context,
 	reqs []PublishRequest,
 	now fields.Timestamp,
-) ([]*outbox.Event, error) {
+) error {
 	if len(reqs) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	events := make([]*outbox.Event, 0, len(reqs))
 	for _, req := range reqs {
 		evt, err := outbox.New(ctx, req.Type, req.Payload, now)
 		if err != nil {
-			return nil, errs.Internal("failed to generate outbox event in batch").Wrap(err)
+			return errs.Internal("failed to generate outbox event in batch").Wrap(err)
 		}
 		events = append(events, evt)
 	}
 
-	if err := r.CreateBatch(ctx, events); err != nil {
-		return nil, err
-	}
-
-	return events, nil
+	return r.CreateBatch(ctx, events)
 }
 
 // ============================================================================

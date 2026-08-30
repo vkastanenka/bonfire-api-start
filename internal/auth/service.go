@@ -185,10 +185,10 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	newUser := user.New(userID, email, username, displayName, passwordHash, now)
 	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
 
-	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
-	if err != nil {
-		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
-	}
+	// evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
+	// if err != nil {
+	// 	return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
+	// }
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if _, err := s.userRepo.Create(txCtx, newUser); err != nil {
@@ -199,11 +199,12 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return err
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
-			Email:    newUser.Email().String(),
-			Username: newUser.Username().String(),
-			Token:    evToken,
-		})
+		// return s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
+		// 	Email:    newUser.Email().String(),
+		// 	Username: newUser.Username().String(),
+		// 	Token:    evToken,
+		// })
+		return nil
 	})
 
 	if txErr != nil {

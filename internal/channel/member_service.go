@@ -143,7 +143,8 @@ func (s *MemberService) AddMembers(
 			return err
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
+		// return s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
+		return nil
 	})
 }
 
@@ -223,11 +224,12 @@ func (s *MemberService) CloseDirect(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMemberUpdateUpdateVisibility,
-			MemberUpdateVisibilityPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMemberUpdateUpdateVisibility,
+		// 	MemberUpdateVisibilityPayload{},
+		// )
+		return nil
 	})
 }
 
@@ -273,11 +275,12 @@ func (s *MemberService) UpdateLastReadMessage(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMemberUpdateLastReadMessage,
-			MemberUpdateLastReadMessagePayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMemberUpdateLastReadMessage,
+		// 	MemberUpdateLastReadMessagePayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -318,11 +321,12 @@ func (s *MemberService) UpdatePinnedAt(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMemberUpdatePinnedAt,
-			MemberUpdatePinnedAtPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMemberUpdatePinnedAt,
+		// 	MemberUpdatePinnedAtPayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -372,11 +376,12 @@ func (s *MemberService) UpdateMutedUntil(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMemberUpdateMutedUntil,
-			MemberUpdateMutedUntilPayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMemberUpdateMutedUntil,
+		// 	MemberUpdateMutedUntilPayload{},
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -433,11 +438,12 @@ func (s *MemberService) LeaveGroup(
 			return err
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMemberDelete,
-			MemberDeletePayload{},
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMemberDelete,
+		// 	MemberDeletePayload{},
+		// )
+		return nil
 	})
 }
 
