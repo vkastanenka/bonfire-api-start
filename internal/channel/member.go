@@ -121,6 +121,16 @@ func (m *Member) IsVisible() bool                     { return m.isVisible }
 func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
 func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
 
+func getChannels(channelMap map[fields.ID]*Channel) []*Channel {
+	channels := make([]*Channel, 0, len(channelMap))
+	for _, ch := range channelMap {
+		if ch != nil {
+			channels = append(channels, ch)
+		}
+	}
+	return channels
+}
+
 func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
 	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
 }

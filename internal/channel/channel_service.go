@@ -5,6 +5,7 @@ import (
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/user"
 	"context"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -193,73 +194,48 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 	return channel, hydrateMemberViews(members, userMap, presenceMap), hydrateMessageViews(messages, userMap, reactionMap), nil
 }
 
-// GetSidebar fetches all sidebar needed to load a user's sidebar, including details, members, and presences.
-func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) ([]SidebarView, error) {
+// GetSidebar fetches all sidebar related structures.
+func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
+	channelMap map[fields.ID]*Channel,
+	memberMap map[fields.ID]*Member,
+	peerIDsMap map[fields.ID][]fields.ID,
+	channelIDs []fields.ID,
+	peerIDs []fields.ID,
+	directPeerIDs []fields.ID,
+	err error,
+) {
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, actorID, ChannelMaxSidebarItems)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	if len(userMemberships) == 0 {
-		return []SidebarView{}, nil
+		return make(map[fields.ID]*Channel), make(map[fields.ID]*Member), make(map[fields.ID][]fields.ID), []fields.ID{}, []fields.ID{}, []fields.ID{}, nil
 	}
 
-	channelIDs, actorMembershipMap := indexMemberships(userMemberships)
+	channelIDs, memberMap = indexMemberships(userMemberships)
 
-	channelMap, err := s.repo.GetBatch(ctx, channelIDs)
+	channelMap, err = s.repo.GetBatch(ctx, channelIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
-	memberMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
+	channelMembersMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
-	peerIDs, directPeerIDs := getSidebarUserIDs(actorID, channelMap, memberMap)
-
-	var (
-		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]user.Presence
-	)
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	if len(peerIDs) > 0 {
-		g.Go(func() error {
-			var err error
-			userMap, err = s.userRepo.GetBatch(gCtx, peerIDs)
-			return err
-		})
-	}
-
-	if len(directPeerIDs) > 0 {
-		g.Go(func() error {
-			var err error
-			presenceMap, err = s.userCache.GetBatchPresence(gCtx, directPeerIDs)
-			return err
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	channels := make([]*Channel, 0, len(channelMap))
-	for _, ch := range channelMap {
-		if ch != nil {
-			channels = append(channels, ch)
-		}
-	}
-
-	sortSidebar(channels, actorMembershipMap)
-
-	return hydrateSidebarViews(actorID, channels, actorMembershipMap, memberMap, userMap, presenceMap), nil
+	channels := getChannels(channelMap)
+	sortSidebar(channels, memberMap)
+	channelIDs = indexChannels(channels)
+	peerIDs, directPeerIDs = getSidebarUserIDs(actorID, channelMap, channelMembersMap)
+	peerIDsMap = getSidebarPeerIDsMap(actorID, channelMembersMap)
+	return channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, directPeerIDs, nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
@@ -366,6 +342,25 @@ func getMessagesCursor(
 	}
 
 	return fields.NewCursor(fallbackMessageID, MessageListLimit, 0)
+}
+
+func getSidebarPeerIDsMap(actorID fields.ID, memberMap map[fields.ID][]*Member) map[fields.ID][]fields.ID {
+	channelPeerIDsMap := make(map[fields.ID][]fields.ID, len(memberMap))
+	for chID, members := range memberMap {
+		var userIDs []fields.ID
+		for _, m := range members {
+			if m != nil && !m.UserID().Equals(actorID) {
+				userIDs = append(userIDs, m.UserID())
+			}
+		}
+
+		slices.SortFunc(userIDs, func(a, b fields.ID) int {
+			return a.Compare(b)
+		})
+
+		channelPeerIDsMap[chID] = userIDs
+	}
+	return channelPeerIDsMap
 }
 
 func getSidebarUserIDs(

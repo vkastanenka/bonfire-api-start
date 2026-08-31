@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/user"
@@ -53,6 +54,11 @@ type UserGetMeResponse struct {
 	Channels []channel.SidebarView `json:"channels"`
 }
 
+type Friend struct {
+	PeerID    fields.ID
+	ChannelID fields.ID
+}
+
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	userID, err := httpio.CtxGetUserID(ctx)
@@ -63,9 +69,19 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 	g, gCtx := errgroup.WithContext(ctx)
 
 	var (
-		me       *user.User
-		friends  []relation.Peer
-		channels []channel.SidebarView
+		me        *user.User
+		users     map[fields.ID]*user.User     // friends, channel members
+		presences map[fields.ID]*user.Presence // friends, channel members
+		friends   []Friend
+	)
+
+	var (
+		channelMap    map[fields.ID]*channel.Channel
+		memberMap     map[fields.ID]*channel.Member
+		peerIDsMap    map[fields.ID][]fields.ID
+		channelIDs    []fields.ID
+		peerIDs       []fields.ID
+		directPeerIDs []fields.ID
 	)
 
 	g.Go(func() error {
@@ -76,27 +92,59 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 
 	g.Go(func() error {
 		var err error
-		friends, err = h.relService.GetPeers(gCtx, userID.UUID(), relation.NewTypeFriends().String())
+		channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, directPeerIDs, err = h.chanService.GetSidebar(gCtx, userID.UUID())
 		return err
 	})
 
-	g.Go(func() error {
-		var err error
-		channels, err = h.chanService.GetSidebar(gCtx, userID.UUID())
-		return err
-	})
+	// Get
 
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, UserGetMeResponse{
-		Me:       user.ToUserMeView(me),
-		Friends:  friends,
-		Channels: channels,
-	})
 	return nil
 }
+
+// func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
+// 	ctx := r.Context()
+// 	userID, err := httpio.CtxGetUserID(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	g, gCtx := errgroup.WithContext(ctx)
+
+// 	var (
+// 		me       *user.User
+// 		friends  []relation.Peer
+// 		channels []channel.SidebarView
+// 	)
+
+// 	g.Go(func() error {
+// 		var err error
+// 		me, err = h.service.Get(gCtx, userID.UUID())
+// 		return err
+// 	})
+
+// 	g.Go(func() error {
+// 		var err error
+// 		friends, err = h.relService.GetPeers(gCtx, userID.UUID(), relation.NewTypeFriends().String())
+// 		return err
+// 	})
+
+// 	g.Go(func() error {
+// 		var err error
+// 		channels, err = h.chanService.GetSidebar(gCtx, userID.UUID())
+// 		return err
+// 	})
+
+// 	if err := g.Wait(); err != nil {
+// 		return err
+// 	}
+
+// 	httpio.RespondOK(w, r, UserGetMeResponse{
+// 		Me:       user.ToUserMeView(me),
+// 		Friends:  friends,
+// 		Channels: channels,
+// 	})
+// 	return nil
+// }
 
 type UserUpdateEmailRequest struct {
 	NewEmail string `json:"newEmail" mod:"email" validate:"required,email,max=255"`

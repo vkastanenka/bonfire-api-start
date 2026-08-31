@@ -90,6 +90,19 @@ func (c *Channel) IsGroup() bool {
 	return c.chType.IsGroup()
 }
 
+func indexChannels(channels []*Channel) []fields.ID {
+	channelIDs := make([]fields.ID, 0, len(channels))
+
+	for _, ch := range channels {
+		if ch == nil {
+			continue
+		}
+		channelIDs = append(channelIDs, ch.ID())
+	}
+
+	return channelIDs
+}
+
 func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
 	pinnedAt := func(c *Channel) fields.Timestamp {
 		if m := userMembersMap[c.ID()]; m != nil && m.PinnedAt().IsValid() {

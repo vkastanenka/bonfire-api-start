@@ -262,6 +262,8 @@ func hydrateSidebarView(
 		MentionCount:      mem.MentionCount(),
 		Peers:             peersView,
 		MemberTotal:       memberTotal,
+		// IsPinned
+		// IsMusted
 	}, true
 }
 

@@ -27,7 +27,7 @@ type AuthService interface {
 type ChannelService interface {
 	CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) error
 	Get(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID) (*channel.Channel, []channel.MemberView, []channel.MessageView, error)
-	GetSidebar(ctx context.Context, rawActorID uuid.UUID) ([]channel.SidebarView, error)
+	GetSidebar(ctx context.Context, rawActorID uuid.UUID) (channelMap map[fields.ID]*channel.Channel, memberMap map[fields.ID]*channel.Member, peerIDsMap map[fields.ID][]fields.ID, channelIDs []fields.ID, peerIDs []fields.ID, directPeerIDs []fields.ID, err error)
 	UpdateGroup(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawName *string, rawIconURL *string) (*channel.Channel, error)
 }
 
