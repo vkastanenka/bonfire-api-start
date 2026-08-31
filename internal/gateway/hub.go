@@ -30,7 +30,7 @@ type GatewayNodeEvent struct {
 }
 
 type Hub struct {
-	id uuid.UUID
+	id fields.ID
 
 	register   chan ClientRegistration
 	unregister chan *Client
@@ -52,7 +52,7 @@ type Hub struct {
 
 func NewHub(redisClient *goredis.Client, userCache UserCache, gatewayCache GatewayCache) *Hub {
 	return &Hub{
-		id:           uuid.New(),
+		id:           fields.ID(uuid.New()),
 		register:     make(chan ClientRegistration, clientBufferLength),
 		unregister:   make(chan *Client, clientBufferLength),
 		sessionIdx:   make(map[uuid.UUID]*Client),

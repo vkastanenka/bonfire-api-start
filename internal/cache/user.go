@@ -10,8 +10,12 @@ import (
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 
-	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
+)
+
+var (
+	userPresenceTTL = 45 * time.Second
+	userNodesTTL    = 45 * time.Second
 )
 
 func userPresenceKey(id fields.ID) string {
@@ -25,14 +29,12 @@ func userNodesKey(id fields.ID) string {
 type UserCache struct {
 	client redisdriver.Cmdable
 	scope  redis.Scope
-	ttl    time.Duration
 }
 
-func NewUserCache(client redisdriver.Cmdable, scope redis.Scope, ttl time.Duration) *UserCache {
+func NewUserCache(client redisdriver.Cmdable, scope redis.Scope) *UserCache {
 	return &UserCache{
 		client: client,
 		scope:  scope,
-		ttl:    ttl,
 	}
 }
 
@@ -101,7 +103,7 @@ func (c *UserCache) GetBatchPresence(
 }
 
 func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error {
-	if err := c.client.Set(ctx, userPresenceKey(userID), uint8(p.Int()), c.ttl).Err(); err != nil {
+	if err := c.client.Set(ctx, userPresenceKey(userID), uint8(p.Int()), userPresenceTTL).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
 	return nil
@@ -109,14 +111,14 @@ func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p user.Pr
 
 // --- Node Presence Operations ---
 
-func (c *UserCache) AddNode(ctx context.Context, userID fields.ID, nodeID string) error {
+func (c *UserCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error {
 	pKey := userPresenceKey(userID)
 	nKey := userNodesKey(userID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.SAdd(ctx, nKey, nodeID)
-		pipe.Expire(ctx, nKey, c.ttl)
-		pipe.Expire(ctx, pKey, c.ttl)
+		pipe.SAdd(ctx, nKey, nodeID.String())
+		pipe.Expire(ctx, nKey, userNodesTTL)
+		pipe.Expire(ctx, pKey, userPresenceTTL)
 		return nil
 	})
 	if err != nil {
@@ -132,41 +134,13 @@ func (c *UserCache) RemoveNode(ctx context.Context, userID fields.ID, nodeID str
 	return nil
 }
 
-func (c *UserCache) GetNodesForUsers(ctx context.Context, userIDs []fields.ID) (map[string][]uuid.UUID, error) {
-	if len(userIDs) == 0 {
-		return nil, nil
-	}
-
-	cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(userIDs))
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		for _, id := range userIDs {
-			cmds[id] = pipe.SMembers(ctx, userNodesKey(id))
-		}
-		return nil
-	})
-	if err != nil && err != redisdriver.Nil {
-		return nil, redis.NewError(err, c.scope)
-	}
-
-	nodeToUsers := make(map[string][]uuid.UUID)
-	for id, cmd := range cmds {
-		for _, nodeID := range cmd.Val() {
-			if nodeID != "" {
-				nodeToUsers[nodeID] = append(nodeToUsers[nodeID], id.UUID())
-			}
-		}
-	}
-
-	return nodeToUsers, nil
-}
-
 func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID) error {
 	pKey := userPresenceKey(userID)
 	nKey := userNodesKey(userID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.Expire(ctx, pKey, c.ttl)
-		pipe.Expire(ctx, nKey, c.ttl)
+		pipe.Expire(ctx, pKey, userPresenceTTL)
+		pipe.Expire(ctx, nKey, userNodesTTL)
 		return nil
 	})
 	if err != nil {
