@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -168,6 +169,38 @@ func sortPeers(peers []Peer) {
 		}
 
 		return a.ID.Compare(b.ID)
+	})
+}
+
+func SortFriendIDs(friendIDs []fields.ID, users map[fields.ID]*user.User) {
+	slices.SortFunc(friendIDs, func(aID, bID fields.ID) int {
+		uA := users[aID]
+		uB := users[bID]
+
+		// Extract lowercased display names or usernames
+		var nameA, nameB string
+		if uA != nil {
+			if dn := uA.DisplayName().String(); dn != "" {
+				nameA = strings.ToLower(dn)
+			} else {
+				nameA = strings.ToLower(uA.Username().String())
+			}
+		}
+		if uB != nil {
+			if dn := uB.DisplayName().String(); dn != "" {
+				nameB = strings.ToLower(dn)
+			} else {
+				nameB = strings.ToLower(uB.Username().String())
+			}
+		}
+
+		// Primary sort: Display Name / Username
+		if c := cmp.Compare(nameA, nameB); c != 0 {
+			return c
+		}
+
+		// Secondary tie-breaker: ID comparison
+		return aID.Compare(bID)
 	})
 }
 

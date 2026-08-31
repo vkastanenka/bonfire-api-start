@@ -49,14 +49,15 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
 }
 
 type UserGetMeResponse struct {
-	Me       user.UserMeView       `json:"me"`
-	Friends  []relation.Peer       `json:"friends"`
-	Channels []channel.SidebarView `json:"channels"`
-}
-
-type Friend struct {
-	PeerID    fields.ID
-	ChannelID fields.ID
+	Me             user.UserMeView                `json:"me"`
+	Users          map[fields.ID]*user.UserView   `json:"users"`
+	Presences      map[fields.ID]user.Presence    `json:"presences"`
+	Channels       map[fields.ID]*channel.Channel `json:"channels"`
+	Members        map[fields.ID]*channel.Member  `json:"members"`
+	PeerIDs        map[fields.ID][]fields.ID      `json:"peerIDs"`
+	FriendChannels map[fields.ID]fields.ID        `json:"friendChannels"` // friendID -> channelID
+	ChannelIDs     []fields.ID                    `json:"channelIds"`     // ordered sidebar channels
+	FriendIDs      []fields.ID                    `json:"friendIds"`      // sorted friend IDs
 }
 
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
@@ -66,38 +67,96 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	g, gCtx := errgroup.WithContext(ctx)
+	g1, gCtx1 := errgroup.WithContext(ctx)
 
 	var (
-		me        *user.User
-		users     map[fields.ID]*user.User     // friends, channel members
-		presences map[fields.ID]*user.Presence // friends, channel members
-		friends   []Friend
+		me                *user.User
+		channelMap        map[fields.ID]*channel.Channel
+		memberMap         map[fields.ID]*channel.Member
+		peerIDsMap        map[fields.ID][]fields.ID
+		channelIDs        []fields.ID
+		peerIDs           []fields.ID
+		friendChannelsMap map[fields.ID]fields.ID
+		friendIDs         []fields.ID
 	)
 
-	var (
-		channelMap    map[fields.ID]*channel.Channel
-		memberMap     map[fields.ID]*channel.Member
-		peerIDsMap    map[fields.ID][]fields.ID
-		channelIDs    []fields.ID
-		peerIDs       []fields.ID
-		directPeerIDs []fields.ID
-	)
-
-	g.Go(func() error {
+	g1.Go(func() error {
 		var err error
-		me, err = h.service.Get(gCtx, userID.UUID())
+		me, err = h.service.Get(gCtx1, userID.UUID())
 		return err
 	})
 
-	g.Go(func() error {
+	g1.Go(func() error {
 		var err error
-		channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, directPeerIDs, err = h.chanService.GetSidebar(gCtx, userID.UUID())
+		channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, _, err = h.chanService.GetSidebar(gCtx1, userID.UUID())
 		return err
 	})
 
-	// Get
+	g1.Go(func() error {
+		var err error
+		friendChannelsMap, friendIDs, err = h.relService.GetPeers(gCtx1, userID.UUID(), relation.NewTypeFriends().String())
+		return err
+	})
 
+	if err := g1.Wait(); err != nil {
+		return err
+	}
+
+	// Phase 2: Deduplicate IDs & fetch user models + presences concurrently
+	allUserIDs := append(peerIDs, friendIDs...)
+	dedupedUserIDs := fields.DedupeIDs(allUserIDs)
+
+	g2, gCtx2 := errgroup.WithContext(ctx)
+
+	var (
+		usersMap     map[fields.ID]*user.User
+		presencesMap map[fields.ID]user.Presence
+	)
+
+	g2.Go(func() error {
+		var err error
+		usersMap, err = h.service.GetBatch(gCtx2, dedupedUserIDs)
+		return err
+	})
+
+	g2.Go(func() error {
+		var err error
+		presencesMap, err = h.service.GetBatchPresence(gCtx2, dedupedUserIDs)
+		return err
+	})
+
+	if err := g2.Wait(); err != nil {
+		return err
+	}
+
+	// Phase 3: Sort friends list by display name/username
+	relation.SortFriendIDs(friendIDs, usersMap)
+
+	// Phase 4: Map domain users to user views (stripping internal fields like password hashes)
+	userViews := make(map[fields.ID]*user.UserView, len(usersMap))
+	for id, u := range usersMap {
+		if u == nil {
+			continue
+		}
+		p := presencesMap[id]
+		view := user.ToUserView(u, p, fields.Now())
+		userViews[id] = &view
+	}
+
+	// Phase 5: Construct normalized response
+	response := UserGetMeResponse{
+		Me:             user.ToUserMeView(me),
+		Users:          userViews,
+		Presences:      presencesMap,
+		Channels:       channelMap,
+		Members:        memberMap,
+		PeerIDs:        peerIDsMap,
+		FriendChannels: friendChannelsMap,
+		ChannelIDs:     channelIDs,
+		FriendIDs:      friendIDs,
+	}
+
+	httpio.RespondOK(w, r, response)
 	return nil
 }
 

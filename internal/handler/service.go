@@ -55,7 +55,7 @@ type MessageService interface {
 type RelationService interface {
 	DeleteByUserID(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
 	GetPeer(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) (relation.Peer, error)
-	GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) ([]relation.Peer, error)
+	GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (peerChannelMap map[fields.ID]fields.ID, peerIDs []fields.ID, err error)
 	TransitionBlocked(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
 	TransitionFriends(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
 	TransitionPending(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
@@ -72,6 +72,8 @@ type UserService interface {
 	AnonymizeBatch(ctx context.Context) error
 	Disable(ctx context.Context, p user.DisableParams) error
 	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
 	GetView(ctx context.Context, userID uuid.UUID) (user.UserView, error)
 	ScheduleDelete(ctx context.Context, p user.ScheduleDeleteParams) error
 	UpdateEmail(ctx context.Context, p user.UpdateEmailParams) (*user.User, error)

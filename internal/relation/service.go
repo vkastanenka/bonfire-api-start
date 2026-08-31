@@ -89,63 +89,43 @@ func (s *Service) GetPeer(ctx context.Context, rawActorID, rawPeerID uuid.UUID) 
 	return peer, nil
 }
 
-func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) ([]Peer, error) {
+func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (
+	peerChannelMap map[fields.ID]fields.ID,
+	peerIDs []fields.ID,
+	err error,
+) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	relType, err := ParseString(rawType)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	relations, err := s.repo.ListTypeByUserID(ctx, userID, relType, maxPeerTypeLimit)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(relations) == 0 {
-		return []Peer{}, nil
+		return make(map[fields.ID]fields.ID), []fields.ID{}, nil
 	}
 
-	peerIDs := make([]fields.ID, len(relations))
-	for i, rel := range relations {
-		peerIDs[i] = rel.PeerID(userID)
-	}
+	peerIDs = make([]fields.ID, 0, len(relations))
+	peerChannelMap = make(map[fields.ID]fields.ID, len(relations))
 
-	var (
-		usersMap    map[fields.ID]*user.User
-		presenceMap map[fields.ID]user.Presence
-	)
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		var err error
-		usersMap, err = s.userRepo.GetBatch(gCtx, peerIDs)
-		return err
-	})
-
-	g.Go(func() error {
-		var err error
-		presenceMap, err = s.userCache.GetBatchPresence(gCtx, peerIDs)
-		if err != nil {
-			slog.WarnContext(gCtx, "presence batch fetch failed, defaulting peers to offline",
-				"user_id", userID.String(),
-				"count", len(peerIDs),
-				"error", err,
-			)
-			presenceMap = nil
+	for _, rel := range relations {
+		if rel == nil {
+			continue
 		}
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
+		pID := rel.PeerID(userID)
+		peerIDs = append(peerIDs, pID)
+		peerChannelMap[pID] = rel.ChannelID()
 	}
 
-	return hydratePeers(userID, relations, usersMap, presenceMap), nil
+	return peerChannelMap, peerIDs, nil
 }
 
 func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {

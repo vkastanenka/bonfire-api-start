@@ -56,6 +56,38 @@ func (s *Service) GetView(ctx context.Context, userID uuid.UUID) (UserView, erro
 	return ToUserView(user, userPresence, fields.Now()), nil
 }
 
+func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
+	if len(ids) == 0 {
+		return make(map[fields.ID]*User), nil
+	}
+
+	usersMap, err := s.repo.GetBatch(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	validUsers := make(map[fields.ID]*User, len(usersMap))
+	for id, u := range usersMap {
+		if u == nil {
+			continue
+		}
+		if err := u.EnsureActive(); err != nil {
+			continue
+		}
+		validUsers[id] = u
+	}
+
+	return validUsers, nil
+}
+
+func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
+	if len(userIDs) == 0 {
+		return make(map[fields.ID]Presence), nil
+	}
+
+	return s.cache.GetBatchPresence(ctx, userIDs)
+}
+
 type UpdateEmailParams struct {
 	UserID   uuid.UUID
 	NewEmail string
