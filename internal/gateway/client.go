@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,11 @@ const (
 type WSMessage struct {
 	Type string          `json:"t"`
 	Data json.RawMessage `json:"d"`
+}
+
+type ClientRegistration struct {
+	Client   *Client
+	Presence user.Presence
 }
 
 // Client represents a single active, bidirectional WebSocket connection.

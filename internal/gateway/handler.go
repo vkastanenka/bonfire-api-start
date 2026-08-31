@@ -65,7 +65,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := NewClient(ctx, userID, sessionID, conn)
-	h.hub.Register(client)
+	h.hub.Register(client, userPresence)
 	client.StartPumps(h.hub)
 
 	return nil
@@ -74,4 +74,3 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 // if err := h.userCache.SetPresence(context.WithoutCancel(ctx), userID, userPresence); err != nil {
 // 	slog.ErrorContext(ctx, "Failed to set initial user presence on websocket connect", "user_id", userID, "error", err)
 // }
-

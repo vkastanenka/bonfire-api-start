@@ -32,7 +32,7 @@ type GatewayNodeEvent struct {
 type Hub struct {
 	id uuid.UUID
 
-	register   chan *Client
+	register   chan ClientRegistration
 	unregister chan *Client
 
 	handlers map[string]MessageHandler
@@ -44,6 +44,7 @@ type Hub struct {
 	sub          *pubsub.Subscription
 	userCache    UserCache
 	gatewayCache GatewayCache
+	userService  UserService
 
 	mu    sync.RWMutex
 	subMu sync.Mutex
@@ -52,7 +53,7 @@ type Hub struct {
 func NewHub(redisClient *goredis.Client, userCache UserCache, gatewayCache GatewayCache) *Hub {
 	return &Hub{
 		id:           uuid.New(),
-		register:     make(chan *Client, clientBufferLength),
+		register:     make(chan ClientRegistration, clientBufferLength),
 		unregister:   make(chan *Client, clientBufferLength),
 		sessionIdx:   make(map[uuid.UUID]*Client),
 		userIdx:      make(map[uuid.UUID]map[uuid.UUID]*Client),
@@ -67,10 +68,12 @@ func (h *Hub) ID() uuid.UUID {
 	return h.id
 }
 
-func (h *Hub) Register(client *Client) {
-	h.register <- client
+func (h *Hub) Register(client *Client, presence user.Presence) {
+	h.register <- ClientRegistration{
+		Client:   client,
+		Presence: presence,
+	}
 }
-
 func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
 }
@@ -97,8 +100,8 @@ func (h *Hub) Run(ctx context.Context) {
 			h.shutdown(context.WithoutCancel(ctx))
 			return
 
-		case client := <-h.register:
-			h.handleRegister(ctx, client)
+		case reg := <-h.register:
+			h.handleRegister(ctx, reg.Client, reg.Presence)
 
 		case client := <-h.unregister:
 			h.handleUnregister(ctx, client)
@@ -106,11 +109,11 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-func (h *Hub) handleRegister(ctx context.Context, client *Client) {
+func (h *Hub) handleRegister(ctx context.Context, client *Client, presence user.Presence) {
 	isFirstUserSession := h.registerClient(client)
 
 	if isFirstUserSession {
-		h.trackUserConnection(ctx, client.UserID)
+		h.trackUserConnection(ctx, client.UserID, presence)
 	}
 
 	slog.Info("Client connected to gateway",
@@ -141,23 +144,12 @@ func (h *Hub) registerClient(client *Client) bool {
 	return isFirstUserSession
 }
 
-func (h *Hub) trackUserConnection(ctx context.Context, userID fields.ID) {
+func (h *Hub) trackUserConnection(ctx context.Context, userID fields.ID, presence user.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userCache.AddNode(reqCtx, userID, h.id.String()); err != nil {
-		slog.ErrorContext(ctx, "failed to track user node presence in redis",
-			"user_id", userID,
-			"node_id", h.id,
-			"error", err,
-		)
-	}
-
-	if err := h.userCache.SetPresence(reqCtx, userID, user.NewPresenceOnline()); err != nil {
-		slog.ErrorContext(ctx, "failed to set user online presence in redis",
-			"user_id", userID,
-			"error", err,
-		)
+	if err := h.userService.TrackUserConnection(reqCtx, userID, h.id.String(), presence); err != nil {
+		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
 
@@ -205,30 +197,8 @@ func (h *Hub) untrackUserConnection(ctx context.Context, userID fields.ID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userCache.RemoveNode(reqCtx, userID, h.id.String()); err != nil {
-		slog.ErrorContext(ctx, "failed to remove user node presence from redis",
-			"user_id", userID,
-			"node_id", h.id,
-			"error", err,
-		)
-	}
-
-	nodes, err := h.userCache.GetNodes(reqCtx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to fetch user nodes during untrack",
-			"user_id", userID,
-			"error", err,
-		)
-		return
-	}
-
-	if len(nodes) == 0 {
-		if err := h.userCache.SetPresence(reqCtx, userID, user.NewPresenceOffline()); err != nil {
-			slog.ErrorContext(ctx, "failed to set user offline presence in redis",
-				"user_id", userID,
-				"error", err,
-			)
-		}
+	if err := h.userService.UntrackUserConnection(reqCtx, userID, h.id.String()); err != nil {
+		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
 
@@ -261,11 +231,8 @@ func (h *Hub) cleanupRedisNodes(ctx context.Context) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userCache.RemoveNodeBatch(reqCtx, userIDs, h.id.String()); err != nil {
-		slog.ErrorContext(ctx, "failed to batch remove node presence from redis during shutdown",
-			"node_id", h.id,
-			"error", err,
-		)
+	if err := h.userService.BatchRemoveNodePresence(reqCtx, userIDs, h.id.String()); err != nil {
+		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }
 
