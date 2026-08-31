@@ -21,12 +21,12 @@ var clientBufferLength = 256
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
 type GatewayNodeEvent struct {
-	UserID         *uuid.UUID      `json:"user_id,omitempty"`
-	SessionID      *uuid.UUID      `json:"session_id,omitempty"`
-	TargetUserIDs  []uuid.UUID     `json:"target_user_ids,omitempty"`
-	TargetSessions []uuid.UUID     `json:"target_session_ids,omitempty"`
-	Type           string          `json:"type"`
-	Data           json.RawMessage `json:"data"`
+	UserID     *uuid.UUID      `json:"user_id,omitempty"`
+	SessionID  *uuid.UUID      `json:"session_id,omitempty"`
+	UserIDs    []uuid.UUID     `json:"target_user_ids,omitempty"`
+	SessionIDs []uuid.UUID     `json:"target_session_ids,omitempty"`
+	Type       string          `json:"type"`
+	Data       json.RawMessage `json:"data"`
 }
 
 type Hub struct {
@@ -342,13 +342,13 @@ func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
 		return
 	}
 
-	if len(event.TargetSessions) > 0 {
-		h.SendToSessions(event.TargetSessions, outboundPayload)
+	if len(event.SessionIDs) > 0 {
+		h.SendToSessions(event.SessionIDs, outboundPayload)
 		return
 	}
 
-	if len(event.TargetUserIDs) > 0 {
-		h.SendToUsers(event.TargetUserIDs, outboundPayload)
+	if len(event.UserIDs) > 0 {
+		h.SendToUsers(event.UserIDs, outboundPayload)
 		return
 	}
 
