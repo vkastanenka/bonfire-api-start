@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bonfire-api/internal/fields"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -43,8 +44,8 @@ type WSMessage struct {
 // Client represents a single active, bidirectional WebSocket connection.
 type Client struct {
 	ID        uuid.UUID
-	UserID    uuid.UUID
-	SessionID uuid.UUID
+	UserID    fields.ID
+	SessionID fields.ID
 	Conn      *websocket.Conn // The underlying TCP WebSocket connection handle.
 	Send      chan []byte     // Buffered channel for queuing outbound messages.
 
@@ -54,7 +55,7 @@ type Client struct {
 }
 
 // NewClient initializes a Client instance.
-func NewClient(ctx context.Context, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
+func NewClient(ctx context.Context, userID, sessionID fields.ID, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
 		ID:        uuid.New(),
@@ -211,7 +212,7 @@ func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
 		return
 	}
 
-	handler, exists := hub.DispatchHandler(wsMsg.Type)
+	handler, exists := hub.GetHandler(wsMsg.Type)
 	if !exists {
 		return
 	}

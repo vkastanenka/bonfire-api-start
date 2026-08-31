@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"context"
-	"log/slog"
 	"net/http"
 
 	"bonfire-api/internal/fields"
@@ -61,66 +59,19 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		userPresence = user.NewPresenceOnline()
 	}
 
-	if err := h.userCache.SetPresence(context.WithoutCancel(ctx), userID, userPresence); err != nil {
-		slog.ErrorContext(ctx, "Failed to set initial user presence on websocket connect", "user_id", userID, "error", err)
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
 	}
 
-	client := NewClient(ctx, userID.UUID(), sessionID.UUID(), conn)
+	client := NewClient(ctx, userID, sessionID, conn)
 	h.hub.Register(client)
 	client.StartPumps(h.hub)
 
 	return nil
 }
 
-// func HandlePresenceUpdate(
-// 	userCache *cache.UserCache,
-// 	broadcaster *Broadcaster,
-// 	relationshipService RelationshipService, // Interface to fetch recipient IDs
-// ) MessageHandler {
-// 	return func(ctx context.Context, client *Client, data json.RawMessage) error {
-// 		var req ClientPresenceUpdatePayload
-// 		if err := json.Unmarshal(data, &req); err != nil {
-// 			return err
-// 		}
-
-// 		// 1. Parse and validate using your domain type
-// 		p, err := user.ParsePresenceString(req.Presence)
-// 		if err != nil || !p.IsValid() || p.IsOffline() {
-// 			return user.ErrPresenceInvalid()
-// 		}
-
-// 		userID, err := fields.ParseID(client.UserID)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// 2. Persist the updated presence state in Redis
-// 		if err := userCache.SetPresence(ctx, userID, p); err != nil {
-// 			return err
-// 		}
-
-// 		// 3. Resolve target users (e.g., friends, mutual server members)
-// 		recipientIDs, err := relationshipService.GetPresenceSubscribers(ctx, userID)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		// 4. Delegate fan-out broadcasting
-// 		eventPayload := PresenceChangeEventPayload{
-// 			UserID:   userID,
-// 			Presence: p,
-// 		}
-
-// 		return broadcaster.PublishToUsers(
-// 			ctx,
-// 			recipientIDs,
-// 			EventTypePresenceChange,
-// 			eventPayload,
-// 		)
-// 	}
+// if err := h.userCache.SetPresence(context.WithoutCancel(ctx), userID, userPresence); err != nil {
+// 	slog.ErrorContext(ctx, "Failed to set initial user presence on websocket connect", "user_id", userID, "error", err)
 // }
+

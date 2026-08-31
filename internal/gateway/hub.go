@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"bonfire-api/internal/db"
 	pkgredis "bonfire-api/internal/redis"
@@ -17,10 +18,10 @@ import (
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
 type NodeEventPayload struct {
-	Type       string          `json:"type"`
-	TargetUser uuid.UUID       `json:"target_user_id"`
-	SessionID  *uuid.UUID      `json:"target_session_id,omitempty"`
-	Data       json.RawMessage `json:"data"`
+	Type      string          `json:"type"`
+	Data      json.RawMessage `json:"data"`
+	UserID    uuid.UUID       `json:"user_id"`
+	SessionID *uuid.UUID      `json:"session_id"`
 }
 
 type Hub struct {
@@ -58,7 +59,16 @@ func (h *Hub) NodeID() uuid.UUID {
 }
 
 func (h *Hub) RegisterHandler(msgType string, handler MessageHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.handlers[msgType] = handler
+}
+
+func (h *Hub) GetHandler(msgType string) (MessageHandler, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	handler, exists := h.handlers[msgType]
+	return handler, exists
 }
 
 func (h *Hub) Register(client *Client) {
@@ -92,25 +102,29 @@ func (h *Hub) Run(ctx context.Context) {
 func (h *Hub) handleRegister(ctx context.Context, client *Client) {
 	h.mu.Lock()
 
-	if oldClient, exists := h.clients[client.SessionID]; exists {
+	if oldClient, exists := h.clients[client.SessionID.UUID()]; exists {
 		oldClient.Close()
 	}
 
-	h.clients[client.SessionID] = client
+	h.clients[client.SessionID.UUID()] = client
 
-	sessions, exists := h.userIndex[client.UserID]
+	sessions, exists := h.userIndex[client.UserID.UUID()]
 	isFirstUserSession := !exists || len(sessions) == 0
 	if !exists {
 		sessions = make(map[uuid.UUID]*Client)
-		h.userIndex[client.UserID] = sessions
+		h.userIndex[client.UserID.UUID()] = sessions
 	}
-	sessions[client.SessionID] = client
+	sessions[client.SessionID.UUID()] = client
 	h.mu.Unlock()
 
 	// Update Redis presence state when user first connects to this node
 	if isFirstUserSession && h.redisClient != nil {
 		presenceKey := fmt.Sprintf("gateway:user_nodes:%s", client.UserID)
-		if err := h.redisClient.SAdd(ctx, presenceKey, h.nodeID.String()).Err(); err != nil {
+
+		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+
+		if err := h.redisClient.SAdd(reqCtx, presenceKey, h.nodeID.String()).Err(); err != nil {
 			slog.ErrorContext(ctx, "failed to track user node presence in redis",
 				"user_id", client.UserID,
 				"node_id", h.nodeID,
@@ -122,26 +136,26 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client) {
 	slog.Info("Client connected to gateway",
 		"node_id", h.nodeID,
 		"user_id", client.UserID,
-		"session_id", client.SessionID,
+		"session_id", client.SessionID.UUID(),
 	)
 }
 
 func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	h.mu.Lock()
 
-	current, exists := h.clients[client.SessionID]
+	current, exists := h.clients[client.SessionID.UUID()]
 	if !exists || current != client {
 		h.mu.Unlock()
 		return
 	}
 
-	delete(h.clients, client.SessionID)
+	delete(h.clients, client.SessionID.UUID())
 
 	isLastUserSession := false
-	if sessions, ok := h.userIndex[client.UserID]; ok {
-		delete(sessions, client.SessionID)
+	if sessions, ok := h.userIndex[client.UserID.UUID()]; ok {
+		delete(sessions, client.SessionID.UUID())
 		if len(sessions) == 0 {
-			delete(h.userIndex, client.UserID)
+			delete(h.userIndex, client.UserID.UUID())
 			isLastUserSession = true
 		}
 	}
@@ -164,7 +178,7 @@ func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	slog.Info("Client disconnected from gateway",
 		"node_id", h.nodeID,
 		"user_id", client.UserID,
-		"session_id", client.SessionID,
+		"session_id", client.SessionID.UUID(),
 	)
 }
 
@@ -191,11 +205,6 @@ func (h *Hub) shutdown(shutdownCtx context.Context) {
 	}
 	h.clients = make(map[uuid.UUID]*Client)
 	h.userIndex = make(map[uuid.UUID]map[uuid.UUID]*Client)
-}
-
-func (h *Hub) DispatchHandler(msgType string) (MessageHandler, bool) {
-	handler, exists := h.handlers[msgType]
-	return handler, exists
 }
 
 func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
@@ -256,8 +265,38 @@ func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
 		return
 	}
 
-	h.SendToUser(event.TargetUser, outboundPayload)
+	h.SendToUser(event.UserID, outboundPayload)
 }
+
+// func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
+//     var nodePayload GatewayTargetPayload
+//     if err := json.Unmarshal([]byte(payload), &nodePayload); err != nil {
+//         slog.ErrorContext(ctx, "Failed to unmarshal node event payload", "error", err)
+//         return
+//     }
+
+//     msgBytes, err := json.Marshal(nodePayload.Message)
+//     if err != nil {
+//         return
+//     }
+
+//     // Broadcast only to clients connected to THIS gateway instance matching target IDs
+//     h.mu.RLock()
+//     defer h.mu.RUnlock()
+
+//     for _, userIDStr := range nodePayload.TargetUserIDs {
+//         userID := fields.ParseID(userIDStr)
+//         if clients, exists := h.userClients[userID]; exists {
+//             for client := range clients {
+//                 select {
+//                 case client.send <- msgBytes:
+//                 default:
+//                     // Client send buffer full, unregister/drop
+//                 }
+//             }
+//         }
+//     }
+// }
 
 func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 	h.mu.RLock()
