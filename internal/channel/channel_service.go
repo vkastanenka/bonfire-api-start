@@ -201,41 +201,40 @@ func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
 	peerIDsMap map[fields.ID][]fields.ID,
 	channelIDs []fields.ID,
 	peerIDs []fields.ID,
-	directPeerIDs []fields.ID,
 	err error,
 ) {
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, actorID, ChannelMaxSidebarItems)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	if len(userMemberships) == 0 {
-		return make(map[fields.ID]*Channel), make(map[fields.ID]*Member), make(map[fields.ID][]fields.ID), []fields.ID{}, []fields.ID{}, []fields.ID{}, nil
+		return make(map[fields.ID]*Channel), make(map[fields.ID]*Member), make(map[fields.ID][]fields.ID), []fields.ID{}, []fields.ID{}, nil
 	}
 
 	channelIDs, memberMap = indexMemberships(userMemberships)
 
 	channelMap, err = s.repo.GetBatch(ctx, channelIDs)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	channelMembersMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	channels := getChannels(channelMap)
 	sortSidebar(channels, memberMap)
 	channelIDs = indexChannels(channels)
-	peerIDs, directPeerIDs = getSidebarUserIDs(actorID, channelMap, channelMembersMap)
+	peerIDs, _ = getSidebarUserIDs(actorID, channelMap, channelMembersMap)
 	peerIDsMap = getSidebarPeerIDsMap(actorID, channelMembersMap)
-	return channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, directPeerIDs, nil
+	return channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
