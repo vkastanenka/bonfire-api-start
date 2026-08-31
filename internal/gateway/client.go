@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -43,7 +42,6 @@ type WSMessage struct {
 
 // Client represents a single active, bidirectional WebSocket connection.
 type Client struct {
-	ID        uuid.UUID
 	UserID    fields.ID
 	SessionID fields.ID
 	Conn      *websocket.Conn // The underlying TCP WebSocket connection handle.
@@ -58,7 +56,6 @@ type Client struct {
 func NewClient(ctx context.Context, userID, sessionID fields.ID, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
-		ID:        uuid.New(),
 		UserID:    userID,
 		SessionID: sessionID,
 		Conn:      conn,

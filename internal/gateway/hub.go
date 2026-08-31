@@ -3,62 +3,79 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"bonfire-api/internal/db"
-	pkgredis "bonfire-api/internal/redis"
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/pubsub"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
+
+var clientBufferLength = 256
 
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
-type NodeEventPayload struct {
-	Type      string          `json:"type"`
-	Data      json.RawMessage `json:"data"`
-	UserID    uuid.UUID       `json:"user_id"`
-	SessionID *uuid.UUID      `json:"session_id"`
+type GatewayNodeEvent struct {
+	UserID         *uuid.UUID      `json:"user_id,omitempty"`
+	SessionID      *uuid.UUID      `json:"session_id,omitempty"`
+	TargetUserIDs  []uuid.UUID     `json:"target_user_ids,omitempty"`
+	TargetSessions []uuid.UUID     `json:"target_session_ids,omitempty"`
+	Type           string          `json:"type"`
+	Data           json.RawMessage `json:"data"`
 }
 
 type Hub struct {
-	nodeID    uuid.UUID
-	mu        sync.RWMutex
-	clients   map[uuid.UUID]*Client
-	userIndex map[uuid.UUID]map[uuid.UUID]*Client
+	id uuid.UUID
 
 	register   chan *Client
 	unregister chan *Client
 
 	handlers map[string]MessageHandler
-	store    *db.Store
 
-	redisClient *redis.Client
-	subMu       sync.Mutex
-	sub         *pkgredis.Subscription
+	sessionIdx map[uuid.UUID]*Client
+	userIdx    map[uuid.UUID]map[uuid.UUID]*Client
+
+	redisClient  *goredis.Client
+	sub          *pubsub.Subscription
+	userCache    UserCache
+	gatewayCache GatewayCache
+
+	mu    sync.RWMutex
+	subMu sync.Mutex
 }
 
-func NewHub(store *db.Store, rdb *redis.Client) *Hub {
+func NewHub(redisClient *goredis.Client, userCache UserCache, gatewayCache GatewayCache) *Hub {
 	return &Hub{
-		nodeID:      uuid.New(),
-		clients:     make(map[uuid.UUID]*Client),
-		userIndex:   make(map[uuid.UUID]map[uuid.UUID]*Client),
-		register:    make(chan *Client, 64),
-		unregister:  make(chan *Client, 64),
-		handlers:    make(map[string]MessageHandler),
-		store:       store,
-		redisClient: rdb,
+		id:           uuid.New(),
+		register:     make(chan *Client, clientBufferLength),
+		unregister:   make(chan *Client, clientBufferLength),
+		sessionIdx:   make(map[uuid.UUID]*Client),
+		userIdx:      make(map[uuid.UUID]map[uuid.UUID]*Client),
+		handlers:     make(map[string]MessageHandler),
+		redisClient:  redisClient,
+		userCache:    userCache,
+		gatewayCache: gatewayCache,
 	}
 }
 
-func (h *Hub) NodeID() uuid.UUID {
-	return h.nodeID
+func (h *Hub) ID() uuid.UUID {
+	return h.id
 }
 
-func (h *Hub) RegisterHandler(msgType string, handler MessageHandler) {
+func (h *Hub) Register(client *Client) {
+	h.register <- client
+}
+
+func (h *Hub) Unregister(client *Client) {
+	h.unregister <- client
+}
+
+func (h *Hub) RegisterMessageHandler(msgType string, handler MessageHandler) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.handlers[msgType] = handler
@@ -71,18 +88,8 @@ func (h *Hub) GetHandler(msgType string) (MessageHandler, bool) {
 	return handler, exists
 }
 
-func (h *Hub) Register(client *Client) {
-	h.register <- client
-}
-
-func (h *Hub) Unregister(client *Client) {
-	h.unregister <- client
-}
-
 func (h *Hub) Run(ctx context.Context) {
-	if h.redisClient != nil {
-		go h.listenRedisNodeEvents(ctx)
-	}
+	go h.listenRedisNodeEvents(ctx)
 
 	for {
 		select {
@@ -100,135 +107,204 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (h *Hub) handleRegister(ctx context.Context, client *Client) {
-	h.mu.Lock()
+	isFirstUserSession := h.registerClient(client)
 
-	if oldClient, exists := h.clients[client.SessionID.UUID()]; exists {
-		oldClient.Close()
-	}
-
-	h.clients[client.SessionID.UUID()] = client
-
-	sessions, exists := h.userIndex[client.UserID.UUID()]
-	isFirstUserSession := !exists || len(sessions) == 0
-	if !exists {
-		sessions = make(map[uuid.UUID]*Client)
-		h.userIndex[client.UserID.UUID()] = sessions
-	}
-	sessions[client.SessionID.UUID()] = client
-	h.mu.Unlock()
-
-	// Update Redis presence state when user first connects to this node
-	if isFirstUserSession && h.redisClient != nil {
-		presenceKey := fmt.Sprintf("gateway:user_nodes:%s", client.UserID)
-
-		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-		defer cancel()
-
-		if err := h.redisClient.SAdd(reqCtx, presenceKey, h.nodeID.String()).Err(); err != nil {
-			slog.ErrorContext(ctx, "failed to track user node presence in redis",
-				"user_id", client.UserID,
-				"node_id", h.nodeID,
-				"error", err,
-			)
-		}
+	if isFirstUserSession {
+		h.trackUserConnection(ctx, client.UserID)
 	}
 
 	slog.Info("Client connected to gateway",
-		"node_id", h.nodeID,
+		"node_id", h.id,
 		"user_id", client.UserID,
 		"session_id", client.SessionID.UUID(),
 	)
 }
 
-func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
-	h.mu.Lock()
-
-	current, exists := h.clients[client.SessionID.UUID()]
-	if !exists || current != client {
-		h.mu.Unlock()
-		return
-	}
-
-	delete(h.clients, client.SessionID.UUID())
-
-	isLastUserSession := false
-	if sessions, ok := h.userIndex[client.UserID.UUID()]; ok {
-		delete(sessions, client.SessionID.UUID())
-		if len(sessions) == 0 {
-			delete(h.userIndex, client.UserID.UUID())
-			isLastUserSession = true
-		}
-	}
-	h.mu.Unlock()
-
-	client.Close()
-
-	// Remove Redis presence state when user has no active sessions left on this node
-	if isLastUserSession && h.redisClient != nil {
-		presenceKey := fmt.Sprintf("gateway:user_nodes:%s", client.UserID)
-		if err := h.redisClient.SRem(ctx, presenceKey, h.nodeID.String()).Err(); err != nil {
-			slog.ErrorContext(ctx, "failed to remove user node presence from redis",
-				"user_id", client.UserID,
-				"node_id", h.nodeID,
-				"error", err,
-			)
-		}
-	}
-
-	slog.Info("Client disconnected from gateway",
-		"node_id", h.nodeID,
-		"user_id", client.UserID,
-		"session_id", client.SessionID.UUID(),
-	)
-}
-
-func (h *Hub) shutdown(shutdownCtx context.Context) {
-	h.subMu.Lock()
-	if h.sub != nil {
-		_ = h.sub.Unsubscribe()
-	}
-	h.subMu.Unlock()
-
+func (h *Hub) registerClient(client *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Clean up user node mappings in Redis for all connected users on this node
-	if h.redisClient != nil {
-		for userID := range h.userIndex {
-			presenceKey := fmt.Sprintf("gateway:user_nodes:%s", userID)
-			_ = h.redisClient.SRem(shutdownCtx, presenceKey, h.nodeID.String()).Err()
+	if oldClient, exists := h.sessionIdx[client.SessionID.UUID()]; exists {
+		oldClient.Close()
+	}
+
+	h.sessionIdx[client.SessionID.UUID()] = client
+
+	sessions, exists := h.userIdx[client.UserID.UUID()]
+	isFirstUserSession := !exists || len(sessions) == 0
+	if !exists {
+		sessions = make(map[uuid.UUID]*Client)
+		h.userIdx[client.UserID.UUID()] = sessions
+	}
+	sessions[client.SessionID.UUID()] = client
+
+	return isFirstUserSession
+}
+
+func (h *Hub) trackUserConnection(ctx context.Context, userID fields.ID) {
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := h.userCache.AddNode(reqCtx, userID, h.id.String()); err != nil {
+		slog.ErrorContext(ctx, "failed to track user node presence in redis",
+			"user_id", userID,
+			"node_id", h.id,
+			"error", err,
+		)
+	}
+
+	if err := h.userCache.SetPresence(reqCtx, userID, user.NewPresenceOnline()); err != nil {
+		slog.ErrorContext(ctx, "failed to set user online presence in redis",
+			"user_id", userID,
+			"error", err,
+		)
+	}
+}
+
+func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
+	isLastUserSession := h.unregisterClient(client)
+
+	// Clean up Redis state BEFORE terminating client channels to prevent write-to-closed-channel panics
+	if isLastUserSession {
+		h.untrackUserConnection(ctx, client.UserID)
+	}
+
+	client.Close()
+
+	slog.Info("Client disconnected from gateway",
+		"node_id", h.id,
+		"user_id", client.UserID,
+		"session_id", client.SessionID.UUID(),
+	)
+}
+
+func (h *Hub) unregisterClient(client *Client) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	current, exists := h.sessionIdx[client.SessionID.UUID()]
+	if !exists || current != client {
+		return false
+	}
+
+	delete(h.sessionIdx, client.SessionID.UUID())
+
+	isLastUserSession := false
+	if sessions, ok := h.userIdx[client.UserID.UUID()]; ok {
+		delete(sessions, client.SessionID.UUID())
+		if len(sessions) == 0 {
+			delete(h.userIdx, client.UserID.UUID())
+			isLastUserSession = true
 		}
 	}
 
-	for _, client := range h.clients {
-		client.Close()
-	}
-	h.clients = make(map[uuid.UUID]*Client)
-	h.userIndex = make(map[uuid.UUID]map[uuid.UUID]*Client)
+	return isLastUserSession
 }
 
-func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
-	channelName := fmt.Sprintf("gateway:%s:events", h.nodeID.String())
+func (h *Hub) untrackUserConnection(ctx context.Context, userID fields.ID) {
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 
-	sub, err := pkgredis.Subscribe(ctx, h.redisClient, pkgredis.ScopeOutboxEvent, channelName)
+	if err := h.userCache.RemoveNode(reqCtx, userID, h.id.String()); err != nil {
+		slog.ErrorContext(ctx, "failed to remove user node presence from redis",
+			"user_id", userID,
+			"node_id", h.id,
+			"error", err,
+		)
+	}
+
+	nodes, err := h.userCache.GetNodes(reqCtx, userID)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
-			"node_id", h.nodeID,
-			"channel", channelName,
+		slog.ErrorContext(ctx, "failed to fetch user nodes during untrack",
+			"user_id", userID,
 			"error", err,
 		)
 		return
 	}
 
+	if len(nodes) == 0 {
+		if err := h.userCache.SetPresence(reqCtx, userID, user.NewPresenceOffline()); err != nil {
+			slog.ErrorContext(ctx, "failed to set user offline presence in redis",
+				"user_id", userID,
+				"error", err,
+			)
+		}
+	}
+}
+
+func (h *Hub) shutdown(shutdownCtx context.Context) {
+	h.unsubscribe()
+	h.cleanupRedisNodes(shutdownCtx)
+	h.closeAllClients()
+}
+
+func (h *Hub) unsubscribe() {
+	h.subMu.Lock()
+	defer h.subMu.Unlock()
+	if h.sub != nil {
+		_ = h.sub.Unsubscribe()
+	}
+}
+
+func (h *Hub) cleanupRedisNodes(ctx context.Context) {
+	h.mu.Lock()
+	userIDs := make([]fields.ID, 0, len(h.userIdx))
+	for rawUserID := range h.userIdx {
+		userIDs = append(userIDs, fields.ID(rawUserID))
+	}
+	h.mu.Unlock()
+
+	if len(userIDs) == 0 {
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := h.userCache.RemoveNodeBatch(reqCtx, userIDs, h.id.String()); err != nil {
+		slog.ErrorContext(ctx, "failed to batch remove node presence from redis during shutdown",
+			"node_id", h.id,
+			"error", err,
+		)
+	}
+}
+
+func (h *Hub) closeAllClients() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, client := range h.sessionIdx {
+		client.Close()
+	}
+	h.sessionIdx = make(map[uuid.UUID]*Client)
+	h.userIdx = make(map[uuid.UUID]map[uuid.UUID]*Client)
+}
+
+func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
+	sub, err := pubsub.SubscribeGatewayEvents(ctx, h.redisClient, fields.ID(h.ID()))
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
+			"id", h.id,
+			"error", err,
+		)
+		return
+	}
+
+	h.setSubscription(sub)
+	h.readNodeEvents(ctx)
+}
+
+func (h *Hub) setSubscription(sub *pubsub.Subscription) {
 	h.subMu.Lock()
 	h.sub = sub
 	h.subMu.Unlock()
 
-	slog.InfoContext(ctx, "Subscribed to node event stream",
-		"node_id", h.nodeID,
-		"channel", channelName,
+	slog.Info("Subscribed to node event stream",
+		"id", h.id,
 	)
+}
 
+func (h *Hub) readNodeEvents(ctx context.Context) {
 	ch := h.sub.Channel()
 	for {
 		select {
@@ -236,7 +312,7 @@ func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
 			return
 		case evt, ok := <-ch:
 			if !ok {
-				slog.WarnContext(ctx, "Redis node subscription channel closed", "node_id", h.nodeID)
+				slog.WarnContext(ctx, "Redis node subscription channel closed", "id", h.id)
 				return
 			}
 			h.dispatchNodeEvent(ctx, evt.Payload)
@@ -245,9 +321,12 @@ func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
 }
 
 func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
-	var event NodeEventPayload
+	var event GatewayNodeEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		slog.ErrorContext(ctx, "Failed to unmarshal Redis node event payload", "error", err)
+		slog.ErrorContext(ctx, "failed to unmarshal node event payload",
+			"error", err,
+			"payload", payload,
+		)
 		return
 	}
 
@@ -256,53 +335,38 @@ func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
 		Data: event.Data,
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to encode outbound WS frame", "error", err)
+		slog.ErrorContext(ctx, "failed to encode outbound WS frame",
+			"type", event.Type,
+			"error", err,
+		)
+		return
+	}
+
+	if len(event.TargetSessions) > 0 {
+		h.SendToSessions(event.TargetSessions, outboundPayload)
+		return
+	}
+
+	if len(event.TargetUserIDs) > 0 {
+		h.SendToUsers(event.TargetUserIDs, outboundPayload)
 		return
 	}
 
 	if event.SessionID != nil {
-		h.SendToSession(*event.SessionID, outboundPayload)
+		h.SendToSession(ptr.From(event.SessionID), outboundPayload)
 		return
 	}
 
-	h.SendToUser(event.UserID, outboundPayload)
+	if event.UserID != nil {
+		h.SendToUser(ptr.From(event.UserID), outboundPayload)
+	}
 }
-
-// func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
-//     var nodePayload GatewayTargetPayload
-//     if err := json.Unmarshal([]byte(payload), &nodePayload); err != nil {
-//         slog.ErrorContext(ctx, "Failed to unmarshal node event payload", "error", err)
-//         return
-//     }
-
-//     msgBytes, err := json.Marshal(nodePayload.Message)
-//     if err != nil {
-//         return
-//     }
-
-//     // Broadcast only to clients connected to THIS gateway instance matching target IDs
-//     h.mu.RLock()
-//     defer h.mu.RUnlock()
-
-//     for _, userIDStr := range nodePayload.TargetUserIDs {
-//         userID := fields.ParseID(userIDStr)
-//         if clients, exists := h.userClients[userID]; exists {
-//             for client := range clients {
-//                 select {
-//                 case client.send <- msgBytes:
-//                 default:
-//                     // Client send buffer full, unregister/drop
-//                 }
-//             }
-//         }
-//     }
-// }
 
 func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	sessions, exists := h.userIndex[userID]
+	sessions, exists := h.userIdx[userID]
 	if !exists {
 		return
 	}
@@ -312,10 +376,34 @@ func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
 		case client.Send <- message:
 		default:
 			slog.Warn("Client send buffer full, dropping message",
-				"node_id", h.nodeID,
+				"node_id", h.id,
 				"user_id", userID,
 				"session_id", client.SessionID,
 			)
+		}
+	}
+}
+
+func (h *Hub) SendToUsers(userIDs []uuid.UUID, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, userID := range userIDs {
+		sessions, exists := h.userIdx[userID]
+		if !exists {
+			continue
+		}
+
+		for _, client := range sessions {
+			select {
+			case client.Send <- message:
+			default:
+				slog.Warn("Client send buffer full, dropping message",
+					"node_id", h.id,
+					"user_id", userID,
+					"session_id", client.SessionID,
+				)
+			}
 		}
 	}
 }
@@ -324,7 +412,7 @@ func (h *Hub) SendToSession(sessionID uuid.UUID, message []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	client, exists := h.clients[sessionID]
+	client, exists := h.sessionIdx[sessionID]
 	if !exists {
 		return
 	}
@@ -333,8 +421,29 @@ func (h *Hub) SendToSession(sessionID uuid.UUID, message []byte) {
 	case client.Send <- message:
 	default:
 		slog.Warn("Client send buffer full, dropping direct message",
-			"node_id", h.nodeID,
+			"node_id", h.id,
 			"session_id", sessionID,
 		)
+	}
+}
+
+func (h *Hub) SendToSessions(sessionIDs []uuid.UUID, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, sessionID := range sessionIDs {
+		client, exists := h.sessionIdx[sessionID]
+		if !exists {
+			continue
+		}
+
+		select {
+		case client.Send <- message:
+		default:
+			slog.Warn("Client send buffer full, dropping direct message",
+				"node_id", h.id,
+				"session_id", sessionID,
+			)
+		}
 	}
 }

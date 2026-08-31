@@ -1,4 +1,4 @@
-package gateway
+package handler
 
 import (
 	"bonfire-api/internal/fields"
@@ -6,16 +6,9 @@ import (
 	"context"
 )
 
-type GatewayCache interface{}
-
 type UserCache interface {
-	AddNode(ctx context.Context, userID fields.ID, nodeID string) error
-	ClearNodes(ctx context.Context, userID fields.ID) error
 	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
-	GetNodes(ctx context.Context, userID fields.ID) ([]string, error)
 	GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error)
-	RemoveNode(ctx context.Context, userID fields.ID, nodeID string) error
-	RemoveNodeBatch(ctx context.Context, userIDs []fields.ID, nodeID string) error
 	SetBatchPresence(ctx context.Context, items map[fields.ID]user.Presence) error
 	SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error
 }

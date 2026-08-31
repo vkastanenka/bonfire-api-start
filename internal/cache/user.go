@@ -12,8 +12,16 @@ import (
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-func userPresenceKey(userID fields.ID) string {
-	return "user:" + userID.String() + ":presence"
+const (
+	userDomainKey = "user:"
+)
+
+func userNodesKey(id fields.ID) string {
+	return userDomainKey + id.String() + ":nodes"
+}
+
+func userPresenceKey(id fields.ID) string {
+	return userDomainKey + id.String() + ":presence"
 }
 
 type UserCache struct {
@@ -29,6 +37,8 @@ func NewUserCache(client redisdriver.Cmdable, scope redis.Scope, ttl time.Durati
 		ttl:    ttl,
 	}
 }
+
+// --- Presence Operations ---
 
 func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error) {
 	val, err := c.client.Get(ctx, userPresenceKey(userID)).Uint64()
@@ -114,5 +124,57 @@ func (c *UserCache) SetBatchPresence(ctx context.Context, items map[fields.ID]us
 		return redis.NewError(err, c.scope)
 	}
 
+	return nil
+}
+
+// --- Node Presence Operations ---
+
+// AddNode registers a gateway node ID in the user's active node set.
+func (c *UserCache) AddNode(ctx context.Context, userID fields.ID, nodeID string) error {
+	if err := c.client.SAdd(ctx, userNodesKey(userID), nodeID).Err(); err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+// RemoveNode unregisters a gateway node ID from the user's active node set.
+func (c *UserCache) RemoveNode(ctx context.Context, userID fields.ID, nodeID string) error {
+	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID).Err(); err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+// RemoveNodeBatch removes this node from multiple users' active node sets in a single pipeline.
+func (c *UserCache) RemoveNodeBatch(ctx context.Context, userIDs []fields.ID, nodeID string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	pipe := c.client.Pipeline()
+	for _, userID := range userIDs {
+		pipe.SRem(ctx, userNodesKey(userID), nodeID)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+// GetNodes retrieves all active gateway node IDs connected to by the given user.
+func (c *UserCache) GetNodes(ctx context.Context, userID fields.ID) ([]string, error) {
+	nodes, err := c.client.SMembers(ctx, userNodesKey(userID)).Result()
+	if err != nil {
+		return nil, redis.NewError(err, c.scope)
+	}
+	return nodes, nil
+}
+
+// ClearNodes removes all node registrations for a user (e.g. forced disconnect or cleanup).
+func (c *UserCache) ClearNodes(ctx context.Context, userID fields.ID) error {
+	if err := c.client.Del(ctx, userNodesKey(userID)).Err(); err != nil {
+		return redis.NewError(err, c.scope)
+	}
 	return nil
 }

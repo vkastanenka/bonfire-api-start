@@ -16,6 +16,7 @@ type Scope string
 const (
 	ScopeAuth        Scope = "auth"
 	ScopeChannel     Scope = "channel"
+	ScopeGateway     Scope = "gateway"
 	ScopeMember      Scope = "member"
 	ScopeOutboxEvent Scope = "outbox_event"
 	ScopeMessage     Scope = "message"

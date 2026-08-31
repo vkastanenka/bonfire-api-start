@@ -1,13 +1,15 @@
-package redis
+package pubsub
 
 import (
+	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // defaultChannelBuffer defines the capacity for the internal Subscription event channel.
@@ -21,7 +23,7 @@ type Event struct {
 
 // Subscription manages the lifecycle and message streaming of an active Redis Pub/Sub connection.
 type Subscription struct {
-	pubsub *redis.PubSub
+	pubsub *goredis.PubSub
 	ch     chan Event
 	done   chan struct{}
 	once   sync.Once
@@ -41,7 +43,7 @@ func (s *Subscription) Unsubscribe() error {
 	})
 
 	if err != nil {
-		return NewError(err, ScopeOutboxEvent)
+		return redis.NewError(err, redis.ScopeOutboxEvent)
 	}
 	return nil
 }
@@ -54,7 +56,7 @@ func (s *Subscription) Close() error {
 // --- Pub/Sub Operations ---
 
 // Publish transmits a payload to the specified Redis channel.
-func Publish(ctx context.Context, client redis.Cmdable, channel string, message any) error {
+func Publish(ctx context.Context, client goredis.Cmdable, channel string, message any) error {
 	var payload []byte
 	var err error
 
@@ -66,36 +68,36 @@ func Publish(ctx context.Context, client redis.Cmdable, channel string, message 
 	default:
 		payload, err = json.Marshal(v)
 		if err != nil {
-			return NewError(err, ScopeOutboxEvent)
+			return redis.NewError(err, redis.ScopeOutboxEvent)
 		}
 	}
 
 	if err := client.Publish(ctx, channel, payload).Err(); err != nil {
-		return NewError(err, ScopeOutboxEvent)
+		return redis.NewError(err, redis.ScopeOutboxEvent)
 	}
 	return nil
 }
 
 // Subscribe opens a subscription to one or more explicit Redis channels.
-func Subscribe(ctx context.Context, client *redis.Client, scope Scope, channels ...string) (*Subscription, error) {
+func Subscribe(ctx context.Context, client *goredis.Client, scope redis.Scope, channels ...string) (*Subscription, error) {
 	pb := client.Subscribe(ctx, channels...)
 	return newSubscription(ctx, pb, scope)
 }
 
 // PSubscribe opens a pattern-based subscription matching one or more Redis channel patterns.
-func PSubscribe(ctx context.Context, client *redis.Client, scope Scope, patterns ...string) (*Subscription, error) {
+func PSubscribe(ctx context.Context, client *goredis.Client, scope redis.Scope, patterns ...string) (*Subscription, error) {
 	pb := client.PSubscribe(ctx, patterns...)
 	return newSubscription(ctx, pb, scope)
 }
 
 // --- Internal Helpers ---
 
-func newSubscription(ctx context.Context, pb *redis.PubSub, scope Scope) (*Subscription, error) {
+func newSubscription(ctx context.Context, pb *goredis.PubSub, scope redis.Scope) (*Subscription, error) {
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if _, err := pb.Receive(subCtx); err != nil {
-		return nil, errors.Join(NewError(err, scope), pb.Close())
+		return nil, errors.Join(redis.NewError(err, scope), pb.Close())
 	}
 
 	sub := &Subscription{
@@ -119,10 +121,16 @@ func (s *Subscription) listen() {
 				return
 			}
 
+			event := Event{Channel: msg.Channel, Payload: msg.Payload}
+
 			select {
-			case s.ch <- Event{Channel: msg.Channel, Payload: msg.Payload}:
+			case s.ch <- event:
 			case <-s.done:
 				return
+			default:
+				slog.Warn("pubsub channel buffer full, dropping message",
+					"channel", msg.Channel,
+				)
 			}
 
 		case <-s.done:
