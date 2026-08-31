@@ -2,7 +2,6 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 
 	"bonfire-api/internal/crypto"
@@ -33,29 +32,17 @@ func NewService(
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Queries
+// -----------------------------------------------------------------------------
+
 func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 	id, err := fields.ParseRequiredID("id", userID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := s.fetchValid(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, nil
-}
-
-func (s *Service) GetView(ctx context.Context, userID uuid.UUID) (UserView, error) {
-	user, err := s.Get(ctx, userID)
-	if err != nil {
-		return UserView{}, err
-	}
-
-	userPresence, _ := s.cache.GetPresence(ctx, user.ID())
-
-	return ToUserView(user, userPresence, fields.Now()), nil
+	return s.fetchValid(ctx, id)
 }
 
 func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
@@ -90,6 +77,10 @@ func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (ma
 	return s.cache.GetBatchPresence(ctx, userIDs)
 }
 
+// -----------------------------------------------------------------------------
+// Account Management
+// -----------------------------------------------------------------------------
+
 type UpdateEmailParams struct {
 	UserID   uuid.UUID
 	NewEmail string
@@ -111,10 +102,24 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return u, nil
 	}
 
-	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
-		updatedUser, err := s.repo.UpdateEmail(txCtx, id, newEmail, now)
-		return updatedUser, EventUpdateEmail, EventUpdateEmailPayload{}, err
+	now := fields.Now()
+	var updatedUser *User
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.repo.UpdateEmail(txCtx, id, newEmail, now)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdateEmailPayload{}
+		return s.outboxRepo.Publish(txCtx, EventUpdateEmail, payload, now)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedUser, nil
 }
 
 type UpdateUsernameParams struct {
@@ -138,13 +143,27 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return u, nil
 	}
 
-	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
-		updatedUser, err := s.repo.UpdateUsername(txCtx, id, newUsername, now)
-		return updatedUser, EventUpdateUsername, EventUpdateUsernamePayload{
+	now := fields.Now()
+	var updatedUser *User
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.repo.UpdateUsername(txCtx, id, newUsername, now)
+		if err != nil {
+			return err
+		}
+
+		payload := EventUpdateUsernamePayload{
 			UserID:      id.String(),
 			NewUsername: newUsername.String(),
-		}, err
+		}
+		return s.outboxRepo.Publish(txCtx, EventUpdateUsername, payload, now)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedUser, nil
 }
 
 type UpdatePasswordParams struct {
@@ -189,21 +208,19 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return err
 	}
 
-	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+	now := fields.Now()
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedUser, err := s.repo.UpdatePasswordHash(txCtx, id, newPasswordHash, now)
 		if err != nil {
-			return nil, "", nil, err
+			return err
 		}
 
 		payload := EventUpdatePasswordPayload{
 			UserID: updatedUser.ID().String(),
 			Email:  updatedUser.Email().String(),
 		}
-
-		return updatedUser, EventUpdatePassword, payload, nil
+		return s.outboxRepo.Publish(txCtx, EventUpdatePassword, payload, now)
 	})
-
-	return nil
 }
 
 type UpdatePreferredPresenceParams struct {
@@ -243,32 +260,22 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return u, nil
 	}
 
-	// 	recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
-	// if err != nil {
-	// 	slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
-	// 	return nil
-	// }
-
-	// if len(recipients) > 0 {
-	// 	payload := EventUserPresenceUpdatePayload{
-	// 		UserID:   userID.String(),
-	// 		Presence: p.String(),
-	// 	}
-	// 	if err := s.PublishPresenceToUsers(ctx, recipients, EventUserPresenceUpdate, payload); err != nil {
-	// 		slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
-	// 	}
-	// }
-
-	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
-		updatedUser, err := s.repo.UpdatePresence(txCtx, id, preferredPresence, until, now)
+	var updatedUser *User
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.repo.UpdatePresence(txCtx, id, preferredPresence, until, now)
 		if err != nil {
-			return nil, "", nil, err
+			return err
 		}
 
 		payload := EventUpdatePreferredPresencePayload{}
-
-		return updatedUser, EventUpdatePreferredPresence, payload, nil
+		return s.outboxRepo.Publish(txCtx, EventUpdatePreferredPresence, payload, now)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedUser, nil
 }
 
 type UpdateProfileParams struct {
@@ -317,10 +324,14 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return u, nil
 	}
 
-	return s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
-		updatedUser, err := s.repo.UpdateProfile(txCtx, id, displayName, bio, avatarURL, bannerColor, now)
+	now := fields.Now()
+	var updatedUser *User
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var err error
+		updatedUser, err = s.repo.UpdateProfile(txCtx, id, displayName, bio, avatarURL, bannerColor, now)
 		if err != nil {
-			return nil, "", nil, err
+			return err
 		}
 
 		payload := EventUpdateProfilePayload{
@@ -330,9 +341,13 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 			AvatarURL:   updatedUser.AvatarURL().StringPtr(),
 			BannerColor: updatedUser.BannerColor().StringPtr(),
 		}
-
-		return updatedUser, EventUpdateProfile, payload, nil
+		return s.outboxRepo.Publish(txCtx, EventUpdateProfile, payload, now)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedUser, nil
 }
 
 type DisableParams struct {
@@ -349,20 +364,18 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return nil
 	}
 
-	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+	now := fields.Now()
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedUser, err := s.repo.SetDisabled(txCtx, id, now, now)
 		if err != nil {
-			return nil, "", nil, err
+			return err
 		}
 
 		payload := EventDisablePayload{
 			UserID: updatedUser.ID().String(),
 		}
-
-		return updatedUser, EventDisable, payload, nil
+		return s.outboxRepo.Publish(txCtx, EventDisable, payload, now)
 	})
-
-	return err
 }
 
 type ScheduleDeleteParams struct {
@@ -380,12 +393,13 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return nil
 	}
 
-	_, err = s.update(ctx, func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error) {
+	now := fields.Now()
+	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		scheduledAt := fields.NewTimestamp(now.Time().Add(ScheduleDeleteGracePeriod))
 
 		updatedUser, err := s.repo.SetDeleteSchedule(txCtx, id, scheduledAt, now, now)
 		if err != nil {
-			return nil, "", nil, err
+			return err
 		}
 
 		payload := EventScheduleDeletePayload{
@@ -393,11 +407,8 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			Email:       updatedUser.Email().String(),
 			ScheduledAt: scheduledAt.String(),
 		}
-
-		return updatedUser, EventScheduleDelete, payload, nil
+		return s.outboxRepo.Publish(txCtx, EventScheduleDelete, payload, now)
 	})
-
-	return err
 }
 
 func (s *Service) AnonymizeBatch(ctx context.Context) error {
@@ -427,18 +438,17 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 			userIDs[i] = u.ID().String()
 		}
 
-		// payload := EventAnonymizeBatchPayload{
-		// 	UserIDs: userIDs,
-		// 	Count:   len(userIDs),
-		// }
-
-		// if _, err := s.outboxRepo.Publish(txCtx, EventAnonymizeBatch, payload); err != nil {
-		// 	return err
-		// }
-
-		return nil
+		payload := EventAnonymizeBatchPayload{
+			UserIDs: userIDs,
+			Count:   len(userIDs),
+		}
+		return s.outboxRepo.Publish(txCtx, EventAnonymizeBatch, payload, now)
 	})
 }
+
+// -----------------------------------------------------------------------------
+// Real-Time & Presence
+// -----------------------------------------------------------------------------
 
 const (
 	EventUserPresenceUpdate = "USER_PRESENCE_UPDATE"
@@ -447,15 +457,6 @@ const (
 type EventUserPresenceUpdatePayload struct {
 	UserID   string `json:"user_id"`
 	Presence string `json:"presence"`
-}
-
-type GatewayNodeEvent struct {
-	UserID     *uuid.UUID      `json:"user_id,omitempty"`
-	SessionID  *uuid.UUID      `json:"session_id,omitempty"`
-	UserIDs    []uuid.UUID     `json:"target_user_ids,omitempty"`
-	SessionIDs []uuid.UUID     `json:"target_session_ids,omitempty"`
-	Type       string          `json:"type"`
-	Data       json.RawMessage `json:"data"`
 }
 
 func (s *Service) TrackUserConnection(ctx context.Context, userID fields.ID, nodeID string, presence Presence) error {
@@ -472,22 +473,7 @@ func (s *Service) TrackUserConnection(ctx context.Context, userID fields.ID, nod
 		return err
 	}
 
-	recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
-		return nil
-	}
-
-	if len(recipients) > 0 {
-		payload := EventUserPresenceUpdatePayload{
-			UserID:   userID.String(),
-			Presence: p.String(),
-		}
-		if err := s.PublishPresenceToUsers(ctx, recipients, EventUserPresenceUpdate, payload); err != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
-		}
-	}
-
+	s.broadcastPresenceUpdate(ctx, userID, p)
 	return nil
 }
 
@@ -507,58 +493,14 @@ func (s *Service) UntrackUserConnection(ctx context.Context, userID fields.ID, n
 			return err
 		}
 
-		recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
-			return nil
-		}
-
-		if len(recipients) > 0 {
-			payload := EventUserPresenceUpdatePayload{
-				UserID:   userID.String(),
-				Presence: offlinePresence.String(),
-			}
-			if err := s.PublishPresenceToUsers(ctx, recipients, EventUserPresenceUpdate, payload); err != nil {
-				slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
-			}
-		}
+		s.broadcastPresenceUpdate(ctx, userID, offlinePresence)
 	}
 
 	return nil
 }
 
 func (s *Service) PublishPresenceToUsers(ctx context.Context, userIDs []fields.ID, eventType string, payload any) error {
-	nodeToUsers, err := s.cache.GetNodesForUsers(ctx, userIDs)
-	if err != nil || len(nodeToUsers) == 0 {
-		return err
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	// Batch all node publishes into a single pipeline network packet
-	_, err = s.redisClient.Pipelined(ctx, func(pipe goredis.Pipeliner) error {
-		for nodeID, targetUserIDs := range nodeToUsers {
-			nodeEvent := GatewayNodeEvent{
-				UserIDs: targetUserIDs,
-				Type:    eventType,
-				Data:    data,
-			}
-
-			payloadBytes, err := json.Marshal(nodeEvent)
-			if err != nil {
-				continue
-			}
-
-			channel := pubsub.GatewayChannel(nodeID)
-			pipe.Publish(ctx, channel, payloadBytes)
-		}
-		return nil
-	})
-
-	return err
+	return s.cache.PublishToUsers(ctx, userIDs, eventType, payload)
 }
 
 func (s *Service) BatchRemoveNodePresence(ctx context.Context, userIDs []fields.ID, nodeID string) error {
@@ -589,14 +531,35 @@ func (s *Service) HandleHeartbeat(ctx context.Context, userID fields.ID, nodeID 
 	return s.cache.Heartbeat(ctx, userID, nodeID)
 }
 
+func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID, p Presence) {
+	recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
+		return
+	}
+
+	if len(recipients) > 0 {
+		payload := EventUserPresenceUpdatePayload{
+			UserID:   userID.String(),
+			Presence: p.String(),
+		}
+		if err := s.PublishPresenceToUsers(ctx, recipients, EventUserPresenceUpdate, payload); err != nil {
+			slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Internal Helpers
+// -----------------------------------------------------------------------------
+
 func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
 	u, err := s.repo.Get(ctx, actorID)
 	if err != nil {
 		return nil, err
 	}
 
-	err = u.EnsureActive()
-	if err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return nil, err
 	}
 
@@ -637,31 +600,4 @@ func (s *Service) parseAndAuthenticate(
 	}
 
 	return id, u, nil
-}
-
-func (s *Service) update(
-	ctx context.Context,
-	updateFn func(txCtx context.Context, now fields.Timestamp) (*User, string, any, error),
-) (*User, error) {
-	// now := fields.Now()
-	var updatedUser *User
-
-	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		// var err error
-		// var eventType string
-		// var eventPayload any
-
-		// updatedUser, eventType, eventPayload, err = updateFn(txCtx, now)
-		// if err != nil {
-		// 	return err
-		// }
-
-		// return s.outboxRepo.Publish(txCtx, eventType, eventPayload, now)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return updatedUser, nil
 }

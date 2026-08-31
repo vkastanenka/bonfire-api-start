@@ -4,18 +4,22 @@ import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
 	"context"
+
+	"github.com/google/uuid"
 )
 
 type Cache interface {
 	AddNode(ctx context.Context, userID fields.ID, nodeID string) error
-	ClearNodes(ctx context.Context, userID fields.ID) error
 	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
-	GetNodes(ctx context.Context, userID fields.ID) ([]string, error)
+	GetNodesForUsers(ctx context.Context, userIDs []fields.ID) (map[string][]uuid.UUID, error)
 	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
+	Heartbeat(ctx context.Context, userID fields.ID) error
 	RemoveNode(ctx context.Context, userID fields.ID, nodeID string) error
 	RemoveNodeBatch(ctx context.Context, userIDs []fields.ID, nodeID string) error
 	SetBatchPresence(ctx context.Context, items map[fields.ID]Presence) error
 	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
+	GetNodes(ctx context.Context, userID fields.ID) ([]string, error)
+	ClearNodes(ctx context.Context, userID fields.ID) error
 }
 
 type Repository interface {
