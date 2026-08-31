@@ -102,8 +102,10 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Phase 2: Deduplicate IDs & fetch user models + presences concurrently
-	allUserIDs := append(peerIDs, friendIDs...)
+	allUserIDs := make([]fields.ID, 0, len(peerIDs)+len(friendIDs)+1)
+	allUserIDs = append(allUserIDs, userID)
+	allUserIDs = append(allUserIDs, peerIDs...)
+	allUserIDs = append(allUserIDs, friendIDs...)
 	dedupedUserIDs := fields.DedupeIDs(allUserIDs)
 
 	g2, gCtx2 := errgroup.WithContext(ctx)
@@ -129,21 +131,21 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Phase 3: Sort friends list by display name/username
 	relation.SortFriendIDs(friendIDs, usersMap)
 
-	// Phase 4: Map domain users to user views (stripping internal fields like password hashes)
 	userViews := make(map[fields.ID]*user.UserView, len(usersMap))
 	for id, u := range usersMap {
 		if u == nil {
 			continue
 		}
-		p := presencesMap[id]
+		p, exists := presencesMap[id]
+		if !exists {
+			p = user.NewPresenceOffline()
+		}
 		view := user.ToUserView(u, p, fields.Now())
 		userViews[id] = &view
 	}
 
-	// Phase 5: Construct normalized response
 	response := UserGetMeResponse{
 		Me:             user.ToUserMeView(me),
 		Users:          userViews,
@@ -159,51 +161,6 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
 	httpio.RespondOK(w, r, response)
 	return nil
 }
-
-// func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
-// 	ctx := r.Context()
-// 	userID, err := httpio.CtxGetUserID(ctx)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	g, gCtx := errgroup.WithContext(ctx)
-
-// 	var (
-// 		me       *user.User
-// 		friends  []relation.Peer
-// 		channels []channel.SidebarView
-// 	)
-
-// 	g.Go(func() error {
-// 		var err error
-// 		me, err = h.service.Get(gCtx, userID.UUID())
-// 		return err
-// 	})
-
-// 	g.Go(func() error {
-// 		var err error
-// 		friends, err = h.relService.GetPeers(gCtx, userID.UUID(), relation.NewTypeFriends().String())
-// 		return err
-// 	})
-
-// 	g.Go(func() error {
-// 		var err error
-// 		channels, err = h.chanService.GetSidebar(gCtx, userID.UUID())
-// 		return err
-// 	})
-
-// 	if err := g.Wait(); err != nil {
-// 		return err
-// 	}
-
-// 	httpio.RespondOK(w, r, UserGetMeResponse{
-// 		Me:       user.ToUserMeView(me),
-// 		Friends:  friends,
-// 		Channels: channels,
-// 	})
-// 	return nil
-// }
 
 type UserUpdateEmailRequest struct {
 	NewEmail string `json:"newEmail" mod:"email" validate:"required,email,max=255"`

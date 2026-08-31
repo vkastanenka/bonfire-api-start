@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/relation"
 
 	"github.com/google/uuid"
 )
@@ -45,50 +44,50 @@ func (h *RelationHandler) GetPeer(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-func (h *RelationHandler) GetFriends(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
+// func (h *RelationHandler) GetFriends(w http.ResponseWriter, r *http.Request) error {
+// 	actorID, err := httpio.CtxGetUserID(r.Context())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeFriends().String())
-	if err != nil {
-		return err
-	}
+// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeFriends().String())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	httpio.RespondOK(w, r, peers)
-	return nil
-}
+// 	httpio.RespondOK(w, r, peers)
+// 	return nil
+// }
 
-func (h *RelationHandler) GetPending(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
+// func (h *RelationHandler) GetPending(w http.ResponseWriter, r *http.Request) error {
+// 	actorID, err := httpio.CtxGetUserID(r.Context())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypePending().String())
-	if err != nil {
-		return err
-	}
+// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypePending().String())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	httpio.RespondOK(w, r, peers)
-	return nil
-}
+// 	httpio.RespondOK(w, r, peers)
+// 	return nil
+// }
 
-func (h *RelationHandler) GetBlocked(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
+// func (h *RelationHandler) GetBlocked(w http.ResponseWriter, r *http.Request) error {
+// 	actorID, err := httpio.CtxGetUserID(r.Context())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeBlocked().String())
-	if err != nil {
-		return err
-	}
+// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeBlocked().String())
+// 	if err != nil {
+// 		return err
+// 	}
 
-	httpio.RespondOK(w, r, peers)
-	return nil
-}
+// 	httpio.RespondOK(w, r, peers)
+// 	return nil
+// }
 
 func (h *RelationHandler) SendRequest(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
