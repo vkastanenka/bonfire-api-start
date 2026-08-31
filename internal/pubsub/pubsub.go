@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -19,6 +20,15 @@ const defaultChannelBuffer = 256
 type Event struct {
 	Channel string
 	Payload string
+}
+
+type NodeEvent struct {
+	UserID     *uuid.UUID      `json:"user_id,omitempty"`
+	SessionID  *uuid.UUID      `json:"session_id,omitempty"`
+	UserIDs    []uuid.UUID     `json:"target_user_ids,omitempty"`
+	SessionIDs []uuid.UUID     `json:"target_session_ids,omitempty"`
+	Type       string          `json:"type"`
+	Data       json.RawMessage `json:"data"`
 }
 
 // Subscription manages the lifecycle and message streaming of an active Redis Pub/Sub connection.

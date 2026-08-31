@@ -555,6 +555,17 @@ func SortIDs(u1, u2 ID) (ID, ID) {
 	return u2, u1
 }
 
+func UUIDs(ids []ID) []uuid.UUID {
+	if len(ids) == 0 {
+		return nil
+	}
+	result := make([]uuid.UUID, len(ids))
+	for i, id := range ids {
+		result[i] = id.UUID()
+	}
+	return result
+}
+
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
 func (id ID) String() string       { return uuid.UUID(id).String() }
 func (id ID) IsZero() bool         { return uuid.UUID(id) == uuid.Nil }

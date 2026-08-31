@@ -20,15 +20,6 @@ var clientBufferLength = 256
 
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
-type GatewayNodeEvent struct {
-	UserID     *uuid.UUID      `json:"user_id,omitempty"`
-	SessionID  *uuid.UUID      `json:"session_id,omitempty"`
-	UserIDs    []uuid.UUID     `json:"target_user_ids,omitempty"`
-	SessionIDs []uuid.UUID     `json:"target_session_ids,omitempty"`
-	Type       string          `json:"type"`
-	Data       json.RawMessage `json:"data"`
-}
-
 type Hub struct {
 	id fields.ID
 
@@ -64,7 +55,7 @@ func NewHub(redisClient *goredis.Client, userCache UserCache, gatewayCache Gatew
 	}
 }
 
-func (h *Hub) ID() uuid.UUID {
+func (h *Hub) ID() fields.ID {
 	return h.id
 }
 
@@ -288,7 +279,7 @@ func (h *Hub) readNodeEvents(ctx context.Context) {
 }
 
 func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
-	var event GatewayNodeEvent
+	var event pubsub.NodeEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		slog.ErrorContext(ctx, "failed to unmarshal node event payload",
 			"error", err,

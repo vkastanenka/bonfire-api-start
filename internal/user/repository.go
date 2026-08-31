@@ -2,24 +2,20 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pubsub"
 	"context"
-
-	"github.com/google/uuid"
 )
 
 type Cache interface {
-	AddNode(ctx context.Context, userID fields.ID, nodeID string) error
+	AddNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
-	GetNodesForUsers(ctx context.Context, userIDs []fields.ID) (map[string][]uuid.UUID, error)
 	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
 	Heartbeat(ctx context.Context, userID fields.ID) error
-	RemoveNode(ctx context.Context, userID fields.ID, nodeID string) error
-	RemoveNodeBatch(ctx context.Context, userIDs []fields.ID, nodeID string) error
-	SetBatchPresence(ctx context.Context, items map[fields.ID]Presence) error
+	RemoveNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
-	GetNodes(ctx context.Context, userID fields.ID) ([]string, error)
-	ClearNodes(ctx context.Context, userID fields.ID) error
+	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence Presence) error
+	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
+	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
 }
 
 type Repository interface {
@@ -43,9 +39,14 @@ type Repository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType outbox.Type, payload outbox.Payload, now fields.Timestamp) error
+	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
 }
 
 type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
+type GatewayPub interface {
+	PublishNodeEvent(ctx context.Context, nodeID fields.ID, event pubsub.NodeEvent) error
+	PublishNodeEvents(ctx context.Context, nodeIDs []fields.ID, event pubsub.NodeEvent) error
 }

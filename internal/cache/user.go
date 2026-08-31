@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -18,12 +17,16 @@ var (
 	userNodesTTL    = 45 * time.Second
 )
 
+const (
+	userDomainKey = "user:"
+)
+
 func userPresenceKey(id fields.ID) string {
-	return fmt.Sprintf("{user:%s}:presence", id.String())
+	return "{" + userDomainKey + id.String() + "}:presence"
 }
 
 func userNodesKey(id fields.ID) string {
-	return fmt.Sprintf("{user:%s}:nodes", id.String())
+	return "{" + userDomainKey + id.String() + "}:nodes"
 }
 
 type UserCache struct {
@@ -109,7 +112,7 @@ func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p user.Pr
 	return nil
 }
 
-// --- Node Presence Operations ---
+// --- Node Operations ---
 
 func (c *UserCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error {
 	pKey := userPresenceKey(userID)
@@ -127,20 +130,22 @@ func (c *UserCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error
 	return nil
 }
 
-func (c *UserCache) RemoveNode(ctx context.Context, userID fields.ID, nodeID string) error {
+func (c *UserCache) RemoveNode(ctx context.Context, userID, nodeID fields.ID) error {
 	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
 	return nil
 }
 
-func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID) error {
-	pKey := userPresenceKey(userID)
-	nKey := userNodesKey(userID)
+func (c *UserCache) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.Expire(ctx, pKey, userPresenceTTL)
-		pipe.Expire(ctx, nKey, userNodesTTL)
+		for _, userID := range userIDs {
+			pipe.SRem(ctx, userNodesKey(userID), nodeID.String())
+		}
 		return nil
 	})
 	if err != nil {
@@ -148,4 +153,66 @@ func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID) error {
 	}
 
 	return nil
+}
+
+// Using ZSET: Score is current epoch timestamp. Inactive nodes are removed via ZREMRANGEBYSCORE.
+func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error {
+	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
+	now := time.Now().Unix()
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.ZAdd(ctx, nKey, redisdriver.Z{Score: float64(now), Member: nodeID.String()})
+		pipe.Expire(ctx, nKey, userNodesTTL)
+		pipe.Expire(ctx, pKey, userPresenceTTL)
+		return nil
+	})
+	return err
+}
+
+func (c *UserCache) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
+	pKey := userPresenceKey(userID)
+	nKey := userNodesKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.SAdd(ctx, nKey, nodeID.String())
+		pipe.Expire(ctx, nKey, userNodesTTL)
+		pipe.Set(ctx, pKey, presence.Int(), userPresenceTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+
+	return nil
+}
+
+var unregisterScript = redisdriver.NewScript(`
+	redis.call("SREM", KEYS[1], ARGV[1])
+	local count = redis.call("SCARD", KEYS[1])
+	if count == 0 then
+		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+		return 1 -- User went completely offline
+	end
+	return 0 -- User still has active nodes
+`)
+
+func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) (bool, error) {
+	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
+
+	res, err := unregisterScript.Run(
+		ctx,
+		c.client,
+		[]string{nKey, pKey},
+		nodeID.String(),
+		user.NewPresenceOffline().Int(),
+		int(userPresenceTTL.Seconds()),
+	).Int()
+
+	if err != nil {
+		return false, redis.NewError(err, c.scope)
+	}
+
+	return res == 1, nil
 }

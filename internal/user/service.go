@@ -2,11 +2,13 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/pubsub"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +18,7 @@ type Service struct {
 	cache      Cache
 	outboxRepo OutboxRepository
 	tx         TX
+	gatewayPub GatewayPub
 }
 
 func NewService(
@@ -23,12 +26,14 @@ func NewService(
 	cache Cache,
 	outboxRepo OutboxRepository,
 	tx TX,
+	gatewayPub GatewayPub,
 ) *Service {
 	return &Service{
 		repo:       repo,
 		cache:      cache,
 		outboxRepo: outboxRepo,
 		tx:         tx,
+		gatewayPub: gatewayPub,
 	}
 }
 
@@ -438,11 +443,7 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 			userIDs[i] = u.ID().String()
 		}
 
-		payload := EventAnonymizeBatchPayload{
-			UserIDs: userIDs,
-			Count:   len(userIDs),
-		}
-		return s.outboxRepo.Publish(txCtx, EventAnonymizeBatch, payload, now)
+		return nil
 	})
 }
 
@@ -450,104 +451,142 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 // Real-Time & Presence
 // -----------------------------------------------------------------------------
 
-const (
-	EventUserPresenceUpdate = "USER_PRESENCE_UPDATE"
-)
-
-type EventUserPresenceUpdatePayload struct {
-	UserID   string `json:"user_id"`
-	Presence string `json:"presence"`
-}
-
-func (s *Service) TrackUserConnection(ctx context.Context, userID fields.ID, nodeID string, presence Presence) error {
-	if err := s.cache.AddNode(ctx, userID, nodeID); err != nil {
-		return err
+func (s *Service) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence Presence) error {
+	// 1. Fetch current presence state from cache
+	currentPresence, err := s.cache.GetPresence(ctx, userID)
+	if err != nil {
+		currentPresence = NewPresenceOffline()
 	}
 
+	// 2. Resolve the desired presence: default to current if valid, else fallback to Online
 	p := presence
 	if !p.IsValid() {
-		p = NewPresenceOnline()
+		if currentPresence.IsValid() && !currentPresence.IsOffline() {
+			p = currentPresence // Preserve existing status (e.g., Busy / DND) for new tabs
+		} else {
+			p = NewPresenceOnline()
+		}
 	}
 
-	if err := s.cache.SetPresence(ctx, userID, p); err != nil {
+	// 3. Register the connection node in cache
+	if err := s.cache.RegisterWSConnection(ctx, userID, nodeID, p); err != nil {
 		return err
 	}
 
-	s.broadcastPresenceUpdate(ctx, userID, p)
+	// 4. Broadcast ONLY if user transitioned from offline OR changed status
+	if currentPresence.IsOffline() || currentPresence != p {
+		s.broadcastPresenceUpdate(ctx, userID, p)
+	}
+
 	return nil
 }
 
-func (s *Service) UntrackUserConnection(ctx context.Context, userID fields.ID, nodeID string) error {
-	if err := s.cache.RemoveNode(ctx, userID, nodeID); err != nil {
-		return err
-	}
-
-	nodes, err := s.cache.GetNodes(ctx, userID)
+func (s *Service) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) error {
+	wentOffline, err := s.cache.UnregisterWSConnection(ctx, userID, nodeID)
 	if err != nil {
 		return err
 	}
 
-	if len(nodes) == 0 {
+	if wentOffline {
 		offlinePresence := NewPresenceOffline()
-		if err := s.cache.SetPresence(ctx, userID, offlinePresence); err != nil {
-			return err
-		}
-
 		s.broadcastPresenceUpdate(ctx, userID, offlinePresence)
 	}
 
 	return nil
 }
 
-func (s *Service) PublishPresenceToUsers(ctx context.Context, userIDs []fields.ID, eventType string, payload any) error {
-	return s.cache.PublishToUsers(ctx, userIDs, eventType, payload)
-}
-
-func (s *Service) BatchRemoveNodePresence(ctx context.Context, userIDs []fields.ID, nodeID string) error {
+func (s *Service) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
-	return s.cache.RemoveNodeBatch(ctx, userIDs, nodeID)
+	return s.cache.RemoveBatchNode(ctx, userIDs, nodeID)
 }
 
-func (s *Service) HandleHeartbeat(ctx context.Context, userID fields.ID, nodeID string, newPresence Presence) error {
+func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence Presence) error {
 	currentPresence, err := s.cache.GetPresence(ctx, userID)
 	if err != nil {
-		// Key expired or node cache lost; safely re-track connection
-		return s.TrackUserConnection(ctx, userID, nodeID, newPresence)
+		return s.RegisterWSConnection(ctx, userID, nodeID, newPresence)
 	}
 
 	p := newPresence
 	if !p.IsValid() {
-		p = currentPresence // Retain existing presence if client omitted it in heartbeat
+		p = currentPresence
 	}
 
-	// If the status has changed (e.g., active -> idle), trigger full broadcast
 	if currentPresence != p {
-		return s.TrackUserConnection(ctx, userID, nodeID, p)
+		return s.RegisterWSConnection(ctx, userID, nodeID, p)
 	}
 
-	// Status is identical: Just refresh TTLs quietly in Redis
-	return s.cache.Heartbeat(ctx, userID, nodeID)
+	return s.cache.Heartbeat(ctx, userID)
+}
+
+func (s *Service) Publish(ctx context.Context, nodeIDs, userIDs []fields.ID, eventType string, payload json.RawMessage) error {
+	event := pubsub.NodeEvent{
+		UserIDs: fields.UUIDs(userIDs),
+		Type:    eventType,
+		Data:    payload,
+	}
+
+	return s.gatewayPub.PublishNodeEvents(ctx, nodeIDs, event)
 }
 
 func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID, p Presence) {
-	recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
-		return
-	}
+	// TODO: Fetch users to broadcast to (friends, active channel members)
+	// recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
+	// if err != nil {
+	// 	slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
+	// 	return
+	// }
 
-	if len(recipients) > 0 {
-		payload := EventUserPresenceUpdatePayload{
+	var nodeIDs []fields.ID
+	var userIDs []fields.ID
+
+	if len(nodeIDs) > 0 {
+		payload := EventUpdatePresencePayload{
 			UserID:   userID.String(),
 			Presence: p.String(),
 		}
-		if err := s.PublishPresenceToUsers(ctx, recipients, EventUserPresenceUpdate, payload); err != nil {
+
+		rawPayload, err := json.Marshal(payload)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
+			return
+		}
+
+		if err := s.Publish(ctx, nodeIDs, userIDs, EventUpdatePresence, rawPayload); err != nil {
 			slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
 		}
 	}
 }
+
+// func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID, p Presence) {
+//     // 1. Fetch recipient user IDs
+//     recipients, err := s.getPresenceRecipients(ctx, userID)
+//     if err != nil || len(recipients) == 0 {
+//         return
+//     }
+
+//     // 2. Fetch target node IDs where these recipients are currently connected
+//     nodeIDs, err := s.cache.GetNodesForUsers(ctx, recipients)
+//     if err != nil || len(nodeIDs) == 0 {
+//         return
+//     }
+
+//     payload := EventUpdatePresencePayload{
+//         UserID:   userID.String(),
+//         Presence: p.String(),
+//     }
+
+//     rawPayload, err := json.Marshal(payload)
+//     if err != nil {
+//         slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
+//         return
+//     }
+
+//     if err := s.Publish(ctx, nodeIDs, recipients, EventUpdatePresence, rawPayload); err != nil {
+//         slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
+//     }
+// }
 
 // -----------------------------------------------------------------------------
 // Internal Helpers
