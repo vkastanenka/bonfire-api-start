@@ -265,20 +265,14 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return u, nil
 	}
 
-	var updatedUser *User
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdatePresence(txCtx, id, preferredPresence, until, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdatePreferredPresencePayload{}
-		return s.outboxRepo.Publish(txCtx, EventUpdatePreferredPresence, payload, now)
-	})
+	updatedUser, err := s.repo.UpdatePresence(ctx, id, preferredPresence, until, now)
 	if err != nil {
 		return nil, err
 	}
+
+	// Use the newly updated user instance to compute and broadcast the correct effective presence
+	effectivePresence := updatedUser.EffectivePresence(fields.Now()).Presence()
+	s.pubUpdatePresence(ctx, updatedUser.ID(), effectivePresence)
 
 	return updatedUser, nil
 }
@@ -475,7 +469,7 @@ func (s *Service) RegisterWSConnection(ctx context.Context, userID, nodeID field
 
 	// 4. Broadcast ONLY if user transitioned from offline OR changed status
 	if currentPresence.IsOffline() || currentPresence != p {
-		s.broadcastPresenceUpdate(ctx, userID, p)
+		s.pubUpdatePresence(ctx, userID, p)
 	}
 
 	return nil
@@ -489,7 +483,7 @@ func (s *Service) UnregisterWSConnection(ctx context.Context, userID, nodeID fie
 
 	if wentOffline {
 		offlinePresence := NewPresenceOffline()
-		s.broadcastPresenceUpdate(ctx, userID, offlinePresence)
+		s.pubUpdatePresence(ctx, userID, offlinePresence)
 	}
 
 	return nil
@@ -530,7 +524,7 @@ func (s *Service) Publish(ctx context.Context, nodeIDs, userIDs []fields.ID, eve
 	return s.gatewayPub.PublishNodeEvents(ctx, nodeIDs, event)
 }
 
-func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID, p Presence) {
+func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
 	// TODO: Fetch users to broadcast to (friends, active channel members)
 	// recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
 	// if err != nil {
@@ -559,7 +553,7 @@ func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID,
 	}
 }
 
-// func (s *Service) broadcastPresenceUpdate(ctx context.Context, userID fields.ID, p Presence) {
+// func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
 //     // 1. Fetch recipient user IDs
 //     recipients, err := s.getPresenceRecipients(ctx, userID)
 //     if err != nil || len(recipients) == 0 {
