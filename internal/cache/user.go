@@ -56,10 +56,39 @@ func NewUserCache(client redisdriver.Cmdable, scope redis.Scope) *UserCache {
 	}
 }
 
+// --- Redis Scripts ---
+
+var registerWSConnectionScript = redisdriver.NewScript(`
+	redis.call("SADD", KEYS[1], ARGV[1])
+	redis.call("EXPIRE", KEYS[1], ARGV[2])
+	redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4])
+	return 1
+`)
+
+var heartbeatScript = redisdriver.NewScript(`
+	redis.call("SADD", KEYS[1], ARGV[1])
+	redis.call("EXPIRE", KEYS[1], ARGV[2])
+	redis.call("EXPIRE", KEYS[2], ARGV[3])
+	return 1
+`)
+
+var unregisterScript = redisdriver.NewScript(`
+	redis.call("SREM", KEYS[1], ARGV[1])
+	local count = redis.call("SCARD", KEYS[1])
+	if count == 0 then
+		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+		return 1 -- Went completely offline
+	else
+		redis.call("EXPIRE", KEYS[1], ARGV[4])
+		redis.call("EXPIRE", KEYS[2], ARGV[3])
+	end
+	return 0 -- Active nodes remaining
+`)
+
 // --- user ---
 
 func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
-	redisKey := UserKey(id)
+	redisKey := userKey(id)
 
 	data, err := u.client.Get(ctx, redisKey).Bytes()
 	if redis.IsCacheMiss(err) {
@@ -105,7 +134,7 @@ func (u *UserCache) GetBatch(
 
 		redisKeys := make([]string, len(chunk))
 		for j, id := range chunk {
-			redisKeys[j] = UserKey(id)
+			redisKeys[j] = userKey(id)
 		}
 
 		vals, err := u.client.MGet(ctx, redisKeys...).Result()
@@ -160,7 +189,7 @@ func (u *UserCache) GetBatch(
 }
 
 func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
-	redisKey := UserKey(usr.ID())
+	redisKey := userKey(usr.ID())
 	dto := ParseUser(usr)
 
 	bytes, err := json.Marshal(dto)
@@ -213,7 +242,7 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 					Meta("scope", u.scope.String()).
 					Wrap(err)
 			}
-			pipe.Set(ctx, UserKey(e.id), data, userTTL)
+			pipe.Set(ctx, userKey(e.id), data, userTTL)
 		}
 
 		if _, err := pipe.Exec(ctx); err != nil {
@@ -225,7 +254,7 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 }
 
 func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
-	if err := u.client.Del(ctx, UserKey(id)).Err(); err != nil {
+	if err := u.client.Del(ctx, userKey(id)).Err(); err != nil {
 		return redis.NewError(err, u.scope)
 	}
 
@@ -247,7 +276,7 @@ func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 
 		redisKeys := make([]string, len(chunk))
 		for j, id := range chunk {
-			redisKeys[j] = UserKey(id)
+			redisKeys[j] = userKey(id)
 		}
 
 		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
@@ -348,7 +377,7 @@ func (c *UserCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error
 }
 
 func (c *UserCache) RemoveNode(ctx context.Context, userID, nodeID fields.ID) error {
-	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID).Err(); err != nil {
+	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID.String()).Err(); err != nil {
 		return redis.NewError(err, c.scope)
 	}
 	return nil
@@ -372,7 +401,7 @@ func (c *UserCache) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, no
 	return nil
 }
 
-// GetNodesForUsers maps each recipient user ID to the gateway node(s) holding their active connection.
+// GetBatchNodes maps each recipient user ID to the gateway node(s) holding their active connection.
 // Returns map[nodeID][]userID so broadcasts can be strictly targeted per node.
 func (c *UserCache) GetBatchNodes(
 	ctx context.Context,
@@ -417,43 +446,42 @@ func (c *UserCache) GetBatchNodes(
 func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error {
 	nKey := userNodesKey(userID)
 	pKey := userPresenceKey(userID)
-	now := time.Now().Unix()
 
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.ZAdd(ctx, nKey, redisdriver.Z{Score: float64(now), Member: nodeID.String()})
-		pipe.Expire(ctx, nKey, userNodesTTL)
-		pipe.Expire(ctx, pKey, userPresenceTTL)
-		return nil
-	})
-	return err
+	err := heartbeatScript.Run(
+		ctx,
+		c.client,
+		[]string{nKey, pKey},
+		nodeID.String(),
+		int(userNodesTTL.Seconds()),
+		int(userPresenceTTL.Seconds()),
+	).Err()
+
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
 }
 
 func (c *UserCache) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
-	pKey := userPresenceKey(userID)
 	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
 
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.SAdd(ctx, nKey, nodeID.String())
-		pipe.Expire(ctx, nKey, userNodesTTL)
-		pipe.Set(ctx, pKey, presence.Int(), userPresenceTTL)
-		return nil
-	})
+	err := registerWSConnectionScript.Run(
+		ctx,
+		c.client,
+		[]string{nKey, pKey},
+		nodeID.String(),
+		int(userNodesTTL.Seconds()),
+		presence.Int(),
+		int(userPresenceTTL.Seconds()),
+	).Err()
+
 	if err != nil {
 		return redis.NewError(err, c.scope)
 	}
 
 	return nil
 }
-
-var unregisterScript = redisdriver.NewScript(`
-	redis.call("SREM", KEYS[1], ARGV[1])
-	local count = redis.call("SCARD", KEYS[1])
-	if count == 0 then
-		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
-		return 1 -- User went completely offline
-	end
-	return 0 -- User still has active nodes
-`)
 
 func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) (bool, error) {
 	nKey := userNodesKey(userID)
@@ -463,9 +491,10 @@ func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID f
 		ctx,
 		c.client,
 		[]string{nKey, pKey},
-		nodeID.String(),
-		user.NewPresenceOffline().Int(),
-		int(userPresenceTTL.Seconds()),
+		nodeID.String(),                 // ARGV[1]
+		user.NewPresenceOffline().Int(), // ARGV[2]
+		int(userPresenceTTL.Seconds()),  // ARGV[3]
+		int(userNodesTTL.Seconds()),     // ARGV[4]
 	).Int()
 
 	if err != nil {

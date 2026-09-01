@@ -32,28 +32,25 @@ func NewService(
 }
 
 func (s *Service) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
-	// 1. Fetch current presence state from cache
 	currentPresence, err := s.cache.GetPresence(ctx, userID)
 	if err != nil {
 		currentPresence = user.NewPresenceOffline()
 	}
 
-	// 2. Resolve the desired presence: default to current if valid, else fallback to Online
 	p := presence
 	if !p.IsValid() {
 		if currentPresence.IsValid() && !currentPresence.IsOffline() {
-			p = currentPresence // Preserve existing status (e.g., Busy / DND) for new tabs
+			p = currentPresence
 		} else {
 			p = user.NewPresenceOnline()
 		}
 	}
 
-	// 3. Register the connection node in cache
 	if err := s.cache.RegisterWSConnection(ctx, userID, nodeID, p); err != nil {
 		return err
 	}
 
-	// 4. Broadcast ONLY if user transitioned from offline OR changed status
+	// Only publish if state changed (offline -> online/dnd OR online -> away, etc.)
 	if currentPresence.IsOffline() || currentPresence != p {
 		s.pubUpdatePresence(ctx, userID, p)
 	}
@@ -102,7 +99,8 @@ func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID,
 
 func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p user.Presence) {
 	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, userID)
-	if err != nil || len(nodeToUsers) == 0 {
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get update recipient nodes", "user_id", userID, "error", err)
 		return
 	}
 
