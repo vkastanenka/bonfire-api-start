@@ -677,3 +677,30 @@ func (c *UserCache) GetUpdateRecipients(
 
 	return recipients, nil
 }
+
+// GetFriendNodes resolves all active gateway node mappings for a user's friends in 1 RTT pipeline.
+func (c *UserCache) GetFriendNodes(
+	ctx context.Context,
+	userID fields.ID,
+) (map[fields.ID][]fields.ID, error) {
+	friends, err := c.GetFriends(ctx, userID)
+	if err != nil || len(friends) == 0 {
+		return nil, err
+	}
+
+	return c.GetBatchNodes(ctx, friends)
+}
+
+// GetUpdateRecipientNodes resolves active gateway node mappings for all update recipients
+// (friends + active channel members) in 2 RTTs total.
+func (c *UserCache) GetUpdateRecipientNodes(
+	ctx context.Context,
+	userID fields.ID,
+) (map[fields.ID][]fields.ID, error) {
+	recipients, err := c.GetUpdateRecipients(ctx, userID)
+	if err != nil || len(recipients) == 0 {
+		return nil, err
+	}
+
+	return c.GetBatchNodes(ctx, recipients)
+}

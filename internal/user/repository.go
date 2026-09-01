@@ -30,6 +30,8 @@ type Cache interface {
 	SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
 	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
 	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
+	GetFriendNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)
+	GetUpdateRecipientNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)
 }
 
 type Repository interface {

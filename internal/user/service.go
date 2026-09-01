@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/pubsub"
@@ -205,7 +206,10 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 
 	now := fields.Now()
 
-	_, err = s.repo.UpdatePasswordHash(ctx, id, newPasswordHash, now)
+	updatedUser, err := s.repo.UpdatePasswordHash(ctx, id, newPasswordHash, now)
+
+	s.DeleteCache(ctx, updatedUser.ID())
+
 	return err
 }
 
@@ -251,8 +255,10 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	// Use the newly updated user instance to compute and broadcast the correct effective presence
+	s.DeleteCache(ctx, updatedUser.ID())
+
 	effectivePresence := updatedUser.EffectivePresence(fields.Now()).Presence()
+
 	s.pubUpdatePresence(ctx, updatedUser.ID(), effectivePresence)
 
 	return updatedUser, nil
@@ -311,6 +317,8 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
+	s.DeleteCache(ctx, updatedUser.ID())
+
 	s.pubUpdateProfile(ctx, updatedUser)
 
 	return updatedUser, nil
@@ -339,6 +347,7 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return err
 	}
 
+	s.DeleteCache(ctx, id)
 	s.pubDisable(ctx, id, now)
 	return nil
 }
@@ -369,6 +378,7 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return err
 	}
 
+	s.DeleteCache(ctx, id)
 	s.pubDisable(ctx, id, now)
 	return nil
 }
@@ -468,27 +478,13 @@ func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID,
 	return s.cache.Heartbeat(ctx, userID, nodeID)
 }
 
-// PublishBatch sends distinct node events across multiple gateway nodes in a single pipeline RTT.
 func (s *Service) PublishBatch(ctx context.Context, nodeEvents map[fields.ID]pubsub.NodeEvent) error {
 	return s.gatewayPub.PublishBatchNodeEvents(ctx, nodeEvents)
 }
 
 func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
-	// 1. Resolve recipient user IDs (Friends + Active Channel Members)
-	recipients, err := s.cache.GetUpdateRecipients(ctx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get presence update recipients", "user_id", userID, "error", err)
-		return
-	}
-
-	if len(recipients) == 0 {
-		return
-	}
-
-	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
-	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to resolve nodes for recipients", "user_id", userID, "error", err)
+	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, userID)
+	if err != nil || len(nodeToUsers) == 0 {
 		return
 	}
 
@@ -496,30 +492,12 @@ func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Pre
 		return
 	}
 
-	// 3. Marshal outbound event payload once
 	payload := EventUpdatePresencePayload{
 		UserID:   userID.String(),
 		Presence: p.String(),
 	}
 
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
-		return
-	}
-
-	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
-	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
-	for nodeID, targetUserIDs := range nodeToUsers {
-		nodeEvents[nodeID] = pubsub.NodeEvent{
-			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    EventUpdatePresence,
-			Data:    rawPayload,
-		}
-	}
-
-	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
-	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
+	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdatePresence, payload); err != nil {
 		slog.ErrorContext(ctx, "failed to broadcast presence updates to nodes",
 			"user_id", userID,
 			"error", err,
@@ -528,84 +506,28 @@ func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Pre
 }
 
 func (s *Service) pubUpdateUsername(ctx context.Context, userID fields.ID, newUsername Username, now fields.Timestamp) {
-	// 1. Get friend IDs directly from cache
-	recipients, err := s.cache.GetFriends(ctx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get username update recipients", "user_id", userID, "error", err)
+	nodeToUsers, err := s.cache.GetFriendNodes(ctx, userID)
+	if err != nil || len(nodeToUsers) == 0 {
 		return
 	}
 
-	if len(recipients) == 0 {
-		return
-	}
-
-	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
-	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to resolve nodes for username recipients", "user_id", userID, "error", err)
-		return
-	}
-
-	if len(nodeToUsers) == 0 {
-		return
-	}
-
-	// 3. Marshal outbound event payload once
 	payload := EventUpdateUsernamePayload{
 		UserID:      userID.String(),
 		NewUsername: newUsername.String(),
 		UpdatedAt:   now.String(),
 	}
 
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to marshal username update payload", "user_id", userID, "error", err)
-		return
-	}
-
-	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
-	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
-	for nodeID, targetUserIDs := range nodeToUsers {
-		nodeEvents[nodeID] = pubsub.NodeEvent{
-			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    EventUpdateUsername,
-			Data:    rawPayload,
-		}
-	}
-
-	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
-	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast username updates to nodes",
-			"user_id", userID,
-			"error", err,
-		)
+	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdateUsername, payload); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast username updates", "user_id", userID, "error", err)
 	}
 }
 
 func (s *Service) pubUpdateProfile(ctx context.Context, updatedUser *User) {
-	// 1. Resolve recipient user IDs (Friends + Active Channel Members) using GetUpdateRecipients
-	recipients, err := s.cache.GetUpdateRecipients(ctx, updatedUser.ID())
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get profile update recipients", "user_id", updatedUser.ID(), "error", err)
+	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, updatedUser.ID())
+	if err != nil || len(nodeToUsers) == 0 {
 		return
 	}
 
-	if len(recipients) == 0 {
-		return
-	}
-
-	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
-	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to resolve nodes for profile recipients", "user_id", updatedUser.ID(), "error", err)
-		return
-	}
-
-	if len(nodeToUsers) == 0 {
-		return
-	}
-
-	// 3. Marshal outbound event payload once
 	payload := EventUpdateProfilePayload{
 		UserID:      updatedUser.ID().String(),
 		DisplayName: updatedUser.DisplayName().String(),
@@ -615,83 +537,52 @@ func (s *Service) pubUpdateProfile(ctx context.Context, updatedUser *User) {
 		UpdatedAt:   updatedUser.UpdatedAt().String(),
 	}
 
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to marshal profile update payload", "user_id", updatedUser.ID(), "error", err)
-		return
-	}
-
-	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
-	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
-	for nodeID, targetUserIDs := range nodeToUsers {
-		nodeEvents[nodeID] = pubsub.NodeEvent{
-			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    EventUpdateProfile,
-			Data:    rawPayload,
-		}
-	}
-
-	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
-	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast profile updates to nodes",
-			"user_id", updatedUser.ID(),
-			"error", err,
-		)
+	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdateProfile, payload); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast profile updates", "user_id", updatedUser.ID(), "error", err)
 	}
 }
 
 func (s *Service) pubDisable(ctx context.Context, userID fields.ID, now fields.Timestamp) {
-	// 1. Get friend IDs directly from cache
-	recipients, err := s.cache.GetFriends(ctx, userID)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to get disable update recipients", "user_id", userID, "error", err)
+	nodeToUsers, err := s.cache.GetFriendNodes(ctx, userID)
+	if err != nil || len(nodeToUsers) == 0 {
 		return
 	}
 
-	if len(recipients) == 0 {
-		return
-	}
-
-	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
-	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to resolve nodes for disable recipients", "user_id", userID, "error", err)
-		return
-	}
-
-	if len(nodeToUsers) == 0 {
-		return
-	}
-
-	// 3. Marshal outbound event payload once
 	payload := EventDisablePayload{
 		UserID:    userID.String(),
 		UpdatedAt: now.String(),
 	}
 
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to marshal disable update payload", "user_id", userID, "error", err)
-		return
+	if err := s.publishToNodes(ctx, nodeToUsers, EventDisable, payload); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast disable updates", "user_id", userID, "error", err)
+	}
+}
+
+func (s *Service) publishToNodes(
+	ctx context.Context,
+	nodeToUsers map[fields.ID][]fields.ID,
+	eventType string,
+	payload interface{},
+) error {
+	if len(nodeToUsers) == 0 {
+		return nil
 	}
 
-	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return errs.Internal("Failed to marshal event payload.").Wrap(err)
+	}
+
 	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
 	for nodeID, targetUserIDs := range nodeToUsers {
 		nodeEvents[nodeID] = pubsub.NodeEvent{
 			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    EventDisable,
+			Type:    eventType,
 			Data:    rawPayload,
 		}
 	}
 
-	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
-	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast disable updates to nodes",
-			"user_id", userID,
-			"error", err,
-		)
-	}
+	return s.PublishBatch(ctx, nodeEvents)
 }
 
 // -----------------------------------------------------------------------------
