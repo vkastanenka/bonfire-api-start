@@ -325,7 +325,7 @@ func (c *UserCache) RemoveChannel(ctx context.Context, userID, channelID fields.
 	return nil
 }
 
-func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID, ttl time.Duration) error {
+func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
 	chKey := userChannelsKey(userID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
@@ -336,7 +336,7 @@ func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelID
 				members[i] = id.String()
 			}
 			pipe.SAdd(ctx, chKey, members...)
-			pipe.Expire(ctx, chKey, ttl)
+			pipe.Expire(ctx, chKey, userChannelsTTL)
 		}
 		return nil
 	})
