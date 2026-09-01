@@ -511,83 +511,67 @@ func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID,
 		return s.RegisterWSConnection(ctx, userID, nodeID, p)
 	}
 
-	return s.cache.Heartbeat(ctx, userID)
+	return s.cache.Heartbeat(ctx, userID, nodeID)
 }
 
-func (s *Service) Publish(ctx context.Context, nodeIDs, userIDs []fields.ID, eventType string, payload json.RawMessage) error {
-	event := pubsub.NodeEvent{
-		UserIDs: fields.UUIDs(userIDs),
-		Type:    eventType,
-		Data:    payload,
-	}
-
-	return s.gatewayPub.PublishNodeEvents(ctx, nodeIDs, event)
+// PublishBatch sends distinct node events across multiple gateway nodes in a single pipeline RTT.
+func (s *Service) PublishBatch(ctx context.Context, nodeEvents map[fields.ID]pubsub.NodeEvent) error {
+	return s.gatewayPub.PublishBatchNodeEvents(ctx, nodeEvents)
 }
 
 func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
-	// TODO: Fetch users to broadcast to (friends, active channel members)
-	// recipients, err := s.cache.GetPresenceRecipients(ctx, userID)
-	// if err != nil {
-	// 	slog.ErrorContext(ctx, "failed to get presence recipients", "user_id", userID, "error", err)
-	// 	return
-	// }
+	// 1. Resolve recipient user IDs (Friends + Active Channel Members)
+	recipients, err := s.cache.GetPresenceUpdateRecipients(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get presence update recipients", "user_id", userID, "error", err)
+		return
+	}
 
-	var nodeIDs []fields.ID
-	var userIDs []fields.ID
+	if len(recipients) == 0 {
+		return
+	}
 
-	if len(nodeIDs) > 0 {
-		payload := EventUpdatePresencePayload{
-			UserID:   userID.String(),
-			Presence: p.String(),
-		}
+	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
+	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to resolve nodes for recipients", "user_id", userID, "error", err)
+		return
+	}
 
-		rawPayload, err := json.Marshal(payload)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
-			return
-		}
+	if len(nodeToUsers) == 0 {
+		return
+	}
 
-		if err := s.Publish(ctx, nodeIDs, userIDs, EventUpdatePresence, rawPayload); err != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
+	// 3. Marshal outbound event payload once
+	payload := EventUpdatePresencePayload{
+		UserID:   userID.String(),
+		Presence: p.String(),
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
+		return
+	}
+
+	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
+	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
+	for nodeID, targetUserIDs := range nodeToUsers {
+		nodeEvents[nodeID] = pubsub.NodeEvent{
+			UserIDs: fields.UUIDs(targetUserIDs),
+			Type:    EventUpdatePresence,
+			Data:    rawPayload,
 		}
 	}
+
+	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
+	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast presence updates to nodes",
+			"user_id", userID,
+			"error", err,
+		)
+	}
 }
-
-// func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
-// 	recipients, err := s.cache.GetBroadcastRecipients(ctx, userID)
-// 	if err != nil || len(recipients) == 0 {
-// 		return
-// 	}
-
-// 	nodeToUsers, err := s.cache.GetNodesForUsers(ctx, recipients)
-// 	if err != nil || len(nodeToUsers) == 0 {
-// 		return
-// 	}
-
-// 	payload := EventUpdatePresencePayload{
-// 		UserID:   userID.String(),
-// 		Presence: p.String(),
-// 	}
-
-// 	rawPayload, err := json.Marshal(payload)
-// 	if err != nil {
-// 		slog.ErrorContext(ctx, "failed to marshal presence update payload", "error", err)
-// 		return
-// 	}
-
-// 	// Dispatch only the subset of user IDs belonging to each specific hub/node
-// 	for nodeID, nodeUserIDs := range nodeToUsers {
-// 		event := pubsub.NodeEvent{
-// 			UserIDs: fields.UUIDs(nodeUserIDs),
-// 			Type:    EventUpdatePresence,
-// 			Data:    rawPayload,
-// 		}
-
-// 		if err := s.gatewayPub.PublishNodeEvents(ctx, []fields.ID{nodeID}, event); err != nil {
-// 			slog.ErrorContext(ctx, "failed to publish presence event to node", "node_id", nodeID, "error", err)
-// 		}
-// 	}
-// }
 
 // -----------------------------------------------------------------------------
 // Internal Helpers

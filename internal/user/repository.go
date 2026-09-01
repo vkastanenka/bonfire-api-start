@@ -7,15 +7,24 @@ import (
 )
 
 type Cache interface {
+	AddChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	AddFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
 	AddNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
+	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
+	GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
-	Heartbeat(ctx context.Context, userID fields.ID) error
-	RemoveNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
+	GetPresenceUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence Presence) error
-	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
 	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
+	RemoveChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	RemoveFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
+	RemoveNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
+	SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
+	SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
+	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
+	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
 }
 
 type Repository interface {
@@ -49,4 +58,5 @@ type TX interface {
 type GatewayPub interface {
 	PublishNodeEvent(ctx context.Context, nodeID fields.ID, event pubsub.NodeEvent) error
 	PublishNodeEvents(ctx context.Context, nodeIDs []fields.ID, event pubsub.NodeEvent) error
+	PublishBatchNodeEvents(ctx context.Context, events map[fields.ID]pubsub.NodeEvent) error
 }

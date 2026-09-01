@@ -81,9 +81,9 @@ func (app *Application) routes() http.Handler {
 
 				// User Relationships & Social Graph
 				me.Route("/relationships", func(rel chi.Router) {
-					rel.Get("/friends", httpio.ToHTTPErr(app.Handlers.Relation.GetFriends))
-					rel.Get("/pending", httpio.ToHTTPErr(app.Handlers.Relation.GetPending))
-					rel.Get("/blocked", httpio.ToHTTPErr(app.Handlers.Relation.GetBlocked))
+					// rel.Get("/friends", httpio.ToHTTPErr(app.Handlers.Relation.GetFriends))
+					// rel.Get("/pending", httpio.ToHTTPErr(app.Handlers.Relation.GetPending))
+					// rel.Get("/blocked", httpio.ToHTTPErr(app.Handlers.Relation.GetBlocked))
 					rel.Get("/{peerId}", httpio.ToHTTPErr(app.Handlers.Relation.GetPeer))
 
 					rel.Post("/{peerId}", httpio.ToHTTPErr(app.Handlers.Relation.SendRequest))

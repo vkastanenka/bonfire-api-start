@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -166,7 +167,48 @@ func (c *UserCache) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, no
 	return nil
 }
 
-// Using ZSET: Score is current epoch timestamp. Inactive nodes are removed via ZREMRANGEBYSCORE.
+// GetNodesForUsers maps each recipient user ID to the gateway node(s) holding their active connection.
+// Returns map[nodeID][]userID so broadcasts can be strictly targeted per node.
+func (c *UserCache) GetBatchNodes(
+	ctx context.Context,
+	userIDs []fields.ID,
+) (map[fields.ID][]fields.ID, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+
+	cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(userIDs))
+
+	// Pipeline SMembers for {user:ID}:nodes across all recipients
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		for _, uid := range userIDs {
+			cmds[uid] = pipe.SMembers(ctx, userNodesKey(uid))
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, redisdriver.Nil) {
+		return nil, redis.NewError(err, c.scope)
+	}
+
+	nodeToUsers := make(map[fields.ID][]fields.ID)
+
+	for uid, cmd := range cmds {
+		nodeStrs, parseErr := cmd.Result()
+		if parseErr != nil || len(nodeStrs) == 0 {
+			continue
+		}
+
+		for _, nStr := range nodeStrs {
+			if nodeID, parseErr := uuid.Parse(nStr); parseErr == nil {
+				nid := fields.ID(nodeID)
+				nodeToUsers[nid] = append(nodeToUsers[nid], uid)
+			}
+		}
+	}
+
+	return nodeToUsers, nil
+}
+
 func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error {
 	nKey := userNodesKey(userID)
 	pKey := userPresenceKey(userID)
@@ -256,7 +298,7 @@ func (c *UserCache) RemoveFriend(ctx context.Context, userID, friendID fields.ID
 }
 
 // SetFriends populates or replaces the friend list cache for a user with a given TTL
-func (c *UserCache) SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID, ttl time.Duration) error {
+func (c *UserCache) SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error {
 	fKey := userFriendsKey(userID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
@@ -267,7 +309,7 @@ func (c *UserCache) SetFriends(ctx context.Context, userID fields.ID, friendIDs 
 				members[i] = id.String()
 			}
 			pipe.SAdd(ctx, fKey, members...)
-			pipe.Expire(ctx, fKey, ttl)
+			pipe.Expire(ctx, fKey, userFriendsTTL)
 		}
 		return nil
 	})
@@ -346,9 +388,11 @@ func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelID
 	return nil
 }
 
-// GetBroadcastRecipients fetches deduplicated recipient user IDs across
-// a user's cached friends list and active channel members in 2 RTTs.
-func (c *UserCache) GetBroadcastRecipients(
+const maxChannelsToQuery = 100
+
+// GetPresenceUpdateRecipients fetches deduplicated recipient user IDs across
+// a user's cached friends list and active channel members in at most 2 RTTs.
+func (c *UserCache) GetPresenceUpdateRecipients(
 	ctx context.Context,
 	userID fields.ID,
 ) ([]fields.ID, error) {
@@ -366,7 +410,7 @@ func (c *UserCache) GetBroadcastRecipients(
 		channelsCmd = pipe.SMembers(ctx, channelsKey)
 		return nil
 	})
-	if err != nil && err != redisdriver.Nil {
+	if err != nil && !errors.Is(err, redisdriver.Nil) {
 		return nil, redis.NewError(err, c.scope)
 	}
 
@@ -375,6 +419,11 @@ func (c *UserCache) GetBroadcastRecipients(
 
 	if len(friendStrs) == 0 && len(channelStrs) == 0 {
 		return nil, nil
+	}
+
+	// Protect against payload/memory explosions for extreme power-users
+	if len(channelStrs) > maxChannelsToQuery {
+		channelStrs = channelStrs[:maxChannelsToQuery]
 	}
 
 	// --- RTT 2: Fan out channel queries concurrently across Redis cluster nodes ---
@@ -391,20 +440,13 @@ func (c *UserCache) GetBroadcastRecipients(
 			}
 			return nil
 		})
-		if err != nil && err != redisdriver.Nil {
+		if err != nil && !errors.Is(err, redisdriver.Nil) {
 			return nil, redis.NewError(err, c.scope)
 		}
 	}
 
-	// Pre-size map based on estimated unique recipients to avoid map resizings
-	totalEstimated := len(friendStrs)
-	for _, cmd := range channelCmds {
-		if members, _ := cmd.Result(); len(members) > 0 {
-			totalEstimated += len(members)
-		}
-	}
-
-	recipientMap := make(map[fields.ID]struct{}, totalEstimated)
+	// Initialize map with capacity for friends; map will grow if channels contribute new IDs
+	recipientMap := make(map[fields.ID]struct{}, len(friendStrs))
 
 	// Parse friends directly into fields.ID
 	for _, fStr := range friendStrs {
@@ -413,7 +455,7 @@ func (c *UserCache) GetBroadcastRecipients(
 		}
 	}
 
-	// Parse channel members directly into fields.ID
+	// Single-pass extraction over channel member commands
 	for _, cmd := range channelCmds {
 		members, parseErr := cmd.Result()
 		if parseErr != nil {
@@ -426,7 +468,7 @@ func (c *UserCache) GetBroadcastRecipients(
 		}
 	}
 
-	// Extract keys directly without re-parsing
+	// Extract unique recipient keys
 	recipients := make([]fields.ID, 0, len(recipientMap))
 	for id := range recipientMap {
 		recipients = append(recipients, id)
