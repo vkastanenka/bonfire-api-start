@@ -14,7 +14,7 @@ type Cache interface {
 	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
 	GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
-	GetPresenceUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence Presence) error
 	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error

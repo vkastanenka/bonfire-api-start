@@ -390,9 +390,9 @@ func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelID
 
 const maxChannelsToQuery = 100
 
-// GetPresenceUpdateRecipients fetches deduplicated recipient user IDs across
+// GetUpdateRecipients fetches deduplicated recipient user IDs across
 // a user's cached friends list and active channel members in at most 2 RTTs.
-func (c *UserCache) GetPresenceUpdateRecipients(
+func (c *UserCache) GetUpdateRecipients(
 	ctx context.Context,
 	userID fields.ID,
 ) ([]fields.ID, error) {

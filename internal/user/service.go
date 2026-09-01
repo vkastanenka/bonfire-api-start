@@ -41,6 +41,7 @@ func NewService(
 // Queries
 // -----------------------------------------------------------------------------
 
+// TODO: Cache aside
 func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 	id, err := fields.ParseRequiredID("id", userID)
 	if err != nil {
@@ -50,6 +51,8 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 	return s.fetchValid(ctx, id)
 }
 
+// TODO: Cache aside
+// TODO: Accept array of uuids and validate, dedupe, filter
 func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
 	if len(ids) == 0 {
 		return make(map[fields.ID]*User), nil
@@ -74,6 +77,7 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 	return validUsers, nil
 }
 
+// TODO: Accept array of uuids and validate, dedupe, filter
 func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
 	if len(userIDs) == 0 {
 		return make(map[fields.ID]Presence), nil
@@ -108,18 +112,8 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 	}
 
 	now := fields.Now()
-	var updatedUser *User
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateEmail(txCtx, id, newEmail, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdateEmailPayload{}
-		return s.outboxRepo.Publish(txCtx, EventUpdateEmail, payload, now)
-	})
+	updatedUser, err := s.repo.UpdateEmail(ctx, id, newEmail, now)
 	if err != nil {
 		return nil, err
 	}
@@ -149,24 +143,13 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	}
 
 	now := fields.Now()
-	var updatedUser *User
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateUsername(txCtx, id, newUsername, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdateUsernamePayload{
-			UserID:      id.String(),
-			NewUsername: newUsername.String(),
-		}
-		return s.outboxRepo.Publish(txCtx, EventUpdateUsername, payload, now)
-	})
+	updatedUser, err := s.repo.UpdateUsername(ctx, id, newUsername, now)
 	if err != nil {
 		return nil, err
 	}
+
+	s.pubUpdateUsername(ctx, updatedUser.ID(), newUsername, now)
 
 	return updatedUser, nil
 }
@@ -214,18 +197,9 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 	}
 
 	now := fields.Now()
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUser, err := s.repo.UpdatePasswordHash(txCtx, id, newPasswordHash, now)
-		if err != nil {
-			return err
-		}
 
-		payload := EventUpdatePasswordPayload{
-			UserID: updatedUser.ID().String(),
-			Email:  updatedUser.Email().String(),
-		}
-		return s.outboxRepo.Publish(txCtx, EventUpdatePassword, payload, now)
-	})
+	_, err = s.repo.UpdatePasswordHash(ctx, id, newPasswordHash, now)
+	return err
 }
 
 type UpdatePreferredPresenceParams struct {
@@ -324,27 +298,13 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	}
 
 	now := fields.Now()
-	var updatedUser *User
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateProfile(txCtx, id, displayName, bio, avatarURL, bannerColor, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventUpdateProfilePayload{
-			UserID:      updatedUser.ID().String(),
-			DisplayName: updatedUser.DisplayName().String(),
-			Bio:         updatedUser.Bio().StringPtr(),
-			AvatarURL:   updatedUser.AvatarURL().StringPtr(),
-			BannerColor: updatedUser.BannerColor().StringPtr(),
-		}
-		return s.outboxRepo.Publish(txCtx, EventUpdateProfile, payload, now)
-	})
+	updatedUser, err := s.repo.UpdateProfile(ctx, id, displayName, bio, avatarURL, bannerColor, now)
 	if err != nil {
 		return nil, err
 	}
+
+	s.pubUpdateProfile(ctx, updatedUser)
 
 	return updatedUser, nil
 }
@@ -364,17 +324,16 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 	}
 
 	now := fields.Now()
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUser, err := s.repo.SetDisabled(txCtx, id, now, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventDisablePayload{
-			UserID: updatedUser.ID().String(),
-		}
-		return s.outboxRepo.Publish(txCtx, EventDisable, payload, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		_, err := s.repo.SetDisabled(txCtx, id, now, now)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+
+	s.pubDisable(ctx, id, now)
+	return nil
 }
 
 type ScheduleDeleteParams struct {
@@ -393,21 +352,18 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 	}
 
 	now := fields.Now()
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		scheduledAt := fields.NewTimestamp(now.Time().Add(ScheduleDeleteGracePeriod))
+	scheduledAt := fields.NewTimestamp(now.Time().Add(ScheduleDeleteGracePeriod))
 
-		updatedUser, err := s.repo.SetDeleteSchedule(txCtx, id, scheduledAt, now, now)
-		if err != nil {
-			return err
-		}
-
-		payload := EventScheduleDeletePayload{
-			UserID:      updatedUser.ID().String(),
-			Email:       updatedUser.Email().String(),
-			ScheduledAt: scheduledAt.String(),
-		}
-		return s.outboxRepo.Publish(txCtx, EventScheduleDelete, payload, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		_, err := s.repo.SetDeleteSchedule(txCtx, id, scheduledAt, now, now)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+
+	s.pubDisable(ctx, id, now)
+	return nil
 }
 
 func (s *Service) AnonymizeBatch(ctx context.Context) error {
@@ -427,17 +383,8 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	}
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedUsers, err := s.repo.UpdateBatch(txCtx, users)
-		if err != nil {
-			return err
-		}
-
-		userIDs := make([]string, len(updatedUsers))
-		for i, u := range updatedUsers {
-			userIDs[i] = u.ID().String()
-		}
-
-		return nil
+		_, err := s.repo.UpdateBatch(txCtx, users)
+		return err
 	})
 }
 
@@ -521,7 +468,7 @@ func (s *Service) PublishBatch(ctx context.Context, nodeEvents map[fields.ID]pub
 
 func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
 	// 1. Resolve recipient user IDs (Friends + Active Channel Members)
-	recipients, err := s.cache.GetPresenceUpdateRecipients(ctx, userID)
+	recipients, err := s.cache.GetUpdateRecipients(ctx, userID)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to get presence update recipients", "user_id", userID, "error", err)
 		return
@@ -567,6 +514,173 @@ func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Pre
 	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
 	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
 		slog.ErrorContext(ctx, "failed to broadcast presence updates to nodes",
+			"user_id", userID,
+			"error", err,
+		)
+	}
+}
+
+func (s *Service) pubUpdateUsername(ctx context.Context, userID fields.ID, newUsername Username, now fields.Timestamp) {
+	// 1. Get friend IDs directly from cache
+	recipients, err := s.cache.GetFriends(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get username update recipients", "user_id", userID, "error", err)
+		return
+	}
+
+	if len(recipients) == 0 {
+		return
+	}
+
+	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
+	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to resolve nodes for username recipients", "user_id", userID, "error", err)
+		return
+	}
+
+	if len(nodeToUsers) == 0 {
+		return
+	}
+
+	// 3. Marshal outbound event payload once
+	payload := EventUpdateUsernamePayload{
+		UserID:      userID.String(),
+		NewUsername: newUsername.String(),
+		UpdatedAt:   now.String(),
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to marshal username update payload", "user_id", userID, "error", err)
+		return
+	}
+
+	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
+	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
+	for nodeID, targetUserIDs := range nodeToUsers {
+		nodeEvents[nodeID] = pubsub.NodeEvent{
+			UserIDs: fields.UUIDs(targetUserIDs),
+			Type:    EventUpdateUsername,
+			Data:    rawPayload,
+		}
+	}
+
+	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
+	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast username updates to nodes",
+			"user_id", userID,
+			"error", err,
+		)
+	}
+}
+
+func (s *Service) pubUpdateProfile(ctx context.Context, updatedUser *User) {
+	// 1. Resolve recipient user IDs (Friends + Active Channel Members) using GetUpdateRecipients
+	recipients, err := s.cache.GetUpdateRecipients(ctx, updatedUser.ID())
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get profile update recipients", "user_id", updatedUser.ID(), "error", err)
+		return
+	}
+
+	if len(recipients) == 0 {
+		return
+	}
+
+	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
+	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to resolve nodes for profile recipients", "user_id", updatedUser.ID(), "error", err)
+		return
+	}
+
+	if len(nodeToUsers) == 0 {
+		return
+	}
+
+	// 3. Marshal outbound event payload once
+	payload := EventUpdateProfilePayload{
+		UserID:      updatedUser.ID().String(),
+		DisplayName: updatedUser.DisplayName().String(),
+		Bio:         updatedUser.Bio().StringPtr(),
+		AvatarURL:   updatedUser.AvatarURL().StringPtr(),
+		BannerColor: updatedUser.BannerColor().StringPtr(),
+		UpdatedAt:   updatedUser.UpdatedAt().String(),
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to marshal profile update payload", "user_id", updatedUser.ID(), "error", err)
+		return
+	}
+
+	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
+	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
+	for nodeID, targetUserIDs := range nodeToUsers {
+		nodeEvents[nodeID] = pubsub.NodeEvent{
+			UserIDs: fields.UUIDs(targetUserIDs),
+			Type:    EventUpdateProfile,
+			Data:    rawPayload,
+		}
+	}
+
+	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
+	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast profile updates to nodes",
+			"user_id", updatedUser.ID(),
+			"error", err,
+		)
+	}
+}
+
+func (s *Service) pubDisable(ctx context.Context, userID fields.ID, now fields.Timestamp) {
+	// 1. Get friend IDs directly from cache
+	recipients, err := s.cache.GetFriends(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get disable update recipients", "user_id", userID, "error", err)
+		return
+	}
+
+	if len(recipients) == 0 {
+		return
+	}
+
+	// 2. Batch-resolve target Gateway Node IDs mapped ONLY to their local recipient user IDs
+	nodeToUsers, err := s.cache.GetBatchNodes(ctx, recipients)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to resolve nodes for disable recipients", "user_id", userID, "error", err)
+		return
+	}
+
+	if len(nodeToUsers) == 0 {
+		return
+	}
+
+	// 3. Marshal outbound event payload once
+	payload := EventDisablePayload{
+		UserID:    userID.String(),
+		UpdatedAt: now.String(),
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to marshal disable update payload", "user_id", userID, "error", err)
+		return
+	}
+
+	// 4. Build a node-specific NodeEvent map so EACH node receives strictly its local UserIDs
+	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
+	for nodeID, targetUserIDs := range nodeToUsers {
+		nodeEvents[nodeID] = pubsub.NodeEvent{
+			UserIDs: fields.UUIDs(targetUserIDs),
+			Type:    EventDisable,
+			Data:    rawPayload,
+		}
+	}
+
+	// 5. Dispatch all targeted payloads in 1 single Redis pipeline RTT
+	if err := s.PublishBatch(ctx, nodeEvents); err != nil {
+		slog.ErrorContext(ctx, "failed to broadcast disable updates to nodes",
 			"user_id", userID,
 			"error", err,
 		)

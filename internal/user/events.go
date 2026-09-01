@@ -2,15 +2,9 @@ package user
 
 const (
 	EventUpdatePresence = "user.update-presence"
-	//
-	EventUpdateEmail             = "user.update-email"
-	EventUpdateUsername          = "user.update-username"
-	EventUpdatePassword          = "user.update-password"
-	EventUpdateProfile           = "user.update-profile"
-	EventUpdatePreferredPresence = "user.update-preferred-presence"
-	EventDisable                 = "user.disable"
-	EventScheduleDelete          = "user.schedule-delete"
-	EventAnonymized              = "user.anonymized"
+	EventUpdateUsername = "user.update-username"
+	EventUpdateProfile  = "user.update-profile"
+	EventDisable        = "user.disable"
 )
 
 type EventUpdatePresencePayload struct {
@@ -18,23 +12,10 @@ type EventUpdatePresencePayload struct {
 	Presence string `json:"presence"`
 }
 
-//
-
-type EventUpdateEmailPayload struct {
-	UserID   string `json:"user_id"`
-	OldEmail string `json:"old_email"`
-	NewEmail string `json:"new_email"`
-}
-
 type EventUpdateUsernamePayload struct {
 	UserID      string `json:"user_id"`
-	OldUsername string `json:"old_username"`
 	NewUsername string `json:"new_username"`
-}
-
-type EventUpdatePasswordPayload struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type EventUpdateProfilePayload struct {
@@ -43,6 +24,7 @@ type EventUpdateProfilePayload struct {
 	Bio         *string `json:"bio,omitempty"`
 	AvatarURL   *string `json:"avatar_url,omitempty"`
 	BannerColor *string `json:"banner_color,omitempty"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 type EventUpdatePreferredPresencePayload struct {
@@ -52,11 +34,6 @@ type EventUpdatePreferredPresencePayload struct {
 }
 
 type EventDisablePayload struct {
-	UserID string `json:"user_id"`
-}
-
-type EventScheduleDeletePayload struct {
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	ScheduledAt string `json:"scheduled_at"`
+	UserID    string `json:"user_id"`
+	UpdatedAt string `json:"updated_at"`
 }
