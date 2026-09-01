@@ -10,8 +10,11 @@ type Cache interface {
 	AddChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	AddFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
 	AddNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
+	Delete(ctx context.Context, id fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
 	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
 	GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
 	GetUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
@@ -21,6 +24,8 @@ type Cache interface {
 	RemoveChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	RemoveFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
 	RemoveNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
+	Set(ctx context.Context, usr *User) error
+	SetBatch(ctx context.Context, users map[fields.ID]*User) error
 	SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
 	SetPresence(ctx context.Context, userID fields.ID, p Presence) error

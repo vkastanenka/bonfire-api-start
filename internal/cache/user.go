@@ -2,10 +2,12 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
 
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
@@ -15,8 +17,9 @@ import (
 )
 
 var (
-	userPresenceTTL = 45 * time.Second
-	userNodesTTL    = 45 * time.Second
+	userTTL         = 24 * time.Hour
+	userPresenceTTL = 90 * time.Second
+	userNodesTTL    = 90 * time.Second
 	userFriendsTTL  = 24 * time.Hour
 	userChannelsTTL = 24 * time.Hour
 )
@@ -25,21 +28,21 @@ const (
 	userDomainKey = "user:"
 )
 
-func userChannelsKey(id fields.ID) string {
-	return "{" + userDomainKey + id.String() + "}:channels"
+func userNamespacedKey(id fields.ID, suffix string) string {
+	if suffix == "" {
+		return "{" + userDomainKey + id.String() + "}"
+	}
+	return "{" + userDomainKey + id.String() + "}:" + suffix
 }
 
-func userFriendsKey(id fields.ID) string {
-	return "{" + userDomainKey + id.String() + "}:friends"
-}
-
-func userNodesKey(id fields.ID) string {
-	return "{" + userDomainKey + id.String() + "}:nodes"
-}
-
-func userPresenceKey(id fields.ID) string {
-	return "{" + userDomainKey + id.String() + "}:presence"
-}
+func userKey(id fields.ID) string               { return userNamespacedKey(id, "") }
+func userPresenceKey(id fields.ID) string       { return userNamespacedKey(id, "presence") }
+func userSessionsKey(id fields.ID) string       { return userNamespacedKey(id, "sessions") }
+func userNodesKey(id fields.ID) string          { return userNamespacedKey(id, "nodes") }
+func userFriendsKey(id fields.ID) string        { return userNamespacedKey(id, "friends") }
+func userFriendRequestsKey(id fields.ID) string { return userNamespacedKey(id, "friend_requests") }
+func userBlocksKey(id fields.ID) string         { return userNamespacedKey(id, "blocks") }
+func userChannelsKey(id fields.ID) string       { return userNamespacedKey(id, "channels") }
 
 type UserCache struct {
 	client redisdriver.Cmdable
@@ -52,6 +55,204 @@ func NewUserCache(client redisdriver.Cmdable, scope redis.Scope) *UserCache {
 		scope:  scope,
 	}
 }
+
+// --- user ---
+
+func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
+	redisKey := UserKey(id)
+
+	data, err := u.client.Get(ctx, redisKey).Bytes()
+	if redis.IsCacheMiss(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, redis.NewError(err, u.scope)
+	}
+
+	var dto User
+	if err := json.Unmarshal(data, &dto); err != nil {
+		_ = u.client.Del(ctx, redisKey).Err()
+		return nil, nil
+	}
+
+	usr, err := dto.ToDomain()
+	if err != nil {
+		_ = u.client.Del(ctx, redisKey).Err()
+		return nil, nil
+	}
+
+	return usr, nil
+}
+
+func (u *UserCache) GetBatch(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*user.User, []fields.ID, error) {
+	if len(ids) == 0 {
+		return make(map[fields.ID]*user.User), nil, nil
+	}
+
+	found := make(map[fields.ID]*user.User, len(ids))
+	missing := make([]fields.ID, 0, len(ids))
+
+	for i := 0; i < len(ids); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+
+		end := min(i+MaxBatchSize, len(ids))
+		chunk := ids[i:end]
+
+		redisKeys := make([]string, len(chunk))
+		for j, id := range chunk {
+			redisKeys[j] = UserKey(id)
+		}
+
+		vals, err := u.client.MGet(ctx, redisKeys...).Result()
+		if err != nil {
+			return nil, nil, redis.NewError(err, u.scope)
+		}
+
+		for j, raw := range vals {
+			id := chunk[j]
+
+			if raw == nil {
+				missing = append(missing, id)
+				continue
+			}
+
+			var data []byte
+			switch v := raw.(type) {
+			case string:
+				if v == "" {
+					missing = append(missing, id)
+					continue
+				}
+				data = []byte(v)
+			case []byte:
+				if len(v) == 0 {
+					missing = append(missing, id)
+					continue
+				}
+				data = v
+			default:
+				missing = append(missing, id)
+				continue
+			}
+
+			var dto User
+			if err := json.Unmarshal(data, &dto); err != nil {
+				missing = append(missing, id)
+				continue
+			}
+
+			usr, err := dto.ToDomain()
+			if err != nil {
+				missing = append(missing, id)
+				continue
+			}
+
+			found[id] = usr
+		}
+	}
+
+	return found, missing, nil
+}
+
+func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
+	redisKey := UserKey(usr.ID())
+	dto := ParseUser(usr)
+
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return errs.Internal("Failed to marshal user json.").
+			Meta("scope", u.scope.String()).
+			Wrap(err)
+	}
+
+	if err := u.client.Set(ctx, redisKey, bytes, userTTL).Err(); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
+}
+
+func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	type entry struct {
+		id  fields.ID
+		usr *user.User
+	}
+	validEntries := make([]entry, 0, len(users))
+	for id, usr := range users {
+		if usr != nil && !id.IsZero() {
+			validEntries = append(validEntries, entry{id: id, usr: usr})
+		}
+	}
+
+	if len(validEntries) == 0 {
+		return nil
+	}
+
+	for i := 0; i < len(validEntries); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+MaxBatchSize, len(validEntries))
+		chunk := validEntries[i:end]
+
+		pipe := u.client.Pipeline()
+		for _, e := range chunk {
+			data, err := json.Marshal(ParseUser(e.usr))
+			if err != nil {
+				return errs.Internal("Failed to marshal user json.").
+					Meta("scope", u.scope.String()).
+					Wrap(err)
+			}
+			pipe.Set(ctx, UserKey(e.id), data, userTTL)
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return redis.NewError(err, u.scope)
+		}
+	}
+
+	return nil
+}
+
+func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
+	if err := u.client.Del(ctx, UserKey(id)).Err(); err != nil {
+		return redis.NewError(err, u.scope)
+	}
+
+	return nil
+}
+
+// func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
+// 	for i := 0; i < len(ids); i += KeyMaxBatchSize {
+// 		if err := ctx.Err(); err != nil {
+// 			return err
+// 		}
+
+// 		end := min(i+KeyMaxBatchSize, len(ids))
+// 		chunk := ids[i:end]
+
+// 		redisKeys := make([]string, len(chunk))
+// 		for j, id := range chunk {
+// 			redisKeys[j] = UserKey(id)
+// 		}
+
+// 		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
+// 			return redis.NewError(err, u.scope)
+// 		}
+// 	}
+
+// 	return nil
+// }
 
 // --- Presence Operations ---
 

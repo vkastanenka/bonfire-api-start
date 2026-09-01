@@ -4,6 +4,10 @@ import (
 	"bonfire-api/internal/fields"
 )
 
+const (
+	MaxBatchSize = 500
+)
+
 func ChannelKey(id fields.ID) string {
 	return "channel:" + id.String()
 }

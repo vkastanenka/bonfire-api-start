@@ -38,51 +38,54 @@ func NewService(
 }
 
 // -----------------------------------------------------------------------------
-// Queries
+// Get
 // -----------------------------------------------------------------------------
 
-// TODO: Cache aside
 func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 	id, err := fields.ParseRequiredID("id", userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.fetchValid(ctx, id)
-}
-
-// TODO: Cache aside
-// TODO: Accept array of uuids and validate, dedupe, filter
-func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
-	if len(ids) == 0 {
-		return make(map[fields.ID]*User), nil
-	}
-
-	usersMap, err := s.repo.GetBatch(ctx, ids)
+	u, err := s.fetchValid(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	validUsers := make(map[fields.ID]*User, len(usersMap))
-	for id, u := range usersMap {
-		if u == nil {
-			continue
-		}
-		if err := u.EnsureActive(); err != nil {
-			continue
-		}
-		validUsers[id] = u
-	}
-
-	return validUsers, nil
+	return u, nil
 }
 
-// TODO: Accept array of uuids and validate, dedupe, filter
-func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
-	if len(userIDs) == 0 {
-		return make(map[fields.ID]Presence), nil
+func (s *Service) GetAside(ctx context.Context, userID uuid.UUID) (*User, error) {
+	u, err := s.Get(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 
+	s.SetCache(ctx, u)
+
+	return u, nil
+}
+
+// -----------------------------------------------------------------------------
+// Bootstrap Helpers
+// -----------------------------------------------------------------------------
+
+func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
+	return s.fetchBatchValidAside(ctx, ids)
+}
+
+func (s *Service) GetBatchAside(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
+	users, err := s.GetBatch(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	s.SetBatchCache(ctx, users)
+
+	return users, nil
+}
+
+func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
 	return s.cache.GetBatchPresence(ctx, userIDs)
 }
 
@@ -118,6 +121,8 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return nil, err
 	}
 
+	s.DeleteCache(ctx, updatedUser.ID())
+
 	return updatedUser, nil
 }
 
@@ -148,6 +153,8 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	if err != nil {
 		return nil, err
 	}
+
+	s.DeleteCache(ctx, updatedUser.ID())
 
 	s.pubUpdateUsername(ctx, updatedUser.ID(), newUsername, now)
 
@@ -688,8 +695,97 @@ func (s *Service) pubDisable(ctx context.Context, userID fields.ID, now fields.T
 }
 
 // -----------------------------------------------------------------------------
+// Cache Helpers
+// -----------------------------------------------------------------------------
+
+func (s *Service) GetCache(ctx context.Context, userID fields.ID) *User {
+	u, err := s.cache.Get(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+func (s *Service) GetBatchCache(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID) {
+	found, missing, err := s.cache.GetBatch(ctx, ids)
+	if err != nil {
+		return make(map[fields.ID]*User), ids
+	}
+	return found, missing
+}
+
+func (s *Service) SetCache(ctx context.Context, user *User) {
+	s.cache.Set(ctx, user)
+}
+
+func (s *Service) SetBatchCache(ctx context.Context, users map[fields.ID]*User) {
+	s.cache.SetBatch(ctx, users)
+}
+
+func (s *Service) DeleteCache(ctx context.Context, id fields.ID) {
+	s.cache.Delete(ctx, id)
+}
+
+// -----------------------------------------------------------------------------
 // Internal Helpers
 // -----------------------------------------------------------------------------
+
+func (s *Service) fetchBatchValid(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*User, error) {
+	if len(userIDs) == 0 {
+		return make(map[fields.ID]*User), nil
+	}
+
+	usersMap, err := s.repo.GetBatch(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	validUsers := make(map[fields.ID]*User, len(usersMap))
+	for id, u := range usersMap {
+		if u == nil {
+			continue
+		}
+		if err := u.EnsureActive(); err != nil {
+			continue
+		}
+		validUsers[id] = u
+	}
+
+	return validUsers, nil
+}
+
+func (s *Service) fetchBatchValidAside(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*User, error) {
+	if len(userIDs) == 0 {
+		return make(map[fields.ID]*User), nil
+	}
+
+	found, missing := s.GetBatchCache(ctx, userIDs)
+
+	validUsers := make(map[fields.ID]*User, len(userIDs))
+	for id, u := range found {
+		if u != nil && u.EnsureActive() == nil {
+			validUsers[id] = u
+		} else {
+			missing = append(missing, id)
+		}
+	}
+
+	if len(missing) == 0 {
+		return validUsers, nil
+	}
+
+	dbUsersMap, err := s.fetchBatchValid(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+
+	for id, u := range dbUsersMap {
+		s.SetCache(ctx, u)
+		validUsers[id] = u
+	}
+
+	return validUsers, nil
+}
 
 func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
 	u, err := s.repo.Get(ctx, actorID)
@@ -698,6 +794,22 @@ func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, err
 	}
 
 	if err := u.EnsureActive(); err != nil {
+		return nil, err
+	}
+
+	return u, nil
+}
+
+func (s *Service) fetchValidAside(ctx context.Context, actorID fields.ID) (*User, error) {
+	if u := s.GetCache(ctx, actorID); u != nil {
+		if err := u.EnsureActive(); err != nil {
+			return nil, err
+		}
+		return u, nil
+	}
+
+	u, err := s.fetchValid(ctx, actorID)
+	if err != nil {
 		return nil, err
 	}
 
