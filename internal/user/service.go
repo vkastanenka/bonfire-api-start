@@ -2,14 +2,10 @@ package user
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
 
 	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/pubsub"
 
 	"github.com/google/uuid"
 )
@@ -38,44 +34,43 @@ func NewService(
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Get
-// -----------------------------------------------------------------------------
-
 func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 	id, err := fields.ParseRequiredID("id", userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if u := s.GetCache(ctx, id); u != nil {
+	u, err := s.cache.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if u != nil {
 		if err := u.EnsureActive(); err != nil {
-			s.cache.Delete(ctx, id)
+			_ = s.cache.Delete(ctx, id)
 			return nil, err
 		}
 		return u, nil
 	}
 
-	u, err := s.fetchValid(ctx, id)
+	u, err = s.fetchValid(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	s.SetCache(ctx, u)
+	_ = s.cache.Set(ctx, u)
 
 	return u, nil
 }
-
-// -----------------------------------------------------------------------------
-// Bootstrap Helpers
-// -----------------------------------------------------------------------------
 
 func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
 	if len(ids) == 0 {
 		return make(map[fields.ID]*User), nil
 	}
 
-	found, missing := s.GetBatchCache(ctx, ids)
+	found, missing, err := s.cache.GetBatch(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 
 	validUsers := make(map[fields.ID]*User, len(ids))
 	var invalidIDs []fields.ID
@@ -94,7 +89,7 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 	}
 
 	if len(invalidIDs) > 0 {
-		s.cache.DeleteBatch(ctx, invalidIDs)
+		_ = s.cache.DeleteBatch(ctx, invalidIDs)
 	}
 
 	if len(missing) == 0 {
@@ -112,7 +107,7 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 		return validUsers, nil
 	}
 
-	s.SetBatchCache(ctx, dbUsersMap)
+	_ = s.cache.SetBatch(ctx, dbUsersMap)
 
 	for id, u := range dbUsersMap {
 		validUsers[id] = u
@@ -124,10 +119,6 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
 	return s.cache.GetBatchPresence(ctx, userIDs)
 }
-
-// -----------------------------------------------------------------------------
-// Account Management
-// -----------------------------------------------------------------------------
 
 type UpdateEmailParams struct {
 	UserID   uuid.UUID
@@ -157,7 +148,7 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return nil, err
 	}
 
-	s.cache.Delete(ctx, updatedUser.ID())
+	_ = s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -205,7 +196,7 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return nil, err
 	}
 
-	s.cache.Delete(ctx, updatedUser.ID())
+	_ = s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -259,7 +250,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return err
 	}
 
-	s.cache.Delete(ctx, id)
+	_ = s.cache.Delete(ctx, id)
 
 	return nil
 }
@@ -315,7 +306,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 			effectivePresence = NewPresenceOnline()
 		}
 
-		payload := EventUpdatePresencePayload{
+		payload := EventUpdatePreferredPresencePayload{
 			UserID:    updatedUser.ID().String(),
 			Presence:  effectivePresence.String(),
 			UpdatedAt: updatedUser.UpdatedAt().String(),
@@ -327,7 +318,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	s.cache.Delete(ctx, updatedUser.ID())
+	_ = s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -403,7 +394,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	s.cache.Delete(ctx, updatedUser.ID())
+	_ = s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -441,7 +432,7 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return err
 	}
 
-	s.cache.Delete(ctx, id)
+	_ = s.cache.Delete(ctx, id)
 
 	return nil
 }
@@ -481,7 +472,7 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return err
 	}
 
-	s.cache.Delete(ctx, id)
+	_ = s.cache.Delete(ctx, id)
 
 	return nil
 }
@@ -505,218 +496,6 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	_, err = s.repo.UpdateBatch(ctx, users)
 	return err
 }
-
-// -----------------------------------------------------------------------------
-// Real-Time & Presence
-// -----------------------------------------------------------------------------
-
-func (s *Service) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence Presence) error {
-	// 1. Fetch current presence state from cache
-	currentPresence, err := s.cache.GetPresence(ctx, userID)
-	if err != nil {
-		currentPresence = NewPresenceOffline()
-	}
-
-	// 2. Resolve the desired presence: default to current if valid, else fallback to Online
-	p := presence
-	if !p.IsValid() {
-		if currentPresence.IsValid() && !currentPresence.IsOffline() {
-			p = currentPresence // Preserve existing status (e.g., Busy / DND) for new tabs
-		} else {
-			p = NewPresenceOnline()
-		}
-	}
-
-	// 3. Register the connection node in cache
-	if err := s.cache.RegisterWSConnection(ctx, userID, nodeID, p); err != nil {
-		return err
-	}
-
-	// 4. Broadcast ONLY if user transitioned from offline OR changed status
-	if currentPresence.IsOffline() || currentPresence != p {
-		s.pubUpdatePresence(ctx, userID, p)
-	}
-
-	return nil
-}
-
-func (s *Service) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) error {
-	wentOffline, err := s.cache.UnregisterWSConnection(ctx, userID, nodeID)
-	if err != nil {
-		return err
-	}
-
-	if wentOffline {
-		offlinePresence := NewPresenceOffline()
-		s.pubUpdatePresence(ctx, userID, offlinePresence)
-	}
-
-	return nil
-}
-
-func (s *Service) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-	return s.cache.RemoveBatchNode(ctx, userIDs, nodeID)
-}
-
-func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence Presence) error {
-	currentPresence, err := s.cache.GetPresence(ctx, userID)
-	if err != nil {
-		return s.RegisterWSConnection(ctx, userID, nodeID, newPresence)
-	}
-
-	p := newPresence
-	if !p.IsValid() {
-		p = currentPresence
-	}
-
-	if currentPresence != p {
-		return s.RegisterWSConnection(ctx, userID, nodeID, p)
-	}
-
-	return s.cache.Heartbeat(ctx, userID, nodeID)
-}
-
-func (s *Service) PublishBatch(ctx context.Context, nodeEvents map[fields.ID]pubsub.NodeEvent) error {
-	return s.gatewayPub.PublishBatchNodeEvents(ctx, nodeEvents)
-}
-
-func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
-	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, userID)
-	if err != nil || len(nodeToUsers) == 0 {
-		return
-	}
-
-	if len(nodeToUsers) == 0 {
-		return
-	}
-
-	payload := EventUpdatePresencePayload{
-		UserID:   userID.String(),
-		Presence: p.String(),
-	}
-
-	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdatePresence, payload); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast presence updates to nodes",
-			"user_id", userID,
-			"error", err,
-		)
-	}
-}
-
-func (s *Service) pubUpdateUsername(ctx context.Context, userID fields.ID, newUsername Username, now fields.Timestamp) {
-	nodeToUsers, err := s.cache.GetFriendNodes(ctx, userID)
-	if err != nil || len(nodeToUsers) == 0 {
-		return
-	}
-
-	payload := EventUpdateUsernamePayload{
-		UserID:      userID.String(),
-		NewUsername: newUsername.String(),
-		UpdatedAt:   now.String(),
-	}
-
-	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdateUsername, payload); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast username updates", "user_id", userID, "error", err)
-	}
-}
-
-func (s *Service) pubUpdateProfile(ctx context.Context, updatedUser *User) {
-	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, updatedUser.ID())
-	if err != nil || len(nodeToUsers) == 0 {
-		return
-	}
-
-	payload := EventUpdateProfilePayload{
-		UserID:      updatedUser.ID().String(),
-		DisplayName: updatedUser.DisplayName().String(),
-		Bio:         updatedUser.Bio().StringPtr(),
-		AvatarURL:   updatedUser.AvatarURL().StringPtr(),
-		BannerColor: updatedUser.BannerColor().StringPtr(),
-		UpdatedAt:   updatedUser.UpdatedAt().String(),
-	}
-
-	if err := s.publishToNodes(ctx, nodeToUsers, EventUpdateProfile, payload); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast profile updates", "user_id", updatedUser.ID(), "error", err)
-	}
-}
-
-func (s *Service) pubDisable(ctx context.Context, userID fields.ID, now fields.Timestamp) {
-	nodeToUsers, err := s.cache.GetFriendNodes(ctx, userID)
-	if err != nil || len(nodeToUsers) == 0 {
-		return
-	}
-
-	payload := EventDisablePayload{
-		UserID:    userID.String(),
-		UpdatedAt: now.String(),
-	}
-
-	if err := s.publishToNodes(ctx, nodeToUsers, EventDisable, payload); err != nil {
-		slog.ErrorContext(ctx, "failed to broadcast disable updates", "user_id", userID, "error", err)
-	}
-}
-
-func (s *Service) publishToNodes(
-	ctx context.Context,
-	nodeToUsers map[fields.ID][]fields.ID,
-	eventType string,
-	payload interface{},
-) error {
-	if len(nodeToUsers) == 0 {
-		return nil
-	}
-
-	rawPayload, err := json.Marshal(payload)
-	if err != nil {
-		return errs.Internal("Failed to marshal event payload.").Wrap(err)
-	}
-
-	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
-	for nodeID, targetUserIDs := range nodeToUsers {
-		nodeEvents[nodeID] = pubsub.NodeEvent{
-			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    eventType,
-			Data:    rawPayload,
-		}
-	}
-
-	return s.PublishBatch(ctx, nodeEvents)
-}
-
-// -----------------------------------------------------------------------------
-// Cache Helpers
-// -----------------------------------------------------------------------------
-
-func (s *Service) GetCache(ctx context.Context, userID fields.ID) *User {
-	u, err := s.cache.Get(ctx, userID)
-	if err != nil {
-		return nil
-	}
-	return u
-}
-
-func (s *Service) GetBatchCache(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID) {
-	found, missing, err := s.cache.GetBatch(ctx, ids)
-	if err != nil {
-		return make(map[fields.ID]*User), ids
-	}
-	return found, missing
-}
-
-func (s *Service) SetCache(ctx context.Context, user *User) {
-	s.cache.Set(ctx, user)
-}
-
-func (s *Service) SetBatchCache(ctx context.Context, users map[fields.ID]*User) {
-	s.cache.SetBatch(ctx, users)
-}
-
-// -----------------------------------------------------------------------------
-// Internal Helpers
-// -----------------------------------------------------------------------------
 
 func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
 	u, err := s.repo.Get(ctx, actorID)

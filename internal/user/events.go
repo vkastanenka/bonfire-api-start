@@ -14,6 +14,11 @@ type EventUpdateUsernamePayload struct {
 }
 
 type EventUpdatePresencePayload struct {
+	UserID   string `json:"user_id"`
+	Presence string `json:"presence"`
+}
+
+type EventUpdatePreferredPresencePayload struct {
 	UserID    string `json:"user_id"`
 	Presence  string `json:"presence"`
 	UpdatedAt string `json:"updated_at"`
