@@ -3,7 +3,6 @@ package gateway
 import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/pubsub"
 	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
@@ -14,14 +13,14 @@ type Service struct {
 	repo       UserRepository
 	cache      UserCache
 	tx         TX
-	gatewayPub GatewayPub
+	gatewayPub Publisher
 }
 
 func NewService(
 	repo UserRepository,
 	cache UserCache,
 	tx TX,
-	gatewayPub GatewayPub,
+	gatewayPub Publisher,
 ) *Service {
 	return &Service{
 		repo:       repo,
@@ -136,9 +135,9 @@ func (s *Service) publishToNodes(
 		return errs.Internal("Failed to marshal event payload.").Wrap(err)
 	}
 
-	nodeEvents := make(map[fields.ID]pubsub.NodeEvent, len(nodeToUsers))
+	nodeEvents := make(map[fields.ID]NodeEvent, len(nodeToUsers))
 	for nodeID, targetUserIDs := range nodeToUsers {
-		nodeEvents[nodeID] = pubsub.NodeEvent{
+		nodeEvents[nodeID] = NodeEvent{
 			UserIDs: fields.UUIDs(targetUserIDs),
 			Type:    eventType,
 			Data:    rawPayload,

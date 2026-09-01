@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/pubsub"
 	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
@@ -91,10 +90,4 @@ type OutboxRepository interface {
 
 type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-type GatewayPub interface {
-	PublishNodeEvent(ctx context.Context, nodeID fields.ID, event pubsub.NodeEvent) error
-	PublishNodeEvents(ctx context.Context, nodeIDs []fields.ID, event pubsub.NodeEvent) error
-	PublishBatchNodeEvents(ctx context.Context, events map[fields.ID]pubsub.NodeEvent) error
 }

@@ -1,16 +1,15 @@
 package gateway
 
 import (
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/redis"
+	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
-
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/pkg/ptr"
-	"bonfire-api/internal/pubsub"
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
@@ -41,7 +40,7 @@ type Hub struct {
 	userIdx    map[uuid.UUID]map[uuid.UUID]*Client
 
 	redisClient  *goredis.Client
-	sub          *pubsub.Subscription
+	sub          *redis.Subscription
 	userCache    UserCache
 	gatewayCache GatewayCache
 	userService  UserService
@@ -248,7 +247,7 @@ func (h *Hub) closeAllClients() {
 }
 
 func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
-	sub, err := pubsub.SubscribeGatewayEvents(ctx, h.redisClient, fields.ID(h.ID()))
+	sub, err := SubscribeGatewayEvents(ctx, h.redisClient, fields.ID(h.ID()))
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
 			"id", h.id,
@@ -261,7 +260,7 @@ func (h *Hub) listenRedisNodeEvents(ctx context.Context) {
 	h.readNodeEvents(ctx)
 }
 
-func (h *Hub) setSubscription(sub *pubsub.Subscription) {
+func (h *Hub) setSubscription(sub *redis.Subscription) {
 	h.subMu.Lock()
 	h.sub = sub
 	h.subMu.Unlock()
@@ -288,7 +287,7 @@ func (h *Hub) readNodeEvents(ctx context.Context) {
 }
 
 func (h *Hub) dispatchNodeEvent(ctx context.Context, payload string) {
-	var event pubsub.NodeEvent
+	var event NodeEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		slog.ErrorContext(ctx, "failed to unmarshal node event payload",
 			"error", err,
