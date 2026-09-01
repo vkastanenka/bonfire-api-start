@@ -112,8 +112,6 @@ var heartbeatScript = redisdriver.NewScript(`
 	return 1
 `)
 
-// --- user ---
-
 func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	redisKey := userKey(id)
 
@@ -125,13 +123,7 @@ func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 		return nil, redis.NewError(err, u.scope)
 	}
 
-	var dto User
-	if err := json.Unmarshal(data, &dto); err != nil {
-		_ = u.client.Del(ctx, redisKey).Err()
-		return nil, nil
-	}
-
-	usr, err := dto.ToDomain()
+	usr, err := parseUserBytes(data)
 	if err != nil {
 		_ = u.client.Del(ctx, redisKey).Err()
 		return nil, nil
@@ -150,6 +142,7 @@ func (u *UserCache) GetBatch(
 
 	found := make(map[fields.ID]*user.User, len(ids))
 	missing := make([]fields.ID, 0, len(ids))
+	var corrupted []fields.ID
 
 	for i := 0; i < len(ids); i += MaxBatchSize {
 		if err := ctx.Err(); err != nil {
@@ -172,38 +165,15 @@ func (u *UserCache) GetBatch(
 		for j, raw := range vals {
 			id := chunk[j]
 
-			if raw == nil {
+			data, ok := extractBytes(raw)
+			if !ok {
 				missing = append(missing, id)
 				continue
 			}
 
-			var data []byte
-			switch v := raw.(type) {
-			case string:
-				if v == "" {
-					missing = append(missing, id)
-					continue
-				}
-				data = []byte(v)
-			case []byte:
-				if len(v) == 0 {
-					missing = append(missing, id)
-					continue
-				}
-				data = v
-			default:
-				missing = append(missing, id)
-				continue
-			}
-
-			var dto User
-			if err := json.Unmarshal(data, &dto); err != nil {
-				missing = append(missing, id)
-				continue
-			}
-
-			usr, err := dto.ToDomain()
+			usr, err := parseUserBytes(data)
 			if err != nil {
+				corrupted = append(corrupted, id)
 				missing = append(missing, id)
 				continue
 			}
@@ -212,21 +182,48 @@ func (u *UserCache) GetBatch(
 		}
 	}
 
+	if len(corrupted) > 0 {
+		u.DeleteBatch(ctx, corrupted)
+	}
+
 	return found, missing, nil
 }
 
-func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
-	redisKey := userKey(usr.ID())
-	dto := ParseUser(usr)
+func extractBytes(raw any) ([]byte, bool) {
+	if raw == nil {
+		return nil, false
+	}
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil, false
+		}
+		return []byte(v), true
+	case []byte:
+		if len(v) == 0 {
+			return nil, false
+		}
+		return v, true
+	default:
+		return nil, false
+	}
+}
 
-	bytes, err := json.Marshal(dto)
+func parseUserBytes(data []byte) (*user.User, error) {
+	var dto User
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain()
+}
+
+func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
+	bytes, err := u.marshalUser(usr)
 	if err != nil {
-		return errs.Internal("Failed to marshal user json.").
-			Meta("scope", u.scope.String()).
-			Wrap(err)
+		return err
 	}
 
-	if err := u.client.Set(ctx, redisKey, bytes, userTTL).Err(); err != nil {
+	if err := u.client.Set(ctx, userKey(usr.ID()), bytes, userTTL).Err(); err != nil {
 		return redis.NewError(err, u.scope)
 	}
 
@@ -263,13 +260,11 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 
 		pipe := u.client.Pipeline()
 		for _, e := range chunk {
-			data, err := json.Marshal(ParseUser(e.usr))
+			bytes, err := u.marshalUser(e.usr)
 			if err != nil {
-				return errs.Internal("Failed to marshal user json.").
-					Meta("scope", u.scope.String()).
-					Wrap(err)
+				return err
 			}
-			pipe.Set(ctx, userKey(e.id), data, userTTL)
+			pipe.Set(ctx, userKey(e.id), bytes, userTTL)
 		}
 
 		if _, err := pipe.Exec(ctx); err != nil {
@@ -278,6 +273,17 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 	}
 
 	return nil
+}
+
+func (u *UserCache) marshalUser(usr *user.User) ([]byte, error) {
+	dto := ParseUser(usr)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal user json.").
+			Meta("scope", u.scope.String()).
+			Wrap(err)
+	}
+	return bytes, nil
 }
 
 func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
