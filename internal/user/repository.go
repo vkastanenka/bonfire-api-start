@@ -11,6 +11,7 @@ type Cache interface {
 	AddFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
 	AddNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
 	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
 	Get(ctx context.Context, id fields.ID) (*User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
 	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)

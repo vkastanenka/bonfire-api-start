@@ -232,27 +232,31 @@ func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
 	return nil
 }
 
-// func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
-// 	for i := 0; i < len(ids); i += KeyMaxBatchSize {
-// 		if err := ctx.Err(); err != nil {
-// 			return err
-// 		}
+func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
+	if len(ids) == 0 {
+		return nil
+	}
 
-// 		end := min(i+KeyMaxBatchSize, len(ids))
-// 		chunk := ids[i:end]
+	for i := 0; i < len(ids); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 
-// 		redisKeys := make([]string, len(chunk))
-// 		for j, id := range chunk {
-// 			redisKeys[j] = UserKey(id)
-// 		}
+		end := min(i+MaxBatchSize, len(ids))
+		chunk := ids[i:end]
 
-// 		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
-// 			return redis.NewError(err, u.scope)
-// 		}
-// 	}
+		redisKeys := make([]string, len(chunk))
+		for j, id := range chunk {
+			redisKeys[j] = UserKey(id)
+		}
 
-// 	return nil
-// }
+		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
+			return redis.NewError(err, u.scope)
+		}
+	}
+
+	return nil
+}
 
 // --- Presence Operations ---
 

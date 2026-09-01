@@ -48,16 +48,15 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 		return nil, err
 	}
 
-	u, err := s.fetchValid(ctx, id)
-	if err != nil {
-		return nil, err
+	if u := s.GetCache(ctx, id); u != nil {
+		if err := u.EnsureActive(); err != nil {
+			s.cache.Delete(ctx, id)
+			return nil, err
+		}
+		return u, nil
 	}
 
-	return u, nil
-}
-
-func (s *Service) GetAside(ctx context.Context, userID uuid.UUID) (*User, error) {
-	u, err := s.Get(ctx, userID)
+	u, err := s.fetchValid(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -72,18 +71,54 @@ func (s *Service) GetAside(ctx context.Context, userID uuid.UUID) (*User, error)
 // -----------------------------------------------------------------------------
 
 func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
-	return s.fetchBatchValidAside(ctx, ids)
-}
+	if len(ids) == 0 {
+		return make(map[fields.ID]*User), nil
+	}
 
-func (s *Service) GetBatchAside(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, error) {
-	users, err := s.GetBatch(ctx, ids)
+	found, missing := s.GetBatchCache(ctx, ids)
+
+	validUsers := make(map[fields.ID]*User, len(ids))
+	var invalidIDs []fields.ID
+
+	for id, u := range found {
+		if u == nil {
+			missing = append(missing, id)
+			continue
+		}
+
+		if err := u.EnsureActive(); err == nil {
+			validUsers[id] = u
+		} else {
+			invalidIDs = append(invalidIDs, id)
+		}
+	}
+
+	if len(invalidIDs) > 0 {
+		s.cache.DeleteBatch(ctx, invalidIDs)
+	}
+
+	if len(missing) == 0 {
+		return validUsers, nil
+	}
+
+	missing = fields.DedupeIDs(missing)
+
+	dbUsersMap, err := s.fetchBatchValid(ctx, missing)
 	if err != nil {
 		return nil, err
 	}
 
-	s.SetBatchCache(ctx, users)
+	if len(dbUsersMap) == 0 {
+		return validUsers, nil
+	}
 
-	return users, nil
+	s.SetBatchCache(ctx, dbUsersMap)
+
+	for id, u := range dbUsersMap {
+		validUsers[id] = u
+	}
+
+	return validUsers, nil
 }
 
 func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
@@ -122,7 +157,7 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return nil, err
 	}
 
-	s.DeleteCache(ctx, updatedUser.ID())
+	s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -149,15 +184,28 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	}
 
 	now := fields.Now()
+	var updatedUser *User
 
-	updatedUser, err := s.repo.UpdateUsername(ctx, id, newUsername, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var txErr error
+		updatedUser, txErr = s.repo.UpdateUsername(txCtx, id, newUsername, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		payload := EventUpdateUsernamePayload{
+			UserID:    updatedUser.ID().String(),
+			Username:  updatedUser.Username().String(),
+			UpdatedAt: updatedUser.UpdatedAt().String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventUpdateUsername, payload, now)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.DeleteCache(ctx, updatedUser.ID())
-
-	s.pubUpdateUsername(ctx, updatedUser.ID(), newUsername, now)
+	s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -206,11 +254,14 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 
 	now := fields.Now()
 
-	updatedUser, err := s.repo.UpdatePasswordHash(ctx, id, newPasswordHash, now)
+	_, err = s.repo.UpdatePasswordHash(ctx, id, newPasswordHash, now)
+	if err != nil {
+		return err
+	}
 
-	s.DeleteCache(ctx, updatedUser.ID())
+	s.cache.Delete(ctx, id)
 
-	return err
+	return nil
 }
 
 type UpdatePreferredPresenceParams struct {
@@ -241,7 +292,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	u, err := s.fetchValid(ctx, id)
+	u, err := s.Get(ctx, id.UUID())
 	if err != nil {
 		return nil, err
 	}
@@ -250,16 +301,33 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return u, nil
 	}
 
-	updatedUser, err := s.repo.UpdatePresence(ctx, id, preferredPresence, until, now)
+	var updatedUser *User
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var txErr error
+		updatedUser, txErr = s.repo.UpdatePresence(txCtx, id, preferredPresence, until, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		effectivePresence := updatedUser.EffectivePresence(now).Presence()
+		if !effectivePresence.IsValid() {
+			effectivePresence = NewPresenceOnline()
+		}
+
+		payload := EventUpdatePresencePayload{
+			UserID:    updatedUser.ID().String(),
+			Presence:  effectivePresence.String(),
+			UpdatedAt: updatedUser.UpdatedAt().String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventUpdatePresence, payload, now)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.DeleteCache(ctx, updatedUser.ID())
-
-	effectivePresence := updatedUser.EffectivePresence(fields.Now()).Presence()
-
-	s.pubUpdatePresence(ctx, updatedUser.ID(), effectivePresence)
+	s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -298,7 +366,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	u, err := s.fetchValid(ctx, id)
+	u, err := s.Get(ctx, id.UUID())
 	if err != nil {
 		return nil, err
 	}
@@ -311,15 +379,31 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	}
 
 	now := fields.Now()
+	var updatedUser *User
 
-	updatedUser, err := s.repo.UpdateProfile(ctx, id, displayName, bio, avatarURL, bannerColor, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var txErr error
+		updatedUser, txErr = s.repo.UpdateProfile(txCtx, id, displayName, bio, avatarURL, bannerColor, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		payload := EventUpdateProfilePayload{
+			UserID:      updatedUser.ID().String(),
+			DisplayName: updatedUser.DisplayName().String(),
+			Bio:         updatedUser.Bio().StringPtr(),
+			AvatarURL:   updatedUser.AvatarURL().StringPtr(),
+			BannerColor: updatedUser.BannerColor().StringPtr(),
+			UpdatedAt:   updatedUser.UpdatedAt().String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventUpdateProfile, payload, now)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.DeleteCache(ctx, updatedUser.ID())
-
-	s.pubUpdateProfile(ctx, updatedUser)
+	s.cache.Delete(ctx, updatedUser.ID())
 
 	return updatedUser, nil
 }
@@ -339,16 +423,26 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 	}
 
 	now := fields.Now()
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		_, err := s.repo.SetDisabled(txCtx, id, now, now)
-		return err
+		if err != nil {
+			return err
+		}
+
+		payload := EventDisablePayload{
+			UserID:    id.String(),
+			UpdatedAt: now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventDisable, payload, now)
 	})
 	if err != nil {
 		return err
 	}
 
-	s.DeleteCache(ctx, id)
-	s.pubDisable(ctx, id, now)
+	s.cache.Delete(ctx, id)
+
 	return nil
 }
 
@@ -372,14 +466,23 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		_, err := s.repo.SetDeleteSchedule(txCtx, id, scheduledAt, now, now)
-		return err
+		if err != nil {
+			return err
+		}
+
+		payload := EventDisablePayload{
+			UserID:    id.String(),
+			UpdatedAt: now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventDisable, payload, now)
 	})
 	if err != nil {
 		return err
 	}
 
-	s.DeleteCache(ctx, id)
-	s.pubDisable(ctx, id, now)
+	s.cache.Delete(ctx, id)
+
 	return nil
 }
 
@@ -399,10 +502,8 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		u.Anonymize(now)
 	}
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		_, err := s.repo.UpdateBatch(txCtx, users)
-		return err
-	})
+	_, err = s.repo.UpdateBatch(ctx, users)
+	return err
 }
 
 // -----------------------------------------------------------------------------
@@ -613,70 +714,9 @@ func (s *Service) SetBatchCache(ctx context.Context, users map[fields.ID]*User) 
 	s.cache.SetBatch(ctx, users)
 }
 
-func (s *Service) DeleteCache(ctx context.Context, id fields.ID) {
-	s.cache.Delete(ctx, id)
-}
-
 // -----------------------------------------------------------------------------
 // Internal Helpers
 // -----------------------------------------------------------------------------
-
-func (s *Service) fetchBatchValid(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*User, error) {
-	if len(userIDs) == 0 {
-		return make(map[fields.ID]*User), nil
-	}
-
-	usersMap, err := s.repo.GetBatch(ctx, userIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	validUsers := make(map[fields.ID]*User, len(usersMap))
-	for id, u := range usersMap {
-		if u == nil {
-			continue
-		}
-		if err := u.EnsureActive(); err != nil {
-			continue
-		}
-		validUsers[id] = u
-	}
-
-	return validUsers, nil
-}
-
-func (s *Service) fetchBatchValidAside(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*User, error) {
-	if len(userIDs) == 0 {
-		return make(map[fields.ID]*User), nil
-	}
-
-	found, missing := s.GetBatchCache(ctx, userIDs)
-
-	validUsers := make(map[fields.ID]*User, len(userIDs))
-	for id, u := range found {
-		if u != nil && u.EnsureActive() == nil {
-			validUsers[id] = u
-		} else {
-			missing = append(missing, id)
-		}
-	}
-
-	if len(missing) == 0 {
-		return validUsers, nil
-	}
-
-	dbUsersMap, err := s.fetchBatchValid(ctx, missing)
-	if err != nil {
-		return nil, err
-	}
-
-	for id, u := range dbUsersMap {
-		s.SetCache(ctx, u)
-		validUsers[id] = u
-	}
-
-	return validUsers, nil
-}
 
 func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
 	u, err := s.repo.Get(ctx, actorID)
@@ -691,20 +731,25 @@ func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, err
 	return u, nil
 }
 
-func (s *Service) fetchValidAside(ctx context.Context, actorID fields.ID) (*User, error) {
-	if u := s.GetCache(ctx, actorID); u != nil {
-		if err := u.EnsureActive(); err != nil {
-			return nil, err
-		}
-		return u, nil
+func (s *Service) fetchBatchValid(ctx context.Context, userIDs []fields.ID) (map[fields.ID]*User, error) {
+	if len(userIDs) == 0 {
+		return make(map[fields.ID]*User), nil
 	}
 
-	u, err := s.fetchValid(ctx, actorID)
+	usersMap, err := s.repo.GetBatch(ctx, userIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	return u, nil
+	validUsers := make(map[fields.ID]*User, len(usersMap))
+	for id, u := range usersMap {
+		if u == nil || u.EnsureActive() != nil {
+			continue
+		}
+		validUsers[id] = u
+	}
+
+	return validUsers, nil
 }
 
 func (s *Service) fetchAndAuthenticate(ctx context.Context, actorID fields.ID, password Password) (*User, error) {
