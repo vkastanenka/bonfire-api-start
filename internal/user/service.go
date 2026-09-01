@@ -15,7 +15,6 @@ type Service struct {
 	cache      Cache
 	outboxRepo OutboxRepository
 	tx         TX
-	gatewayPub GatewayPub
 }
 
 func NewService(
@@ -23,14 +22,12 @@ func NewService(
 	cache Cache,
 	outboxRepo OutboxRepository,
 	tx TX,
-	gatewayPub GatewayPub,
 ) *Service {
 	return &Service{
 		repo:       repo,
 		cache:      cache,
 		outboxRepo: outboxRepo,
 		tx:         tx,
-		gatewayPub: gatewayPub,
 	}
 }
 

@@ -20,6 +20,15 @@ var clientBufferLength = 256
 
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
+type NodeEvent struct {
+	UserID     *uuid.UUID      `json:"user_id,omitempty"`
+	SessionID  *uuid.UUID      `json:"session_id,omitempty"`
+	UserIDs    []uuid.UUID     `json:"target_user_ids,omitempty"`
+	SessionIDs []uuid.UUID     `json:"target_session_ids,omitempty"`
+	Type       string          `json:"type"`
+	Data       json.RawMessage `json:"data"`
+}
+
 type Hub struct {
 	id fields.ID
 
