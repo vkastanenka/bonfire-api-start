@@ -139,7 +139,7 @@ func (h *Hub) trackUserConnection(ctx context.Context, userID fields.ID, presenc
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.TrackUserConnection(reqCtx, userID, h.id.String(), presence); err != nil {
+	if err := h.userService.RegisterWSConnection(reqCtx, userID, h.id, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -188,7 +188,7 @@ func (h *Hub) untrackUserConnection(ctx context.Context, userID fields.ID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.UntrackUserConnection(reqCtx, userID, h.id.String()); err != nil {
+	if err := h.userService.UnregisterWSConnection(reqCtx, userID, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -222,7 +222,7 @@ func (h *Hub) cleanupRedisNodes(ctx context.Context) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.BatchRemoveNodePresence(reqCtx, userIDs, h.id.String()); err != nil {
+	if err := h.userService.RemoveBatchNode(reqCtx, userIDs, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }

@@ -1,23 +1,43 @@
 package gateway
 
-// func NewUpdatePresenceHandler(events *user.Events) MessageHandler {
-// 	return func(ctx context.Context, client *Client, data json.RawMessage) error {
-// 		var payload user.WSUpdatePresenceData
-// 		if err := json.Unmarshal(data, &payload); err != nil {
-// 			return fmt.Errorf("invalid presence payload format: %w", err)
-// 		}
+import (
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
+	"context"
+	"encoding/json"
+	"log/slog"
+	"time"
+)
 
-// 		// Delegate to the domain service, passing gateway-specific context/client fields
-// 		return events.UpdatePresence(ctx, client.UserID, payload)
-// 	}
-// }
+func NewHeartbeatHandler(userService UserService, nodeID fields.ID) MessageHandler {
+	return func(ctx context.Context, client *Client, data json.RawMessage) error {
+		var payload struct {
+			Presence *int `json:"presence,omitempty"`
+		}
 
-// hub.RegisterMessageHandler(WSMsgHeartbeat, func(ctx context.Context, client *Client, data json.RawMessage) error {
-//     var payload HeartbeatPayload
-//     if err := json.Unmarshal(data, &payload); err != nil {
-//         return err
-//     }
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &payload); err != nil {
+				return err
+			}
+		}
 
-//     // Delegate directly to the user service
-//     return h.userService.HandleHeartbeat(ctx, client.UserID, h.id.String(), payload.Presence)
-// })
+		var presence user.Presence
+		if payload.Presence != nil {
+			p, err := user.ParsePresence(*payload.Presence)
+			if err != nil {
+				return err
+			}
+			presence = p
+		}
+
+		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+
+		if err := userService.HandleHeartbeat(reqCtx, client.UserID, nodeID, presence); err != nil {
+			slog.ErrorContext(ctx, "failed to handle heartbeat", "user_id", client.UserID, "error", err)
+			return err
+		}
+
+		return nil
+	}
+}
