@@ -9,24 +9,35 @@ import (
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
 var (
 	userPresenceTTL = 45 * time.Second
 	userNodesTTL    = 45 * time.Second
+	userFriendsTTL  = 24 * time.Hour
+	userChannelsTTL = 24 * time.Hour
 )
 
 const (
 	userDomainKey = "user:"
 )
 
-func userPresenceKey(id fields.ID) string {
-	return "{" + userDomainKey + id.String() + "}:presence"
+func userChannelsKey(id fields.ID) string {
+	return "{" + userDomainKey + id.String() + "}:channels"
+}
+
+func userFriendsKey(id fields.ID) string {
+	return "{" + userDomainKey + id.String() + "}:friends"
 }
 
 func userNodesKey(id fields.ID) string {
 	return "{" + userDomainKey + id.String() + "}:nodes"
+}
+
+func userPresenceKey(id fields.ID) string {
+	return "{" + userDomainKey + id.String() + "}:presence"
 }
 
 type UserCache struct {
@@ -215,4 +226,211 @@ func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID f
 	}
 
 	return res == 1, nil
+}
+
+// --- Friend Operations ---
+
+func (c *UserCache) AddFriend(ctx context.Context, userID, friendID fields.ID) error {
+	fKey := userFriendsKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.SAdd(ctx, fKey, friendID.String())
+		pipe.Expire(ctx, fKey, userFriendsTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+
+	return nil
+}
+
+func (c *UserCache) RemoveFriend(ctx context.Context, userID, friendID fields.ID) error {
+	fKey := userFriendsKey(userID)
+
+	if err := c.client.SRem(ctx, fKey, friendID.String()).Err(); err != nil {
+		return redis.NewError(err, c.scope)
+	}
+
+	return nil
+}
+
+// SetFriends populates or replaces the friend list cache for a user with a given TTL
+func (c *UserCache) SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID, ttl time.Duration) error {
+	fKey := userFriendsKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, fKey) // Clear existing cache first if overwriting
+		if len(friendIDs) > 0 {
+			members := make([]interface{}, len(friendIDs))
+			for i, id := range friendIDs {
+				members[i] = id.String()
+			}
+			pipe.SAdd(ctx, fKey, members...)
+			pipe.Expire(ctx, fKey, ttl)
+		}
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+// GetFriends retrieves all cached friend IDs for a user
+func (c *UserCache) GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	fKey := userFriendsKey(userID)
+
+	members, err := c.client.SMembers(ctx, fKey).Result()
+	if redis.IsCacheMiss(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, redis.NewError(err, c.scope)
+	}
+
+	friendIDs := make([]fields.ID, 0, len(members))
+	for _, m := range members {
+		id, parseErr := uuid.Parse(m)
+		if parseErr == nil {
+			friendIDs = append(friendIDs, fields.ID(id))
+		}
+	}
+
+	return friendIDs, nil
+}
+
+// --- Channel Operations ---
+
+func (c *UserCache) AddChannel(ctx context.Context, userID, channelID fields.ID) error {
+	chKey := userChannelsKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.SAdd(ctx, chKey, channelID.String())
+		pipe.Expire(ctx, chKey, userChannelsTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+func (c *UserCache) RemoveChannel(ctx context.Context, userID, channelID fields.ID) error {
+	chKey := userChannelsKey(userID)
+
+	if err := c.client.SRem(ctx, chKey, channelID.String()).Err(); err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+func (c *UserCache) SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID, ttl time.Duration) error {
+	chKey := userChannelsKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, chKey)
+		if len(channelIDs) > 0 {
+			members := make([]interface{}, len(channelIDs))
+			for i, id := range channelIDs {
+				members[i] = id.String()
+			}
+			pipe.SAdd(ctx, chKey, members...)
+			pipe.Expire(ctx, chKey, ttl)
+		}
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, c.scope)
+	}
+	return nil
+}
+
+// GetBroadcastRecipients fetches deduplicated recipient user IDs across
+// a user's cached friends list and active channel members in 2 RTTs.
+func (c *UserCache) GetBroadcastRecipients(
+	ctx context.Context,
+	userID fields.ID,
+) ([]fields.ID, error) {
+	friendsKey := userFriendsKey(userID)
+	channelsKey := userChannelsKey(userID)
+
+	var (
+		friendsCmd  *redisdriver.StringSliceCmd
+		channelsCmd *redisdriver.StringSliceCmd
+	)
+
+	// --- RTT 1: Fetch friends and joined channels in a single pipeline ---
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		friendsCmd = pipe.SMembers(ctx, friendsKey)
+		channelsCmd = pipe.SMembers(ctx, channelsKey)
+		return nil
+	})
+	if err != nil && err != redisdriver.Nil {
+		return nil, redis.NewError(err, c.scope)
+	}
+
+	friendStrs, _ := friendsCmd.Result()
+	channelStrs, _ := channelsCmd.Result()
+
+	if len(friendStrs) == 0 && len(channelStrs) == 0 {
+		return nil, nil
+	}
+
+	// --- RTT 2: Fan out channel queries concurrently across Redis cluster nodes ---
+	channelCmds := make([]*redisdriver.StringSliceCmd, 0, len(channelStrs))
+	if len(channelStrs) > 0 {
+		_, err = c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+			for _, chStr := range channelStrs {
+				chUUID, parseErr := uuid.Parse(chStr)
+				if parseErr != nil {
+					continue
+				}
+				actKey := channelActiveUsersKey(fields.ID(chUUID))
+				channelCmds = append(channelCmds, pipe.SMembers(ctx, actKey))
+			}
+			return nil
+		})
+		if err != nil && err != redisdriver.Nil {
+			return nil, redis.NewError(err, c.scope)
+		}
+	}
+
+	// Pre-size map based on estimated unique recipients to avoid map resizings
+	totalEstimated := len(friendStrs)
+	for _, cmd := range channelCmds {
+		if members, _ := cmd.Result(); len(members) > 0 {
+			totalEstimated += len(members)
+		}
+	}
+
+	recipientMap := make(map[fields.ID]struct{}, totalEstimated)
+
+	// Parse friends directly into fields.ID
+	for _, fStr := range friendStrs {
+		if id, parseErr := uuid.Parse(fStr); parseErr == nil && id != uuid.UUID(userID) {
+			recipientMap[fields.ID(id)] = struct{}{}
+		}
+	}
+
+	// Parse channel members directly into fields.ID
+	for _, cmd := range channelCmds {
+		members, parseErr := cmd.Result()
+		if parseErr != nil {
+			continue
+		}
+		for _, mStr := range members {
+			if id, parseErr := uuid.Parse(mStr); parseErr == nil && id != uuid.UUID(userID) {
+				recipientMap[fields.ID(id)] = struct{}{}
+			}
+		}
+	}
+
+	// Extract keys directly without re-parsing
+	recipients := make([]fields.ID, 0, len(recipientMap))
+	for id := range recipientMap {
+		recipients = append(recipients, id)
+	}
+
+	return recipients, nil
 }

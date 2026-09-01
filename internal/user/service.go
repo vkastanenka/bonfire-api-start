@@ -554,32 +554,39 @@ func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Pre
 }
 
 // func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p Presence) {
-//     // 1. Fetch recipient user IDs
-//     recipients, err := s.getPresenceRecipients(ctx, userID)
-//     if err != nil || len(recipients) == 0 {
-//         return
-//     }
+// 	recipients, err := s.cache.GetBroadcastRecipients(ctx, userID)
+// 	if err != nil || len(recipients) == 0 {
+// 		return
+// 	}
 
-//     // 2. Fetch target node IDs where these recipients are currently connected
-//     nodeIDs, err := s.cache.GetNodesForUsers(ctx, recipients)
-//     if err != nil || len(nodeIDs) == 0 {
-//         return
-//     }
+// 	nodeToUsers, err := s.cache.GetNodesForUsers(ctx, recipients)
+// 	if err != nil || len(nodeToUsers) == 0 {
+// 		return
+// 	}
 
-//     payload := EventUpdatePresencePayload{
-//         UserID:   userID.String(),
-//         Presence: p.String(),
-//     }
+// 	payload := EventUpdatePresencePayload{
+// 		UserID:   userID.String(),
+// 		Presence: p.String(),
+// 	}
 
-//     rawPayload, err := json.Marshal(payload)
-//     if err != nil {
-//         slog.ErrorContext(ctx, "failed to marshal presence update payload", "user_id", userID, "error", err)
-//         return
-//     }
+// 	rawPayload, err := json.Marshal(payload)
+// 	if err != nil {
+// 		slog.ErrorContext(ctx, "failed to marshal presence update payload", "error", err)
+// 		return
+// 	}
 
-//     if err := s.Publish(ctx, nodeIDs, recipients, EventUpdatePresence, rawPayload); err != nil {
-//         slog.ErrorContext(ctx, "failed to broadcast presence update", "user_id", userID, "error", err)
-//     }
+// 	// Dispatch only the subset of user IDs belonging to each specific hub/node
+// 	for nodeID, nodeUserIDs := range nodeToUsers {
+// 		event := pubsub.NodeEvent{
+// 			UserIDs: fields.UUIDs(nodeUserIDs),
+// 			Type:    EventUpdatePresence,
+// 			Data:    rawPayload,
+// 		}
+
+// 		if err := s.gatewayPub.PublishNodeEvents(ctx, []fields.ID{nodeID}, event); err != nil {
+// 			slog.ErrorContext(ctx, "failed to publish presence event to node", "node_id", nodeID, "error", err)
+// 		}
+// 	}
 // }
 
 // -----------------------------------------------------------------------------
