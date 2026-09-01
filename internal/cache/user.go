@@ -59,10 +59,50 @@ func NewUserCache(client redisdriver.Cmdable, scope redis.Scope) *UserCache {
 // --- Redis Scripts ---
 
 var registerWSConnectionScript = redisdriver.NewScript(`
-	redis.call("SADD", KEYS[1], ARGV[1])
-	redis.call("EXPIRE", KEYS[1], ARGV[2])
-	redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4])
-	return 1
+    -- KEYS[1]: user:nodes set
+    -- KEYS[2]: user:presence key
+    -- ARGV[1]: connID (unique per websocket connection)
+    -- ARGV[2]: nodeTTL
+    -- ARGV[3]: initialPresence
+    -- ARGV[4]: presenceTTL
+
+    -- Check if user was completely offline (no active connections in set)
+    local wasOffline = redis.call("SCARD", KEYS[1]) == 0
+
+    -- Add unique connection ID to set
+    redis.call("SADD", KEYS[1], ARGV[1])
+    redis.call("EXPIRE", KEYS[1], ARGV[2])
+
+    -- Set presence state ONLY if absent (NX)
+    local setResult = redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4], "NX")
+    if not setResult then
+        redis.call("EXPIRE", KEYS[2], ARGV[4])
+    end
+
+    local currentPresence = redis.call("GET", KEYS[2])
+    return { wasOffline and 1 or 0, tonumber(currentPresence) }
+`)
+
+var unregisterScript = redisdriver.NewScript(`
+    -- KEYS[1]: user:nodes set
+    -- KEYS[2]: user:presence key
+    -- ARGV[1]: connID
+    -- ARGV[2]: offlinePresence
+    -- ARGV[3]: presenceTTL
+    -- ARGV[4]: nodeTTL
+
+    redis.call("SREM", KEYS[1], ARGV[1])
+    local count = redis.call("SCARD", KEYS[1])
+    
+    if count == 0 then
+        -- User has zero active sockets remaining across all nodes
+        redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+        return 1 -- Went completely offline
+    else
+        redis.call("EXPIRE", KEYS[1], ARGV[4])
+        redis.call("EXPIRE", KEYS[2], ARGV[3])
+    end
+    return 0 -- Active connections remaining
 `)
 
 var heartbeatScript = redisdriver.NewScript(`
@@ -70,19 +110,6 @@ var heartbeatScript = redisdriver.NewScript(`
 	redis.call("EXPIRE", KEYS[1], ARGV[2])
 	redis.call("EXPIRE", KEYS[2], ARGV[3])
 	return 1
-`)
-
-var unregisterScript = redisdriver.NewScript(`
-	redis.call("SREM", KEYS[1], ARGV[1])
-	local count = redis.call("SCARD", KEYS[1])
-	if count == 0 then
-		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
-		return 1 -- Went completely offline
-	else
-		redis.call("EXPIRE", KEYS[1], ARGV[4])
-		redis.call("EXPIRE", KEYS[2], ARGV[3])
-	end
-	return 0 -- Active nodes remaining
 `)
 
 // --- user ---
@@ -462,28 +489,47 @@ func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fiel
 	return nil
 }
 
-func (c *UserCache) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
+type RegisterWSResult struct {
+	WasOffline bool
+	Presence   user.Presence
+}
+
+func (c *UserCache) RegisterWSConnection(ctx context.Context, userID, connID fields.ID, presence user.Presence) (RegisterWSResult, error) {
 	nKey := userNodesKey(userID)
 	pKey := userPresenceKey(userID)
 
-	err := registerWSConnectionScript.Run(
+	targetPresence := presence
+	if !targetPresence.IsValid() {
+		targetPresence = user.NewPresenceOnline()
+	}
+
+	res, err := registerWSConnectionScript.Run(
 		ctx,
 		c.client,
 		[]string{nKey, pKey},
-		nodeID.String(),
-		int(userNodesTTL.Seconds()),
-		presence.Int(),
-		int(userPresenceTTL.Seconds()),
-	).Err()
+		connID.String(),                // ARGV[1] -> Unique connection identifier
+		int(userNodesTTL.Seconds()),    // ARGV[2]
+		targetPresence.Int(),           // ARGV[3]
+		int(userPresenceTTL.Seconds()), // ARGV[4]
+	).Slice()
 
 	if err != nil {
-		return redis.NewError(err, c.scope)
+		return RegisterWSResult{}, redis.NewError(err, c.scope)
 	}
 
-	return nil
+	wasOffline := res[0].(int64) == 1
+	effPresence, err := user.ParsePresence(int(res[1].(int64)))
+	if err != nil {
+		return RegisterWSResult{}, err
+	}
+
+	return RegisterWSResult{
+		WasOffline: wasOffline,
+		Presence:   effPresence,
+	}, nil
 }
 
-func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) (bool, error) {
+func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, connID fields.ID) (bool, error) {
 	nKey := userNodesKey(userID)
 	pKey := userPresenceKey(userID)
 
@@ -491,7 +537,7 @@ func (c *UserCache) UnregisterWSConnection(ctx context.Context, userID, nodeID f
 		ctx,
 		c.client,
 		[]string{nKey, pKey},
-		nodeID.String(),                 // ARGV[1]
+		connID.String(),                 // ARGV[1] -> Matches register SADD
 		user.NewPresenceOffline().Int(), // ARGV[2]
 		int(userPresenceTTL.Seconds()),  // ARGV[3]
 		int(userNodesTTL.Seconds()),     // ARGV[4]

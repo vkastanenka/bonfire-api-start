@@ -17,7 +17,10 @@ import (
 
 var clientBufferLength = 256
 
-type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
+type ClientRegistration struct {
+	Client   *Client
+	Presence user.Presence
+}
 
 type NodeEvent struct {
 	UserID     *uuid.UUID      `json:"user_id,omitempty"`
@@ -28,38 +31,37 @@ type NodeEvent struct {
 	Data       json.RawMessage `json:"data"`
 }
 
+type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
+
 type Hub struct {
 	id fields.ID
-
-	register   chan ClientRegistration
-	unregister chan *Client
-
-	handlers map[string]MessageHandler
 
 	sessionIdx map[uuid.UUID]*Client
 	userIdx    map[uuid.UUID]map[uuid.UUID]*Client
 
-	redisClient  *goredis.Client
-	sub          *redis.Subscription
-	userCache    UserCache
-	gatewayCache GatewayCache
-	userService  UserService
+	register   chan ClientRegistration
+	unregister chan *Client
+
+	service  *Service
+	handlers map[string]MessageHandler
+
+	redisClient *goredis.Client
+	sub         *redis.Subscription
 
 	mu    sync.RWMutex
 	subMu sync.Mutex
 }
 
-func NewHub(redisClient *goredis.Client, userCache UserCache, gatewayCache GatewayCache) *Hub {
+func NewHub(redisClient *goredis.Client, service *Service) *Hub {
 	return &Hub{
-		id:           fields.ID(uuid.New()),
-		register:     make(chan ClientRegistration, clientBufferLength),
-		unregister:   make(chan *Client, clientBufferLength),
-		sessionIdx:   make(map[uuid.UUID]*Client),
-		userIdx:      make(map[uuid.UUID]map[uuid.UUID]*Client),
-		handlers:     make(map[string]MessageHandler),
-		redisClient:  redisClient,
-		userCache:    userCache,
-		gatewayCache: gatewayCache,
+		id:          fields.ID(uuid.New()),
+		sessionIdx:  make(map[uuid.UUID]*Client),
+		userIdx:     make(map[uuid.UUID]map[uuid.UUID]*Client),
+		register:    make(chan ClientRegistration, clientBufferLength),
+		unregister:  make(chan *Client, clientBufferLength),
+		service:     service,
+		handlers:    make(map[string]MessageHandler),
+		redisClient: redisClient,
 	}
 }
 
@@ -77,7 +79,7 @@ func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
 }
 
-func (h *Hub) RegisterMessageHandler(msgType string, handler MessageHandler) {
+func (h *Hub) RegisterHandler(msgType string, handler MessageHandler) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.handlers[msgType] = handler
@@ -112,7 +114,7 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client, presence user.
 	isFirstUserSession := h.registerClient(client)
 
 	if isFirstUserSession {
-		h.trackUserConnection(ctx, client.UserID, presence)
+		h.registerUserConnection(ctx, client.UserID, presence)
 	}
 
 	slog.Info("Client connected to gateway",
@@ -143,11 +145,11 @@ func (h *Hub) registerClient(client *Client) bool {
 	return isFirstUserSession
 }
 
-func (h *Hub) trackUserConnection(ctx context.Context, userID fields.ID, presence user.Presence) {
+func (h *Hub) registerUserConnection(ctx context.Context, userID fields.ID, presence user.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.RegisterWSConnection(reqCtx, userID, h.id, presence); err != nil {
+	if err := h.service.RegisterWSConnection(reqCtx, userID, h.id, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -157,7 +159,7 @@ func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 
 	// Clean up Redis state BEFORE terminating client channels to prevent write-to-closed-channel panics
 	if isLastUserSession {
-		h.untrackUserConnection(ctx, client.UserID)
+		h.unregisterUserConnection(ctx, client.UserID)
 	}
 
 	client.Close()
@@ -192,11 +194,11 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	return isLastUserSession
 }
 
-func (h *Hub) untrackUserConnection(ctx context.Context, userID fields.ID) {
+func (h *Hub) unregisterUserConnection(ctx context.Context, userID fields.ID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.UnregisterWSConnection(reqCtx, userID, h.id); err != nil {
+	if err := h.service.UnregisterWSConnection(reqCtx, userID, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -230,7 +232,7 @@ func (h *Hub) cleanupRedisNodes(ctx context.Context) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.userService.RemoveBatchNode(reqCtx, userIDs, h.id); err != nil {
+	if err := h.service.RemoveBatchNode(reqCtx, userIDs, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }

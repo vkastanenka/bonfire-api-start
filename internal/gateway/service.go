@@ -10,55 +10,41 @@ import (
 )
 
 type Service struct {
-	repo       UserRepository
-	cache      UserCache
-	tx         TX
-	gatewayPub Publisher
+	repo  UserRepository
+	cache UserCache
+	tx    TX
+	pub   Publisher
 }
 
 func NewService(
 	repo UserRepository,
 	cache UserCache,
 	tx TX,
-	gatewayPub Publisher,
+	pub Publisher,
 ) *Service {
 	return &Service{
-		repo:       repo,
-		cache:      cache,
-		tx:         tx,
-		gatewayPub: gatewayPub,
+		repo:  repo,
+		cache: cache,
+		tx:    tx,
+		pub:   pub,
 	}
 }
 
-func (s *Service) RegisterWSConnection(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
-	currentPresence, err := s.cache.GetPresence(ctx, userID)
+func (s *Service) RegisterWSConnection(ctx context.Context, userID, connID fields.ID, initialPresence user.Presence) error {
+	res, err := s.cache.RegisterWSConnection(ctx, userID, connID, initialPresence)
 	if err != nil {
-		currentPresence = user.NewPresenceOffline()
-	}
-
-	p := presence
-	if !p.IsValid() {
-		if currentPresence.IsValid() && !currentPresence.IsOffline() {
-			p = currentPresence
-		} else {
-			p = user.NewPresenceOnline()
-		}
-	}
-
-	if err := s.cache.RegisterWSConnection(ctx, userID, nodeID, p); err != nil {
 		return err
 	}
 
-	// Only publish if state changed (offline -> online/dnd OR online -> away, etc.)
-	if currentPresence.IsOffline() || currentPresence != p {
-		s.pubUpdatePresence(ctx, userID, p)
+	if res.WasOffline {
+		s.pubUpdatePresence(ctx, userID, res.Presence)
 	}
 
 	return nil
 }
 
-func (s *Service) UnregisterWSConnection(ctx context.Context, userID, nodeID fields.ID) error {
-	wentOffline, err := s.cache.UnregisterWSConnection(ctx, userID, nodeID)
+func (s *Service) UnregisterWSConnection(ctx context.Context, userID, connID fields.ID) error {
+	wentOffline, err := s.cache.UnregisterWSConnection(ctx, userID, connID)
 	if err != nil {
 		return err
 	}
@@ -144,5 +130,5 @@ func (s *Service) publishToNodes(
 		}
 	}
 
-	return s.gatewayPub.PublishBatchNodeEvents(ctx, nodeEvents)
+	return s.pub.PublishBatchNodeEvents(ctx, nodeEvents)
 }

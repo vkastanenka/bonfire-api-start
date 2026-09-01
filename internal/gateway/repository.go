@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 	"context"
@@ -25,7 +26,7 @@ type UserCache interface {
 	GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error)
 	GetUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence user.Presence) error
+	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence user.Presence) (cache.RegisterWSResult, error)
 	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
 	RemoveChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	RemoveFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
