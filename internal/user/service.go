@@ -488,7 +488,17 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	}
 
 	_, err = s.repo.UpdateBatch(ctx, users)
-	return err
+	if err != nil {
+		return err
+	}
+
+	invalidIDs := make([]fields.ID, len(users))
+	for i, u := range users {
+		invalidIDs[i] = u.ID()
+	}
+	_ = s.cache.DeleteBatch(ctx, invalidIDs)
+
+	return nil
 }
 
 func (s *Service) parseAndAuthenticate(
