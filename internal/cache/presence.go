@@ -80,9 +80,9 @@ func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p use
 	return nil
 }
 
-func (c *PresenceCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error {
-	pKey := userPresenceKey(userID)
+func (c *PresenceCache) Heartbeat(ctx context.Context, userID, nodeID fields.ID) error {
 	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.SAdd(ctx, nKey, nodeID.String())
@@ -92,39 +92,6 @@ func (c *PresenceCache) AddNode(ctx context.Context, userID, nodeID fields.ID) e
 	})
 	if err != nil {
 		return redis.NewError(err, redis.ScopePresence)
-	}
-	return nil
-}
-
-func (c *PresenceCache) RemoveNode(ctx context.Context, userID, nodeID fields.ID) error {
-	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID.String()).Err(); err != nil {
-		return redis.NewError(err, redis.ScopePresence)
-	}
-	return nil
-}
-
-func (c *PresenceCache) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	for i := 0; i < len(userIDs); i += MaxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		end := min(i+MaxBatchSize, len(userIDs))
-		chunk := userIDs[i:end]
-
-		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-			for _, userID := range chunk {
-				pipe.SRem(ctx, userNodesKey(userID), nodeID.String())
-			}
-			return nil
-		})
-		if err != nil {
-			return redis.NewError(err, redis.ScopePresence)
-		}
 	}
 
 	return nil
@@ -178,36 +145,29 @@ func (c *PresenceCache) GetBatchNodes(
 	return nodeToUsers, nil
 }
 
-var heartbeatScript = redisdriver.NewScript(`
-    -- Ensure node ID is present in the set
-    redis.call("SADD", KEYS[1], ARGV[1])
-    redis.call("EXPIRE", KEYS[1], ARGV[2])
-
-    -- If presence key expired, reset it to default active state (e.g. 1 / Online)
-    if redis.call("EXISTS", KEYS[2]) == 0 then
-        redis.call("SET", KEYS[2], ARGV[4], "EX", ARGV[3])
-    else
-        redis.call("EXPIRE", KEYS[2], ARGV[3])
-    end
-
-    return 1
-`)
-
-func (c *PresenceCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error {
-	nKey := userNodesKey(userID)
-	pKey := userPresenceKey(userID)
-
-	err := heartbeatScript.Run(
-		ctx,
-		c.client,
-		[]string{nKey, pKey},
-		nodeID.String(),
-		int(userNodesTTL.Seconds()),
-		int(userPresenceTTL.Seconds()),
-	).Err()
-
-	if err != nil {
-		return redis.NewError(err, redis.ScopePresence)
+func (c *PresenceCache) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
+	if len(userIDs) == 0 {
+		return nil
 	}
+
+	for i := 0; i < len(userIDs); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+MaxBatchSize, len(userIDs))
+		chunk := userIDs[i:end]
+
+		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+			for _, userID := range chunk {
+				pipe.SRem(ctx, userNodesKey(userID), nodeID.String())
+			}
+			return nil
+		})
+		if err != nil {
+			return redis.NewError(err, redis.ScopePresence)
+		}
+	}
+
 	return nil
 }
