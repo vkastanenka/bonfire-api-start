@@ -53,7 +53,7 @@ func (s *Service) UnregisterWSConnection(ctx context.Context, userID, connID fie
 		offlinePresence := user.NewPresenceOffline()
 		s.pubUpdatePresence(ctx, userID, offlinePresence)
 	}
-
+	
 	return nil
 }
 

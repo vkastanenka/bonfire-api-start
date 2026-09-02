@@ -170,3 +170,103 @@ func (c *PresenceCache) RemoveBatchNodes(ctx context.Context, userIDs []fields.I
 
 	return nil
 }
+
+var registerNodeScript = redisdriver.NewScript(`
+	-- KEYS[1]: user:nodes set
+	-- KEYS[2]: user:presence key
+	-- ARGV[1]: nodeID (unique gateway node identifier)
+	-- ARGV[2]: nodeTTL
+	-- ARGV[3]: initialPresence
+	-- ARGV[4]: presenceTTL
+
+	local wasOffline = redis.call("SCARD", KEYS[1]) == 0
+
+	redis.call("SADD", KEYS[1], ARGV[1])
+	redis.call("EXPIRE", KEYS[1], ARGV[2])
+
+	local setResult = redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4], "NX")
+	if not setResult then
+		redis.call("EXPIRE", KEYS[2], ARGV[4])
+	end
+
+	local currentPresence = redis.call("GET", KEYS[2])
+	return { wasOffline and 1 or 0, tonumber(currentPresence) }
+`)
+
+func (c *PresenceCache) RegisterNode(
+	ctx context.Context,
+	userID, nodeID fields.ID,
+	presence user.Presence,
+) (bool, user.Presence, error) {
+	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
+
+	targetPresence := presence
+	if !targetPresence.IsValid() {
+		targetPresence = user.NewPresenceOnline()
+	}
+
+	res, err := registerNodeScript.Run(
+		ctx,
+		c.client,
+		[]string{nKey, pKey},
+		nodeID.String(),
+		int(userNodesTTL.Seconds()),
+		targetPresence.Int(),
+		int(userPresenceTTL.Seconds()),
+	).Slice()
+
+	if err != nil {
+		return false, user.NewPresenceOffline(), redis.NewError(err, redis.ScopePresence)
+	}
+
+	wasOffline := res[0].(int64) == 1
+	effPresence, err := user.ParsePresence(int(res[1].(int64)))
+	if err != nil {
+		return false, user.NewPresenceOffline(), err
+	}
+
+	return wasOffline, effPresence, nil
+}
+
+var unregisterNodeScript = redisdriver.NewScript(`
+	-- KEYS[1]: user:nodes set
+	-- KEYS[2]: user:presence key
+	-- ARGV[1]: nodeID
+	-- ARGV[2]: offlinePresence
+	-- ARGV[3]: presenceTTL
+	-- ARGV[4]: nodeTTL
+
+	redis.call("SREM", KEYS[1], ARGV[1])
+	local count = redis.call("SCARD", KEYS[1])
+	
+	if count == 0 then
+		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+		return 1
+	else
+		redis.call("EXPIRE", KEYS[1], ARGV[4])
+		redis.call("EXPIRE", KEYS[2], ARGV[3])
+	end
+	return 0
+`)
+
+func (c *PresenceCache) UnregisterNode(ctx context.Context, userID, nodeID fields.ID) (bool, error) {
+	nKey := userNodesKey(userID)
+	pKey := userPresenceKey(userID)
+
+	res, err := unregisterNodeScript.Run(
+		ctx,
+		c.client,
+		[]string{nKey, pKey},
+		nodeID.String(),
+		user.NewPresenceOffline().Int(),
+		int(userPresenceTTL.Seconds()),
+		int(userNodesTTL.Seconds()),
+	).Int()
+
+	if err != nil {
+		return false, redis.NewError(err, redis.ScopePresence)
+	}
+
+	return res == 1, nil
+}
