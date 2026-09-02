@@ -1010,6 +1010,25 @@ func validateDepthAndTypes(fieldName string, v any, depth int) error {
 	return nil
 }
 
+func ParseRawJSON[T any](raw []byte) (*T, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		var zero T
+		return &zero, nil
+	}
+
+	if len(trimmed) > MaxJSONBytes {
+		return nil, ErrJSONTooLarge("")
+	}
+
+	var msg T
+	if err := json.Unmarshal(trimmed, &msg); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrJSONMalformed(""), err)
+	}
+
+	return &msg, nil
+}
+
 // ============================================================================
 // OS
 // ============================================================================

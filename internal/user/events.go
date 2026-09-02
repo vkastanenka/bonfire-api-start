@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
 )
 
@@ -42,7 +43,7 @@ type EventDisablePayload struct {
 
 func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := outbox.ParsePayload[EventUpdateUsernamePayload](EventUpdateUsername, payload)
+		p, err := fields.ParseRawJSON[EventUpdateUsernamePayload](payload)
 		if err != nil {
 			return err
 		}
@@ -52,7 +53,7 @@ func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 
 func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := outbox.ParsePayload[EventUpdatePresencePayload](EventUpdatePresence, payload)
+		p, err := fields.ParseRawJSON[EventUpdatePresencePayload](payload)
 		if err != nil {
 			return err
 		}
@@ -62,7 +63,7 @@ func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 
 func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := outbox.ParsePayload[EventUpdateProfilePayload](EventUpdateProfile, payload)
+		p, err := fields.ParseRawJSON[EventUpdateProfilePayload](payload)
 		if err != nil {
 			return err
 		}
@@ -72,7 +73,7 @@ func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 
 func NewDisableOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := outbox.ParsePayload[EventDisablePayload](EventDisable, payload)
+		p, err := fields.ParseRawJSON[EventDisablePayload](payload)
 		if err != nil {
 			return err
 		}

@@ -142,11 +142,15 @@ func (s *Service) BroadcastToFriends(
 	payload interface{},
 ) error {
 	friendIDs, err := s.userCache.GetFriendIDs(ctx, actorID)
-	if err != nil || len(friendIDs) == 0 {
+	if err != nil {
 		return err
 	}
 
-	return s.BroadcastEvent(ctx, actorID, friendIDs, eventType, payload)
+	recipients := make([]fields.ID, 0, len(friendIDs)+1)
+	recipients = append(recipients, friendIDs...)
+	recipients = append(recipients, actorID)
+
+	return s.BroadcastEvent(ctx, actorID, recipients, eventType, payload)
 }
 
 func (s *Service) BroadcastToPeers(
@@ -156,9 +160,13 @@ func (s *Service) BroadcastToPeers(
 	payload interface{},
 ) error {
 	peerIDs, err := s.userCache.GetPeerIDs(ctx, actorID)
-	if err != nil || len(peerIDs) == 0 {
+	if err != nil {
 		return err
 	}
 
-	return s.BroadcastEvent(ctx, actorID, peerIDs, eventType, payload)
+	recipients := make([]fields.ID, 0, len(peerIDs)+1)
+	recipients = append(recipients, peerIDs...)
+	recipients = append(recipients, actorID)
+
+	return s.BroadcastEvent(ctx, actorID, recipients, eventType, payload)
 }
