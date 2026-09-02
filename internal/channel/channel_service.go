@@ -3,6 +3,7 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 	"slices"
@@ -155,7 +156,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 
 	var (
 		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]user.Presence
+		presenceMap map[fields.ID]presence.Presence
 		reactionMap map[fields.ID]*ReactionSummary
 	)
 

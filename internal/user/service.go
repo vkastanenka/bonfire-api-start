@@ -301,7 +301,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 
 		effectivePresence := updatedUser.EffectivePresence(now).Presence()
 		if !effectivePresence.IsValid() {
-			effectivePresence = presence.NewPresenceOnline()
+			effectivePresence = presence.NewOnline()
 		}
 
 		payload := EventUpdatePreferredPresencePayload{

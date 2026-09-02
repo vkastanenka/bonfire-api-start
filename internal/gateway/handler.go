@@ -56,7 +56,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	userPresence, err := presence.ParseString(query.Presence)
 	if err != nil || !userPresence.IsValid() {
-		userPresence = presence.NewPresenceOnline()
+		userPresence = presence.NewOnline()
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

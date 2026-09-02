@@ -56,7 +56,7 @@ func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID fields.ID) 
 	if wentOffline {
 		payload := user.EventUpdatePresencePayload{
 			UserID:   userID.String(),
-			Presence: presence.NewPresenceOffline().String(),
+			Presence: presence.NewOffline().String(),
 		}
 		if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
 			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
@@ -79,7 +79,7 @@ func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID,
 		return err
 	}
 
-	if currentPresence == presence.NewPresenceOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
+	if currentPresence == presence.NewOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
 		return s.RegisterNode(ctx, userID, nodeID, newPresence)
 	}
 

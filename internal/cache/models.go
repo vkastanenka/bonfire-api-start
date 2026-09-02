@@ -372,12 +372,12 @@ func unmarshalUser(data []byte) (*user.User, error) {
 func parsePresence(val string) presence.Presence {
 	parsed, err := strconv.Atoi(val)
 	if err != nil {
-		return presence.NewPresenceOffline()
+		return presence.NewOffline()
 	}
 
 	p, err := presence.Parse(parsed)
 	if err != nil {
-		return presence.NewPresenceOffline()
+		return presence.NewOffline()
 	}
 
 	return p

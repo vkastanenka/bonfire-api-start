@@ -24,7 +24,7 @@ func NewPresenceCache(client redisdriver.Cmdable) *PresenceCache {
 func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error) {
 	data, found, err := getKey(ctx, c.client, userPresenceKey(userID), redis.ScopePresence)
 	if err != nil || !found {
-		return presence.NewPresenceOffline(), err
+		return presence.NewOffline(), err
 	}
 
 	return parsePresence(string(data)), nil
@@ -62,7 +62,7 @@ func (c *PresenceCache) GetBatchPresence(
 
 			data, ok := toBytes(raw)
 			if !ok {
-				result[id] = presence.NewPresenceOffline()
+				result[id] = presence.NewOffline()
 				continue
 			}
 
@@ -204,7 +204,7 @@ func (c *PresenceCache) RegisterNode(
 
 	targetPresence := p
 	if !targetPresence.IsValid() {
-		targetPresence = presence.NewPresenceOnline()
+		targetPresence = presence.NewOnline()
 	}
 
 	res, err := registerNodeScript.Run(
@@ -218,13 +218,13 @@ func (c *PresenceCache) RegisterNode(
 	).Slice()
 
 	if err != nil {
-		return false, presence.NewPresenceOffline(), redis.NewError(err, redis.ScopePresence)
+		return false, presence.NewOffline(), redis.NewError(err, redis.ScopePresence)
 	}
 
 	wasOffline := res[0].(int64) == 1
 	effPresence, err := presence.Parse(int(res[1].(int64)))
 	if err != nil {
-		return false, presence.NewPresenceOffline(), err
+		return false, presence.NewOffline(), err
 	}
 
 	return wasOffline, effPresence, nil
@@ -266,7 +266,7 @@ func (c *PresenceCache) UnregisterNode(ctx context.Context, userID, nodeID field
 		c.client,
 		[]string{nKey, pKey},
 		nodeID.String(),
-		presence.NewPresenceOffline().Int(),
+		presence.NewOffline().Int(),
 		int(userPresenceTTL.Seconds()),
 		int(userNodesTTL.Seconds()),
 	).Int()

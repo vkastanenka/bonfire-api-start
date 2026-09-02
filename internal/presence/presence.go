@@ -2,10 +2,10 @@ package presence
 
 import "bonfire-api/internal/fields"
 
-type PresenceValue int
+type Value int
 
 const (
-	PresenceUnknown PresenceValue = iota
+	PresenceUnknown Value = iota
 	PresenceOnline
 	PresenceOffline
 	PresenceIdle
@@ -39,34 +39,34 @@ var presenceSpec = &fields.EnumSpec{
 }
 
 type Presence struct {
-	fields.Enum[PresenceValue]
+	fields.Enum[Value]
 }
 
-func NewPresence(val PresenceValue) Presence {
+func New(val Value) Presence {
 	return Presence{Enum: fields.NewEnum(val, presenceSpec)}
 }
 
-func NewPresenceOnline() Presence    { return NewPresence(PresenceOnline) }
-func NewPresenceOffline() Presence   { return NewPresence(PresenceOffline) }
-func NewPresenceIdle() Presence      { return NewPresence(PresenceIdle) }
-func NewPresenceBusy() Presence      { return NewPresence(PresenceBusy) }
-func NewPresenceDND() Presence       { return NewPresence(PresenceDND) }
-func NewPresenceInvisible() Presence { return NewPresence(PresenceInvisible) }
+func NewOnline() Presence    { return New(PresenceOnline) }
+func NewOffline() Presence   { return New(PresenceOffline) }
+func NewIdle() Presence      { return New(PresenceIdle) }
+func NewBusy() Presence      { return New(PresenceBusy) }
+func NewDND() Presence       { return New(PresenceDND) }
+func NewInvisible() Presence { return New(PresenceInvisible) }
 
 func Parse[T fields.IntegerType](raw T) (Presence, error) {
-	val := PresenceValue(raw)
+	val := Value(raw)
 	if val <= PresenceUnknown || int(val) >= presenceSpec.Max {
 		return Presence{}, ErrPresenceInvalid()
 	}
-	return NewPresence(val), nil
+	return New(val), nil
 }
 
 func ParseString(s string) (Presence, error) {
-	val, ok := fields.ParseEnumString[PresenceValue](s, presenceSpec)
+	val, ok := fields.ParseEnumString[Value](s, presenceSpec)
 	if !ok || val <= PresenceUnknown {
 		return Presence{}, ErrPresenceInvalid()
 	}
-	return NewPresence(val), nil
+	return New(val), nil
 }
 
 func (p Presence) IsOnline() bool    { return p.Is(PresenceOnline) }
