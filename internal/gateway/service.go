@@ -64,24 +64,24 @@ func (s *Service) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, node
 	return s.cache.RemoveBatchNode(ctx, userIDs, nodeID)
 }
 
-func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence user.Presence) error {
+func (s *Service) HandleHeartbeat(ctx context.Context, userID, connID fields.ID, newPresence user.Presence) error {
 	currentPresence, err := s.cache.GetPresence(ctx, userID)
 	if err != nil {
-		return s.RegisterWSConnection(ctx, userID, nodeID, newPresence)
+		return err
 	}
 
-	p := newPresence
-	if !p.IsValid() {
-		p = currentPresence
+	if currentPresence == user.NewPresenceOffline() {
+		err := s.RegisterWSConnection(ctx, userID, connID, newPresence)
+		return err
 	}
 
-	if currentPresence != p {
-		return s.RegisterWSConnection(ctx, userID, nodeID, p)
+	if newPresence.IsValid() && newPresence != currentPresence {
+		err := s.RegisterWSConnection(ctx, userID, connID, newPresence)
+		return err
 	}
 
-	return s.cache.Heartbeat(ctx, userID, nodeID)
+	return s.cache.Heartbeat(ctx, userID, connID)
 }
-
 func (s *Service) pubUpdatePresence(ctx context.Context, userID fields.ID, p user.Presence) {
 	nodeToUsers, err := s.cache.GetUpdateRecipientNodes(ctx, userID)
 	if err != nil {

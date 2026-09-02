@@ -114,7 +114,6 @@ func (c *PresenceCache) GetBatchNodes(
 
 		end := min(i+MaxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
-
 		cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(chunk))
 
 		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {

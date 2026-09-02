@@ -1,15 +1,21 @@
 package cache
 
 import (
-	"bonfire-api/internal/redis"
 	"context"
 	"time"
+	"unsafe"
+
+	"bonfire-api/internal/redis"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-// get handles the standard Redis Get, cache-miss checks, and error wrapping.
-// Returns (data, found, error).
+type CacheItem struct {
+	Key   string
+	Value []byte
+}
+
+// getKey handles standard Redis Get, cache-miss checks, and scope error wrapping.
 func getKey(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]byte, bool, error) {
 	data, err := client.Get(ctx, key).Bytes()
 	if redis.IsCacheMiss(err) {
@@ -21,6 +27,7 @@ func getKey(ctx context.Context, client redisdriver.Cmdable, key string, scope r
 	return data, true, nil
 }
 
+// getBatchKeys retrieves raw values for a slice of keys via MGet.
 func getBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string, scope redis.Scope) ([]any, error) {
 	vals, err := client.MGet(ctx, keys...).Result()
 	if err != nil {
@@ -29,12 +36,28 @@ func getBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string
 	return vals, nil
 }
 
-type CacheItem struct {
-	Key   string
-	Value []byte
+// deleteBatchKeys handles chunked batch deletion natively without pipeline overhead.
+func deleteBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string, scope redis.Scope) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	for i := 0; i < len(keys); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+MaxBatchSize, len(keys))
+		chunk := keys[i:end]
+
+		if err := client.Del(ctx, chunk...).Err(); err != nil {
+			return redis.NewError(err, scope)
+		}
+	}
+	return nil
 }
 
-// setBatchPipeline handles chunked pipelined sets with TTLs and error wrapping.
+// setBatchPipeline handles chunked pipelined sets with explicit loop execution.
 func setBatchPipeline(ctx context.Context, client redisdriver.Cmdable, items []CacheItem, ttl time.Duration, scope redis.Scope) error {
 	if len(items) == 0 {
 		return nil
@@ -61,36 +84,7 @@ func setBatchPipeline(ctx context.Context, client redisdriver.Cmdable, items []C
 	return nil
 }
 
-// deleteKey handles single-key deletion with scope error wrapping.
-func deleteKey(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) error {
-	if err := client.Del(ctx, key).Err(); err != nil {
-		return redis.NewError(err, scope)
-	}
-	return nil
-}
-
-// deleteBatchKeys handles chunked batch deletion with context checks and error wrapping.
-func deleteBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string, scope redis.Scope) error {
-	if len(keys) == 0 {
-		return nil
-	}
-
-	for i := 0; i < len(keys); i += MaxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		end := min(i+MaxBatchSize, len(keys))
-		chunk := keys[i:end]
-
-		if err := client.Del(ctx, chunk...).Err(); err != nil {
-			return redis.NewError(err, scope)
-		}
-	}
-	return nil
-}
-
-// fetchAndUnmarshal fetches raw bytes from Redis and unmarshals them into a domain model.
+// getAndUnmarshal fetches raw bytes from Redis and unmarshals them into a domain model.
 // If unmarshaling fails due to corrupted data, it automatically evicts the bad key and returns (nil, nil).
 func getAndUnmarshal[T any](
 	ctx context.Context,
@@ -106,7 +100,7 @@ func getAndUnmarshal[T any](
 
 	entity, err := unmarshalFn(data)
 	if err != nil {
-		deleteKey(ctx, client, key, scope)
+		_ = client.Del(ctx, key).Err() // Self-healing eviction; ignore error on corrupted hit
 		return nil, nil
 	}
 
@@ -135,16 +129,17 @@ func marshalAndSet[T any](
 	return nil
 }
 
+// toBytes converts an MGet interface result into a byte slice without heap allocation for strings.
 func toBytes(raw any) ([]byte, bool) {
 	if raw == nil {
 		return nil, false
 	}
 	switch v := raw.(type) {
 	case string:
-		if v == "" {
+		if len(v) == 0 {
 			return nil, false
 		}
-		return []byte(v), true
+		return unsafe.Slice(unsafe.StringData(v), len(v)), true
 	case []byte:
 		if len(v) == 0 {
 			return nil, false

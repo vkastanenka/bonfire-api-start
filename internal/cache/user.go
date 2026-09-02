@@ -51,55 +51,6 @@ func NewUserCache(client redisdriver.Cmdable) *UserCache {
 	}
 }
 
-// --- Redis Scripts ---
-
-var registerWSConnectionScript = redisdriver.NewScript(`
-    -- KEYS[1]: user:nodes set
-    -- KEYS[2]: user:presence key
-    -- ARGV[1]: connID (unique per websocket connection)
-    -- ARGV[2]: nodeTTL
-    -- ARGV[3]: initialPresence
-    -- ARGV[4]: presenceTTL
-
-    -- Check if user was completely offline (no active connections in set)
-    local wasOffline = redis.call("SCARD", KEYS[1]) == 0
-
-    -- Add unique connection ID to set
-    redis.call("SADD", KEYS[1], ARGV[1])
-    redis.call("EXPIRE", KEYS[1], ARGV[2])
-
-    -- Set presence state ONLY if absent (NX)
-    local setResult = redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4], "NX")
-    if not setResult then
-        redis.call("EXPIRE", KEYS[2], ARGV[4])
-    end
-
-    local currentPresence = redis.call("GET", KEYS[2])
-    return { wasOffline and 1 or 0, tonumber(currentPresence) }
-`)
-
-var unregisterScript = redisdriver.NewScript(`
-    -- KEYS[1]: user:nodes set
-    -- KEYS[2]: user:presence key
-    -- ARGV[1]: connID
-    -- ARGV[2]: offlinePresence
-    -- ARGV[3]: presenceTTL
-    -- ARGV[4]: nodeTTL
-
-    redis.call("SREM", KEYS[1], ARGV[1])
-    local count = redis.call("SCARD", KEYS[1])
-    
-    if count == 0 then
-        -- User has zero active sockets remaining across all nodes
-        redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
-        return 1 -- Went completely offline
-    else
-        redis.call("EXPIRE", KEYS[1], ARGV[4])
-        redis.call("EXPIRE", KEYS[2], ARGV[3])
-    end
-    return 0 -- Active connections remaining
-`)
-
 func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	return getAndUnmarshal(ctx, u.client, userKey(id), redis.ScopeUser, unmarshalUser)
 }
@@ -192,7 +143,10 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 }
 
 func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
-	return deleteKey(ctx, u.client, userKey(id), redis.ScopeUser)
+	if err := u.client.Del(ctx, userKey(id)).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
 func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
@@ -202,6 +156,55 @@ func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 	}
 	return deleteBatchKeys(ctx, u.client, keys, redis.ScopeUser)
 }
+
+// --- Redis Scripts ---
+
+var registerWSConnectionScript = redisdriver.NewScript(`
+    -- KEYS[1]: user:nodes set
+    -- KEYS[2]: user:presence key
+    -- ARGV[1]: connID (unique per websocket connection)
+    -- ARGV[2]: nodeTTL
+    -- ARGV[3]: initialPresence
+    -- ARGV[4]: presenceTTL
+
+    -- Check if user was completely offline (no active connections in set)
+    local wasOffline = redis.call("SCARD", KEYS[1]) == 0
+
+    -- Add unique connection ID to set
+    redis.call("SADD", KEYS[1], ARGV[1])
+    redis.call("EXPIRE", KEYS[1], ARGV[2])
+
+    -- Set presence state ONLY if absent (NX)
+    local setResult = redis.call("SET", KEYS[2], ARGV[3], "EX", ARGV[4], "NX")
+    if not setResult then
+        redis.call("EXPIRE", KEYS[2], ARGV[4])
+    end
+
+    local currentPresence = redis.call("GET", KEYS[2])
+    return { wasOffline and 1 or 0, tonumber(currentPresence) }
+`)
+
+var unregisterScript = redisdriver.NewScript(`
+    -- KEYS[1]: user:nodes set
+    -- KEYS[2]: user:presence key
+    -- ARGV[1]: connID
+    -- ARGV[2]: offlinePresence
+    -- ARGV[3]: presenceTTL
+    -- ARGV[4]: nodeTTL
+
+    redis.call("SREM", KEYS[1], ARGV[1])
+    local count = redis.call("SCARD", KEYS[1])
+    
+    if count == 0 then
+        -- User has zero active sockets remaining across all nodes
+        redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+        return 1 -- Went completely offline
+    else
+        redis.call("EXPIRE", KEYS[1], ARGV[4])
+        redis.call("EXPIRE", KEYS[2], ARGV[3])
+    end
+    return 0 -- Active connections remaining
+`)
 
 type RegisterWSResult struct {
 	WasOffline bool
