@@ -300,7 +300,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 			effectivePresence = presence.NewOnline()
 		}
 
-		payload := EventUpdatePreferredPresencePayload{
+		payload := EventUpdatePresencePayload{
 			UserID:    updatedUser.ID().String(),
 			Presence:  effectivePresence.String(),
 			UpdatedAt: updatedUser.UpdatedAt().String(),
