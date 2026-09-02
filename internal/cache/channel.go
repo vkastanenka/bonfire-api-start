@@ -6,6 +6,8 @@ const (
 	channelDomainKey = "channel:"
 )
 
-func channelActiveUsersKey(channelID fields.ID) string {
-	return "{" + channelDomainKey + channelID.String() + "}:active-users"
+func channelMembersKey(channelID fields.ID) string {
+	return "{channel:" + channelID.String() + "}:members"
 }
+
+//

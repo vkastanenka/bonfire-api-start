@@ -30,13 +30,26 @@ func (p *Publisher) PublishEvents(ctx context.Context, events map[fields.ID]Even
 		return nil
 	}
 
+	type encodedPublish struct {
+		channel string
+		payload []byte
+	}
+	pubItems := make([]encodedPublish, 0, len(events))
+
+	for nodeID, event := range events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return redis.NewError(err, redis.ScopeGateway)
+		}
+		pubItems = append(pubItems, encodedPublish{
+			channel: gatewayEventsKey(nodeID),
+			payload: encoded,
+		})
+	}
+
 	_, err := p.client.Pipelined(ctx, func(pipe goredis.Pipeliner) error {
-		for nodeID, event := range events {
-			encoded, err := json.Marshal(event)
-			if err != nil {
-				return err
-			}
-			pipe.Publish(ctx, gatewayEventsKey(nodeID), encoded)
+		for _, item := range pubItems {
+			pipe.Publish(ctx, item.channel, item.payload)
 		}
 		return nil
 	})

@@ -114,21 +114,22 @@ func (c *PresenceCache) GetBatchNodes(
 
 		end := min(i+MaxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
-		cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(chunk))
+		cmds := make([]*redisdriver.StringSliceCmd, len(chunk))
 
 		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-			for _, uid := range chunk {
-				cmds[uid] = pipe.SMembers(ctx, userNodesKey(uid))
+			for j, uid := range chunk {
+				cmds[j] = pipe.SMembers(ctx, userNodesKey(uid))
 			}
 			return nil
 		})
-		if err != nil && err != redisdriver.Nil {
+		if err != nil {
 			return nil, redis.NewError(err, redis.ScopePresence)
 		}
 
-		for uid, cmd := range cmds {
-			nodeStrs, parseErr := cmd.Result()
-			if parseErr != nil || len(nodeStrs) == 0 {
+		for j, cmd := range cmds {
+			uid := chunk[j]
+			nodeStrs, cmdErr := cmd.Result()
+			if cmdErr != nil || len(nodeStrs) == 0 {
 				continue
 			}
 
@@ -239,10 +240,16 @@ var unregisterNodeScript = redisdriver.NewScript(`
 
 	redis.call("SREM", KEYS[1], ARGV[1])
 	local count = redis.call("SCARD", KEYS[1])
-	
+
 	if count == 0 then
-		redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
-		return 1
+		local currentPresence = redis.call("GET", KEYS[2])
+		-- If presence is missing or not already offline, set to offline and signal state change
+		if not currentPresence or tonumber(currentPresence) ~= tonumber(ARGV[2]) then
+			redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+			return 1
+		end
+		-- Already offline
+		return 0
 	else
 		redis.call("EXPIRE", KEYS[1], ARGV[4])
 		redis.call("EXPIRE", KEYS[2], ARGV[3])

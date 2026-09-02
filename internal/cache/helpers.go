@@ -5,8 +5,10 @@ import (
 	"time"
 	"unsafe"
 
+	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
@@ -148,4 +150,68 @@ func toBytes(raw any) ([]byte, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// getSetIDs retrieves members from a Redis Set key and parses them into fields.ID slices.
+func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]fields.ID, error) {
+	members, err := client.SMembers(ctx, key).Result()
+	if redis.IsCacheMiss(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, redis.NewError(err, scope)
+	}
+	if len(members) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]fields.ID, 0, len(members))
+	for _, m := range members {
+		if id, parseErr := uuid.Parse(m); parseErr == nil {
+			ids = append(ids, fields.ID(id))
+		}
+	}
+
+	return ids, nil
+}
+
+// setSetIDs replaces a Redis Set key with a new slice of IDs inside an atomic TxPipeline.
+func setSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, ids []fields.ID, ttl time.Duration, scope redis.Scope) error {
+	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, key)
+		if len(ids) > 0 {
+			members := make([]interface{}, len(ids))
+			for i, id := range ids {
+				members[i] = id.String()
+			}
+			pipe.SAdd(ctx, key, members...)
+			pipe.Expire(ctx, key, ttl)
+		}
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, scope)
+	}
+	return nil
+}
+
+// addToSetID adds a single field ID to a Redis Set and conditionally updates its TTL if the key exists.
+func addToSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID fields.ID, ttl time.Duration, scope redis.Scope) error {
+	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.SAdd(ctx, key, targetID.String())
+		pipe.ExpireXX(ctx, key, ttl)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, scope)
+	}
+	return nil
+}
+
+// removeFromSetID removes a single field ID from a Redis Set.
+func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID fields.ID, scope redis.Scope) error {
+	if err := client.SRem(ctx, key, targetID.String()).Err(); err != nil {
+		return redis.NewError(err, scope)
+	}
+	return nil
 }
