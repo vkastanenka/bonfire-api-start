@@ -3,11 +3,7 @@ package outbox
 import (
 	"bonfire-api/internal/fields"
 	"context"
-	"encoding/json"
 )
-
-// Handler defines the function signature for processing raw outbox payloads.
-type Handler func(ctx context.Context, payload json.RawMessage) error
 
 // Repository abstracts the Outbox persistence operations required by the Worker.
 type Repository interface {

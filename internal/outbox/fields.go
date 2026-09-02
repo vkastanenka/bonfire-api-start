@@ -61,37 +61,37 @@ func NewPayload(raw json.RawMessage) Payload {
 	return Payload{raw: raw}
 }
 
-func ParsePayload(raw json.RawMessage) (Payload, error) {
-	if len(raw) == 0 {
-		return Payload{}, nil
-	}
+// func ParsePayload(raw json.RawMessage) (Payload, error) {
+// 	if len(raw) == 0 {
+// 		return Payload{}, nil
+// 	}
 
-	if len(raw) >= maxPayloadByteSize {
-		return Payload{}, ErrPayloadTooLarge()
-	}
+// 	if len(raw) >= maxPayloadByteSize {
+// 		return Payload{}, ErrPayloadTooLarge()
+// 	}
 
-	if !json.Valid(raw) {
-		return Payload{}, ErrPayloadInvalidJSON()
-	}
+// 	if !json.Valid(raw) {
+// 		return Payload{}, ErrPayloadInvalidJSON()
+// 	}
 
-	compacted := bytes.TrimSpace(raw)
-	if bytes.Equal(compacted, []byte("{}")) || bytes.Equal(compacted, []byte("[]")) {
-		return Payload{}, ErrPayloadEmpty()
-	}
+// 	compacted := bytes.TrimSpace(raw)
+// 	if bytes.Equal(compacted, []byte("{}")) || bytes.Equal(compacted, []byte("[]")) {
+// 		return Payload{}, ErrPayloadEmpty()
+// 	}
 
-	return NewPayload(raw), nil
-}
+// 	return NewPayload(raw), nil
+// }
 
-func ParseRequiredPayload(raw json.RawMessage) (Payload, error) {
-	payload, err := ParsePayload(raw)
-	if err != nil {
-		return Payload{}, err
-	}
-	if !payload.IsValid() {
-		return Payload{}, ErrPayloadRequired()
-	}
-	return payload, nil
-}
+// func ParseRequiredPayload(raw json.RawMessage) (Payload, error) {
+// 	payload, err := ParsePayload(raw)
+// 	if err != nil {
+// 		return Payload{}, err
+// 	}
+// 	if !payload.IsValid() {
+// 		return Payload{}, ErrPayloadRequired()
+// 	}
+// 	return payload, nil
+// }
 
 func (p Payload) Raw() json.RawMessage {
 	return p.raw
