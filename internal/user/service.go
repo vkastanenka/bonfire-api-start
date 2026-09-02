@@ -203,11 +203,6 @@ type UpdatePasswordParams struct {
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	currentPassword, err := ParsePassword("current_password", p.CurrentPassword)
-	if err != nil {
-		return err
-	}
-
 	newPassword, err := ParsePassword("new_password", p.NewPassword)
 	if err != nil {
 		return err
@@ -222,7 +217,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return ErrPasswordMismatch("new_password_confirm")
 	}
 
-	id, _, err := s.parseAndAuthenticate(ctx, p.UserID, currentPassword.String())
+	id, _, err := s.parseAndAuthenticate(ctx, p.UserID, p.CurrentPassword)
 	if err != nil {
 		return err
 	}
