@@ -2,7 +2,6 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/outbox"
 	"context"
 	"encoding/json"
@@ -48,7 +47,7 @@ type EventDisablePayload struct {
 }
 
 // NewUpdatePresenceOutboxHandler handles broadcasts for preferred presence changes (e.g. Online, Away, DND).
-func NewUpdatePresenceOutboxHandler(gw *gateway.Service) outbox.Handler {
+func NewUpdatePresenceOutboxHandler(gw GatewayService) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		var evt EventUpdatePreferredPresencePayload
 		if err := json.Unmarshal(payload, &evt); err != nil {
@@ -69,7 +68,7 @@ func NewUpdatePresenceOutboxHandler(gw *gateway.Service) outbox.Handler {
 }
 
 // NewUpdateProfileOutboxHandler handles broadcasts when a user changes profile info (DisplayName, Bio, Avatar, etc.).
-func NewUpdateProfileOutboxHandler(gw *gateway.Service) outbox.Handler {
+func NewUpdateProfileOutboxHandler(gw GatewayService) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		var evt EventUpdateProfilePayload
 		if err := json.Unmarshal(payload, &evt); err != nil {
@@ -90,7 +89,7 @@ func NewUpdateProfileOutboxHandler(gw *gateway.Service) outbox.Handler {
 }
 
 // NewDisableOutboxHandler targets only the disabled user's active node connections so the Gateway can terminate their WebSocket sessions.
-func NewDisableOutboxHandler(gw *gateway.Service) outbox.Handler {
+func NewDisableOutboxHandler(gw GatewayService) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		var evt EventDisablePayload
 		if err := json.Unmarshal(payload, &evt); err != nil {
