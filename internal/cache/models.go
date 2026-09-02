@@ -4,8 +4,10 @@ import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 	"encoding/json"
 	"strconv"
@@ -241,6 +243,127 @@ func ParseMember(m *channel.Member) Member {
 // 		EditedAt:           m.EditedAt().Time(),
 // 	}, nil
 // }
+
+type Session struct {
+	ID               uuid.UUID  `json:"id"`
+	UserID           uuid.UUID  `json:"user_id"`
+	RefreshTokenHash []byte     `json:"refresh_token_hash"`
+	ClientIP         string     `json:"client_ip"`
+	UserAgent        string     `json:"user_agent"`
+	OS               string     `json:"os"`
+	Client           string     `json:"client"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	LastSeenAt       time.Time  `json:"last_seen_at"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+func (s Session) ToDomain() (*session.Session, error) {
+	id, err := fields.ParseRequiredID("id", s.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	userID, err := fields.ParseRequiredID("user_id", s.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshTokenHash, err := fields.ParseTokenHash("refresh_token_hash", s.RefreshTokenHash)
+	if err != nil {
+		return nil, err
+	}
+
+	clientIP, err := fields.ParseIP("client_ip", s.ClientIP)
+	if err != nil {
+		return nil, err
+	}
+
+	userAgent, err := fields.ParseUserAgent("user_agent", s.UserAgent)
+	if err != nil {
+		return nil, err
+	}
+
+	osField, err := fields.ParseOS("os", s.OS)
+	if err != nil {
+		return nil, err
+	}
+
+	clientField, err := fields.ParseClient("client", s.Client)
+	if err != nil {
+		return nil, err
+	}
+
+	return session.Reconstitute(
+		id,
+		userID,
+		refreshTokenHash,
+		clientIP,
+		userAgent,
+		osField,
+		clientField,
+		fields.NewTimestamp(s.ExpiresAt),
+		fields.NewTimestamp(s.LastSeenAt),
+		fields.NewTimestamp(ptr.From(s.RevokedAt)),
+		fields.NewTimestamp(s.CreatedAt),
+		fields.NewTimestamp(s.UpdatedAt),
+	), nil
+}
+
+func parseSession(sess *session.Session) Session {
+	if sess == nil {
+		return Session{}
+	}
+
+	var revokedAt *time.Time
+	if r := sess.RevokedAt(); r.IsValid() {
+		t := r.Time()
+		revokedAt = &t
+	}
+
+	return Session{
+		ID:               sess.ID().UUID(),
+		UserID:           sess.UserID().UUID(),
+		RefreshTokenHash: sess.RefreshTokenHash().Bytes.Bytes(),
+		ClientIP:         sess.ClientIP().String(),
+		UserAgent:        sess.UserAgent().String(),
+		OS:               sess.OS().String(),
+		Client:           sess.Client().String(),
+		ExpiresAt:        sess.ExpiresAt().Time(),
+		LastSeenAt:       sess.LastSeenAt().Time(),
+		RevokedAt:        revokedAt,
+		CreatedAt:        sess.CreatedAt().Time(),
+		UpdatedAt:        sess.UpdatedAt().Time(),
+	}
+}
+
+func marshalSession(sess *session.Session) ([]byte, error) {
+	if sess == nil {
+		return nil, nil
+	}
+
+	dto := parseSession(sess)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal session json.").
+			Meta("scope", redis.ScopeSession.String()).
+			Wrap(err)
+	}
+	return bytes, nil
+}
+
+func unmarshalSession(data []byte) (*session.Session, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto Session
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain()
+}
 
 type User struct {
 	ID                     uuid.UUID `json:"id"`

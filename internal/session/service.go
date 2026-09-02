@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"time"
 
 	"bonfire-api/internal/fields"
 
@@ -10,17 +9,20 @@ import (
 )
 
 type Service struct {
+	cache      Cache
 	repo       Repository
 	outboxRepo OutboxRepository
 	tx         TX
 }
 
 func NewService(
+	cache Cache,
 	repo Repository,
 	outboxRepo OutboxRepository,
 	tx TX,
 ) *Service {
 	return &Service{
+		cache:      cache,
 		repo:       repo,
 		outboxRepo: outboxRepo,
 		tx:         tx,
@@ -63,14 +65,26 @@ func (s *Service) Revoke(ctx context.Context, rawID, rawUserID uuid.UUID) error 
 
 	now := fields.Now()
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if err := s.repo.Revoke(txCtx, id, userID, now); err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventSessionRevoke, EventSessionRevokePayload{})
-		return nil
+		payload := EventSessionRevokePayload{
+			SessionID: id.String(),
+			UserID:    userID.String(),
+			RevokedAt: now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventSessionRevoke, payload, now)
 	})
+	if err != nil {
+		return err
+	}
+
+	_ = s.cache.Delete(ctx, id)
+
+	return nil
 }
 
 func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
@@ -81,18 +95,38 @@ func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
 
 	now := fields.Now()
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		err := s.repo.RevokeAll(txCtx, userID, now)
-		if err != nil {
+	activeSessions, err := s.repo.ListValidByUserID(ctx, userID, now, listValidByUserIDLimit)
+	if err != nil {
+		return err
+	}
+
+	sessionIDs := make([]fields.ID, len(activeSessions))
+	sessionIDStrings := make([]string, len(activeSessions))
+	for i, sess := range activeSessions {
+		sessionIDs[i] = sess.ID()
+		sessionIDStrings[i] = sess.ID().String()
+	}
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if err := s.repo.RevokeAll(txCtx, userID, now); err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventSessionRevokeAll, EventSessionRevokeAllPayload{})
-		return nil
-	})
-}
+		payload := EventSessionRevokeAllPayload{
+			UserID:     userID.String(),
+			SessionIDs: sessionIDStrings,
+			RevokedAt:  now.String(),
+		}
 
-func (s *Service) DeleteBatchExpired(ctx context.Context) error {
-	now := time.Now()
-	return s.repo.DeleteBatchExpired(ctx, now, deleteBatchExpiredLimit)
+		return s.outboxRepo.Publish(txCtx, EventSessionRevokeAll, payload, now)
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(sessionIDs) > 0 {
+		_ = s.cache.DeleteBatch(ctx, sessionIDs)
+	}
+
+	return nil
 }

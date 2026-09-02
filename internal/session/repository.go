@@ -2,10 +2,16 @@ package session
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"context"
 	"time"
 )
+
+type Cache interface {
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*Session, error)
+	Set(ctx context.Context, sess *Session) error
+}
 
 type Repository interface {
 	Create(ctx context.Context, s *Session) (*Session, error)
@@ -18,7 +24,7 @@ type Repository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType outbox.Type, payload outbox.Payload, now fields.Timestamp) error
+	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
 }
 
 type TX interface {
