@@ -51,11 +51,11 @@ func NewUserCache(client redisdriver.Cmdable) *UserCache {
 	}
 }
 
-func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
-	return getAndUnmarshal(ctx, u.client, userKey(id), redis.ScopeUser, unmarshalUser)
+func (c *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
+	return getAndUnmarshal(ctx, c.client, userKey(id), redis.ScopeUser, unmarshalUser)
 }
 
-func (u *UserCache) GetBatch(
+func (c *UserCache) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
 ) (map[fields.ID]*user.User, []fields.ID, error) {
@@ -80,7 +80,7 @@ func (u *UserCache) GetBatch(
 			redisKeys[j] = userKey(id)
 		}
 
-		vals, err := getBatchKeys(ctx, u.client, redisKeys, redis.ScopeUser)
+		vals, err := getBatchKeys(ctx, c.client, redisKeys, redis.ScopeUser)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -107,17 +107,17 @@ func (u *UserCache) GetBatch(
 	}
 
 	if len(corruptedKeys) > 0 {
-		deleteBatchKeys(ctx, u.client, corruptedKeys, redis.ScopeUser)
+		deleteBatchKeys(ctx, c.client, corruptedKeys, redis.ScopeUser)
 	}
 
 	return found, missing, nil
 }
 
-func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
-	return marshalAndSet(ctx, u.client, userKey(usr.ID()), usr, userTTL, redis.ScopeUser, marshalUser)
+func (c *UserCache) Set(ctx context.Context, usr *user.User) error {
+	return marshalAndSet(ctx, c.client, userKey(usr.ID()), usr, userTTL, redis.ScopeUser, marshalUser)
 }
 
-func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User) error {
+func (c *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User) error {
 	if len(users) == 0 {
 		return nil
 	}
@@ -139,22 +139,22 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 		})
 	}
 
-	return setBatchPipeline(ctx, u.client, items, userTTL, redis.ScopeUser)
+	return setBatchPipeline(ctx, c.client, items, userTTL, redis.ScopeUser)
 }
 
-func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
-	if err := u.client.Del(ctx, userKey(id)).Err(); err != nil {
+func (c *UserCache) Delete(ctx context.Context, id fields.ID) error {
+	if err := c.client.Del(ctx, userKey(id)).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeUser)
 	}
 	return nil
 }
 
-func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
+func (c *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 	keys := make([]string, len(ids))
 	for i, id := range ids {
 		keys[i] = userKey(id)
 	}
-	return deleteBatchKeys(ctx, u.client, keys, redis.ScopeUser)
+	return deleteBatchKeys(ctx, c.client, keys, redis.ScopeUser)
 }
 
 func (c *UserCache) SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error {

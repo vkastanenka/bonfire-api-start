@@ -111,7 +111,7 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client, presence user.
 	isFirstUserSession := h.registerClient(client)
 
 	if isFirstUserSession {
-		h.registerUserConnection(ctx, client.UserID, presence)
+		h.registerNode(ctx, client.UserID, presence)
 	}
 
 	slog.Info("Client connected to gateway",
@@ -142,11 +142,11 @@ func (h *Hub) registerClient(client *Client) bool {
 	return isFirstUserSession
 }
 
-func (h *Hub) registerUserConnection(ctx context.Context, userID fields.ID, presence user.Presence) {
+func (h *Hub) registerNode(ctx context.Context, userID fields.ID, presence user.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RegisterWSConnection(reqCtx, userID, h.id, presence); err != nil {
+	if err := h.service.RegisterNode(reqCtx, userID, h.id, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -155,7 +155,7 @@ func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	isLastUserSession := h.unregisterClient(client)
 
 	if isLastUserSession {
-		h.unregisterUserConnection(ctx, client.UserID)
+		h.unregisterNode(ctx, client.UserID)
 	}
 
 	client.Close()
@@ -190,11 +190,11 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	return isLastUserSession
 }
 
-func (h *Hub) unregisterUserConnection(ctx context.Context, userID fields.ID) {
+func (h *Hub) unregisterNode(ctx context.Context, userID fields.ID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.UnregisterWSConnection(reqCtx, userID, h.id); err != nil {
+	if err := h.service.UnregisterNode(reqCtx, userID, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -228,7 +228,7 @@ func (h *Hub) cleanupNodes(ctx context.Context) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RemoveBatchNode(reqCtx, userIDs, h.id); err != nil {
+	if err := h.service.RemoveBatchNodes(reqCtx, userIDs, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }

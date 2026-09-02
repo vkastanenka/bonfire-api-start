@@ -70,7 +70,3 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 
 	return nil
 }
-
-// if err := h.userCache.SetPresence(context.WithoutCancel(ctx), userID, userPresence); err != nil {
-// 	slog.ErrorContext(ctx, "Failed to set initial user presence on websocket connect", "user_id", userID, "error", err)
-// }
