@@ -18,11 +18,11 @@ type Broadcaster interface {
 }
 
 func ParsePayload[T any](eventType string, rawMessage json.RawMessage) (*T, error) {
-	var msg *T
+	var msg T
 	if err := json.Unmarshal(rawMessage, &msg); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse actor_id for event %s", ErrFatal, eventType)
+		return nil, fmt.Errorf("%w: failed to parse payload for event %s: %v", ErrFatal, eventType, err)
 	}
-	return msg, nil
+	return &msg, nil
 }
 
 // NewPeersHandler broadcasts the raw JSON payload to all peers of actor_id.

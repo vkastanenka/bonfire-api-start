@@ -28,8 +28,6 @@ type Event struct {
 	Data       json.RawMessage `json:"data"`
 }
 
-type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
-
 type Hub struct {
 	id fields.ID
 

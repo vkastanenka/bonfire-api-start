@@ -1,7 +1,6 @@
 package outbox
 
 import (
-	"bytes"
 	"encoding/json"
 	"unicode/utf8"
 

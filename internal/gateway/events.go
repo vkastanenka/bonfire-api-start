@@ -1,31 +1,50 @@
 package gateway
 
 import (
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 )
 
+type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
+
+type HeartbeatPayload struct {
+	Presence *int `json:"presence,omitempty"`
+}
+
+// ParsePayload parses optional raw JSON payloads safely.
+func ParsePayload[T any](op string, rawMessage json.RawMessage) (*T, error) {
+	if len(rawMessage) == 0 || bytes.Equal(rawMessage, []byte("null")) {
+		var empty T
+		return &empty, nil
+	}
+
+	var msg T
+	if err := json.Unmarshal(rawMessage, &msg); err != nil {
+		return nil, fmt.Errorf("failed to parse %s gateway payload: %w", op, err)
+	}
+	return &msg, nil
+}
+
+// NewHeartbeatHandler handles websocket heartbeats and optional presence updates.
 func NewHeartbeatHandler(service *Service, nodeID fields.ID) MessageHandler {
 	return func(ctx context.Context, client *Client, data json.RawMessage) error {
-		var payload struct {
-			Presence *int `json:"presence,omitempty"`
-		}
-
-		if len(data) > 0 {
-			if err := json.Unmarshal(data, &payload); err != nil {
-				return err
-			}
+		payload, err := ParsePayload[HeartbeatPayload]("heartbeat", data)
+		if err != nil {
+			return err
 		}
 
 		var newPresence presence.Presence
 		if payload.Presence != nil {
 			p, err := presence.Parse(*payload.Presence)
 			if err != nil {
-				return err
+				return fmt.Errorf("invalid presence value in heartbeat payload: %w", err)
 			}
 			newPresence = p
 		}
@@ -34,7 +53,7 @@ func NewHeartbeatHandler(service *Service, nodeID fields.ID) MessageHandler {
 		defer cancel()
 
 		if err := service.HandleHeartbeat(reqCtx, client.UserID, nodeID, newPresence); err != nil {
-			slog.ErrorContext(ctx, "failed to handle heartbeat", "user_id", client.UserID, "error", err)
+			slog.ErrorContext(reqCtx, "failed to handle heartbeat", "user_id", client.UserID, "error", err)
 			return err
 		}
 

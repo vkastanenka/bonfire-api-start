@@ -40,7 +40,6 @@ type EventDisablePayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-// NewUpdateUsernameOutboxHandler handles user username updates by broadcasting to peers.
 func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := outbox.ParsePayload[EventUpdateUsernamePayload](EventUpdateUsername, payload)
@@ -51,7 +50,6 @@ func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	}
 }
 
-// NewUpdatePresenceOutboxHandler handles user presence updates by broadcasting to peers.
 func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := outbox.ParsePayload[EventUpdatePresencePayload](EventUpdatePresence, payload)
@@ -62,7 +60,6 @@ func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	}
 }
 
-// NewUpdateProfileOutboxHandler handles user profile updates by broadcasting to peers.
 func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := outbox.ParsePayload[EventUpdateProfilePayload](EventUpdateProfile, payload)
@@ -73,7 +70,6 @@ func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	}
 }
 
-// NewDisableOutboxHandler handles user account disablement by broadcasting to peers.
 func NewDisableOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := outbox.ParsePayload[EventDisablePayload](EventDisable, payload)
