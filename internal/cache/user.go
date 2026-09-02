@@ -2,12 +2,9 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"strconv"
 	"time"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
@@ -46,13 +43,11 @@ func userChannelsKey(id fields.ID) string       { return userNamespacedKey(id, "
 
 type UserCache struct {
 	client redisdriver.Cmdable
-	scope  redis.Scope
 }
 
-func NewUserCache(client redisdriver.Cmdable, scope redis.Scope) *UserCache {
+func NewUserCache(client redisdriver.Cmdable) *UserCache {
 	return &UserCache{
 		client: client,
-		scope:  scope,
 	}
 }
 
@@ -105,31 +100,8 @@ var unregisterScript = redisdriver.NewScript(`
     return 0 -- Active connections remaining
 `)
 
-var heartbeatScript = redisdriver.NewScript(`
-	redis.call("SADD", KEYS[1], ARGV[1])
-	redis.call("EXPIRE", KEYS[1], ARGV[2])
-	redis.call("EXPIRE", KEYS[2], ARGV[3])
-	return 1
-`)
-
 func (u *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
-	redisKey := userKey(id)
-
-	data, err := u.client.Get(ctx, redisKey).Bytes()
-	if redis.IsCacheMiss(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, redis.NewError(err, u.scope)
-	}
-
-	usr, err := parseUserBytes(data)
-	if err != nil {
-		_ = u.client.Del(ctx, redisKey).Err()
-		return nil, nil
-	}
-
-	return usr, nil
+	return getAndUnmarshal(ctx, u.client, userKey(id), redis.ScopeUser, unmarshalUser)
 }
 
 func (u *UserCache) GetBatch(
@@ -142,7 +114,7 @@ func (u *UserCache) GetBatch(
 
 	found := make(map[fields.ID]*user.User, len(ids))
 	missing := make([]fields.ID, 0, len(ids))
-	var corrupted []fields.ID
+	var corruptedKeys []string
 
 	for i := 0; i < len(ids); i += MaxBatchSize {
 		if err := ctx.Err(); err != nil {
@@ -157,23 +129,24 @@ func (u *UserCache) GetBatch(
 			redisKeys[j] = userKey(id)
 		}
 
-		vals, err := u.client.MGet(ctx, redisKeys...).Result()
+		vals, err := getBatchKeys(ctx, u.client, redisKeys, redis.ScopeUser)
 		if err != nil {
-			return nil, nil, redis.NewError(err, u.scope)
+			return nil, nil, err
 		}
 
 		for j, raw := range vals {
 			id := chunk[j]
+			rKey := redisKeys[j]
 
-			data, ok := extractBytes(raw)
+			data, ok := toBytes(raw)
 			if !ok {
 				missing = append(missing, id)
 				continue
 			}
 
-			usr, err := parseUserBytes(data)
+			usr, err := unmarshalUser(data)
 			if err != nil {
-				corrupted = append(corrupted, id)
+				corruptedKeys = append(corruptedKeys, rKey)
 				missing = append(missing, id)
 				continue
 			}
@@ -182,52 +155,15 @@ func (u *UserCache) GetBatch(
 		}
 	}
 
-	if len(corrupted) > 0 {
-		u.DeleteBatch(ctx, corrupted)
+	if len(corruptedKeys) > 0 {
+		deleteBatchKeys(ctx, u.client, corruptedKeys, redis.ScopeUser)
 	}
 
 	return found, missing, nil
 }
 
-func extractBytes(raw any) ([]byte, bool) {
-	if raw == nil {
-		return nil, false
-	}
-	switch v := raw.(type) {
-	case string:
-		if v == "" {
-			return nil, false
-		}
-		return []byte(v), true
-	case []byte:
-		if len(v) == 0 {
-			return nil, false
-		}
-		return v, true
-	default:
-		return nil, false
-	}
-}
-
-func parseUserBytes(data []byte) (*user.User, error) {
-	var dto User
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, err
-	}
-	return dto.ToDomain()
-}
-
 func (u *UserCache) Set(ctx context.Context, usr *user.User) error {
-	bytes, err := u.marshalUser(usr)
-	if err != nil {
-		return err
-	}
-
-	if err := u.client.Set(ctx, userKey(usr.ID()), bytes, userTTL).Err(); err != nil {
-		return redis.NewError(err, u.scope)
-	}
-
-	return nil
+	return marshalAndSet(ctx, u.client, userKey(usr.ID()), usr, userTTL, redis.ScopeUser, marshalUser)
 }
 
 func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User) error {
@@ -235,264 +171,36 @@ func (u *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 		return nil
 	}
 
-	type entry struct {
-		id  fields.ID
-		usr *user.User
-	}
-	validEntries := make([]entry, 0, len(users))
+	items := make([]CacheItem, 0, len(users))
 	for id, usr := range users {
-		if usr != nil && !id.IsZero() {
-			validEntries = append(validEntries, entry{id: id, usr: usr})
+		if usr == nil || id.IsZero() {
+			continue
 		}
-	}
 
-	if len(validEntries) == 0 {
-		return nil
-	}
-
-	for i := 0; i < len(validEntries); i += MaxBatchSize {
-		if err := ctx.Err(); err != nil {
+		bytes, err := marshalUser(usr)
+		if err != nil {
 			return err
 		}
 
-		end := min(i+MaxBatchSize, len(validEntries))
-		chunk := validEntries[i:end]
-
-		pipe := u.client.Pipeline()
-		for _, e := range chunk {
-			bytes, err := u.marshalUser(e.usr)
-			if err != nil {
-				return err
-			}
-			pipe.Set(ctx, userKey(e.id), bytes, userTTL)
-		}
-
-		if _, err := pipe.Exec(ctx); err != nil {
-			return redis.NewError(err, u.scope)
-		}
+		items = append(items, CacheItem{
+			Key:   userKey(id),
+			Value: bytes,
+		})
 	}
 
-	return nil
-}
-
-func (u *UserCache) marshalUser(usr *user.User) ([]byte, error) {
-	dto := ParseUser(usr)
-	bytes, err := json.Marshal(dto)
-	if err != nil {
-		return nil, errs.Internal("Failed to marshal user json.").
-			Meta("scope", u.scope.String()).
-			Wrap(err)
-	}
-	return bytes, nil
+	return setBatchPipeline(ctx, u.client, items, userTTL, redis.ScopeUser)
 }
 
 func (u *UserCache) Delete(ctx context.Context, id fields.ID) error {
-	if err := u.client.Del(ctx, userKey(id)).Err(); err != nil {
-		return redis.NewError(err, u.scope)
-	}
-
-	return nil
+	return deleteKey(ctx, u.client, userKey(id), redis.ScopeUser)
 }
 
 func (u *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
-	if len(ids) == 0 {
-		return nil
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = userKey(id)
 	}
-
-	for i := 0; i < len(ids); i += MaxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		end := min(i+MaxBatchSize, len(ids))
-		chunk := ids[i:end]
-
-		redisKeys := make([]string, len(chunk))
-		for j, id := range chunk {
-			redisKeys[j] = userKey(id)
-		}
-
-		if err := u.client.Del(ctx, redisKeys...).Err(); err != nil {
-			return redis.NewError(err, u.scope)
-		}
-	}
-
-	return nil
-}
-
-// --- Presence Operations ---
-
-func (c *UserCache) GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error) {
-	val, err := c.client.Get(ctx, userPresenceKey(userID)).Uint64()
-	if redis.IsCacheMiss(err) {
-		return user.NewPresenceOffline(), nil
-	}
-	if err != nil {
-		return user.NewPresenceOffline(), redis.NewError(err, c.scope)
-	}
-
-	p, err := user.ParsePresence(int(val))
-	if err != nil {
-		return user.NewPresenceOffline(), nil
-	}
-
-	return p, nil
-}
-
-func (c *UserCache) GetBatchPresence(
-	ctx context.Context,
-	userIDs []fields.ID,
-) (map[fields.ID]user.Presence, error) {
-	result := make(map[fields.ID]user.Presence, len(userIDs))
-	if len(userIDs) == 0 {
-		return result, nil
-	}
-
-	cmds := make(map[fields.ID]*redisdriver.StringCmd, len(userIDs))
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		for _, id := range userIDs {
-			cmds[id] = pipe.Get(ctx, userPresenceKey(id))
-		}
-		return nil
-	})
-	if err != nil && err != redisdriver.Nil {
-		return nil, redis.NewError(err, c.scope)
-	}
-
-	for id, cmd := range cmds {
-		valStr, parseErr := cmd.Result()
-		if parseErr != nil {
-			result[id] = user.NewPresenceOffline()
-			continue
-		}
-
-		val, parseErr := strconv.ParseUint(valStr, 10, 8)
-		if parseErr != nil {
-			result[id] = user.NewPresenceOffline()
-			continue
-		}
-
-		p, parseErr := user.ParsePresence(int(val))
-		if parseErr != nil {
-			result[id] = user.NewPresenceOffline()
-			continue
-		}
-
-		result[id] = p
-	}
-
-	return result, nil
-}
-
-func (c *UserCache) SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error {
-	if err := c.client.Set(ctx, userPresenceKey(userID), uint8(p.Int()), userPresenceTTL).Err(); err != nil {
-		return redis.NewError(err, c.scope)
-	}
-	return nil
-}
-
-// --- Node Operations ---
-
-func (c *UserCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error {
-	pKey := userPresenceKey(userID)
-	nKey := userNodesKey(userID)
-
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.SAdd(ctx, nKey, nodeID.String())
-		pipe.Expire(ctx, nKey, userNodesTTL)
-		pipe.Expire(ctx, pKey, userPresenceTTL)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, c.scope)
-	}
-	return nil
-}
-
-func (c *UserCache) RemoveNode(ctx context.Context, userID, nodeID fields.ID) error {
-	if err := c.client.SRem(ctx, userNodesKey(userID), nodeID.String()).Err(); err != nil {
-		return redis.NewError(err, c.scope)
-	}
-	return nil
-}
-
-func (c *UserCache) RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		for _, userID := range userIDs {
-			pipe.SRem(ctx, userNodesKey(userID), nodeID.String())
-		}
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, c.scope)
-	}
-
-	return nil
-}
-
-// GetBatchNodes maps each recipient user ID to the gateway node(s) holding their active connection.
-// Returns map[nodeID][]userID so broadcasts can be strictly targeted per node.
-func (c *UserCache) GetBatchNodes(
-	ctx context.Context,
-	userIDs []fields.ID,
-) (map[fields.ID][]fields.ID, error) {
-	if len(userIDs) == 0 {
-		return nil, nil
-	}
-
-	cmds := make(map[fields.ID]*redisdriver.StringSliceCmd, len(userIDs))
-
-	// Pipeline SMembers for {user:ID}:nodes across all recipients
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		for _, uid := range userIDs {
-			cmds[uid] = pipe.SMembers(ctx, userNodesKey(uid))
-		}
-		return nil
-	})
-	if err != nil && !errors.Is(err, redisdriver.Nil) {
-		return nil, redis.NewError(err, c.scope)
-	}
-
-	nodeToUsers := make(map[fields.ID][]fields.ID)
-
-	for uid, cmd := range cmds {
-		nodeStrs, parseErr := cmd.Result()
-		if parseErr != nil || len(nodeStrs) == 0 {
-			continue
-		}
-
-		for _, nStr := range nodeStrs {
-			if nodeID, parseErr := uuid.Parse(nStr); parseErr == nil {
-				nid := fields.ID(nodeID)
-				nodeToUsers[nid] = append(nodeToUsers[nid], uid)
-			}
-		}
-	}
-
-	return nodeToUsers, nil
-}
-
-func (c *UserCache) Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error {
-	nKey := userNodesKey(userID)
-	pKey := userPresenceKey(userID)
-
-	err := heartbeatScript.Run(
-		ctx,
-		c.client,
-		[]string{nKey, pKey},
-		nodeID.String(),
-		int(userNodesTTL.Seconds()),
-		int(userPresenceTTL.Seconds()),
-	).Err()
-
-	if err != nil {
-		return redis.NewError(err, c.scope)
-	}
-	return nil
+	return deleteBatchKeys(ctx, u.client, keys, redis.ScopeUser)
 }
 
 type RegisterWSResult struct {

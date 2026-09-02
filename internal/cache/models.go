@@ -2,8 +2,11 @@ package cache
 
 import (
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -335,4 +338,31 @@ func ParseUser(u *user.User) User {
 		CreatedAt:              u.CreatedAt().Time(),
 		UpdatedAt:              u.UpdatedAt().Time(),
 	}
+}
+
+func marshalUser(usr *user.User) ([]byte, error) {
+	if usr == nil {
+		return nil, nil
+	}
+
+	dto := ParseUser(usr)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal user json.").
+			Meta("scope", redis.ScopeUser.String()).
+			Wrap(err)
+	}
+	return bytes, nil
+}
+
+func unmarshalUser(data []byte) (*user.User, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto User
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain()
 }
