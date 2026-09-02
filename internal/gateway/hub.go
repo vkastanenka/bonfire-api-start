@@ -2,8 +2,8 @@ package gateway
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
-	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -18,7 +18,7 @@ var clientBufferLength = 256
 
 type ClientRegistration struct {
 	Client   *Client
-	Presence user.Presence
+	Presence presence.Presence
 }
 
 type Event struct {
@@ -66,7 +66,7 @@ func (h *Hub) ID() fields.ID {
 	return h.id
 }
 
-func (h *Hub) Register(client *Client, presence user.Presence) {
+func (h *Hub) Register(client *Client, presence presence.Presence) {
 	h.register <- ClientRegistration{
 		Client:   client,
 		Presence: presence,
@@ -107,7 +107,7 @@ func (h *Hub) Run(ctx context.Context) {
 	}
 }
 
-func (h *Hub) handleRegister(ctx context.Context, client *Client, presence user.Presence) {
+func (h *Hub) handleRegister(ctx context.Context, client *Client, presence presence.Presence) {
 	isFirstUserSession := h.registerClient(client)
 
 	if isFirstUserSession {
@@ -142,7 +142,7 @@ func (h *Hub) registerClient(client *Client) bool {
 	return isFirstUserSession
 }
 
-func (h *Hub) registerNode(ctx context.Context, userID fields.ID, presence user.Presence) {
+func (h *Hub) registerNode(ctx context.Context, userID fields.ID, presence presence.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 

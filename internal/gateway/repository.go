@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 )
@@ -28,12 +29,12 @@ type UserCache interface {
 
 type PresenceCache interface {
 	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
-	GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
+	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
 	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	RegisterNode(ctx context.Context, userID fields.ID, nodeID fields.ID, presence user.Presence) (bool, user.Presence, error)
+	RegisterNode(ctx context.Context, userID fields.ID, nodeID fields.ID, presence presence.Presence) (bool, presence.Presence, error)
 	RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
-	SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error
+	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
 	UnregisterNode(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
 }
 

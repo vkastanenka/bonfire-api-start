@@ -2,6 +2,7 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"context"
 )
 
@@ -42,12 +43,12 @@ type Cache interface {
 	Get(ctx context.Context, id fields.ID) (*User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
 	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
 	GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error)
-	GetPresence(ctx context.Context, userID fields.ID) (Presence, error)
+	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
 	GetUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
 	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence Presence) error
+	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence presence.Presence) error
 	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
 	RemoveChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	RemoveFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
@@ -56,7 +57,7 @@ type Cache interface {
 	SetBatch(ctx context.Context, users map[fields.ID]*User) error
 	SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
-	SetPresence(ctx context.Context, userID fields.ID, p Presence) error
+	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
 	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
 	GetFriendNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)
 	GetUpdateRecipientNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)

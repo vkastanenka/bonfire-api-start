@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 	"encoding/json"
@@ -368,15 +369,15 @@ func unmarshalUser(data []byte) (*user.User, error) {
 	return dto.ToDomain()
 }
 
-func parsePresence(val string) user.Presence {
+func parsePresence(val string) presence.Presence {
 	parsed, err := strconv.Atoi(val)
 	if err != nil {
-		return user.NewPresenceOffline()
+		return presence.NewPresenceOffline()
 	}
 
-	p, err := user.ParsePresence(parsed)
+	p, err := presence.Parse(parsed)
 	if err != nil {
-		return user.NewPresenceOffline()
+		return presence.NewPresenceOffline()
 	}
 
 	return p

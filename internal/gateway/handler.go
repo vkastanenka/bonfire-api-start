@@ -5,7 +5,7 @@ import (
 
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/user"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -54,9 +54,9 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	userPresence, err := user.ParsePresenceString(query.Presence)
+	userPresence, err := presence.ParseString(query.Presence)
 	if err != nil || !userPresence.IsValid() {
-		userPresence = user.NewPresenceOnline()
+		userPresence = presence.NewPresenceOnline()
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

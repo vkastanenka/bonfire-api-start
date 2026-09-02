@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/user"
+	"bonfire-api/internal/presence"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -21,19 +21,19 @@ func NewHeartbeatHandler(service *Service, nodeID fields.ID) MessageHandler {
 			}
 		}
 
-		var presence user.Presence
+		var newPresence presence.Presence
 		if payload.Presence != nil {
-			p, err := user.ParsePresence(*payload.Presence)
+			p, err := presence.Parse(*payload.Presence)
 			if err != nil {
 				return err
 			}
-			presence = p
+			newPresence = p
 		}
 
 		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 
-		if err := service.HandleHeartbeat(reqCtx, client.UserID, nodeID, presence); err != nil {
+		if err := service.HandleHeartbeat(reqCtx, client.UserID, nodeID, newPresence); err != nil {
 			slog.ErrorContext(ctx, "failed to handle heartbeat", "user_id", client.UserID, "error", err)
 			return err
 		}

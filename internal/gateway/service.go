@@ -3,6 +3,7 @@ package gateway
 import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
@@ -27,7 +28,7 @@ func NewService(
 	}
 }
 
-func (s *Service) RegisterNode(ctx context.Context, userID, nodeID fields.ID, presence user.Presence) error {
+func (s *Service) RegisterNode(ctx context.Context, userID, nodeID fields.ID, presence presence.Presence) error {
 	wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, presence)
 	if err != nil {
 		return err
@@ -55,7 +56,7 @@ func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID fields.ID) 
 	if wentOffline {
 		payload := user.EventUpdatePresencePayload{
 			UserID:   userID.String(),
-			Presence: user.NewPresenceOffline().String(),
+			Presence: presence.NewPresenceOffline().String(),
 		}
 		if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
 			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
@@ -72,13 +73,13 @@ func (s *Service) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nod
 	return s.presenceCache.RemoveBatchNodes(ctx, userIDs, nodeID)
 }
 
-func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence user.Presence) error {
+func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence presence.Presence) error {
 	currentPresence, err := s.presenceCache.GetPresence(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	if currentPresence == user.NewPresenceOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
+	if currentPresence == presence.NewPresenceOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
 		return s.RegisterNode(ctx, userID, nodeID, newPresence)
 	}
 

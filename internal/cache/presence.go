@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
@@ -21,10 +21,10 @@ func NewPresenceCache(client redisdriver.Cmdable) *PresenceCache {
 	}
 }
 
-func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error) {
+func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error) {
 	data, found, err := getKey(ctx, c.client, userPresenceKey(userID), redis.ScopePresence)
 	if err != nil || !found {
-		return user.NewPresenceOffline(), err
+		return presence.NewPresenceOffline(), err
 	}
 
 	return parsePresence(string(data)), nil
@@ -33,8 +33,8 @@ func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (user
 func (c *PresenceCache) GetBatchPresence(
 	ctx context.Context,
 	userIDs []fields.ID,
-) (map[fields.ID]user.Presence, error) {
-	result := make(map[fields.ID]user.Presence, len(userIDs))
+) (map[fields.ID]presence.Presence, error) {
+	result := make(map[fields.ID]presence.Presence, len(userIDs))
 	if len(userIDs) == 0 {
 		return result, nil
 	}
@@ -62,7 +62,7 @@ func (c *PresenceCache) GetBatchPresence(
 
 			data, ok := toBytes(raw)
 			if !ok {
-				result[id] = user.NewPresenceOffline()
+				result[id] = presence.NewPresenceOffline()
 				continue
 			}
 
@@ -73,7 +73,7 @@ func (c *PresenceCache) GetBatchPresence(
 	return result, nil
 }
 
-func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error {
+func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error {
 	if err := c.client.Set(ctx, userPresenceKey(userID), uint8(p.Int()), userPresenceTTL).Err(); err != nil {
 		return redis.NewError(err, redis.ScopePresence)
 	}
@@ -197,14 +197,14 @@ var registerNodeScript = redisdriver.NewScript(`
 func (c *PresenceCache) RegisterNode(
 	ctx context.Context,
 	userID, nodeID fields.ID,
-	presence user.Presence,
-) (bool, user.Presence, error) {
+	p presence.Presence,
+) (bool, presence.Presence, error) {
 	nKey := userNodesKey(userID)
 	pKey := userPresenceKey(userID)
 
-	targetPresence := presence
+	targetPresence := p
 	if !targetPresence.IsValid() {
-		targetPresence = user.NewPresenceOnline()
+		targetPresence = presence.NewPresenceOnline()
 	}
 
 	res, err := registerNodeScript.Run(
@@ -218,13 +218,13 @@ func (c *PresenceCache) RegisterNode(
 	).Slice()
 
 	if err != nil {
-		return false, user.NewPresenceOffline(), redis.NewError(err, redis.ScopePresence)
+		return false, presence.NewPresenceOffline(), redis.NewError(err, redis.ScopePresence)
 	}
 
 	wasOffline := res[0].(int64) == 1
-	effPresence, err := user.ParsePresence(int(res[1].(int64)))
+	effPresence, err := presence.Parse(int(res[1].(int64)))
 	if err != nil {
-		return false, user.NewPresenceOffline(), err
+		return false, presence.NewPresenceOffline(), err
 	}
 
 	return wasOffline, effPresence, nil
@@ -266,7 +266,7 @@ func (c *PresenceCache) UnregisterNode(ctx context.Context, userID, nodeID field
 		c.client,
 		[]string{nKey, pKey},
 		nodeID.String(),
-		user.NewPresenceOffline().Int(),
+		presence.NewPresenceOffline().Int(),
 		int(userPresenceTTL.Seconds()),
 		int(userNodesTTL.Seconds()),
 	).Int()

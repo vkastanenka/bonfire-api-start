@@ -2,6 +2,7 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/sanitize"
 	"encoding/json"
 	"regexp"
@@ -234,96 +235,14 @@ func ParsePhone(fieldName, raw string) (Phone, error) {
 }
 
 // ============================================================================
-// Presence
-// ============================================================================
-
-type PresenceValue int
-
-const (
-	PresenceUnknown PresenceValue = iota
-	PresenceOnline
-	PresenceOffline
-	PresenceIdle
-	PresenceBusy
-	PresenceDND
-	PresenceInvisible
-	presenceMax
-)
-
-var presenceSpec = &fields.EnumSpec{
-	Domain: "PRESENCE",
-	Max:    int(presenceMax),
-	Names: []string{
-		"UNKNOWN",
-		"ONLINE",
-		"OFFLINE",
-		"IDLE",
-		"BUSY",
-		"DND",
-		"INVISIBLE",
-	},
-	Bytes: [][]byte{
-		[]byte("UNKNOWN"),
-		[]byte("ONLINE"),
-		[]byte("OFFLINE"),
-		[]byte("IDLE"),
-		[]byte("BUSY"),
-		[]byte("DND"),
-		[]byte("INVISIBLE"),
-	},
-}
-
-type Presence struct {
-	fields.Enum[PresenceValue]
-}
-
-func NewPresence(val PresenceValue) Presence {
-	return Presence{Enum: fields.NewEnum(val, presenceSpec)}
-}
-
-func NewPresenceOnline() Presence    { return NewPresence(PresenceOnline) }
-func NewPresenceOffline() Presence   { return NewPresence(PresenceOffline) }
-func NewPresenceIdle() Presence      { return NewPresence(PresenceIdle) }
-func NewPresenceBusy() Presence      { return NewPresence(PresenceBusy) }
-func NewPresenceDND() Presence       { return NewPresence(PresenceDND) }
-func NewPresenceInvisible() Presence { return NewPresence(PresenceInvisible) }
-
-func ParsePresence[T fields.IntegerType](raw T) (Presence, error) {
-	val := PresenceValue(raw)
-	if val <= PresenceUnknown || int(val) >= presenceSpec.Max {
-		return Presence{}, ErrPresenceInvalid()
-	}
-	return NewPresence(val), nil
-}
-
-func ParsePresenceString(s string) (Presence, error) {
-	val, ok := fields.ParseEnumString[PresenceValue](s, presenceSpec)
-	if !ok || val <= PresenceUnknown {
-		return Presence{}, ErrPresenceInvalid()
-	}
-	return NewPresence(val), nil
-}
-
-func (p Presence) IsOnline() bool    { return p.Is(PresenceOnline) }
-func (p Presence) IsOffline() bool   { return p.Is(PresenceOffline) }
-func (p Presence) IsIdle() bool      { return p.Is(PresenceIdle) }
-func (p Presence) IsBusy() bool      { return p.Is(PresenceBusy) }
-func (p Presence) IsDND() bool       { return p.Is(PresenceDND) }
-func (p Presence) IsInvisible() bool { return p.Is(PresenceInvisible) }
-
-func isPreferred(p Presence) bool {
-	return p.IsIdle() || p.IsBusy() || p.IsDND()
-}
-
-// ============================================================================
 // PreferredPresence
 // ============================================================================
 
 type PreferredPresence struct {
-	value Presence
+	value presence.Presence
 }
 
-func NewPreferredPresence(p Presence) PreferredPresence {
+func NewPreferredPresence(p presence.Presence) PreferredPresence {
 	return PreferredPresence{value: p}
 }
 
@@ -333,7 +252,7 @@ func ParsePreferredPresence(fieldName, raw string) (PreferredPresence, error) {
 		return PreferredPresence{}, nil
 	}
 
-	p, err := ParsePresenceString(s)
+	p, err := presence.ParseString(s)
 	if err != nil {
 		return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
 	}
@@ -346,7 +265,7 @@ func ParsePreferredPresenceFromInt[T fields.IntegerType](fieldName string, v T) 
 		return PreferredPresence{}, nil
 	}
 
-	p, err := ParsePresence(v)
+	p, err := presence.Parse(v)
 	if err != nil {
 		return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
 	}
@@ -354,21 +273,21 @@ func ParsePreferredPresenceFromInt[T fields.IntegerType](fieldName string, v T) 
 	return ParsePreferredPresenceFromPresence(fieldName, p)
 }
 
-func ParsePreferredPresenceFromPresence(fieldName string, p Presence) (PreferredPresence, error) {
-	if isPreferred(p) {
+func ParsePreferredPresenceFromPresence(fieldName string, p presence.Presence) (PreferredPresence, error) {
+	if presence.IsPreferred(p) {
 		return NewPreferredPresence(p), nil
 	}
 	return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
 }
 
-func (pp PreferredPresence) Presence() Presence { return pp.value }
+func (pp PreferredPresence) Presence() presence.Presence { return pp.value }
 
 func (pp PreferredPresence) IsSet() bool {
-	return isPreferred(pp.value)
+	return presence.IsPreferred(pp.value)
 }
 
 func (pp PreferredPresence) IsZero() bool {
-	return pp.value.Value() == PresenceUnknown
+	return pp.value.Value() == presence.PresenceUnknown
 }
 
 func (pp PreferredPresence) IsValid() bool {

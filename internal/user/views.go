@@ -2,25 +2,26 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type UserView struct {
-	ID          uuid.UUID `json:"id"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"displayName"`
-	AvatarURL   *string   `json:"avatarUrl,omitempty"`
-	Bio         *string   `json:"bio,omitempty"`
-	BannerColor *string   `json:"bannerColor,omitempty"`
-	Presence    Presence  `json:"presence"`
-	IsDisabled  bool      `json:"isDisabled,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          uuid.UUID         `json:"id"`
+	Username    string            `json:"username"`
+	DisplayName string            `json:"displayName"`
+	AvatarURL   *string           `json:"avatarUrl,omitempty"`
+	Bio         *string           `json:"bio,omitempty"`
+	BannerColor *string           `json:"bannerColor,omitempty"`
+	Presence    presence.Presence `json:"presence"`
+	IsDisabled  bool              `json:"isDisabled,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
 }
 
-func ToUserView(u *User, presence Presence, now fields.Timestamp) UserView {
+func ToUserView(u *User, presence presence.Presence, now fields.Timestamp) UserView {
 	p := u.EffectivePresence(now).Presence()
 	if !p.IsValid() {
 		p = presence

@@ -6,6 +6,7 @@ import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
@@ -113,7 +114,7 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 	return validUsers, nil
 }
 
-func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]Presence, error) {
+func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error) {
 	return s.cache.GetBatchPresence(ctx, userIDs)
 }
 
@@ -300,7 +301,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 
 		effectivePresence := updatedUser.EffectivePresence(now).Presence()
 		if !effectivePresence.IsValid() {
-			effectivePresence = NewPresenceOnline()
+			effectivePresence = presence.NewPresenceOnline()
 		}
 
 		payload := EventUpdatePreferredPresencePayload{

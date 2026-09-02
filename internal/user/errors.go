@@ -127,13 +127,6 @@ func ErrUsernameReserved(field string) *errs.Error {
 		FieldViolation(field, "This username is reserved and cannot be used.", "RESERVED_VALUE")
 }
 
-func ErrPresenceInvalid() *errs.Error {
-	return errs.InvalidArgument("Invalid presence.").
-		Reason("PRESENCE_INVALID").
-		FieldViolation("presence", "Must be one of ONLINE, OFFLINE, IDLE, BUSY, DND, or INVISIBLE.", "INVALID_ENUM_VALUE").
-		Meta("domain", "presence")
-}
-
 func ErrInvalidPassword(field string) *errs.Error {
 	return errs.Unauthenticated("Invalid password.").
 		Reason("INVALID_PASSWORD").
