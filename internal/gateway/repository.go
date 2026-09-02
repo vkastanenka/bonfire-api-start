@@ -7,8 +7,6 @@ import (
 	"context"
 )
 
-type GatewayCache interface{}
-
 type UserCache interface {
 	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	AddFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
@@ -41,12 +39,4 @@ type PresenceCache interface {
 type TicketCache interface {
 	Print(ctx context.Context, ticketID fields.ID, userID fields.ID, sessionID fields.ID) error
 	Punch(ctx context.Context, ticketID fields.ID) (fields.ID, fields.ID, error)
-}
-
-type OutboxRepository interface {
-	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
-}
-
-type TX interface {
-	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }

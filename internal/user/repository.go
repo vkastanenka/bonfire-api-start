@@ -2,7 +2,6 @@ package user
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
 	"context"
 )
 
@@ -26,41 +25,30 @@ type Repository interface {
 	Verify(ctx context.Context, id fields.ID, verifiedAt fields.Timestamp, updatedAt fields.Timestamp) (*User, error)
 }
 
+type Cache interface {
+	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	AddFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
+	GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetPeerIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	RemoveChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	RemoveFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
+	Set(ctx context.Context, usr *User) error
+	SetBatch(ctx context.Context, users map[fields.ID]*User) error
+	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
+	SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
+}
+
 type OutboxRepository interface {
 	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
 }
 
 type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
-}
-
-type Cache interface {
-	AddChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
-	AddFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
-	AddNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	Delete(ctx context.Context, id fields.ID) error
-	DeleteBatch(ctx context.Context, ids []fields.ID) error
-	Get(ctx context.Context, id fields.ID) (*User, error)
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*User, []fields.ID, error)
-	GetBatchNodes(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
-	GetFriends(ctx context.Context, userID fields.ID) ([]fields.ID, error)
-	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
-	GetUpdateRecipients(ctx context.Context, userID fields.ID) ([]fields.ID, error)
-	Heartbeat(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	RegisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID, presence presence.Presence) error
-	RemoveBatchNode(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error
-	RemoveChannel(ctx context.Context, userID fields.ID, channelID fields.ID) error
-	RemoveFriend(ctx context.Context, userID fields.ID, friendID fields.ID) error
-	RemoveNode(ctx context.Context, userID fields.ID, nodeID fields.ID) error
-	Set(ctx context.Context, usr *User) error
-	SetBatch(ctx context.Context, users map[fields.ID]*User) error
-	SetChannels(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
-	SetFriends(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
-	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
-	UnregisterWSConnection(ctx context.Context, userID fields.ID, nodeID fields.ID) (bool, error)
-	GetFriendNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)
-	GetUpdateRecipientNodes(ctx context.Context, userID fields.ID) (map[fields.ID][]fields.ID, error)
 }
 
 type GatewayService interface {

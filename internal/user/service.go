@@ -114,10 +114,6 @@ func (s *Service) GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]
 	return validUsers, nil
 }
 
-func (s *Service) GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error) {
-	return s.cache.GetBatchPresence(ctx, userIDs)
-}
-
 type UpdateEmailParams struct {
 	UserID   uuid.UUID
 	NewEmail string
@@ -495,6 +491,42 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	return err
 }
 
+func (s *Service) parseAndAuthenticate(
+	ctx context.Context,
+	rawUserID uuid.UUID,
+	passwordRaw string,
+) (fields.ID, *User, error) {
+	id, err := fields.ParseRequiredID("id", rawUserID)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	password, err := ParsePassword("password", passwordRaw)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	u, err := s.authenticate(ctx, id, password)
+	if err != nil {
+		return fields.ID{}, nil, err
+	}
+
+	return id, u, nil
+}
+
+func (s *Service) authenticate(ctx context.Context, actorID fields.ID, password Password) (*User, error) {
+	u, err := s.fetchValid(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
+		return nil, ErrInvalidPassword("password").Wrap(err)
+	}
+
+	return u, nil
+}
+
 func (s *Service) fetchValid(ctx context.Context, actorID fields.ID) (*User, error) {
 	u, err := s.repo.Get(ctx, actorID)
 	if err != nil {
@@ -527,40 +559,4 @@ func (s *Service) fetchBatchValid(ctx context.Context, userIDs []fields.ID) (map
 	}
 
 	return validUsers, nil
-}
-
-func (s *Service) fetchAndAuthenticate(ctx context.Context, actorID fields.ID, password Password) (*User, error) {
-	u, err := s.fetchValid(ctx, actorID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := crypto.ComparePassword(u.PasswordHash().String(), password.String()); err != nil {
-		return nil, ErrInvalidPassword("password").Wrap(err)
-	}
-
-	return u, nil
-}
-
-func (s *Service) parseAndAuthenticate(
-	ctx context.Context,
-	rawUserID uuid.UUID,
-	passwordRaw string,
-) (fields.ID, *User, error) {
-	id, err := fields.ParseRequiredID("id", rawUserID)
-	if err != nil {
-		return fields.ID{}, nil, err
-	}
-
-	password, err := ParsePassword("password", passwordRaw)
-	if err != nil {
-		return fields.ID{}, nil, err
-	}
-
-	u, err := s.fetchAndAuthenticate(ctx, id, password)
-	if err != nil {
-		return fields.ID{}, nil, err
-	}
-
-	return id, u, nil
 }
