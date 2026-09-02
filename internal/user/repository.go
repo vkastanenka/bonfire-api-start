@@ -51,7 +51,7 @@ type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
-type GatewayService interface {
+type Broadcaster interface {
 	BroadcastToPeers(ctx context.Context, actorID fields.ID, eventType string, payload interface{}) error
 	BroadcastToUser(ctx context.Context, actorID, targetUserID fields.ID, eventType string, payload interface{}) error
 }

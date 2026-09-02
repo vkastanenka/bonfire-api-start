@@ -1,11 +1,12 @@
 package user
 
 import (
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/outbox"
 )
 
 const (
@@ -22,11 +23,6 @@ type EventUpdateUsernamePayload struct {
 }
 
 type EventUpdatePresencePayload struct {
-	UserID   string `json:"user_id"`
-	Presence string `json:"presence"`
-}
-
-type EventUpdatePreferredPresencePayload struct {
 	UserID    string `json:"user_id"`
 	Presence  string `json:"presence"`
 	UpdatedAt string `json:"updated_at"`
@@ -46,63 +42,51 @@ type EventDisablePayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-// NewUpdatePresenceOutboxHandler handles broadcasts for preferred presence changes (e.g. Online, Away, DND).
-func NewUpdatePresenceOutboxHandler(gw GatewayService) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		var evt EventUpdatePreferredPresencePayload
-		if err := json.Unmarshal(payload, &evt); err != nil {
-			return fmt.Errorf("%w: failed to unmarshal update presence outbox event", outbox.ErrFatal)
-		}
-
-		userID, err := fields.ParseIDFromString("id", evt.UserID)
-		if err != nil {
-			return fmt.Errorf("%w: invalid user_id in payload: %v", outbox.ErrFatal, err)
-		}
-
-		if err := gw.BroadcastToPeers(ctx, userID, EventUpdatePresence, evt); err != nil {
-			return fmt.Errorf("failed to broadcast presence update for user %s: %w", userID, err)
-		}
-
-		return nil
-	}
+// UserEvent defines the contract for payloads that target a user ID.
+type UserEvent interface {
+	GetUserID() string
 }
 
-// NewUpdateProfileOutboxHandler handles broadcasts when a user changes profile info (DisplayName, Bio, Avatar, etc.).
-func NewUpdateProfileOutboxHandler(gw GatewayService) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		var evt EventUpdateProfilePayload
-		if err := json.Unmarshal(payload, &evt); err != nil {
-			return fmt.Errorf("%w: failed to unmarshal update profile outbox event", outbox.ErrFatal)
-		}
+func (e EventUpdateUsernamePayload) GetUserID() string { return e.UserID }
+func (e EventUpdatePresencePayload) GetUserID() string { return e.UserID }
+func (e EventUpdateProfilePayload) GetUserID() string  { return e.UserID }
+func (e EventDisablePayload) GetUserID() string        { return e.UserID }
 
-		userID, err := fields.ParseIDFromString("id", evt.UserID)
-		if err != nil {
-			return fmt.Errorf("%w: invalid user_id in payload: %v", outbox.ErrFatal, err)
-		}
-
-		if err := gw.BroadcastToPeers(ctx, userID, EventUpdateProfile, evt); err != nil {
-			return fmt.Errorf("failed to broadcast profile update for user %s: %w", userID, err)
-		}
-
-		return nil
-	}
+// NewUpdateUsernameOutboxHandler handles user username updates.
+func NewUpdateUsernameOutboxHandler(gw Broadcaster) outbox.Handler {
+	return newBroadcastHandler[EventUpdateUsernamePayload](gw, EventUpdateUsername)
 }
 
-// NewDisableOutboxHandler targets only the disabled user's active node connections so the Gateway can terminate their WebSocket sessions.
-func NewDisableOutboxHandler(gw GatewayService) outbox.Handler {
+// NewUpdatePresenceOutboxHandler handles user presence updates.
+func NewUpdatePresenceOutboxHandler(gw Broadcaster) outbox.Handler {
+	return newBroadcastHandler[EventUpdatePresencePayload](gw, EventUpdatePresence)
+}
+
+// NewUpdateProfileOutboxHandler handles user profile updates.
+func NewUpdateProfileOutboxHandler(gw Broadcaster) outbox.Handler {
+	return newBroadcastHandler[EventUpdateProfilePayload](gw, EventUpdateProfile)
+}
+
+// NewDisableOutboxHandler handles user account disablement.
+func NewDisableOutboxHandler(gw Broadcaster) outbox.Handler {
+	return newBroadcastHandler[EventDisablePayload](gw, EventDisable)
+}
+
+// Generic helper factory that encapsulates unmarshaling, validation, and peer broadcast.
+func newBroadcastHandler[T UserEvent](gw Broadcaster, eventType string) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		var evt EventDisablePayload
+		var evt T
 		if err := json.Unmarshal(payload, &evt); err != nil {
-			return fmt.Errorf("%w: failed to unmarshal disable outbox event", outbox.ErrFatal)
+			return fmt.Errorf("%w: failed to unmarshal %s outbox event", outbox.ErrFatal, eventType)
 		}
 
-		userID, err := fields.ParseIDFromString("id", evt.UserID)
+		userID, err := fields.ParseIDFromString("id", evt.GetUserID())
 		if err != nil {
-			return fmt.Errorf("%w: invalid user_id in payload: %v", outbox.ErrFatal, err)
+			return fmt.Errorf("%w: invalid user_id in %s payload: %v", outbox.ErrFatal, eventType, err)
 		}
 
-		if err := gw.BroadcastToUser(ctx, userID, userID, EventDisable, evt); err != nil {
-			return fmt.Errorf("failed to broadcast disable event for user %s: %w", userID, err)
+		if err := gw.BroadcastToPeers(ctx, userID, eventType, evt); err != nil {
+			return fmt.Errorf("failed to broadcast %s for user %s: %w", eventType, userID, err)
 		}
 
 		return nil
