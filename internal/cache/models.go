@@ -7,6 +7,7 @@ import (
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -316,7 +317,7 @@ func (u User) ToDomain() (*user.User, error) {
 	), nil
 }
 
-func ParseUser(u *user.User) User {
+func parseUser(u *user.User) User {
 	if u == nil {
 		return User{}
 	}
@@ -345,7 +346,7 @@ func marshalUser(usr *user.User) ([]byte, error) {
 		return nil, nil
 	}
 
-	dto := ParseUser(usr)
+	dto := parseUser(usr)
 	bytes, err := json.Marshal(dto)
 	if err != nil {
 		return nil, errs.Internal("Failed to marshal user json.").
@@ -365,4 +366,18 @@ func unmarshalUser(data []byte) (*user.User, error) {
 		return nil, err
 	}
 	return dto.ToDomain()
+}
+
+func parsePresence(val string) user.Presence {
+	parsed, err := strconv.Atoi(val)
+	if err != nil {
+		return user.NewPresenceOffline()
+	}
+
+	p, err := user.ParsePresence(parsed)
+	if err != nil {
+		return user.NewPresenceOffline()
+	}
+
+	return p
 }

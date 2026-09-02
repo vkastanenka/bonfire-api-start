@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"strconv"
 
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
@@ -23,15 +22,12 @@ func NewPresenceCache(client redisdriver.Cmdable) *PresenceCache {
 }
 
 func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error) {
-	val, err := c.client.Get(ctx, userPresenceKey(userID)).Result()
-	if redis.IsCacheMiss(err) {
-		return user.NewPresenceOffline(), nil
-	}
-	if err != nil {
-		return user.NewPresenceOffline(), redis.NewError(err, redis.ScopePresence)
+	data, found, err := getKey(ctx, c.client, userPresenceKey(userID), redis.ScopePresence)
+	if err != nil || !found {
+		return user.NewPresenceOffline(), err
 	}
 
-	return parsePresenceString(val), nil
+	return parsePresence(string(data)), nil
 }
 
 func (c *PresenceCache) GetBatchPresence(
@@ -56,21 +52,21 @@ func (c *PresenceCache) GetBatchPresence(
 			redisKeys[j] = userPresenceKey(id)
 		}
 
-		vals, err := c.client.MGet(ctx, redisKeys...).Result()
+		vals, err := getBatchKeys(ctx, c.client, redisKeys, redis.ScopePresence)
 		if err != nil {
-			return nil, redis.NewError(err, redis.ScopePresence)
+			return nil, err
 		}
 
 		for j, raw := range vals {
 			id := chunk[j]
 
-			data, ok := extractBytes(raw)
+			data, ok := toBytes(raw)
 			if !ok {
 				result[id] = user.NewPresenceOffline()
 				continue
 			}
 
-			result[id] = parsePresenceString(string(data))
+			result[id] = parsePresence(string(data))
 		}
 	}
 
@@ -82,20 +78,6 @@ func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p use
 		return redis.NewError(err, redis.ScopePresence)
 	}
 	return nil
-}
-
-func parsePresenceString(val string) user.Presence {
-	parsed, err := strconv.Atoi(val)
-	if err != nil {
-		return user.NewPresenceOffline()
-	}
-
-	p, err := user.ParsePresence(parsed)
-	if err != nil {
-		return user.NewPresenceOffline()
-	}
-
-	return p
 }
 
 func (c *PresenceCache) AddNode(ctx context.Context, userID, nodeID fields.ID) error {
