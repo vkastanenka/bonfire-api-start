@@ -25,7 +25,7 @@ type EventRegisterPayload struct {
 	Token    string `json:"token"`
 }
 
-type EventResendVerificationPayload struct {
+type EventResendVerifyPayload struct {
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Token    string `json:"token"`
@@ -51,9 +51,9 @@ func NewRegisterOutboxHandler(mailer email.Mailer) outbox.Handler {
 	}
 }
 
-func NewResendVerificationOutboxHandler(mailer email.Mailer) outbox.Handler {
+func NewResendVerifyOutboxHandler(mailer email.Mailer) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventResendVerificationPayload](payload)
+		p, err := fields.ParseRawJSON[EventResendVerifyPayload](payload)
 		if err != nil {
 			return err
 		}
@@ -63,6 +63,6 @@ func NewResendVerificationOutboxHandler(mailer email.Mailer) outbox.Handler {
 
 func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer) {
 	w.RegisterHandler(EventRegister, NewRegisterOutboxHandler(mailer))
-	w.RegisterHandler(EventResendVerification, NewResendVerificationOutboxHandler(mailer))
+	w.RegisterHandler(EventResendVerification, NewResendVerifyOutboxHandler(mailer))
 	w.RegisterHandler(EventForgotPassword, NewForgotPasswordOutboxHandler(mailer))
 }

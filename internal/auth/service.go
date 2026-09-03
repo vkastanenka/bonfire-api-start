@@ -17,7 +17,9 @@ import (
 )
 
 type Service struct {
+	userCache     UserCache
 	userRepo      UserRepository
+	userSvc       UserService
 	sessionCache  SessionCache
 	sessionRepo   SessionRepository
 	outboxRepo    OutboxRepository
@@ -28,7 +30,9 @@ type Service struct {
 }
 
 func NewService(
+	userCache UserCache,
 	userRepo UserRepository,
+	userSvc UserService,
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	outboxRepo OutboxRepository,
@@ -38,7 +42,9 @@ func NewService(
 	tx TX,
 ) *Service {
 	return &Service{
+		userCache:     userCache,
 		userRepo:      userRepo,
+		userSvc:       userSvc,
 		sessionCache:  sessionCache,
 		sessionRepo:   sessionRepo,
 		outboxRepo:    outboxRepo,
@@ -139,6 +145,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	}
 
 	_ = s.sessionCache.Set(ctx, createdSession)
+	_ = s.userCache.Set(ctx, u)
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,
@@ -198,10 +205,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		var hErr error
 		rawPassHash, hErr := crypto.HashPassword(password.String())
 		if hErr != nil {
-			return err
+			return hErr // Fixed: returned hErr instead of outer err
 		}
 		passwordHash = user.NewPasswordHash(rawPassHash)
 		return nil
@@ -229,6 +235,9 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	now := fields.Now()
 	newUser := user.New(userID, email, username, displayName, passwordHash, now)
 	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
+	if err != nil {
+		return RegisterResult{}, err
+	}
 
 	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
 	if err != nil {
@@ -262,6 +271,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}
 
 	_ = s.sessionCache.Set(ctx, createdSession)
+	_ = s.userCache.Set(ctx, newUser)
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,

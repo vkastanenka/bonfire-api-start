@@ -105,6 +105,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	}
 
 	var revokedSessionIDs []fields.ID
+	var updatedUser *user.User
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		var err error
@@ -113,7 +114,8 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			return err
 		}
 
-		if _, err := s.userRepo.UpdatePasswordHash(txCtx, u.ID(), passwordHash, now); err != nil {
+		updatedUser, err = s.userRepo.UpdatePasswordHash(txCtx, u.ID(), passwordHash, now)
+		if err != nil {
 			return err
 		}
 
@@ -150,6 +152,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	}
 
 	_ = s.sessionCache.Set(ctx, newSession)
+	_ = s.userCache.Set(ctx, updatedUser)
 
 	return ResetPasswordResult{
 		AccessToken:           tokenPair.Access,
