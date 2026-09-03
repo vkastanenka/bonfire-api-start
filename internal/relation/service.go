@@ -44,6 +44,7 @@ func NewService(
 	}
 }
 
+// TODO
 func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (
 	peerChannelMap map[fields.ID]fields.ID,
 	peerIDs []fields.ID,
@@ -109,7 +110,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 				return err
 			}
 
-			payload := FriendRequestSentPayload{
+			payload := EventFriendRequestSentPayload{
 				ActorID:   actorID.UUID().String(),
 				PeerID:    rel.PeerID(actorID).UUID().String(),
 				Actor:     user.ParseSummary(actor),
@@ -126,6 +127,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 			return ErrAlreadyFriends()
 		}
 
+		// TODO
 		if relLock.Type().IsPending() {
 			if err := validateAccept(actorID, relLock); err == nil {
 				return s.acceptPendingRequestTx(txCtx, actorID, relLock, now)
@@ -137,6 +139,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	})
 }
 
+// TODO
 func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
@@ -180,11 +183,11 @@ func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid
 		}
 
 		if rel.IsFriends() {
-			payload := FriendDeletedPayload{
+			payload := EventFriendDeletedPayload{
 				ActorID: actorID.String(),
 				PeerID:  rel.PeerID(actorID).String(),
 			}
-			return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
+			return s.outboxRepo.Publish(txCtx, EventFriendDeleted, payload, now)
 		}
 
 		return nil
@@ -238,11 +241,11 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 		}
 
 		if wasFriends {
-			payload := FriendDeletedPayload{
+			payload := EventFriendDeletedPayload{
 				ActorID: actorID.String(),
 				PeerID:  relLock.PeerID(actorID).String(),
 			}
-			return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
+			return s.outboxRepo.Publish(txCtx, EventFriendDeleted, payload, now)
 		}
 
 		return nil
@@ -258,6 +261,7 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 	return nil
 }
 
+// TODO
 func (s *Service) acceptPendingRequestTx(txCtx context.Context, actorID fields.ID, rel *Relation, now fields.Timestamp) error {
 	if err := validateBlockedActor(actorID, rel); err != nil {
 		return err

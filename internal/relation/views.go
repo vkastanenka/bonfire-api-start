@@ -2,25 +2,26 @@ package relation
 
 import (
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
 
 type Peer struct {
-	ID          fields.ID        `json:"id"`
-	ActorID     fields.ID        `json:"actor_id"`
-	ChannelID   fields.ID        `json:"channel_id"`
-	AvatarURL   fields.URL       `json:"avatar_url"`
-	Username    user.Username    `json:"username"`
-	DisplayName user.DisplayName `json:"display_name"`
-	RelType     Type             `json:"rel_type"`
-	Presence    user.Presence    `json:"presence"`
+	ID          fields.ID         `json:"id"`
+	ActorID     fields.ID         `json:"actor_id"`
+	ChannelID   fields.ID         `json:"channel_id"`
+	AvatarURL   fields.URL        `json:"avatar_url"`
+	Username    user.Username     `json:"username"`
+	DisplayName user.DisplayName  `json:"display_name"`
+	RelType     Type              `json:"rel_type"`
+	Presence    presence.Presence `json:"presence"`
 }
 
 func hydratePeer(
 	peerID fields.ID,
 	rel *Relation,
 	u *user.User,
-	p user.Presence,
+	p presence.Presence,
 ) (Peer, bool) {
 	if rel == nil || u == nil {
 		return Peer{}, false
@@ -42,7 +43,7 @@ func hydratePeers(
 	currentUserID fields.ID,
 	relations []*Relation,
 	userMap map[fields.ID]*user.User,
-	presenceMap map[fields.ID]user.Presence,
+	presenceMap map[fields.ID]presence.Presence,
 ) []Peer {
 	if len(relations) == 0 {
 		return nil
@@ -63,7 +64,7 @@ func hydratePeers(
 
 		p, ok := presenceMap[peerID]
 		if !ok {
-			p = user.NewPresence(user.PresenceOffline)
+			p = presence.NewOffline()
 		}
 
 		if view, ok := hydratePeer(peerID, rel, u, p); ok {
