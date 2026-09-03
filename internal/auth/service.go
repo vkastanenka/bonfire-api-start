@@ -18,26 +18,32 @@ import (
 
 type Service struct {
 	userRepo      UserRepository
+	sessionCache  SessionCache
 	sessionRepo   SessionRepository
 	outboxRepo    OutboxRepository
 	ticketCache   TicketCache
+	tokenCache    TokenCache
 	tokenProvider TokenProvider
 	tx            TX
 }
 
 func NewService(
 	userRepo UserRepository,
+	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	outboxRepo OutboxRepository,
 	ticketCache TicketCache,
+	tokenCache TokenCache,
 	tokenProvider TokenProvider,
 	tx TX,
 ) *Service {
 	return &Service{
 		userRepo:      userRepo,
+		sessionCache:  sessionCache,
 		sessionRepo:   sessionRepo,
 		outboxRepo:    outboxRepo,
 		ticketCache:   ticketCache,
+		tokenCache:    tokenCache,
 		tokenProvider: tokenProvider,
 		tx:            tx,
 	}

@@ -19,7 +19,7 @@ type Repository interface {
 	Get(ctx context.Context, id fields.ID) (*Session, error)
 	ListValidByUserID(ctx context.Context, userID fields.ID, now fields.Timestamp, limit int) ([]*Session, error)
 	Revoke(ctx context.Context, id fields.ID, userID fields.ID, now fields.Timestamp) error
-	RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) error
+	RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) ([]fields.ID, error)
 	RotateRefreshTokenHash(ctx context.Context, id fields.ID, oldHash fields.TokenHash, newHash fields.TokenHash, clientIP fields.IP, userAgent fields.UserAgent, expiresAt fields.Timestamp, now fields.Timestamp) (*Session, error)
 }
 

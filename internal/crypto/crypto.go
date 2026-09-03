@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -47,13 +48,22 @@ func HashToken(tokenStr string) []byte {
 }
 
 // ConstantWindow delays completion until target duration has passed.
-func ConstantWindow(target time.Duration) func() {
+func ConstantWindow(ctx context.Context, target time.Duration) func() {
 	start := time.Now()
 
 	return func() {
 		elapsed := time.Since(start)
-		if elapsed < target {
-			time.Sleep(target - elapsed)
+		remaining := target - elapsed
+		if remaining <= 0 {
+			return
+		}
+
+		timer := time.NewTimer(remaining)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
 		}
 	}
 }

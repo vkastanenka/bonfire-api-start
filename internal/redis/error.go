@@ -26,6 +26,7 @@ const (
 	ScopeSession     Scope = "session"
 	ScopeStore       Scope = "store"
 	ScopeTicket      Scope = "ticket"
+	ScopeToken       Scope = "token"
 	ScopeUser        Scope = "user"
 )
 

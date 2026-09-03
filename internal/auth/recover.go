@@ -8,6 +8,7 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 )
 
@@ -16,7 +17,7 @@ const (
 )
 
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
-	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
+	defer crypto.ConstantWindow(ctx, forgotPasswordTimingWindow)()
 
 	email, err := user.ParseRequiredEmail("email", rawEmail)
 	if err != nil || !email.IsValid() {
@@ -29,6 +30,10 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 			return nil
 		}
 		return err
+	}
+
+	if err := userRow.EnsureActive(); err != nil {
+		return nil
 	}
 
 	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
@@ -74,6 +79,10 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		return ResetPasswordResult{}, ErrResetTokenInvalid(err)
 	}
 
+	if err := s.tokenCache.ConsumePasswordResetToken(ctx, claims); err != nil {
+		return ResetPasswordResult{}, err
+	}
+
 	u, err := s.userRepo.Get(ctx, claims.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
@@ -86,15 +95,21 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
-
 	passwordHash := user.NewPasswordHash(rawPasswordHash)
 
 	now := fields.Now()
 
 	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
+	if err != nil {
+		return ResetPasswordResult{}, err
+	}
+
+	var revokedSessionIDs []fields.ID
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if err := s.sessionRepo.RevokeAll(txCtx, u.ID(), now); err != nil {
+		var err error
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, u.ID(), now)
+		if err != nil {
 			return err
 		}
 
@@ -106,12 +121,29 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			return err
 		}
 
-		return nil
+		revokedSessionIDStrings := make([]string, len(revokedSessionIDs))
+		for i, id := range revokedSessionIDs {
+			revokedSessionIDStrings[i] = id.String()
+		}
+
+		revokePayload := session.EventRevokeAllPayload{
+			UserID:     u.ID().String(),
+			SessionIDs: revokedSessionIDStrings,
+			RevokedAt:  now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now)
 	})
 
 	if txErr != nil {
 		return ResetPasswordResult{}, txErr
 	}
+
+	if len(revokedSessionIDs) > 0 {
+		_ = s.sessionCache.DeleteBatch(ctx, revokedSessionIDs)
+	}
+
+	_ = s.sessionCache.Set(ctx, newSession)
 
 	return ResetPasswordResult{
 		AccessToken:           tokenPair.Access,

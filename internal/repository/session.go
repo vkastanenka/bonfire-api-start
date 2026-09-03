@@ -114,16 +114,21 @@ func (r *SessionRepository) Revoke(ctx context.Context, id, userID fields.ID, no
 	return nil
 }
 
-func (r *SessionRepository) RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) error {
-	err := r.store.SessionRevokeAll(ctx, db.SessionRevokeAllParams{
+func (r *SessionRepository) RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) ([]fields.ID, error) {
+	dbIDs, err := r.store.SessionRevokeAll(ctx, db.SessionRevokeAllParams{
 		UserID: db.ToUUID(userID.UUID()),
 		Now:    db.ToTimestamptz(now.Time()),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return nil, r.store.Err(err)
 	}
 
-	return nil
+	ids := make([]fields.ID, len(dbIDs))
+	for i, dbID := range dbIDs {
+		ids[i] = fields.ID(db.FromUUID[uuid.UUID](dbID))
+	}
+
+	return ids, nil
 }
 
 func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error {

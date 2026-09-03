@@ -64,7 +64,7 @@ type SessionRepository interface {
 	Get(ctx context.Context, id fields.ID) (*session.Session, error)
 	ListValidByUserID(ctx context.Context, userID fields.ID, now fields.Timestamp, limit int) ([]*session.Session, error)
 	Revoke(ctx context.Context, id fields.ID, userID fields.ID, now fields.Timestamp) error
-	RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) error
+	RevokeAll(ctx context.Context, userID fields.ID, now fields.Timestamp) ([]fields.ID, error)
 	RotateRefreshTokenHash(ctx context.Context, id fields.ID, oldHash fields.TokenHash, newHash fields.TokenHash, clientIP fields.IP, userAgent fields.UserAgent, expiresAt fields.Timestamp, now fields.Timestamp) (*session.Session, error)
 }
 
@@ -76,9 +76,21 @@ type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
 }
 
+type SessionCache interface {
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*session.Session, error)
+	Set(ctx context.Context, sess *session.Session) error
+}
+
 type TicketCache interface {
 	Print(ctx context.Context, ticketID fields.ID, userID fields.ID, sessionID fields.ID) error
 	Punch(ctx context.Context, ticketID fields.ID) (fields.ID, fields.ID, error)
+}
+
+type TokenCache interface {
+	ConsumeForgotPasswordJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error)
+	ConsumePasswordResetToken(ctx context.Context, claims *token.Claims) error
 }
 
 type TokenProvider interface {

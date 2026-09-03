@@ -204,7 +204,7 @@ func (q *Queries) SessionRevoke(ctx context.Context, arg SessionRevokeParams) er
 	return err
 }
 
-const sessionRevokeAll = `-- name: SessionRevokeAll :exec
+const sessionRevokeAll = `-- name: SessionRevokeAll :many
 UPDATE
     sessions
 SET
@@ -213,6 +213,8 @@ SET
 WHERE
     user_id = $2::uuid
     AND revoked_at IS NULL
+RETURNING
+    id
 `
 
 type SessionRevokeAllParams struct {
@@ -220,9 +222,24 @@ type SessionRevokeAllParams struct {
 	UserID pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) SessionRevokeAll(ctx context.Context, arg SessionRevokeAllParams) error {
-	_, err := q.db.Exec(ctx, sessionRevokeAll, arg.Now, arg.UserID)
-	return err
+func (q *Queries) SessionRevokeAll(ctx context.Context, arg SessionRevokeAllParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, sessionRevokeAll, arg.Now, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const sessionRotateRefreshTokenHash = `-- name: SessionRotateRefreshTokenHash :one
