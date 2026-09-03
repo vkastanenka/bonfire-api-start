@@ -23,6 +23,62 @@ func userSessionsKey(id fields.ID) string { return userNamespacedKey(id, "sessio
 func userNodesKey(id fields.ID) string    { return userNamespacedKey(id, "nodes") }
 func sessionNodeKey(id fields.ID) string  { return sessionNamespacedKey(id, "node") }
 
+var (
+	// Atomic Registration: Updates sessions, presence, and node tracking in a single atomic thread.
+	registerNodeScript = redisdriver.NewScript(`
+		local pKey = KEYS[1]
+		local sSetKey = KEYS[2]
+		local sNodeKey = KEYS[3]
+		local uNodesKey = KEYS[4]
+
+		local sessionID = ARGV[1]
+		local nodeID = ARGV[2]
+		local targetStatus = ARGV[3]
+		local ttl = tonumber(ARGV[4])
+
+		-- Check session count before adding
+		local activeSessions = redis.call('SCARD', sSetKey)
+		
+		redis.call('SADD', sSetKey, sessionID)
+		redis.call('EXPIRE', sSetKey, ttl)
+
+		redis.call('SET', sNodeKey, nodeID, 'EX', ttl)
+
+		redis.call('SADD', uNodesKey, nodeID)
+		redis.call('EXPIRE', uNodesKey, ttl)
+
+		redis.call('SETNX', pKey, targetStatus)
+		redis.call('EXPIRE', pKey, ttl)
+
+		local wasOffline = (activeSessions == 0) and 1 or 0
+		local currentStatus = redis.call('GET', pKey)
+
+		return { wasOffline, currentStatus }
+	`)
+
+	// Atomic Unregistration: Safely checks active session bounds without pipeline races.
+	unregisterNodeScript = redisdriver.NewScript(`
+		local pKey = KEYS[1]
+		local sSetKey = KEYS[2]
+		local sNodeKey = KEYS[3]
+
+		local sessionID = ARGV[1]
+		local ttl = tonumber(ARGV[2])
+
+		redis.call('DEL', sNodeKey)
+		redis.call('SREM', sSetKey, sessionID)
+
+		local remainingSessions = redis.call('SCARD', sSetKey)
+		if remainingSessions == 0 then
+			redis.call('SET', pKey, '0', 'EX', ttl)
+			redis.call('DEL', sSetKey)
+			return 1 -- wentOffline = true
+		end
+
+		return 0 -- wentOffline = false
+	`)
+)
+
 type PresenceCache struct {
 	client redisdriver.Cmdable
 }
@@ -179,85 +235,70 @@ func (c *PresenceCache) RegisterNode(
 	userID, nodeID, sessionID fields.ID,
 	p presence.Presence,
 ) (bool, presence.Presence, error) {
-	pKey := userPresenceKey(userID)
-	sSetKey := userSessionsKey(userID)
-	sNodeKey := sessionNodeKey(sessionID)
-
 	targetPresence := p
 	if !targetPresence.IsValid() {
 		targetPresence = presence.NewOnline()
 	}
 
-	var scardCmd *redisdriver.IntCmd
-	var getPresenceCmd *redisdriver.StringCmd
+	keys := []string{
+		userPresenceKey(userID),
+		userSessionsKey(userID),
+		sessionNodeKey(sessionID),
+		userNodesKey(userID),
+	}
 
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		scardCmd = pipe.SCard(ctx, sSetKey)
-		pipe.SAdd(ctx, sSetKey, sessionID.String())
-		pipe.Expire(ctx, sSetKey, userPresenceTTL)
+	res, err := registerNodeScript.Run(
+		ctx,
+		c.client,
+		keys,
+		sessionID.String(),
+		nodeID.String(),
+		targetPresence.Int(),
+		int(userPresenceTTL.Seconds()),
+	).Slice()
 
-		pipe.Set(ctx, sNodeKey, nodeID.String(), sessionNodeTTL)
-
-		// Set status if missing, or refresh TTL if present
-		pipe.SetNX(ctx, pKey, targetPresence.Int(), userPresenceTTL)
-		pipe.Expire(ctx, pKey, userPresenceTTL)
-		getPresenceCmd = pipe.Get(ctx, pKey)
-		return nil
-	})
-	if err != nil && err != redisdriver.Nil {
+	if err != nil {
 		return false, presence.NewOffline(), redis.NewError(err, redis.ScopePresence)
 	}
 
-	wasOffline := scardCmd.Val() == 0
-	effPresence, parseErr := presence.ParseString(getPresenceCmd.Val())
-	if parseErr != nil {
-		effPresence = targetPresence
-	}
+	wasOffline := res[0].(int64) == 1
+	effPresence := parsePresence(res[1].(string))
 
 	return wasOffline, effPresence, nil
 }
 
 func (c *PresenceCache) UnregisterNode(ctx context.Context, userID, nodeID, sessionID fields.ID) (bool, error) {
-	pKey := userPresenceKey(userID)
-	sSetKey := userSessionsKey(userID)
-	sNodeKey := sessionNodeKey(sessionID)
+	keys := []string{
+		userPresenceKey(userID),
+		userSessionsKey(userID),
+		sessionNodeKey(sessionID),
+	}
 
-	var scardCmd *redisdriver.IntCmd
+	wentOffline, err := unregisterNodeScript.Run(
+		ctx,
+		c.client,
+		keys,
+		sessionID.String(),
+		int(userPresenceTTL.Seconds()),
+	).Int64()
 
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.Del(ctx, sNodeKey)
-		pipe.SRem(ctx, sSetKey, sessionID.String())
-		scardCmd = pipe.SCard(ctx, sSetKey)
-		return nil
-	})
 	if err != nil {
 		return false, redis.NewError(err, redis.ScopePresence)
 	}
 
-	// If no sessions remain for this user, mark them offline
-	if scardCmd.Val() == 0 {
-		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-			pipe.Set(ctx, pKey, presence.NewOffline().Int(), userPresenceTTL)
-			pipe.Del(ctx, sSetKey)
-			return nil
-		})
-		if err != nil {
-			return false, redis.NewError(err, redis.ScopePresence)
-		}
-		return true, nil // User went completely offline
-	}
-
-	return false, nil // User still has active sessions
+	return wentOffline == 1, nil
 }
 
 func (c *PresenceCache) Heartbeat(ctx context.Context, userID, nodeID, sessionID fields.ID) error {
 	pKey := userPresenceKey(userID)
 	sSetKey := userSessionsKey(userID)
+	uNodesKey := userNodesKey(userID)
 	sNodeKey := sessionNodeKey(sessionID)
 
 	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.Expire(ctx, sSetKey, userPresenceTTL)
 		pipe.Expire(ctx, pKey, userPresenceTTL)
+		pipe.Expire(ctx, uNodesKey, userNodesTTL)
 		pipe.Expire(ctx, sNodeKey, userPresenceTTL)
 		return nil
 	})

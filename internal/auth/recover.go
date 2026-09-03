@@ -18,29 +18,32 @@ const (
 func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 	defer crypto.ConstantWindow(forgotPasswordTimingWindow)()
 
-	// email, err := user.ParseRequiredEmail("email", rawEmail)
-	// if err != nil || !email.IsValid() {
-	// 	return nil
-	// }
+	email, err := user.ParseRequiredEmail("email", rawEmail)
+	if err != nil || !email.IsValid() {
+		return nil
+	}
 
-	// userRow, err := s.userRepo.GetByEmail(ctx, email)
-	// if err != nil {
-	// 	if errs.IsNotFound(err) {
-	// 		return nil
-	// 	}
-	// 	return err
-	// }
+	userRow, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		if errs.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
 
-	// t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
-	// if err != nil {
-	// 	return err
-	// }
+	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
+	if err != nil {
+		return err
+	}
 
-	// return s.outboxRepo.Publish(ctx, EventForgotPassword, ForgotPasswordPayload{
-	// 	Email: userRow.Email().String(),
-	// 	Token: t,
-	// })
-	return nil
+	now := fields.Now()
+
+	payload := EventForgotPasswordPayload{
+		Email: userRow.Email().String(),
+		Token: t,
+	}
+
+	return s.outboxRepo.Publish(ctx, EventForgotPassword, payload, now)
 }
 
 type ResetPasswordParams struct {
@@ -55,8 +58,6 @@ type ResetPasswordResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-// ResetPassword verifies the reset token, updates the user's password, invalidates
-// all active sessions, and logs the user in with a fresh session pair.
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
 	token, err := fields.ParseRequiredToken("token", p.Token)
 	if err != nil {

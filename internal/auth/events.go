@@ -14,18 +14,18 @@ const (
 	EventResendVerification = "auth.retry-verification"
 )
 
-type ForgotPasswordPayload struct {
+type EventForgotPasswordPayload struct {
 	Email string `json:"email"`
 	Token string `json:"token"`
 }
 
-type RegisterPayload struct {
+type EventRegisterPayload struct {
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Token    string `json:"token"`
 }
 
-type ResendVerificationPayload struct {
+type EventResendVerificationPayload struct {
 	Email    string `json:"email"`
 	Username string `json:"username"`
 	Token    string `json:"token"`

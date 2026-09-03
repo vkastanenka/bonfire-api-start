@@ -2,13 +2,41 @@ package auth
 
 import (
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+type UserService interface {
+	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
+}
+
+type SessionService interface {
+	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
+}
+
+type UserCache interface { // size=16 (0x10)
+	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	AddFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
+	Delete(ctx context.Context, id fields.ID) error
+	DeleteBatch(ctx context.Context, ids []fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, []fields.ID, error)
+	GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetPeerIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	RemoveChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
+	RemoveFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
+	Set(ctx context.Context, usr *user.User) error
+	SetBatch(ctx context.Context, users map[fields.ID]*user.User) error
+	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
+	SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
+	RemoveFriendPair(ctx context.Context, userA fields.ID, userB fields.ID) error
+}
 
 type UserRepository interface {
 	Availability(ctx context.Context, email *user.Email, username *user.Username) (bool, bool, error)
@@ -41,7 +69,7 @@ type SessionRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType outbox.Type, payload outbox.Payload, now fields.Timestamp) error
+	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
 }
 
 type TX interface {
