@@ -70,13 +70,13 @@ func (s *Service) Revoke(ctx context.Context, rawID, rawUserID uuid.UUID) error 
 			return err
 		}
 
-		payload := EventSessionRevokePayload{
+		payload := EventRevokePayload{
 			SessionID: id.String(),
 			UserID:    userID.String(),
 			RevokedAt: now.String(),
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventSessionRevoke, payload, now)
+		return s.outboxRepo.Publish(txCtx, EventRevoke, payload, now)
 	})
 	if err != nil {
 		return err
@@ -108,17 +108,17 @@ func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
 	}
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if err := s.repo.RevokeAll(txCtx, userID, now); err != nil {
+		if _, err := s.repo.RevokeAll(txCtx, userID, now); err != nil {
 			return err
 		}
 
-		payload := EventSessionRevokeAllPayload{
+		payload := EventRevokeAllPayload{
 			UserID:     userID.String(),
 			SessionIDs: sessionIDStrings,
 			RevokedAt:  now.String(),
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventSessionRevokeAll, payload, now)
+		return s.outboxRepo.Publish(txCtx, EventRevokeAll, payload, now)
 	})
 	if err != nil {
 		return err
