@@ -54,7 +54,7 @@ WHERE
     AND user_id = @user_id::uuid
     AND revoked_at IS NULL;
 
--- name: SessionRevokeAll :exec
+-- name: SessionRevokeAll :many
 UPDATE
     sessions
 SET
@@ -62,7 +62,9 @@ SET
     updated_at = @now::timestamptz
 WHERE
     user_id = @user_id::uuid
-    AND revoked_at IS NULL;
+    AND revoked_at IS NULL
+RETURNING
+    id;
 
 -- name: SessionDeleteBatchExpired :exec
 WITH targets AS (
