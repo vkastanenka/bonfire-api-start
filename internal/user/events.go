@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	EventUpdateUsername = "user.update-username"
-	EventUpdatePresence = "user.update-presence"
-	EventUpdateProfile  = "user.update-profile"
+	EventUpdateUsername = "user.update_username"
+	EventUpdatePresence = "user.update_presence"
+	EventUpdateProfile  = "user.update_profile"
 	EventDisable        = "user.disable"
 )
 
