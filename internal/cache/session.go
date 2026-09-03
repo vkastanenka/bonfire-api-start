@@ -11,16 +11,23 @@ import (
 )
 
 var (
-	sessionTTL = 24 * time.Hour
+	sessionTTL     = 24 * time.Hour
+	sessionNodeTTL = userNodesTTL
 )
 
 const (
 	sessionDomainKey = "session:"
 )
 
-func sessionKey(id fields.ID) string {
-	return "{" + sessionDomainKey + id.String() + "}"
+func sessionNamespacedKey(id fields.ID, suffix string) string {
+	if suffix == "" {
+		return "{" + sessionDomainKey + id.String() + "}"
+	}
+	return "{" + sessionDomainKey + id.String() + "}:" + suffix
 }
+
+func sessionKey(id fields.ID) string     { return sessionNamespacedKey(id, "") }
+func sessionNodeKey(id fields.ID) string { return sessionNamespacedKey(id, "node") }
 
 type SessionCache struct {
 	client redisdriver.Cmdable

@@ -1,13 +1,16 @@
 package gateway
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
+
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
-	"context"
-	"encoding/json"
-	"log/slog"
+
+	"github.com/google/uuid"
 )
 
 type Service struct {
@@ -28,8 +31,12 @@ func NewService(
 	}
 }
 
-func (s *Service) RegisterNode(ctx context.Context, userID, nodeID fields.ID, presence presence.Presence) error {
-	wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, presence)
+func (s *Service) RegisterNode(
+	ctx context.Context,
+	userID, nodeID, sessionID fields.ID,
+	presenceStatus presence.Presence,
+) error {
+	wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, sessionID, presenceStatus)
 	if err != nil {
 		return err
 	}
@@ -47,8 +54,8 @@ func (s *Service) RegisterNode(ctx context.Context, userID, nodeID fields.ID, pr
 	return nil
 }
 
-func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID fields.ID) error {
-	wentOffline, err := s.presenceCache.UnregisterNode(ctx, userID, nodeID)
+func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID fields.ID) error {
+	wentOffline, err := s.presenceCache.UnregisterNode(ctx, userID, nodeID, sessionID)
 	if err != nil {
 		return err
 	}
@@ -66,6 +73,23 @@ func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID fields.ID) 
 	return nil
 }
 
+func (s *Service) HandleHeartbeat(
+	ctx context.Context,
+	userID, nodeID, sessionID fields.ID,
+	newPresence presence.Presence,
+) error {
+	currentPresence, err := s.presenceCache.GetPresence(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if currentPresence == presence.NewOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
+		return s.RegisterNode(ctx, userID, nodeID, sessionID, newPresence)
+	}
+
+	return s.presenceCache.Heartbeat(ctx, userID, nodeID, sessionID)
+}
+
 func (s *Service) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
 	if len(userIDs) == 0 {
 		return nil
@@ -73,23 +97,36 @@ func (s *Service) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nod
 	return s.presenceCache.RemoveBatchNodes(ctx, userIDs, nodeID)
 }
 
-func (s *Service) HandleHeartbeat(ctx context.Context, userID, nodeID fields.ID, newPresence presence.Presence) error {
-	currentPresence, err := s.presenceCache.GetPresence(ctx, userID)
-	if err != nil {
+func (s *Service) BroadcastToSession(
+	ctx context.Context,
+	actorID fields.ID,
+	targetUserID fields.ID,
+	targetSessionID fields.ID,
+	eventType string,
+	payload interface{},
+) error {
+	nodeID, found, err := s.presenceCache.GetSessionNode(ctx, targetSessionID)
+	if err != nil || !found {
 		return err
 	}
 
-	if currentPresence == presence.NewOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
-		return s.RegisterNode(ctx, userID, nodeID, newPresence)
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return errs.Internal("Failed to marshal event payload.").Wrap(err)
 	}
 
-	return s.presenceCache.Heartbeat(ctx, userID, nodeID)
+	nodeEvents := map[fields.ID]Event{
+		nodeID: {
+			SessionIDs: []uuid.UUID{targetSessionID.UUID()},
+			Type:       eventType,
+			Data:       rawPayload,
+		},
+	}
+
+	return s.pub.PublishEvents(ctx, nodeEvents)
 }
 
-// BroadcastEvent accepts an optional actorID, an explicit slice of recipientIDs,
-// maps those recipients to their active Gateway Node IDs, and publishes a batched
-// event payload to Redis Pub/Sub per node.
-func (s *Service) BroadcastEvent(
+func (s *Service) BroadcastUserEvent(
 	ctx context.Context,
 	actorID fields.ID,
 	recipientIDs []fields.ID,
@@ -132,7 +169,7 @@ func (s *Service) BroadcastToUser(
 	eventType string,
 	payload interface{},
 ) error {
-	return s.BroadcastEvent(ctx, actorID, []fields.ID{targetUserID}, eventType, payload)
+	return s.BroadcastUserEvent(ctx, actorID, []fields.ID{targetUserID}, eventType, payload)
 }
 
 func (s *Service) BroadcastToFriends(
@@ -150,7 +187,7 @@ func (s *Service) BroadcastToFriends(
 	recipients = append(recipients, friendIDs...)
 	recipients = append(recipients, actorID)
 
-	return s.BroadcastEvent(ctx, actorID, recipients, eventType, payload)
+	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
 }
 
 func (s *Service) BroadcastToPeers(
@@ -168,5 +205,5 @@ func (s *Service) BroadcastToPeers(
 	recipients = append(recipients, peerIDs...)
 	recipients = append(recipients, actorID)
 
-	return s.BroadcastEvent(ctx, actorID, recipients, eventType, payload)
+	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
 }

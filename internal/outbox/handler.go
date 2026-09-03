@@ -14,7 +14,8 @@ type Broadcaster interface {
 	BroadcastToPeers(ctx context.Context, actorID fields.ID, eventType string, payload any) error
 	BroadcastToFriends(ctx context.Context, actorID fields.ID, eventType string, payload any) error
 	BroadcastToUser(ctx context.Context, actorID, targetUserID fields.ID, eventType string, payload any) error
-	BroadcastEvent(ctx context.Context, actorID fields.ID, recipientIDs []fields.ID, eventType string, payload any) error
+	BroadcastToSession(ctx context.Context, actorID, targetUserID, targetSessionID fields.ID, eventType string, payload any) error
+	BroadcastUserEvent(ctx context.Context, actorID fields.ID, recipientIDs []fields.ID, eventType string, payload any) error
 }
 
 // NewPeersHandler broadcasts the raw JSON payload to all peers of actor_id.
@@ -64,6 +65,32 @@ func NewUserHandler(broadcaster Broadcaster, eventType string, rawActorID string
 
 		if err := broadcaster.BroadcastToUser(ctx, actorID, recipientID, eventType, payload); err != nil {
 			return fmt.Errorf("failed to broadcast %s from %s to %s: %w", eventType, actorID, recipientID, err)
+		}
+
+		return nil
+	}
+}
+
+// NewSessionHandler broadcasts the raw JSON payload to a specific session_id belonging to target_user_id.
+func NewSessionHandler(broadcaster Broadcaster, eventType string, rawActorID string, rawTargetUserID string, rawSessionID string) Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		actorID, err := fields.ParseIDFromString("actor_id", rawActorID)
+		if err != nil {
+			return fmt.Errorf("%w: invalid actor_id in %s outbox payload: %v", ErrFatal, eventType, err)
+		}
+
+		targetUserID, err := fields.ParseIDFromString("target_user_id", rawTargetUserID)
+		if err != nil {
+			return fmt.Errorf("%w: invalid target_user_id in %s outbox payload: %v", ErrFatal, eventType, err)
+		}
+
+		sessionID, err := fields.ParseIDFromString("session_id", rawSessionID)
+		if err != nil {
+			return fmt.Errorf("%w: invalid session_id in %s outbox payload: %v", ErrFatal, eventType, err)
+		}
+
+		if err := broadcaster.BroadcastToSession(ctx, actorID, targetUserID, sessionID, eventType, payload); err != nil {
+			return fmt.Errorf("failed to broadcast %s from %s to session %s of user %s: %w", eventType, actorID, sessionID, targetUserID, err)
 		}
 
 		return nil
