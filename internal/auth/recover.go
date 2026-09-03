@@ -121,18 +121,24 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			return err
 		}
 
-		revokedSessionIDStrings := make([]string, len(revokedSessionIDs))
-		for i, id := range revokedSessionIDs {
-			revokedSessionIDStrings[i] = id.String()
+		if len(revokedSessionIDs) > 0 {
+			revokedSessionIDStrings := make([]string, len(revokedSessionIDs))
+			for i, id := range revokedSessionIDs {
+				revokedSessionIDStrings[i] = id.String()
+			}
+
+			revokePayload := session.EventRevokeAllPayload{
+				UserID:     u.ID().String(),
+				SessionIDs: revokedSessionIDStrings,
+				RevokedAt:  now.String(),
+			}
+
+			if err := s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now); err != nil {
+				return err
+			}
 		}
 
-		revokePayload := session.EventRevokeAllPayload{
-			UserID:     u.ID().String(),
-			SessionIDs: revokedSessionIDStrings,
-			RevokedAt:  now.String(),
-		}
-
-		return s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now)
+		return nil
 	})
 
 	if txErr != nil {

@@ -3,7 +3,7 @@ package auth
 import (
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/session"
 	"context"
 	"crypto/subtle"
 	"log/slog"
@@ -23,14 +23,18 @@ type RefreshResult struct {
 }
 
 func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, error) {
-	refreshToken := sanitize.Text(p.RefreshToken)
-	if refreshToken == "" {
-		return RefreshResult{}, ErrRefreshTokenRequired()
+	refreshToken, err := fields.ParseRequiredToken("token", p.RefreshToken)
+	if err != nil {
+		return RefreshResult{}, err
 	}
 
-	claims, err := s.tokenProvider.VerifyRefresh(refreshToken)
+	claims, err := s.tokenProvider.VerifyRefresh(refreshToken.String())
 	if err != nil {
 		return RefreshResult{}, ErrRefreshTokenInvalid()
+	}
+
+	if err := s.tokenCache.ConsumeRefreshToken(ctx, claims); err != nil {
+		return RefreshResult{}, err
 	}
 
 	sess, err := s.sessionRepo.Get(ctx, claims.SessionID)
@@ -48,7 +52,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, ErrSessionExpired()
 	}
 
-	presentedBytes := crypto.HashToken(refreshToken)
+	presentedBytes := crypto.HashToken(refreshToken.String())
 	currentBytes := sess.RefreshTokenHash().Bytes.Bytes()
 
 	if subtle.ConstantTimeCompare(presentedBytes, currentBytes) != 1 {
@@ -57,8 +61,41 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 			"user_id", sess.UserID(),
 		)
 
-		if err = s.sessionRepo.Revoke(ctx, claims.SessionID, claims.UserID, now); err != nil {
-			return RefreshResult{}, err
+		var revokedIDs []fields.ID
+
+		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+			var err error
+			revokedIDs, err = s.sessionRepo.RevokeAll(txCtx, sess.UserID(), now)
+			if err != nil {
+				return err
+			}
+
+			if len(revokedIDs) > 0 {
+				revokedIDStrings := make([]string, len(revokedIDs))
+				for i, id := range revokedIDs {
+					revokedIDStrings[i] = id.String()
+				}
+
+				revokePayload := session.EventRevokeAllPayload{
+					UserID:     sess.UserID().String(),
+					SessionIDs: revokedIDStrings,
+					RevokedAt:  now.String(),
+				}
+
+				if err := s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		if txErr != nil {
+			return RefreshResult{}, txErr
+		}
+
+		if len(revokedIDs) > 0 {
+			_ = s.sessionCache.DeleteBatch(ctx, revokedIDs)
 		}
 
 		return RefreshResult{}, ErrRefreshTokenInvalidReuse()
@@ -79,7 +116,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	_, err = s.sessionRepo.RotateRefreshTokenHash(
+	newSess, err := s.sessionRepo.RotateRefreshTokenHash(
 		ctx,
 		sess.ID(),
 		oldHash,
@@ -92,6 +129,8 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 	if err != nil {
 		return RefreshResult{}, err
 	}
+
+	_ = s.sessionCache.Set(ctx, newSess)
 
 	return RefreshResult{
 		AccessToken:           tokenPair.Access,
