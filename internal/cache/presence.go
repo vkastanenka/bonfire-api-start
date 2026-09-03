@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"bonfire-api/internal/fields"
@@ -14,70 +15,11 @@ import (
 
 var (
 	userPresenceTTL = 90 * time.Second
-	userNodesTTL    = 90 * time.Second
-	sessionNodeTTL  = userNodesTTL
+	userSessionsTTL = 90 * time.Second
 )
 
 func userPresenceKey(id fields.ID) string { return userNamespacedKey(id, "presence") }
 func userSessionsKey(id fields.ID) string { return userNamespacedKey(id, "sessions") }
-func userNodesKey(id fields.ID) string    { return userNamespacedKey(id, "nodes") }
-func sessionNodeKey(id fields.ID) string  { return sessionNamespacedKey(id, "node") }
-
-var (
-	// Atomic Registration: Updates sessions, presence, and node tracking in a single atomic thread.
-	registerNodeScript = redisdriver.NewScript(`
-		local pKey = KEYS[1]
-		local sSetKey = KEYS[2]
-		local sNodeKey = KEYS[3]
-		local uNodesKey = KEYS[4]
-
-		local sessionID = ARGV[1]
-		local nodeID = ARGV[2]
-		local targetStatus = ARGV[3]
-		local ttl = tonumber(ARGV[4])
-
-		-- Check session count before adding
-		local activeSessions = redis.call('SCARD', sSetKey)
-		
-		redis.call('SADD', sSetKey, sessionID)
-		redis.call('EXPIRE', sSetKey, ttl)
-
-		redis.call('SET', sNodeKey, nodeID, 'EX', ttl)
-
-		redis.call('SADD', uNodesKey, nodeID)
-		redis.call('EXPIRE', uNodesKey, ttl)
-
-		redis.call('SETNX', pKey, targetStatus)
-		redis.call('EXPIRE', pKey, ttl)
-
-		local wasOffline = (activeSessions == 0) and 1 or 0
-		local currentStatus = redis.call('GET', pKey)
-
-		return { wasOffline, currentStatus }
-	`)
-
-	// Atomic Unregistration: Safely checks active session bounds without pipeline races.
-	unregisterNodeScript = redisdriver.NewScript(`
-		local pKey = KEYS[1]
-		local sSetKey = KEYS[2]
-		local sNodeKey = KEYS[3]
-
-		local sessionID = ARGV[1]
-		local ttl = tonumber(ARGV[2])
-
-		redis.call('DEL', sNodeKey)
-		redis.call('SREM', sSetKey, sessionID)
-
-		local remainingSessions = redis.call('SCARD', sSetKey)
-		if remainingSessions == 0 then
-			redis.call('SET', pKey, '0', 'EX', ttl)
-			redis.call('DEL', sSetKey)
-			return 1 -- wentOffline = true
-		end
-
-		return 0 -- wentOffline = false
-	`)
-)
 
 type PresenceCache struct {
 	client redisdriver.Cmdable
@@ -141,7 +83,154 @@ func (c *PresenceCache) GetBatchPresence(
 	return result, nil
 }
 
-func (c *PresenceCache) GetBatchNodes(
+func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error {
+	if err := c.client.Set(ctx, userPresenceKey(userID), p.Int(), userPresenceTTL).Err(); err != nil {
+		return redis.NewError(err, redis.ScopePresence)
+	}
+	return nil
+}
+
+func (c *PresenceCache) GetSessionNode(
+	ctx context.Context,
+	userID, sessionID fields.ID,
+) (fields.ID, bool, error) {
+	nodeIDStr, err := c.client.HGet(ctx, userSessionsKey(userID), sessionID.String()).Result()
+	if err == redisdriver.Nil {
+		return fields.ID{}, false, nil
+	}
+	if err != nil {
+		return fields.ID{}, false, redis.NewError(err, redis.ScopePresence)
+	}
+
+	parsedUUID, err := uuid.Parse(nodeIDStr)
+	if err != nil {
+		return fields.ID{}, false, nil
+	}
+
+	return fields.ID(parsedUUID), true, nil
+}
+
+var registerNodeSessionScript = redisdriver.NewScript(`
+		local pKey = KEYS[1]
+		local sHashKey = KEYS[2]
+
+		local nodeID = ARGV[1]
+		local sessionID = ARGV[2]
+		local targetStatus = ARGV[3]
+		local ttl = tonumber(ARGV[4])
+
+		-- Count active sessions before adding
+		local activeSessions = redis.call('HLEN', sHashKey)
+
+		-- Track session in the user's hash
+		redis.call('HSET', sHashKey, sessionID, nodeID)
+		redis.call('EXPIRE', sHashKey, ttl)
+
+		-- Only set presence if missing (SETNX) so explicit states aren't overwritten
+		redis.call('SETNX', pKey, targetStatus)
+		redis.call('EXPIRE', pKey, ttl)
+
+		local wasOffline = (activeSessions == 0) and 1 or 0
+		local currentStatus = redis.call('GET', pKey)
+
+		return { wasOffline, currentStatus }
+	`)
+
+func (c *PresenceCache) RegisterNodeSession(
+	ctx context.Context,
+	nodeID, userID, sessionID fields.ID,
+	p presence.Presence,
+) (bool, presence.Presence, error) {
+	targetPresence := p
+	if !targetPresence.IsValid() {
+		targetPresence = presence.NewOnline()
+	}
+
+	keys := []string{
+		userPresenceKey(userID),
+		userSessionsKey(userID),
+	}
+
+	res, err := registerNodeSessionScript.Run(
+		ctx,
+		c.client,
+		keys,
+		nodeID.String(),
+		sessionID.String(),
+		targetPresence.Int(),
+		int(userPresenceTTL.Seconds()),
+	).Slice()
+
+	if err != nil {
+		return false, presence.NewOffline(), redis.NewError(err, redis.ScopePresence)
+	}
+
+	wasOffline := res[0].(int64) == 1
+	effPresence := parsePresence(fmt.Sprintf("%v", res[1]))
+
+	return wasOffline, effPresence, nil
+}
+
+var unregisterNodeSessionScript = redisdriver.NewScript(`
+		local pKey = KEYS[1]
+		local sHashKey = KEYS[2]
+
+		local sessionID = ARGV[1]
+		local ttl = tonumber(ARGV[2])
+
+		redis.call('HDEL', sHashKey, sessionID)
+
+		local remainingSessions = redis.call('HLEN', sHashKey)
+		if remainingSessions == 0 then
+			redis.call('DEL', pKey)
+			redis.call('DEL', sHashKey)
+			return 1 -- wentOffline = true
+		end
+
+		redis.call('EXPIRE', sHashKey, ttl)
+		redis.call('EXPIRE', pKey, ttl)
+
+		return 0 -- wentOffline = false
+	`)
+
+func (c *PresenceCache) UnregisterNodeSession(ctx context.Context, nodeID, userID, sessionID fields.ID) (bool, error) {
+	keys := []string{
+		userPresenceKey(userID),
+		userSessionsKey(userID),
+	}
+
+	wentOffline, err := unregisterNodeSessionScript.Run(
+		ctx,
+		c.client,
+		keys,
+		sessionID.String(),
+		int(userPresenceTTL.Seconds()),
+	).Int64()
+
+	if err != nil {
+		return false, redis.NewError(err, redis.ScopePresence)
+	}
+
+	return wentOffline == 1, nil
+}
+
+func (c *PresenceCache) Heartbeat(ctx context.Context, nodeID, userID, sessionID fields.ID) error {
+	pKey := userPresenceKey(userID)
+	sHashKey := userSessionsKey(userID)
+
+	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Expire(ctx, sHashKey, userSessionsTTL)
+		pipe.Expire(ctx, pKey, userPresenceTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopePresence)
+	}
+
+	return nil
+}
+
+func (c *PresenceCache) GetBatchNodeUsers(
 	ctx context.Context,
 	userIDs []fields.ID,
 ) (map[fields.ID][]fields.ID, error) {
@@ -158,11 +247,11 @@ func (c *PresenceCache) GetBatchNodes(
 
 		end := min(i+MaxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
-		cmds := make([]*redisdriver.StringSliceCmd, len(chunk))
+		cmds := make([]*redisdriver.MapStringStringCmd, len(chunk))
 
 		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 			for j, uid := range chunk {
-				cmds[j] = pipe.SMembers(ctx, userNodesKey(uid))
+				cmds[j] = pipe.HGetAll(ctx, userSessionsKey(uid))
 			}
 			return nil
 		})
@@ -172,16 +261,20 @@ func (c *PresenceCache) GetBatchNodes(
 
 		for j, cmd := range cmds {
 			uid := chunk[j]
-			nodeStrs, cmdErr := cmd.Result()
-			if cmdErr != nil || len(nodeStrs) == 0 {
+			sessionMap, cmdErr := cmd.Result()
+			if cmdErr != nil || len(sessionMap) == 0 {
 				continue
 			}
 
-			for _, nStr := range nodeStrs {
-				if parsedUUID, parseErr := uuid.Parse(nStr); parseErr == nil {
-					nid := fields.ID(parsedUUID)
-					nodeToUsers[nid] = append(nodeToUsers[nid], uid)
+			nodeSet := make(map[fields.ID]struct{})
+			for _, nodeIDStr := range sessionMap {
+				if parsedUUID, parseErr := uuid.Parse(nodeIDStr); parseErr == nil {
+					nodeSet[fields.ID(parsedUUID)] = struct{}{}
 				}
+			}
+
+			for nID := range nodeSet {
+				nodeToUsers[nID] = append(nodeToUsers[nID], uid)
 			}
 		}
 	}
@@ -189,7 +282,35 @@ func (c *PresenceCache) GetBatchNodes(
 	return nodeToUsers, nil
 }
 
-func (c *PresenceCache) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
+var removeBatchNodeUsersScript = redisdriver.NewScript(`
+		local pKey = KEYS[1]
+		local sHashKey = KEYS[2]
+		local targetNodeID = ARGV[1]
+		local ttl = tonumber(ARGV[2])
+
+		local sessions = redis.call('HGETALL', sHashKey)
+		for i = 1, #sessions, 2 do
+			local sessID = sessions[i]
+			local nodeID = sessions[i+1]
+			if nodeID == targetNodeID then
+				redis.call('HDEL', sHashKey, sessID)
+			end
+		end
+
+		local remainingSessions = redis.call('HLEN', sHashKey)
+		if remainingSessions == 0 then
+			redis.call('DEL', pKey)
+			redis.call('DEL', sHashKey)
+			return 1 -- wentOffline = true
+		end
+
+		redis.call('EXPIRE', sHashKey, ttl)
+		redis.call('EXPIRE', pKey, ttl)
+
+		return 0 -- wentOffline = false
+	`)
+
+func (c *PresenceCache) RemoveBatchNodeUsers(ctx context.Context, nodeID fields.ID, userIDs []fields.ID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
@@ -204,106 +325,17 @@ func (c *PresenceCache) RemoveBatchNodes(ctx context.Context, userIDs []fields.I
 
 		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 			for _, userID := range chunk {
-				pipe.SRem(ctx, userNodesKey(userID), nodeID.String())
+				keys := []string{
+					userPresenceKey(userID),
+					userSessionsKey(userID),
+				}
+				removeBatchNodeUsersScript.Run(ctx, pipe, keys, nodeID.String(), int(userPresenceTTL.Seconds()))
 			}
 			return nil
 		})
 		if err != nil {
 			return redis.NewError(err, redis.ScopePresence)
 		}
-	}
-
-	return nil
-}
-
-func (c *PresenceCache) GetSessionNode(ctx context.Context, sessionID fields.ID) (fields.ID, bool, error) {
-	data, found, err := getKey(ctx, c.client, sessionNodeKey(sessionID), redis.ScopePresence)
-	if err != nil || !found {
-		return fields.ID{}, false, err
-	}
-
-	parsedUUID, err := uuid.Parse(string(data))
-	if err != nil {
-		return fields.ID{}, false, nil
-	}
-
-	return fields.ID(parsedUUID), true, nil
-}
-
-func (c *PresenceCache) RegisterNode(
-	ctx context.Context,
-	userID, nodeID, sessionID fields.ID,
-	p presence.Presence,
-) (bool, presence.Presence, error) {
-	targetPresence := p
-	if !targetPresence.IsValid() {
-		targetPresence = presence.NewOnline()
-	}
-
-	keys := []string{
-		userPresenceKey(userID),
-		userSessionsKey(userID),
-		sessionNodeKey(sessionID),
-		userNodesKey(userID),
-	}
-
-	res, err := registerNodeScript.Run(
-		ctx,
-		c.client,
-		keys,
-		sessionID.String(),
-		nodeID.String(),
-		targetPresence.Int(),
-		int(userPresenceTTL.Seconds()),
-	).Slice()
-
-	if err != nil {
-		return false, presence.NewOffline(), redis.NewError(err, redis.ScopePresence)
-	}
-
-	wasOffline := res[0].(int64) == 1
-	effPresence := parsePresence(res[1].(string))
-
-	return wasOffline, effPresence, nil
-}
-
-func (c *PresenceCache) UnregisterNode(ctx context.Context, userID, nodeID, sessionID fields.ID) (bool, error) {
-	keys := []string{
-		userPresenceKey(userID),
-		userSessionsKey(userID),
-		sessionNodeKey(sessionID),
-	}
-
-	wentOffline, err := unregisterNodeScript.Run(
-		ctx,
-		c.client,
-		keys,
-		sessionID.String(),
-		int(userPresenceTTL.Seconds()),
-	).Int64()
-
-	if err != nil {
-		return false, redis.NewError(err, redis.ScopePresence)
-	}
-
-	return wentOffline == 1, nil
-}
-
-func (c *PresenceCache) Heartbeat(ctx context.Context, userID, nodeID, sessionID fields.ID) error {
-	pKey := userPresenceKey(userID)
-	sSetKey := userSessionsKey(userID)
-	uNodesKey := userNodesKey(userID)
-	sNodeKey := sessionNodeKey(sessionID)
-
-	_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.Expire(ctx, sSetKey, userPresenceTTL)
-		pipe.Expire(ctx, pKey, userPresenceTTL)
-		pipe.Expire(ctx, uNodesKey, userNodesTTL)
-		pipe.Expire(ctx, sNodeKey, userPresenceTTL)
-		return nil
-	})
-	if err != nil {
-		return redis.NewError(err, redis.ScopePresence)
 	}
 
 	return nil
