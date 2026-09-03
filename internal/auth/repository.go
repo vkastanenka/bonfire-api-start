@@ -19,7 +19,7 @@ type SessionService interface {
 	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
 }
 
-type UserCache interface { // size=16 (0x10)
+type UserCache interface {
 	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	AddFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
 	Delete(ctx context.Context, id fields.ID) error
