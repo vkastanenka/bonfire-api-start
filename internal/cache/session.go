@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	sessionTTL     = 24 * time.Hour
-	sessionNodeTTL = userNodesTTL
+	sessionTTL = 24 * time.Hour
 )
 
 const (

@@ -5,7 +5,6 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 )
 
@@ -45,19 +44,12 @@ type MemberRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType outbox.Type, payload outbox.Payload, now fields.Timestamp) error
+	Publish(ctx context.Context, eventType string, payload any, now fields.Timestamp) error
 }
 
 type UserRepository interface {
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
-}
-
-type UserCache interface {
-	GetPresence(ctx context.Context, userID fields.ID) (user.Presence, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
-	SetPresence(ctx context.Context, userID fields.ID, p user.Presence) error
-	SetBatchPresence(ctx context.Context, items map[fields.ID]user.Presence) error
 }
 
 type TX interface {

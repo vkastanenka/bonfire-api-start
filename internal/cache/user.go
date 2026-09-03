@@ -15,8 +15,6 @@ import (
 
 var (
 	userTTL         = 24 * time.Hour
-	userPresenceTTL = 90 * time.Second
-	userNodesTTL    = 90 * time.Second
 	userFriendsTTL  = 24 * time.Hour
 	userChannelsTTL = 24 * time.Hour
 )
@@ -32,14 +30,11 @@ func userNamespacedKey(id fields.ID, suffix string) string {
 	return "{" + userDomainKey + id.String() + "}:" + suffix
 }
 
-func userKey(id fields.ID) string               { return userNamespacedKey(id, "") }
-func userPresenceKey(id fields.ID) string       { return userNamespacedKey(id, "presence") }
-func userSessionsKey(id fields.ID) string       { return userNamespacedKey(id, "sessions") }
-func userNodesKey(id fields.ID) string          { return userNamespacedKey(id, "nodes") }
-func userFriendsKey(id fields.ID) string        { return userNamespacedKey(id, "friends") }
-func userFriendRequestsKey(id fields.ID) string { return userNamespacedKey(id, "friend_requests") }
-func userBlocksKey(id fields.ID) string         { return userNamespacedKey(id, "blocks") }
-func userChannelsKey(id fields.ID) string       { return userNamespacedKey(id, "channels") }
+func userKey(id fields.ID) string { return userNamespacedKey(id, "") }
+
+func userFriendsKey(id fields.ID) string  { return userNamespacedKey(id, "friends") }
+func userBlocksKey(id fields.ID) string   { return userNamespacedKey(id, "blocks") }
+func userChannelsKey(id fields.ID) string { return userNamespacedKey(id, "channels") }
 
 type UserCache struct {
 	client redisdriver.Cmdable

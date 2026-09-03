@@ -1,36 +1,35 @@
 package relation
 
-import (
-	"github.com/google/uuid"
-)
-
 const (
 	EventFriendRequestSent     = "relation.friend_request_sent"
 	EventFriendRequestAccepted = "relation.friend_request_accepted"
-	EventFriendRequestDeclined = "relation.friend_request_declined"
-	EventRelationRemoved       = "relation.removed"
+	EventRelationDeleted       = "relation.deleted"
 	EventUserBlocked           = "relation.user_blocked"
 )
 
 type FriendRequestSentPayload struct {
-	ActorID  uuid.UUID `json:"actor_id"`
-	TargetID uuid.UUID `json:"target_id"`
+	ActorID   string `json:"actor_id"`
+	PeerID    string `json:"peer_id"`
+	CreatedAt string `json:"created_at"`
 }
 
 type FriendRequestAcceptedPayload struct {
-	ActorID   uuid.UUID `json:"actor_id"`
-	TargetID  uuid.UUID `json:"target_id"`
-	ChannelID uuid.UUID `json:"channel_id"`
-}
-
-type RelationRemovedPayload struct {
-	ActorID  uuid.UUID `json:"actor_id"`
-	TargetID uuid.UUID `json:"target_id"`
+	ActorID   string `json:"actor_id"`
+	PeerID    string `json:"peer_id"`
+	ChannelID string `json:"channel_id"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type UserBlockedPayload struct {
-	ActorID  uuid.UUID `json:"actor_id"`
-	TargetID uuid.UUID `json:"target_id"`
+	ActorID   string `json:"actor_id"`
+	PeerID    string `json:"peer_id"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type RelationDeletedPayload struct {
+	ActorID   string `json:"actor_id"`
+	PeerID    string `json:"peer_id"`
+	DeletedAt string `json:"deleted_at"`
 }
 
 // // RegisterOutboxHandlers wires relation events to Redis Pub/Sub.

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"time"
 
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
@@ -10,6 +11,16 @@ import (
 	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
+
+var (
+	userPresenceTTL = 90 * time.Second
+	userNodesTTL    = 90 * time.Second
+	sessionNodeTTL  = userNodesTTL
+)
+
+func userPresenceKey(id fields.ID) string { return userNamespacedKey(id, "presence") }
+func userSessionsKey(id fields.ID) string { return userNamespacedKey(id, "sessions") }
+func userNodesKey(id fields.ID) string    { return userNamespacedKey(id, "nodes") }
 
 type PresenceCache struct {
 	client redisdriver.Cmdable
@@ -184,7 +195,7 @@ func (c *PresenceCache) RegisterNode(
 		pipe.SAdd(ctx, sSetKey, sessionID.String())
 		pipe.Expire(ctx, sSetKey, userPresenceTTL)
 
-		pipe.Set(ctx, sNodeKey, nodeID.String(), userPresenceTTL)
+		pipe.Set(ctx, sNodeKey, nodeID.String(), sessionNodeTTL)
 
 		// Set status if missing, or refresh TTL if present
 		pipe.SetNX(ctx, pKey, targetPresence.Int(), userPresenceTTL)

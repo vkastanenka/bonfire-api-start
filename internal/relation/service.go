@@ -2,21 +2,17 @@ package relation
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
-	"bonfire-api/internal/user"
 )
 
 type Service struct {
 	repo        Repository
 	userRepo    UserRepository
-	userCache   UserCache
 	channelRepo ChannelRepository
 	memberRepo  MemberRepository
 	outboxRepo  OutboxRepository
@@ -26,7 +22,6 @@ type Service struct {
 func NewService(
 	repo Repository,
 	userRepo UserRepository,
-	userCache UserCache,
 	channelRepo ChannelRepository,
 	memberRepo MemberRepository,
 	outboxRepo OutboxRepository,
@@ -35,58 +30,11 @@ func NewService(
 	return &Service{
 		repo:        repo,
 		userRepo:    userRepo,
-		userCache:   userCache,
 		channelRepo: channelRepo,
 		memberRepo:  memberRepo,
 		outboxRepo:  outboxRepo,
 		tx:          tx,
 	}
-}
-
-func (s *Service) GetPeer(ctx context.Context, rawActorID, rawPeerID uuid.UUID) (Peer, error) {
-	_, peerID, u1, u2, err := validateIDs(rawActorID, rawPeerID)
-	if err != nil {
-		return Peer{}, err
-	}
-
-	rel, err := s.repo.Get(ctx, u1, u2)
-	if err != nil {
-		return Peer{}, err
-	}
-
-	var (
-		peerUser     *user.User
-		peerPresence user.Presence
-	)
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		u, err := s.userRepo.Get(gCtx, peerID)
-		if err != nil {
-			return err
-		}
-		peerUser = u
-		return nil
-	})
-
-	g.Go(func() error {
-		p, err := s.userCache.GetPresence(gCtx, peerID)
-		if err != nil {
-			slog.WarnContext(gCtx, "failed to fetch presence", "peer_id", peerID.String(), "error", err)
-			peerPresence = user.NewPresenceOffline()
-			return nil
-		}
-		peerPresence = p
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return Peer{}, err
-	}
-
-	peer, _ := hydratePeer(peerID, rel, peerUser, peerPresence)
-	return peer, nil
 }
 
 func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (
@@ -145,12 +93,17 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		relLock, err := s.repo.GetForUpdate(txCtx, u1, u2)
 		if errs.IsNotFound(err) {
-			if _, err := s.repo.Save(txCtx, rel); err != nil {
+			if rel, err = s.repo.Save(txCtx, rel); err != nil {
 				return err
 			}
 
-			// return s.outboxRepo.Publish(txCtx, EventFriendRequestSent, FriendRequestSentPayload{})
-			return nil
+			payload := FriendRequestSentPayload{
+				ActorID:   actorID.UUID().String(),
+				PeerID:    rel.PeerID(actorID).UUID().String(),
+				CreatedAt: now.String(),
+			}
+
+			return s.outboxRepo.Publish(txCtx, EventFriendRequestSent, payload, now)
 		}
 		if err != nil {
 			return err
@@ -218,12 +171,18 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 			relLock.Block(actorID, now)
 		}
 
-		if _, err := s.repo.Save(txCtx, relLock); err != nil {
+		rel, err := s.repo.Save(txCtx, relLock)
+		if err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventUserBlocked, UserBlockedPayload{})
-		return nil
+		payload := UserBlockedPayload{
+			ActorID:   actorID.String(),
+			PeerID:    rel.PeerID(actorID).String(),
+			UpdatedAt: now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventUserBlocked, payload, now)
 	})
 }
 
@@ -233,6 +192,8 @@ func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid
 	if err != nil {
 		return err
 	}
+
+	now := fields.Now()
 
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
@@ -248,8 +209,13 @@ func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventRelationRemoved, RelationRemovedPayload{})
-		return nil
+		payload := RelationDeletedPayload{
+			ActorID:   actorID.String(),
+			PeerID:    rel.PeerID(actorID).String(),
+			DeletedAt: now.String(),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
 	})
 }
 
