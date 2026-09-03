@@ -26,7 +26,6 @@ func sessionNamespacedKey(id fields.ID, suffix string) string {
 }
 
 func sessionKey(id fields.ID) string     { return sessionNamespacedKey(id, "") }
-func sessionNodeKey(id fields.ID) string { return sessionNamespacedKey(id, "node") }
 
 type SessionCache struct {
 	client redisdriver.Cmdable

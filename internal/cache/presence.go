@@ -21,6 +21,7 @@ var (
 func userPresenceKey(id fields.ID) string { return userNamespacedKey(id, "presence") }
 func userSessionsKey(id fields.ID) string { return userNamespacedKey(id, "sessions") }
 func userNodesKey(id fields.ID) string    { return userNamespacedKey(id, "nodes") }
+func sessionNodeKey(id fields.ID) string  { return sessionNamespacedKey(id, "node") }
 
 type PresenceCache struct {
 	client redisdriver.Cmdable
