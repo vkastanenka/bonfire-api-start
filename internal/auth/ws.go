@@ -2,13 +2,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"bonfire-api/internal/fields"
 
 	"github.com/google/uuid"
 )
 
-// PrintWSTicket generates a single-use, short-lived ticket for establishing a WebSocket connection.
 func (s *Service) PrintWSTicket(ctx context.Context, rawUserID, rawSessionID uuid.UUID) (fields.ID, error) {
 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
 	if err != nil {
@@ -18,6 +18,15 @@ func (s *Service) PrintWSTicket(ctx context.Context, rawUserID, rawSessionID uui
 	sessionID, err := fields.ParseRequiredID("session_id", rawSessionID)
 	if err != nil {
 		return fields.ID{}, err
+	}
+
+	sess, err := s.sessionCache.Get(ctx, sessionID)
+	if err != nil {
+		return fields.ID{}, err
+	}
+
+	if sess.IsRevoked() || sess.IsExpired(fields.Now()) || !sess.UserID().Equals(userID) {
+		return fields.ID{}, errors.New("Session invalid!")
 	}
 
 	ticketID, err := fields.NewID()
