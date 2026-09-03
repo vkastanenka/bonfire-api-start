@@ -66,7 +66,7 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
-	defer crypto.ConstantWindow(loginTimingWindow)()
+	defer crypto.ConstantWindow(ctx, loginTimingWindow)()
 
 	email, err := user.ParseRequiredEmail("email", p.Email)
 	if err != nil {
@@ -95,11 +95,16 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	now := fields.Now()
 
 	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
+	if err != nil {
+		return LoginResult{}, err
+	}
 
 	_, err = s.sessionRepo.Create(ctx, newSession)
 	if err != nil {
 		return LoginResult{}, err
 	}
+
+	_ = s.sessionCache.Set(ctx, newSession)
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,
@@ -191,31 +196,38 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	newUser := user.New(userID, email, username, displayName, passwordHash, now)
 	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
 
-	// evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
-	// if err != nil {
-	// 	return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
-	// }
+	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
+	if err != nil {
+		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
+	}
+
+	var createdSession *session.Session
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if _, err := s.userRepo.Create(txCtx, newUser); err != nil {
 			return err
 		}
 
-		if _, err := s.sessionRepo.Create(txCtx, newSession); err != nil {
+		var err error
+		createdSession, err = s.sessionRepo.Create(txCtx, newSession)
+		if err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventRegister, RegisterPayload{
-		// 	Email:    newUser.Email().String(),
-		// 	Username: newUser.Username().String(),
-		// 	Token:    evToken,
-		// })
-		return nil
+		payload := EventRegisterPayload{
+			Email:    newUser.Email().String(),
+			Username: newUser.Username().String(),
+			Token:    evToken,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventRegister, payload, now)
 	})
 
 	if txErr != nil {
 		return RegisterResult{}, txErr
 	}
+
+	_ = s.sessionCache.Set(ctx, createdSession)
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,

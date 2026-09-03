@@ -31,6 +31,16 @@ type EventResendVerificationPayload struct {
 	Token    string `json:"token"`
 }
 
+func NewForgotPasswordOutboxHandler(mailer email.Mailer) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventForgotPasswordPayload](payload)
+		if err != nil {
+			return err
+		}
+		return mailer.SendPasswordResetEmail(ctx, p.Email, p.Token)
+	}
+}
+
 func NewRegisterOutboxHandler(mailer email.Mailer) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := fields.ParseRawJSON[EventRegisterPayload](payload)
@@ -48,16 +58,6 @@ func NewResendVerificationOutboxHandler(mailer email.Mailer) outbox.Handler {
 			return err
 		}
 		return mailer.SendResendVerificationEmail(ctx, p.Email, p.Username, p.Token)
-	}
-}
-
-func NewForgotPasswordOutboxHandler(mailer email.Mailer) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventForgotPasswordPayload](payload)
-		if err != nil {
-			return err
-		}
-		return mailer.SendPasswordResetEmail(ctx, p.Email, p.Token)
 	}
 }
 

@@ -89,6 +89,8 @@ type TicketCache interface {
 }
 
 type TokenCache interface {
+	ConsumeEmailVerifyJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error)
+	ConsumeEmailVerifyToken(ctx context.Context, claims *token.Claims) error
 	ConsumeForgotPasswordJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error)
 	ConsumePasswordResetToken(ctx context.Context, claims *token.Claims) error
 	ConsumeRefreshJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error)
