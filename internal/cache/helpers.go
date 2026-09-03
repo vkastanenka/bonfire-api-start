@@ -215,3 +215,25 @@ func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string
 	}
 	return nil
 }
+
+// removeFromSetIDsPipelined removes target IDs from their corresponding set keys in a single pipeline trip.
+func removeFromSetIDsPipelined(
+	ctx context.Context,
+	client redisdriver.Cmdable,
+	removals map[string]fields.ID,
+	scope redis.Scope,
+) error {
+	if len(removals) == 0 {
+		return nil
+	}
+
+	pipe := client.Pipeline()
+	for key, targetID := range removals {
+		pipe.SRem(ctx, key, targetID.String())
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, scope)
+	}
+	return nil
+}

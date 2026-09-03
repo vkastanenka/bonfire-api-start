@@ -168,6 +168,14 @@ func (c *UserCache) RemoveFriendID(ctx context.Context, userID, friendID fields.
 	return removeFromSetID(ctx, c.client, userFriendsKey(userID), friendID, redis.ScopeUser)
 }
 
+func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID) error {
+	removals := map[string]fields.ID{
+		userFriendsKey(userA): userB,
+		userFriendsKey(userB): userA,
+	}
+	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
+}
+
 func (c *UserCache) SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
 	return setSetIDs(ctx, c.client, userChannelsKey(userID), channelIDs, userChannelsTTL, redis.ScopeUser)
 }

@@ -8,6 +8,24 @@ import (
 	"github.com/google/uuid"
 )
 
+type Summary struct {
+	ID          uuid.UUID `json:"id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"displayName"`
+	AvatarURL   *string   `json:"avatarUrl,omitempty"`
+	IsDisabled  bool      `json:"isDisabled,omitempty"`
+}
+
+func ParseSummary(u *User) Summary {
+	return Summary{
+		ID:          u.ID().UUID(),
+		Username:    u.Username().String(),
+		DisplayName: u.DisplayName().String(),
+		AvatarURL:   u.AvatarURL().StringPtr(),
+		IsDisabled:  u.IsDisabled(),
+	}
+}
+
 type UserView struct {
 	ID          uuid.UUID         `json:"id"`
 	Username    string            `json:"username"`

@@ -8,11 +8,14 @@ import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/user"
 )
 
 type Service struct {
 	repo        Repository
+	userCache   UserCache
 	userRepo    UserRepository
+	userSvc     UserService
 	channelRepo ChannelRepository
 	memberRepo  MemberRepository
 	outboxRepo  OutboxRepository
@@ -21,7 +24,9 @@ type Service struct {
 
 func NewService(
 	repo Repository,
+	userCache UserCache,
 	userRepo UserRepository,
+	userSvc UserService,
 	channelRepo ChannelRepository,
 	memberRepo MemberRepository,
 	outboxRepo OutboxRepository,
@@ -29,7 +34,9 @@ func NewService(
 ) *Service {
 	return &Service{
 		repo:        repo,
+		userCache:   userCache,
 		userRepo:    userRepo,
+		userSvc:     userSvc,
 		channelRepo: channelRepo,
 		memberRepo:  memberRepo,
 		outboxRepo:  outboxRepo,
@@ -90,6 +97,11 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	now := fields.Now()
 	rel := NewPending(u1, u2, actorID, channelID, now)
 
+	actor, err := s.userSvc.Get(ctx, rawActorID)
+	if err != nil {
+		return err
+	}
+
 	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		relLock, err := s.repo.GetForUpdate(txCtx, u1, u2)
 		if errs.IsNotFound(err) {
@@ -100,6 +112,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 			payload := FriendRequestSentPayload{
 				ActorID:   actorID.UUID().String(),
 				PeerID:    rel.PeerID(actorID).UUID().String(),
+				Actor:     user.ParseSummary(actor),
 				CreatedAt: now.String(),
 			}
 
@@ -124,7 +137,6 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	})
 }
 
-// TransitionFriends explicitly accepts a pending incoming friend request.
 func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
@@ -143,7 +155,51 @@ func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID u
 	})
 }
 
-// TransitionBlocked places a block on a user, overriding any existing friend or pending state.
+func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
+	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
+	if err != nil {
+		return err
+	}
+
+	now := fields.Now()
+	var rel *Relation
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var dbErr error
+		rel, dbErr = s.repo.GetForUpdate(txCtx, u1, u2)
+		if err != nil {
+			return dbErr
+		}
+
+		if dbErr = validateBlockedActor(actorID, rel); err != nil {
+			return dbErr
+		}
+
+		if dbErr = s.repo.DeleteByUserID(txCtx, u1, u2, actorID); err != nil {
+			return dbErr
+		}
+
+		if rel.IsFriends() {
+			payload := FriendDeletedPayload{
+				ActorID: actorID.String(),
+				PeerID:  rel.PeerID(actorID).String(),
+			}
+			return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if rel.IsFriends() {
+		_ = s.userCache.RemoveFriendPair(ctx, u1, u2)
+	}
+
+	return nil
+}
+
 func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
@@ -151,8 +207,9 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 	}
 
 	now := fields.Now()
+	var wasFriends bool
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		relLock, getErr := s.repo.GetForUpdate(txCtx, u1, u2)
 		if getErr != nil && !errs.IsNotFound(getErr) {
 			return getErr
@@ -160,6 +217,10 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 
 		if err := validateBlockedActor(actorID, relLock); err != nil {
 			return err
+		}
+
+		if relLock != nil && relLock.Type().IsFriends() {
+			wasFriends = true
 		}
 
 		if errs.IsNotFound(getErr) {
@@ -171,52 +232,30 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 			relLock.Block(actorID, now)
 		}
 
-		rel, err := s.repo.Save(txCtx, relLock)
+		_, err := s.repo.Save(txCtx, relLock)
 		if err != nil {
 			return err
 		}
 
-		payload := UserBlockedPayload{
-			ActorID:   actorID.String(),
-			PeerID:    rel.PeerID(actorID).String(),
-			UpdatedAt: now.String(),
+		if wasFriends {
+			payload := FriendDeletedPayload{
+				ActorID: actorID.String(),
+				PeerID:  relLock.PeerID(actorID).String(),
+			}
+			return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventUserBlocked, payload, now)
+		return nil
 	})
-}
-
-// DeleteByUserID verifies permissions before removing a friendship or friend request.
-func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
 		return err
 	}
 
-	now := fields.Now()
+	if wasFriends {
+		_ = s.userCache.RemoveFriendPair(ctx, u1, u2)
+	}
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
-		if err != nil {
-			return err
-		}
-
-		if err := validateBlockedActor(actorID, rel); err != nil {
-			return err
-		}
-
-		if err := s.repo.DeleteByUserID(txCtx, u1, u2, actorID); err != nil {
-			return err
-		}
-
-		payload := RelationDeletedPayload{
-			ActorID:   actorID.String(),
-			PeerID:    rel.PeerID(actorID).String(),
-			DeletedAt: now.String(),
-		}
-
-		return s.outboxRepo.Publish(txCtx, EventRelationDeleted, payload, now)
-	})
+	return nil
 }
 
 func (s *Service) acceptPendingRequestTx(txCtx context.Context, actorID fields.ID, rel *Relation, now fields.Timestamp) error {

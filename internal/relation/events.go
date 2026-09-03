@@ -1,5 +1,7 @@
 package relation
 
+import "bonfire-api/internal/user"
+
 const (
 	EventFriendRequestSent     = "relation.friend_request_sent"
 	EventFriendRequestAccepted = "relation.friend_request_accepted"
@@ -8,9 +10,10 @@ const (
 )
 
 type FriendRequestSentPayload struct {
-	ActorID   string `json:"actor_id"`
-	PeerID    string `json:"peer_id"`
-	CreatedAt string `json:"created_at"`
+	ActorID   string       `json:"actor_id"`
+	PeerID    string       `json:"peer_id"`
+	Actor     user.Summary `json:"actor"`
+	CreatedAt string       `json:"created_at"`
 }
 
 type FriendRequestAcceptedPayload struct {
@@ -20,16 +23,15 @@ type FriendRequestAcceptedPayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type FriendDeletedPayload struct {
+	ActorID string `json:"actor_id"`
+	PeerID  string `json:"peer_id"`
+}
+
 type UserBlockedPayload struct {
 	ActorID   string `json:"actor_id"`
 	PeerID    string `json:"peer_id"`
 	UpdatedAt string `json:"updated_at"`
-}
-
-type RelationDeletedPayload struct {
-	ActorID   string `json:"actor_id"`
-	PeerID    string `json:"peer_id"`
-	DeletedAt string `json:"deleted_at"`
 }
 
 // // RegisterOutboxHandlers wires relation events to Redis Pub/Sub.

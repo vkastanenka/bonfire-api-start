@@ -23,6 +23,7 @@ type UserCache interface {
 	SetBatch(ctx context.Context, users map[fields.ID]*user.User) error
 	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
+	RemoveFriendPair(ctx context.Context, userA fields.ID, userB fields.ID) error
 }
 
 type PresenceCache interface {
