@@ -22,6 +22,10 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 		return err
 	}
 
+	if err := s.tokenCache.ConsumeEmailVerifyToken(ctx, claims); err != nil {
+		return err
+	}
+
 	u, err := s.userRepo.Get(ctx, claims.UserID)
 	if err != nil {
 		return err
@@ -29,10 +33,9 @@ func (s *Service) VerifyEmail(ctx context.Context, tokenStr string) error {
 
 	now := fields.Now()
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var _, err = s.userRepo.Verify(txCtx, u.ID(), now, now)
-		return err
-	})
+	_, err = s.userRepo.Verify(ctx, u.ID(), now, now)
+	
+	return err
 }
 
 const (

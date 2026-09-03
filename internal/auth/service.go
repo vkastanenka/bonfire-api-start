@@ -94,17 +94,51 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	now := fields.Now()
 
-	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
-	if err != nil {
-		return LoginResult{}, err
+	var (
+		createdSession *session.Session
+		newSession     *session.Session
+		tokenPair      token.Pair
+	)
+
+	if u.IsDisabled() || u.IsScheduledForDeletion() {
+		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+			var err error
+
+			if u.IsScheduledForDeletion() {
+				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID(), fields.Timestamp{}, fields.Timestamp{}, now)
+			} else {
+				u, err = s.userRepo.SetDisabled(txCtx, u.ID(), fields.Timestamp{}, now)
+			}
+			if err != nil {
+				return err
+			}
+
+			newSession, tokenPair, err = s.generateSession(u, p.ClientMeta, now)
+			if err != nil {
+				return err
+			}
+
+			createdSession, err = s.sessionRepo.Create(txCtx, newSession)
+			return err
+		})
+
+		if txErr != nil {
+			return LoginResult{}, txErr
+		}
+	} else {
+		var err error
+		newSession, tokenPair, err = s.generateSession(u, p.ClientMeta, now)
+		if err != nil {
+			return LoginResult{}, err
+		}
+
+		createdSession, err = s.sessionRepo.Create(ctx, newSession)
+		if err != nil {
+			return LoginResult{}, err
+		}
 	}
 
-	_, err = s.sessionRepo.Create(ctx, newSession)
-	if err != nil {
-		return LoginResult{}, err
-	}
-
-	_ = s.sessionCache.Set(ctx, newSession)
+	_ = s.sessionCache.Set(ctx, createdSession)
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,
