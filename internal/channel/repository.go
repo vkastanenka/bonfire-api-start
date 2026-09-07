@@ -10,6 +10,8 @@ import (
 
 type ChannelCache interface {
 	CreateGroup(ctx context.Context, ch *Channel, members []*Member) error
+	Get(ctx context.Context, id fields.ID) (*Channel, error)
+	Set(ctx context.Context, ch *Channel) error
 }
 
 type ChannelRepository interface {

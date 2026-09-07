@@ -492,6 +492,33 @@ func unmarshalUser(data []byte) (*user.User, error) {
 	return dto.ToDomain()
 }
 
+func marshalChannel(ch *channel.Channel) ([]byte, error) {
+	if ch == nil {
+		return nil, nil
+	}
+
+	dto := ParseChannel(ch)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal channel json.").
+			Meta("scope", redis.ScopeChannel.String()).
+			Wrap(err)
+	}
+	return bytes, nil
+}
+
+func unmarshalChannel(data []byte) (*channel.Channel, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto Channel
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain()
+}
+
 func parsePresence(val string) presence.Presence {
 	parsed, err := strconv.Atoi(val)
 	if err != nil {

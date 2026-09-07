@@ -3,6 +3,7 @@ package cache
 import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
 
@@ -36,6 +37,14 @@ func NewChannelCache(client redisdriver.Cmdable) *ChannelCache {
 	return &ChannelCache{
 		client: client,
 	}
+}
+
+func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+	return getAndUnmarshal(ctx, c.client, userKey(id), redis.ScopeChannel, unmarshalChannel)
+}
+
+func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
+	return marshalAndSet(ctx, c.client, userKey(ch.ID()), ch, userTTL, redis.ScopeUser, marshalChannel)
 }
 
 func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, members []*channel.Member) error {

@@ -165,7 +165,31 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 	}, nil
 }
 
-type GetResult struct {
+func (s *ChannelService) Get(ctx context.Context, rawID uuid.UUID) (*Channel, error) {
+	id, err := fields.ParseRequiredID("id", rawID)
+	if err != nil {
+		return nil, err
+	}
+
+	ch, err := s.cache.Get(ctx, id)
+	if err != nil {
+		// Non-fatal cache error
+	}
+	if ch != nil {
+		return ch, nil
+	}
+
+	ch, err = s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.cache.Set(ctx, ch)
+
+	return ch, nil
+}
+
+type BootstrapResult struct {
 	Channel       *Channel
 	Member        *Member
 	Messages      []*Message
@@ -177,8 +201,8 @@ type GetResult struct {
 	HasMoreAfter  bool
 }
 
-// Get fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*GetResult, error) {
+// Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
+func (s *ChannelService) Bootstrap(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*BootstrapResult, error) {
 	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
 	if err != nil {
 		return nil, err
@@ -212,7 +236,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 
 	g1.Go(func() error {
 		var getErr error
-		channel, getErr = s.repo.Get(g1Ctx, channelID)
+		channel, getErr = s.Get(g1Ctx, channelID.UUID())
 		return getErr
 	})
 
@@ -274,7 +298,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 
 	sortMemberIDs(memberIDs, users)
 
-	return &GetResult{
+	return &BootstrapResult{
 		Channel:       channel,
 		Member:        actorMember,
 		Messages:      messages,
