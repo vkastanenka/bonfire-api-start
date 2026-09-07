@@ -19,6 +19,7 @@ type MemberService struct {
 	channelRepo    ChannelRepository
 	channelService *ChannelService
 	messageRepo    MessageRepository
+	userCache      UserCache,
 	userRepo       UserRepository
 	userService    UserService
 	presenceCache  PresenceCache
@@ -33,6 +34,7 @@ func NewMemberService(
 	channelRepo ChannelRepository,
 	channelService *ChannelService,
 	messageRepo MessageRepository,
+	userCache UserRepository,
 	userRepo UserRepository,
 	userService UserService,
 	presenceCache PresenceCache,
@@ -46,6 +48,7 @@ func NewMemberService(
 		channelRepo:    channelRepo,
 		channelService: channelService,
 		messageRepo:    messageRepo,
+		userCache:       userCache,
 		userRepo:       userRepo,
 		userService:    userService,
 		presenceCache:  presenceCache,
@@ -310,9 +313,10 @@ func buildAddMembersSystemMessages(
 func (s *MemberService) CloseDirect(
 	ctx context.Context,
 	rawActorID,
+	rawSessionID,
 	rawChannelID uuid.UUID,
 ) error {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return err
 	}
@@ -328,8 +332,8 @@ func (s *MemberService) CloseDirect(
 
 	now := fields.Now()
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		_, err := s.repo.UpdateIsVisible(
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		member, err := s.repo.UpdateIsVisible(
 			txCtx,
 			channelID,
 			actorID,
@@ -340,13 +344,26 @@ func (s *MemberService) CloseDirect(
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMemberUpdateUpdateVisibility,
-		// 	MemberUpdateVisibilityPayload{},
-		// )
-		return nil
+		payload := EventChannelMemberCloseDirectPayload{
+			ExcludeSessionID: sessionID,
+			MemberID:         member.userID,
+			ChannelID:        ch.ID(),
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventChannelMemberClosedDirect,
+			payload,
+			now,
+		)
 	})
+	if err != nil {
+		return err
+	}
+
+	_ = s.userCache.RemoveChannelID(ctx, actorID, channelID)
+
+	return nil
 }
 
 // UpdateLastReadMessage updates a members last read message id and time.

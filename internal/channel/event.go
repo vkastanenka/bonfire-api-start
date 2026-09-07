@@ -15,9 +15,10 @@ const (
 	EventChannelUpdated = "channel.updated"
 
 	// Membership Events
-	EventChannelMembersAdded  = "channel.members.added"
-	EventChannelMemberUpdated = "channel.member.updated"
-	EventChannelMemberRemoved = "channel.member.removed"
+	EventChannelMembersAdded       = "channel.members.added"
+	EventChannelMemberClosedDirect = "channel.member.closed_direct"
+	EventChannelMemberUpdated      = "channel.member.updated"
+	EventChannelMemberRemoved      = "channel.member.removed"
 
 	// Message Events
 	EventChannelMessageCreated = "channel.message.created"
@@ -56,7 +57,12 @@ type EventChannelMembersAddedPayload struct {
 	SystemMessages   []*Message                      `json:"system_messages"`
 }
 
-type EventChannelMemberUpdatedPayload struct{}
+type EventChannelMemberCloseDirectPayload struct {
+	ExcludeSessionID fields.ID `json:"exclude_session_id"`
+	MemberID         fields.ID `json:"member_id"`
+	ChannelID        fields.ID `json:"channel_id"`
+}
+
 type EventChannelMemberRemovedPayload struct{}
 
 type EventChannelMessageCreatedPayload struct{}

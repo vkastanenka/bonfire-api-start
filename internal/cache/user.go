@@ -174,20 +174,73 @@ func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID
 	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
 }
 
+// SetChannelIDs replaces the user's cached channels ZSet using ZADD inside a pipeline.
 func (c *UserCache) SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
-	return setSetIDs(ctx, c.client, userChannelsKey(userID), channelIDs, userChannelsTTL, redis.ScopeUser)
+	key := userChannelsKey(userID)
+	if len(channelIDs) == 0 {
+		return c.client.Del(ctx, key).Err()
+	}
+
+	zMembers := make([]redisdriver.Z, len(channelIDs))
+	for i, chID := range channelIDs {
+		zMembers[i] = redisdriver.Z{
+			Score:  0,
+			Member: chID.String(),
+		}
+	}
+
+	pipe := c.client.Pipeline()
+	pipe.Del(ctx, key)
+	pipe.ZAdd(ctx, key, zMembers...)
+	pipe.Expire(ctx, key, userChannelsTTL)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
+// GetChannelIDs fetches all channel IDs from the user's channels ZSet using ZRANGE.
 func (c *UserCache) GetChannelIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
-	return getSetIDs(ctx, c.client, userChannelsKey(userID), redis.ScopeUser)
+	vals, err := c.client.ZRange(ctx, userChannelsKey(userID), 0, -1).Result()
+	if err != nil {
+		if errors.Is(err, redisdriver.Nil) {
+			return nil, nil
+		}
+		return nil, redis.NewError(err, redis.ScopeUser)
+	}
+
+	ids := make([]fields.ID, 0, len(vals))
+	for _, val := range vals {
+		if id, parseErr := uuid.Parse(val); parseErr == nil {
+			ids = append(ids, fields.ID(id))
+		}
+	}
+
+	return ids, nil
 }
 
-func (c *UserCache) AddChannelID(ctx context.Context, userID, channelID fields.ID) error {
-	return addToSetID(ctx, c.client, userChannelsKey(userID), channelID, userChannelsTTL, redis.ScopeUser)
-}
-
+// RemoveChannelID removes a channel ID from the user's channels ZSet using ZREM.
 func (c *UserCache) RemoveChannelID(ctx context.Context, userID, channelID fields.ID) error {
-	return removeFromSetID(ctx, c.client, userChannelsKey(userID), channelID, redis.ScopeUser)
+	if err := c.client.ZRem(ctx, userChannelsKey(userID), channelID.String()).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+// AddChannelID adds a channel ID to the user's channels ZSet using ZADD.
+func (c *UserCache) AddChannelID(ctx context.Context, userID, channelID fields.ID) error {
+	pipe := c.client.Pipeline()
+	pipe.ZAdd(ctx, userChannelsKey(userID), redisdriver.Z{
+		Score:  0,
+		Member: channelID.String(),
+	})
+	pipe.Expire(ctx, userChannelsKey(userID), userChannelsTTL)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
 func (c *UserCache) GetPeerIDs(
