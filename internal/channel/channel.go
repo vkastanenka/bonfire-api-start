@@ -90,6 +90,31 @@ func (c *Channel) IsGroup() bool {
 	return c.chType.IsGroup()
 }
 
+func getChannelUserIDs(memberIDs []fields.ID, messages []*Message) []fields.ID {
+	seen := make(map[fields.ID]struct{}, len(memberIDs)+len(messages))
+	result := make([]fields.ID, 0, len(memberIDs)+len(messages))
+
+	for _, id := range memberIDs {
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			result = append(result, id)
+		}
+	}
+
+	for _, msg := range messages {
+		authorID := msg.AuthorID()
+		if authorID.IsZero() {
+			continue
+		}
+		if _, exists := seen[authorID]; !exists {
+			seen[authorID] = struct{}{}
+			result = append(result, authorID)
+		}
+	}
+
+	return result
+}
+
 func indexChannels(channels []*Channel) []fields.ID {
 	channelIDs := make([]fields.ID, 0, len(channels))
 

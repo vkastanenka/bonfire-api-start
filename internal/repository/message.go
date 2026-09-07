@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -182,60 +183,98 @@ func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Mes
 
 func (r *MessageRepository) ListAroundByChannelID(
 	ctx context.Context,
-	channelID, lastReadMessageID fields.ID,
+	channelID, cursorID fields.ID,
 	beforeLimit, afterLimit int,
-) ([]*channel.Message, error) {
+) ([]*channel.Message, bool, bool, error) {
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
 		ChannelID:         db.ToUUID(channelID.UUID()),
-		LastReadMessageID: db.ToUUID(lastReadMessageID.UUID()),
+		LastReadMessageID: db.ToUUID(cursorID.UUID()),
 		BeforeLimit:       int32(beforeLimit),
 		AfterLimit:        int32(afterLimit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, false, false, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err := messagesFromRows(rows)
+	if err != nil {
+		return nil, false, false, err
+	}
+
+	var (
+		beforeCount int
+		afterCount  int
+		targetID    = cursorID.UUID()
+	)
+
+	for _, msg := range messages {
+		msgUUID := msg.ID().UUID()
+		if bytes.Compare(msgUUID[:], targetID[:]) <= 0 {
+			beforeCount++
+		} else {
+			afterCount++
+		}
+	}
+
+	hasMoreBefore := beforeCount >= beforeLimit
+	hasMoreAfter := afterCount >= afterLimit
+
+	return messages, hasMoreBefore, hasMoreAfter, nil
 }
 
 func (r *MessageRepository) ListBeforeByChannelID(
 	ctx context.Context,
 	channelID, cursorID fields.ID,
 	limit int,
-) ([]*channel.Message, error) {
+) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
-		LimitVal:  int32(limit),
+		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, false, r.store.Err(err)
+	}
+
+	hasMoreBefore := len(rows) > limit
+	if hasMoreBefore {
+		rows = rows[:limit]
 	}
 
 	messages, err := messagesFromRows(rows)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	slices.Reverse(messages)
-	return messages, nil
+	return messages, hasMoreBefore, nil
 }
 
 func (r *MessageRepository) ListAfterByChannelID(
 	ctx context.Context,
 	channelID, cursorID fields.ID,
 	limit int,
-) ([]*channel.Message, error) {
+) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
 		ChannelID: db.ToUUID(channelID.UUID()),
 		CursorID:  db.ToUUID(cursorID.UUID()),
-		LimitVal:  int32(limit),
+		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, false, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	hasMoreAfter := len(rows) > limit
+	if hasMoreAfter {
+		rows = rows[:limit]
+	}
+
+	messages, err := messagesFromRows(rows)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return messages, hasMoreAfter, nil
 }
 
 func (r *MessageRepository) ListPinnedByChannelID(
@@ -244,7 +283,7 @@ func (r *MessageRepository) ListPinnedByChannelID(
 	cursorID fields.ID,
 	cursorPinnedAt fields.Timestamp,
 	limit int,
-) ([]*channel.Message, error) {
+) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListPinnedByChannelID(ctx, db.MessageListPinnedByChannelIDParams{
 		ChannelID:      db.ToUUID(channelID.UUID()),
 		CursorID:       db.ToUUIDPtr(cursorID.UUIDPtr()),
@@ -252,10 +291,17 @@ func (r *MessageRepository) ListPinnedByChannelID(
 		LimitVal:       int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, false, r.store.Err(err)
 	}
 
-	return messagesFromRows(rows)
+	messages, err := messagesFromRows(rows)
+	if err != nil {
+		return nil, false, err
+	}
+
+	hasMoreBefore := len(messages) >= limit
+
+	return messages, hasMoreBefore, nil
 }
 
 func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int, error) {

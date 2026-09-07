@@ -165,101 +165,126 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 	}, nil
 }
 
+type GetResult struct {
+	Channel       *Channel
+	Member        *Member
+	Messages      []*Message
+	Reactions     map[fields.ID]*ReactionSummary
+	Users         map[fields.ID]*user.User
+	Presences     map[fields.ID]presence.Presence
+	MemberIDs     []fields.ID
+	HasMoreBefore bool
+	HasMoreAfter  bool
+}
+
 // Get fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*Channel, []MemberView, []MessageView, error) {
+func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*GetResult, error) {
 	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	messageID, err := fields.ParseID(rawMessageID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	actorMember, err := validateMembership(actorID, members)
 	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	var (
-		channel  *Channel
-		messages []*Message
-	)
-
-	g1, ctx1 := errgroup.WithContext(ctx)
-
-	g1.Go(func() error {
-		if channel, err = s.repo.Get(ctx1, channelID); err != nil {
-			return err
-		}
-		return nil
-	})
-
-	g1.Go(func() error {
-		cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
-
-		var err error
-		messages, err = s.messageRepo.ListAroundByChannelID(
-			ctx1,
-			channelID,
-			cursor.ID(),
-			cursor.BeforeLimit(),
-			cursor.AfterLimit(),
-		)
-		return err
-	})
-
-	if err := g1.Wait(); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	memberIDs := getMemberIDs(members)
 
 	var (
-		userMap     map[fields.ID]*user.User
-		presenceMap map[fields.ID]presence.Presence
-		reactionMap map[fields.ID]*ReactionSummary
+		channel       *Channel
+		messages      []*Message
+		hasMoreBefore bool
+		hasMoreAfter  bool
 	)
 
-	g2, ctx2 := errgroup.WithContext(ctx)
+	g1, g1Ctx := errgroup.WithContext(ctx)
+
+	g1.Go(func() error {
+		var getErr error
+		channel, getErr = s.repo.Get(g1Ctx, channelID)
+		return getErr
+	})
+
+	g1.Go(func() error {
+		cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
+
+		var listErr error
+		messages, hasMoreBefore, hasMoreAfter, listErr = s.messageRepo.ListAroundByChannelID(
+			g1Ctx,
+			channelID,
+			cursor.ID(),
+			cursor.BeforeLimit(),
+			cursor.AfterLimit(),
+		)
+		return listErr
+	})
+
+	if err := g1.Wait(); err != nil {
+		return nil, err
+	}
+
+	allUserIDs := getChannelUserIDs(memberIDs, messages)
+
+	var (
+		users     map[fields.ID]*user.User
+		presences map[fields.ID]presence.Presence
+		reactions map[fields.ID]*ReactionSummary
+	)
+
+	g2, g2Ctx := errgroup.WithContext(ctx)
 
 	g2.Go(func() error {
-		var err error
-		userMap, err = s.userRepo.GetBatch(ctx2, memberIDs)
-		return err
+		var fetchErr error
+		users, fetchErr = s.userService.GetBatch(g2Ctx, allUserIDs)
+		return fetchErr
 	})
 
 	g2.Go(func() error {
-		var err error
-		presenceMap, err = s.presenceCache.GetBatchPresence(ctx2, memberIDs)
-		return err
+		var fetchErr error
+		presences, fetchErr = s.presenceCache.GetBatchPresence(g2Ctx, memberIDs)
+		return fetchErr
 	})
 
 	g2.Go(func() error {
 		if len(messages) == 0 {
-			reactionMap = make(map[fields.ID]*ReactionSummary)
+			reactions = make(map[fields.ID]*ReactionSummary)
 			return nil
 		}
+
 		messageIDs, _ := getMessageIDs(messages)
-		var err error
-		reactionMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctx2, actorID, messageIDs)
-		return err
+		var fetchErr error
+		reactions, fetchErr = s.reactionRepo.GetBatchSummaryByMessageIDs(g2Ctx, actorID, messageIDs)
+		return fetchErr
 	})
 
 	if err := g2.Wait(); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
-	sortMembers(members, userMap)
-	sortMessages(messages)
+	sortMemberIDs(memberIDs, users)
 
-	return channel, hydrateMemberViews(members, userMap, presenceMap), hydrateMessageViews(messages, userMap, reactionMap), nil
+	return &GetResult{
+		Channel:       channel,
+		Member:        actorMember,
+		Messages:      messages,
+		Reactions:     reactions,
+		Users:         users,
+		Presences:     presences,
+		MemberIDs:     memberIDs,
+		HasMoreBefore: hasMoreBefore,
+		HasMoreAfter:  hasMoreAfter,
+	}, nil
 }
 
 // GetSidebar fetches all sidebar related structures.

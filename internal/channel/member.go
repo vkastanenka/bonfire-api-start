@@ -5,7 +5,6 @@ import (
 	"bonfire-api/internal/user"
 	"cmp"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -201,20 +200,22 @@ func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
 	})
 }
 
-func sortMemberIDs(ids []fields.ID, users map[fields.ID]*user.User) {
-	sort.Slice(ids, func(i, j int) bool {
-		uI := users[ids[i]]
-		uJ := users[ids[j]]
+func sortMemberIDs(memberIDs []fields.ID, users map[fields.ID]*user.User) {
+	slices.SortFunc(memberIDs, func(a, b fields.ID) int {
+		uA, okA := users[a]
+		uB, okB := users[b]
 
-		var nameI, nameJ string
-		if uI != nil {
-			nameI = uI.DisplayName().String()
+		if !okA && !okB {
+			return 0
 		}
-		if uJ != nil {
-			nameJ = uJ.DisplayName().String()
+		if !okA {
+			return 1
+		}
+		if !okB {
+			return -1
 		}
 
-		return strings.ToLower(nameI) < strings.ToLower(nameJ)
+		return strings.Compare(uA.DisplayName().String(), uB.DisplayName().String())
 	})
 }
 
