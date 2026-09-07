@@ -22,10 +22,11 @@ type ClientRegistration struct {
 }
 
 type Event struct {
-	UserIDs    []uuid.UUID     `json:"user_ids,omitempty"`
-	SessionIDs []uuid.UUID     `json:"session_ids,omitempty"`
-	Type       string          `json:"type"`
-	Data       json.RawMessage `json:"data"`
+	UserIDs           []uuid.UUID     `json:"user_ids,omitempty"`
+	SessionIDs        []uuid.UUID     `json:"session_ids,omitempty"`
+	ExcludeSessionIDs []uuid.UUID     `json:"exclude_session_ids,omitempty"`
+	Type              string          `json:"type"`
+	Data              json.RawMessage `json:"data"`
 }
 
 type Hub struct {
@@ -333,9 +334,11 @@ func (h *Hub) sendToSessions(sessionIDs []uuid.UUID, message []byte) {
 	}
 }
 
-func (h *Hub) sendToUsers(userIDs []uuid.UUID, message []byte) {
+func (h *Hub) sendToUsers(userIDs []uuid.UUID, excludeSessions map[uuid.UUID]struct{}, message []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	hasExclusions := len(excludeSessions) > 0
 
 	for _, userID := range userIDs {
 		sessions, exists := h.userIdx[userID]
@@ -343,14 +346,20 @@ func (h *Hub) sendToUsers(userIDs []uuid.UUID, message []byte) {
 			continue
 		}
 
-		for _, client := range sessions {
+		for sessionID, client := range sessions {
+			if hasExclusions {
+				if _, excluded := excludeSessions[sessionID]; excluded {
+					continue
+				}
+			}
+
 			select {
 			case client.Send <- message:
 			default:
 				slog.Warn("Client send buffer full, dropping message",
 					"node_id", h.id,
 					"user_id", userID,
-					"session_id", client.SessionID,
+					"session_id", sessionID,
 				)
 			}
 		}

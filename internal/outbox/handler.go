@@ -16,6 +16,7 @@ type Broadcaster interface {
 	BroadcastToUser(ctx context.Context, actorID, targetUserID fields.ID, eventType string, payload any) error
 	BroadcastToSession(ctx context.Context, actorID, targetUserID, targetSessionID fields.ID, eventType string, payload any) error
 	BroadcastUserEvent(ctx context.Context, actorID fields.ID, recipientIDs []fields.ID, eventType string, payload any) error
+	BroadcastToUsers(ctx context.Context, recipientIDs []fields.ID, excludeSessionIDs []fields.ID, eventType string, payload interface{}) error
 }
 
 // NewPeersHandler broadcasts the raw JSON payload to all peers of actor_id.
@@ -91,6 +92,41 @@ func NewSessionHandler(broadcaster Broadcaster, eventType string, rawActorID str
 
 		if err := broadcaster.BroadcastToSession(ctx, actorID, targetUserID, sessionID, eventType, payload); err != nil {
 			return fmt.Errorf("failed to broadcast %s from %s to session %s of user %s: %w", eventType, actorID, sessionID, targetUserID, err)
+		}
+
+		return nil
+	}
+}
+
+// NewUsersHandler broadcasts the raw JSON payload to a list of target recipient_ids,
+// with optional excluded session_ids.
+func NewUsersHandler(
+	broadcaster Broadcaster,
+	eventType string,
+	rawRecipientIDs []string,
+	rawExcludeSessionIDs []string,
+) Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		recipientIDs := make([]fields.ID, 0, len(rawRecipientIDs))
+		for idx, rawID := range rawRecipientIDs {
+			id, err := fields.ParseIDFromString(fmt.Sprintf("recipient_ids[%d]", idx), rawID)
+			if err != nil {
+				return fmt.Errorf("%w: invalid recipient_id in %s outbox payload: %v", ErrFatal, eventType, err)
+			}
+			recipientIDs = append(recipientIDs, id)
+		}
+
+		excludeSessionIDs := make([]fields.ID, 0, len(rawExcludeSessionIDs))
+		for idx, rawID := range rawExcludeSessionIDs {
+			id, err := fields.ParseIDFromString(fmt.Sprintf("exclude_session_ids[%d]", idx), rawID)
+			if err != nil {
+				return fmt.Errorf("%w: invalid exclude_session_id in %s outbox payload: %v", ErrFatal, eventType, err)
+			}
+			excludeSessionIDs = append(excludeSessionIDs, id)
+		}
+
+		if err := broadcaster.BroadcastToUsers(ctx, recipientIDs, excludeSessionIDs, eventType, payload); err != nil {
+			return fmt.Errorf("failed to broadcast %s to target users: %w", eventType, err)
 		}
 
 		return nil

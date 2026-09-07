@@ -128,8 +128,8 @@ func (s *Service) BroadcastToSession(
 
 func (s *Service) BroadcastUserEvent(
 	ctx context.Context,
-	actorID fields.ID,
 	recipientIDs []fields.ID,
+	excludeSessionIDs []fields.ID,
 	eventType string,
 	payload interface{},
 ) error {
@@ -153,9 +153,10 @@ func (s *Service) BroadcastUserEvent(
 	nodeEvents := make(map[fields.ID]Event, len(nodeToRecipients))
 	for nodeID, targetUserIDs := range nodeToRecipients {
 		nodeEvents[nodeID] = Event{
-			UserIDs: fields.UUIDs(targetUserIDs),
-			Type:    eventType,
-			Data:    rawPayload,
+			UserIDs:           fields.UUIDs(targetUserIDs),
+			ExcludeSessionIDs: fields.UUIDs(excludeSessionIDs),
+			Type:              eventType,
+			Data:              rawPayload,
 		}
 	}
 
@@ -164,12 +165,22 @@ func (s *Service) BroadcastUserEvent(
 
 func (s *Service) BroadcastToUser(
 	ctx context.Context,
-	actorID fields.ID,
-	targetUserID fields.ID,
+	userID fields.ID,
+	excludeSessionIDs []fields.ID,
 	eventType string,
 	payload interface{},
 ) error {
-	return s.BroadcastUserEvent(ctx, actorID, []fields.ID{targetUserID}, eventType, payload)
+	return s.BroadcastUserEvent(ctx, []fields.ID{userID}, excludeSessionIDs, eventType, payload)
+}
+
+func (s *Service) BroadcastToUsers(
+	ctx context.Context,
+	recipientIDs []fields.ID,
+	excludeSessionIDs []fields.ID,
+	eventType string,
+	payload interface{},
+) error {
+	return s.BroadcastUserEvent(ctx, recipientIDs, excludeSessionIDs, eventType, payload)
 }
 
 func (s *Service) BroadcastToFriends(
@@ -207,3 +218,41 @@ func (s *Service) BroadcastToPeers(
 
 	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
 }
+
+func (s *Service) BroadcastToChannelMembers(
+	ctx context.Context,
+	actorID fields.ID,
+	actorExcludeSessionIDs []fields.ID,
+	eventType string,
+	payloads map[fields.ID]interface{},
+) error {
+
+	// Get recipient ids (payloads keys)
+
+	// get batch nodes for the users
+
+	// create node events
+}
+
+/*
+BroadcastToChannelMembers
+
+(
+	ctx context.Context,
+	actorID fields.ID,
+	actorSessionID fields.ID,
+	eventType string,
+	payloads interface{},
+)
+
+// get member ids
+// make recipients
+// broadcast
+*/
+
+// type Event struct {
+//     UserIDs    []uuid.UUID     `json:"user_ids,omitempty"`
+//     SessionIDs []uuid.UUID     `json:"session_ids,omitempty"`
+//     Type       string          `json:"type"`
+//     Data       json.RawMessage `json:"data"`
+// }

@@ -62,12 +62,17 @@ type CreateGroupResult struct {
 }
 
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID, sessionID string) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
 		return nil, err
 	}
 
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionID, err := fields.ParseRequiredID("session_id", rawSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,13 +141,11 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 		}
 
 		outboxPayload := EventChannelCreatedPayload{
-			ActorID:   actorID.String(),
-			SessionID: sessionID,
-			Channel:   ch,
-			Members:   membersMap,
-			Users:     users,
-			Presences: presences,
-			MemberIDs: dedupedMemberIDs,
+			ExcludeSessionID: sessionID,
+			Channel:          ch,
+			Users:            users,
+			Presences:        presences,
+			MemberIDs:        dedupedMemberIDs,
 		}
 
 		return s.outboxRepo.Publish(txCtx, EventChannelCreated, outboxPayload, now)
