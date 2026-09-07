@@ -6,7 +6,6 @@ import (
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -140,7 +139,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 			membersMap[m.UserID()] = m
 		}
 
-		outboxPayload := EventChannelCreatedPayload{
+		payload := EventChannelCreatedPayload{
 			ExcludeSessionID: sessionID,
 			Channel:          ch,
 			Users:            users,
@@ -148,7 +147,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 			MemberIDs:        dedupedMemberIDs,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventChannelCreated, outboxPayload, now)
+		return s.outboxRepo.Publish(txCtx, EventChannelCreated, payload, now)
 	})
 	if txErr != nil {
 		return nil, txErr
@@ -189,174 +188,9 @@ func (s *ChannelService) Get(ctx context.Context, rawID uuid.UUID) (*Channel, er
 	return ch, nil
 }
 
-type BootstrapResult struct {
-	Channel       *Channel
-	Member        *Member
-	Messages      []*Message
-	Reactions     map[fields.ID]*ReactionSummary
-	Users         map[fields.ID]*user.User
-	Presences     map[fields.ID]presence.Presence
-	MemberIDs     []fields.ID
-	HasMoreBefore bool
-	HasMoreAfter  bool
-}
-
-// Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *ChannelService) Bootstrap(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*BootstrapResult, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	messageID, err := fields.ParseID(rawMessageID)
-	if err != nil {
-		return nil, err
-	}
-
-	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
-	if err != nil {
-		return nil, err
-	}
-
-	actorMember, err := validateMembership(actorID, members)
-	if err != nil {
-		return nil, err
-	}
-
-	memberIDs := getMemberIDs(members)
-
-	var (
-		channel       *Channel
-		messages      []*Message
-		hasMoreBefore bool
-		hasMoreAfter  bool
-	)
-
-	g1, g1Ctx := errgroup.WithContext(ctx)
-
-	g1.Go(func() error {
-		var getErr error
-		channel, getErr = s.Get(g1Ctx, channelID.UUID())
-		return getErr
-	})
-
-	g1.Go(func() error {
-		cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
-
-		var listErr error
-		messages, hasMoreBefore, hasMoreAfter, listErr = s.messageRepo.ListAroundByChannelID(
-			g1Ctx,
-			channelID,
-			cursor.ID(),
-			cursor.BeforeLimit(),
-			cursor.AfterLimit(),
-		)
-		return listErr
-	})
-
-	if err := g1.Wait(); err != nil {
-		return nil, err
-	}
-
-	allUserIDs := getChannelUserIDs(memberIDs, messages)
-
-	var (
-		users     map[fields.ID]*user.User
-		presences map[fields.ID]presence.Presence
-		reactions map[fields.ID]*ReactionSummary
-	)
-
-	g2, g2Ctx := errgroup.WithContext(ctx)
-
-	g2.Go(func() error {
-		var fetchErr error
-		users, fetchErr = s.userService.GetBatch(g2Ctx, allUserIDs)
-		return fetchErr
-	})
-
-	g2.Go(func() error {
-		var fetchErr error
-		presences, fetchErr = s.presenceCache.GetBatchPresence(g2Ctx, memberIDs)
-		return fetchErr
-	})
-
-	g2.Go(func() error {
-		if len(messages) == 0 {
-			reactions = make(map[fields.ID]*ReactionSummary)
-			return nil
-		}
-
-		messageIDs, _ := getMessageIDs(messages)
-		var fetchErr error
-		reactions, fetchErr = s.reactionRepo.GetBatchSummaryByMessageIDs(g2Ctx, actorID, messageIDs)
-		return fetchErr
-	})
-
-	if err := g2.Wait(); err != nil {
-		return nil, err
-	}
-
-	sortMemberIDs(memberIDs, users)
-
-	return &BootstrapResult{
-		Channel:       channel,
-		Member:        actorMember,
-		Messages:      messages,
-		Reactions:     reactions,
-		Users:         users,
-		Presences:     presences,
-		MemberIDs:     memberIDs,
-		HasMoreBefore: hasMoreBefore,
-		HasMoreAfter:  hasMoreAfter,
-	}, nil
-}
-
-// GetSidebar fetches all sidebar related structures.
-func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
-	channelMap map[fields.ID]*Channel,
-	memberMap map[fields.ID]*Member,
-	peerIDsMap map[fields.ID][]fields.ID,
-	channelIDs []fields.ID,
-	peerIDs []fields.ID,
-	err error,
-) {
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
-	}
-
-	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, actorID, ChannelMaxSidebarItems)
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
-	}
-
-	if len(userMemberships) == 0 {
-		return make(map[fields.ID]*Channel), make(map[fields.ID]*Member), make(map[fields.ID][]fields.ID), []fields.ID{}, []fields.ID{}, nil
-	}
-
-	channelIDs, memberMap = indexMemberships(userMemberships)
-
-	channelMap, err = s.repo.GetBatch(ctx, channelIDs)
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
-	}
-
-	channelMembersMap, err := s.memberRepo.GetBatchByChannelIDs(ctx, channelIDs)
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
-	}
-
-	channels := getChannels(channelMap)
-	sortSidebar(channels, memberMap)
-	channelIDs = indexChannels(channels)
-	peerIDs, _ = getSidebarUserIDs(actorID, channelMap, channelMembersMap)
-	peerIDsMap = getSidebarPeerIDsMap(actorID, channelMembersMap)
-	return channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, nil
-}
-
 // UpdateGroup updates the group channel properties name and icon_url.
-func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSessionID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -371,13 +205,17 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 		return nil, err
 	}
 
-	_, err = s.memberRepo.Require(ctx, channelID, actorID)
+	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = validateMembership(actorID, members)
 	if err != nil {
 		return nil, err
 	}
 
 	var channel *Channel
-
 	now := fields.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -403,12 +241,19 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawChannel
 			}
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventChannelUpdated, ChannelUpdatedPayload{})
-		return nil
+		payload := EventChannelUpdatedPayload{
+			ExcludeSessionID: sessionID,
+			Channel:          channel,
+			MemberIDs:        getMemberIDs(members),
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventChannelUpdated, payload, now)
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	_ = s.cache.Delete(ctx, channel.ID())
 
 	return channel, nil
 }
@@ -443,66 +288,4 @@ func buildUpdateGroupSystemMessages(
 	}
 
 	return systemMessages, nil
-}
-
-func getMessagesCursor(
-	actorLastReadID fields.ID,
-	fallbackMessageID fields.ID,
-) fields.Cursor {
-	if fallbackMessageID.IsValid() {
-		return fields.NewCursor(fallbackMessageID, MessageListBeforeLimit, MessageListAfterLimit)
-	}
-
-	if actorLastReadID.IsValid() {
-		return fields.NewCursor(actorLastReadID, MessageListBeforeLimit, MessageListAfterLimit)
-	}
-
-	return fields.NewCursor(fallbackMessageID, MessageListLimit, 0)
-}
-
-func getSidebarPeerIDsMap(actorID fields.ID, memberMap map[fields.ID][]*Member) map[fields.ID][]fields.ID {
-	channelPeerIDsMap := make(map[fields.ID][]fields.ID, len(memberMap))
-	for chID, members := range memberMap {
-		var userIDs []fields.ID
-		for _, m := range members {
-			if m != nil && !m.UserID().Equals(actorID) {
-				userIDs = append(userIDs, m.UserID())
-			}
-		}
-
-		slices.SortFunc(userIDs, func(a, b fields.ID) int {
-			return a.Compare(b)
-		})
-
-		channelPeerIDsMap[chID] = userIDs
-	}
-	return channelPeerIDsMap
-}
-
-func getSidebarUserIDs(
-	actorID fields.ID,
-	channelMap map[fields.ID]*Channel,
-	memberMap map[fields.ID][]*Member,
-) (peerIDs, directPeerIDs []fields.ID) {
-	for chID, members := range memberMap {
-		ch := channelMap[chID]
-		if ch == nil {
-			continue
-		}
-
-		isDirect := ch.Type().IsDirect()
-		for _, m := range members {
-			userID := m.UserID()
-			if userID.Equals(actorID) {
-				continue
-			}
-
-			peerIDs = append(peerIDs, userID)
-			if isDirect {
-				directPeerIDs = append(directPeerIDs, userID)
-			}
-		}
-	}
-
-	return fields.DedupeIDs(peerIDs), fields.DedupeIDs(directPeerIDs)
 }

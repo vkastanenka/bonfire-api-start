@@ -44,7 +44,14 @@ func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel,
 }
 
 func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
-	return marshalAndSet(ctx, c.client, userKey(ch.ID()), ch, userTTL, redis.ScopeUser, marshalChannel)
+	return marshalAndSet(ctx, c.client, userKey(ch.ID()), ch, userTTL, redis.ScopeChannel, marshalChannel)
+}
+
+func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
+	if err := c.client.Del(ctx, channelKey(id)).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeChannel)
+	}
+	return nil
 }
 
 func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, members []*channel.Member) error {

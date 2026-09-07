@@ -157,14 +157,18 @@ func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
 	})
 }
 
-func validateIDs(rawActorID, rawChannelID uuid.UUID) (actorID, channelID fields.ID, err error) {
+func validateIDs(rawActorID, rawSessionID, rawChannelID uuid.UUID) (actorID, sessionID, channelID fields.ID, err error) {
 	if actorID, err = fields.ParseRequiredID("actor_id", rawActorID); err != nil {
-		return fields.ID{}, fields.ID{}, err
+		return fields.ID{}, fields.ID{}, fields.ID{}, err
+	}
+	sessionID, err = fields.ParseRequiredID("session_id", rawSessionID)
+	if err != nil {
+		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 	if channelID, err = fields.ParseRequiredID("channel_id", rawChannelID); err != nil {
-		return fields.ID{}, fields.ID{}, err
+		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
-	return actorID, channelID, nil
+	return actorID, sessionID, channelID, nil
 }
 
 func validateMaxPeers(rawPeerIDs []uuid.UUID) error {

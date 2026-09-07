@@ -12,6 +12,7 @@ type ChannelCache interface {
 	CreateGroup(ctx context.Context, ch *Channel, members []*Member) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
 	Set(ctx context.Context, ch *Channel) error
+	Delete(ctx context.Context, id fields.ID) error
 }
 
 type ChannelRepository interface {

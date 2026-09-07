@@ -37,7 +37,11 @@ type EventChannelCreatedPayload struct {
 	MemberIDs        []fields.ID                     `json:"member_ids"`
 }
 
-type EventChannelUpdatedPayload struct{}
+type EventChannelUpdatedPayload struct {
+	ExcludeSessionID fields.ID   `json:"exclude_session_id"`
+	Channel          *Channel    `json:"channel"`
+	MemberIDs        []fields.ID `json:"member_ids"`
+}
 
 type EventChannelMemberAddedPayload struct{}
 type EventChannelMemberUpdatedPayload struct{}
