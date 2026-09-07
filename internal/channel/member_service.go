@@ -3,7 +3,10 @@ package channel
 import (
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,141 +14,276 @@ import (
 )
 
 type MemberService struct {
-	repo         MemberRepository
-	channelRepo  ChannelRepository
-	messageRepo  MessageRepository
-	userRepo     UserRepository
-	userCache    UserCache
-	outboxRepo   OutboxRepository
-	relationRepo RelationRepository
-	tx           TX
+	repo           MemberRepository
+	channelCache   ChannelCache
+	channelRepo    ChannelRepository
+	channelService *ChannelService
+	messageRepo    MessageRepository
+	userRepo       UserRepository
+	userService    UserService
+	presenceCache  PresenceCache
+	outboxRepo     OutboxRepository
+	relationRepo   RelationRepository
+	tx             TX
 }
 
 func NewMemberService(
 	repo MemberRepository,
+	channelCache ChannelCache,
 	channelRepo ChannelRepository,
+	channelService *ChannelService,
 	messageRepo MessageRepository,
 	userRepo UserRepository,
-	userCache UserCache,
+	userService UserService,
+	presenceCache PresenceCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
 ) *MemberService {
 	return &MemberService{
-		repo:         repo,
-		channelRepo:  channelRepo,
-		messageRepo:  messageRepo,
-		userRepo:     userRepo,
-		userCache:    userCache,
-		outboxRepo:   outboxRepo,
-		relationRepo: relationRepo,
-		tx:           tx,
+		repo:           repo,
+		channelCache:   channelCache,
+		channelRepo:    channelRepo,
+		channelService: channelService,
+		messageRepo:    messageRepo,
+		userRepo:       userRepo,
+		userService:    userService,
+		presenceCache:  presenceCache,
+		outboxRepo:     outboxRepo,
+		relationRepo:   relationRepo,
+		tx:             tx,
 	}
 }
 
-// AddMembers adds members to a channel and creates a group channel if adding to a direct channel.
-func (s *MemberService) AddMembers(
+// GetBatchByChannelIDs retrieves members for multiple channels using a cache-aside strategy.
+func (s *MemberService) GetBatchByChannelIDs(
 	ctx context.Context,
-	rawActorID,
-	rawChannelID uuid.UUID,
-	rawMemberIDs []uuid.UUID,
-) error {
-	if err := validateMinMembers(rawMemberIDs); err != nil {
-		return err
+	channelIDs []fields.ID,
+) (map[fields.ID][]*Member, error) {
+	if len(channelIDs) == 0 {
+		return make(map[fields.ID][]*Member), nil
 	}
 
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	channelIDs = fields.DedupeIDs(channelIDs)
+
+	// 1. Attempt cache lookup
+	found, missing, err := s.channelCache.GetBatchMembersByChannelIDs(ctx, channelIDs)
 	if err != nil {
-		return err
+		// Log cache error if needed; proceed or return error depending on degradation strategy
+		return nil, err
+	}
+
+	// 2. Return early if all requested channel memberships were cached
+	if len(missing) == 0 {
+		return found, nil
+	}
+
+	// 3. Fetch missing channel memberships from repository
+	dbMembersMap, err := s.repo.GetBatchByChannelIDs(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(dbMembersMap) == 0 {
+		return found, nil
+	}
+
+	// 4. Backfill cache asynchronously or inline for missing hits
+	_ = s.channelCache.SetBatchMembers(ctx, dbMembersMap)
+
+	// 5. Merge DB results into result map
+	for cid, members := range dbMembersMap {
+		found[cid] = members
+	}
+
+	return found, nil
+}
+
+// GetBatchByChannelID convenience wrapper for single channel lookups.
+func (s *MemberService) GetBatchByChannelID(
+	ctx context.Context,
+	channelID fields.ID,
+) ([]*Member, error) {
+	res, err := s.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	if err != nil {
+		return nil, err
+	}
+	return res[channelID], nil
+}
+
+type AddMembersResult struct {
+	Users     map[fields.ID]*user.User
+	Presences map[fields.ID]presence.Presence
+	MemberIDs []fields.ID
+	Messages  []*Message
+}
+
+// AddMembers adds members to a channel and creates system notification messages.
+func (s *MemberService) AddMembers(
+	ctx context.Context,
+	rawActorID, rawSessionID, rawChannelID uuid.UUID,
+	rawMemberIDs []uuid.UUID,
+) (*AddMembersResult, error) {
+	if err := validateMinMembers(rawMemberIDs); err != nil {
+		return nil, err
+	}
+
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
+	if err != nil {
+		return nil, err
 	}
 
 	memberIDs, err := fields.ParseIDs(rawMemberIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newPeerIDs, err := filterRequiredPeerIDs(actorID, memberIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	var existingMembers []*Member
+	var (
+		existingMembers []*Member
+		ch              *Channel
+	)
 
 	g, ctxGrp := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		var err error
-		err = s.relationRepo.HasIncomingBlock(ctxGrp, actorID, newPeerIDs)
-		return err
+		return s.relationRepo.HasIncomingBlock(ctxGrp, actorID, newPeerIDs)
 	})
 
 	g.Go(func() error {
-		var err error
-		existingMembers, err = s.repo.GetBatchByChannelID(ctxGrp, channelID)
-		return err
+		var fetchErr error
+		existingMembers, fetchErr = s.GetBatchByChannelID(ctxGrp, channelID)
+		return fetchErr
+	})
+
+	g.Go(func() error {
+		var fetchErr error
+		ch, fetchErr = s.channelService.Get(ctxGrp, channelID.UUID())
+		return fetchErr
 	})
 
 	if err := g.Wait(); err != nil {
-		return err
+		return nil, err
+	}
+
+	if ch.Type().IsDirect() {
+		return nil, errors.New("Cannot add members to direct channel.")
 	}
 
 	if _, err := validateMembership(actorID, existingMembers); err != nil {
-		return err
+		return nil, err
 	}
 
 	newMemberIDs, err := filterNewMemberIDs(actorID, existingMembers, newPeerIDs)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	existingMemberIDs := getMemberIDs(existingMembers)
+	allMemberIDs := fields.DedupeIDs(append(existingMemberIDs, newMemberIDs...))
+
+	var (
+		allUsers     map[fields.ID]*user.User
+		allPresences map[fields.ID]presence.Presence
+	)
+
+	gHydrate, ctxHydrate := errgroup.WithContext(ctx)
+
+	gHydrate.Go(func() error {
+		var fetchErr error
+		allUsers, fetchErr = s.userService.GetBatch(ctxHydrate, allMemberIDs)
+		return fetchErr
+	})
+
+	gHydrate.Go(func() error {
+		var fetchErr error
+		allPresences, fetchErr = s.presenceCache.GetBatchPresence(ctxHydrate, allMemberIDs)
+		return fetchErr
+	})
+
+	if err := gHydrate.Wait(); err != nil {
+		return nil, err
+	}
+
+	sortMemberIDs(allMemberIDs, allUsers)
+
+	addedUsers := make(map[fields.ID]*user.User, len(newMemberIDs))
+	addedPresences := make(map[fields.ID]presence.Presence, len(newMemberIDs))
+	for _, id := range newMemberIDs {
+		if u, ok := allUsers[id]; ok {
+			addedUsers[id] = u
+		}
+		if p, ok := allPresences[id]; ok {
+			addedPresences[id] = p
+		}
 	}
 
 	now := fields.Now()
+	var (
+		createdMessages []*Message
+		membersToInsert []*Member
+	)
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		chLock, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
 		}
 
-		targetChannelID := channelID
-		if chLock.chType.IsDirect() {
-			newGroupChannel, err := NewGroupChannel(now)
-			if err != nil {
-				return err
-			}
-
-			createdChannel, err := s.channelRepo.Create(txCtx, newGroupChannel)
-			if err != nil {
-				return err
-			}
-			targetChannelID = createdChannel.ID()
+		if chLock.Type().IsDirect() {
+			return errors.New("Cannot add members to direct channel.")
 		}
 
-		membersToInsert, systemMessages, err := buildAddMemberPayloads(
-			chLock.chType.IsDirect(), targetChannelID, actorID, newMemberIDs, now,
+		systemMessages, err := buildAddMembersSystemMessages(chLock.ID(), actorID, newMemberIDs, now)
+		if err != nil {
+			return err
+		}
+
+		createdMessages, err = s.messageRepo.CreateBatchAndMention(
+			txCtx,
+			systemMessages,
+			chLock.ID(),
+			actorID,
+			now,
 		)
 		if err != nil {
 			return err
 		}
 
-		if len(systemMessages) > 0 {
-			if _, err := s.messageRepo.CreateBatchAndMention(
-				txCtx,
-				systemMessages,
-				targetChannelID,
-				actorID,
-				now,
-			); err != nil {
-				return err
-			}
-		}
-
+		membersToInsert = NewPeers(chLock.ID(), newMemberIDs, now)
 		if _, err := s.repo.CreateBatch(txCtx, membersToInsert); err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(txCtx, EventMembersAdded, MembersAddedPayload{})
-		return nil
+		sortMessages(createdMessages)
+
+		payload := EventChannelMembersAddedPayload{
+			ExcludeSessionID: sessionID,
+			Channel:          chLock,
+			Users:            allUsers,
+			Presences:        allPresences,
+			MemberIDs:        allMemberIDs,
+			SystemMessages:   createdMessages,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventChannelMembersAdded, payload, now)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.channelCache.AddMembers(ctx, channelID, membersToInsert)
+
+	return &AddMembersResult{
+		Users:     addedUsers,
+		Presences: addedPresences,
+		MemberIDs: allMemberIDs,
+		Messages:  createdMessages,
+	}, nil
 }
 
 func buildAddMembersSystemMessages(
@@ -153,41 +291,19 @@ func buildAddMembersSystemMessages(
 	newMemberIDs []fields.ID,
 	now fields.Timestamp,
 ) ([]*Message, error) {
-	if len(newMemberIDs) == 0 {
-		return nil, nil
-	}
-
-	systemMessages := make([]*Message, 0, len(newMemberIDs))
+	systemMessages := make([]*Message, len(newMemberIDs))
 	msgTime := now
 
-	for _, addedUserID := range newMemberIDs {
+	for i, addedUserID := range newMemberIDs {
 		msg, err := NewMessageMemberAdd(channelID, actorID, addedUserID, msgTime)
 		if err != nil {
 			return nil, err
 		}
-		systemMessages = append(systemMessages, msg)
+		systemMessages[i] = msg
 		msgTime = msgTime.Add(time.Microsecond)
 	}
 
 	return systemMessages, nil
-}
-
-func buildAddMemberPayloads(
-	isDirect bool,
-	channelID, actorID fields.ID,
-	newMemberIDs []fields.ID,
-	now fields.Timestamp,
-) (members []*Member, systemMessages []*Message, err error) {
-	if isDirect {
-		return NewMembers(channelID, actorID, newMemberIDs, now), nil, nil
-	}
-
-	systemMessages, err = buildAddMembersSystemMessages(channelID, actorID, newMemberIDs, now)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return NewPeers(channelID, newMemberIDs, now), systemMessages, nil
 }
 
 // CloseDirect updates the visibility of a channel membership to false.

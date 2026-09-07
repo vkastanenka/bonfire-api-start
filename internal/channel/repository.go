@@ -9,12 +9,14 @@ import (
 )
 
 type ChannelCache interface {
-	CreateGroup(ctx context.Context, ch *Channel, members []*Member) error
 	Get(ctx context.Context, id fields.ID) (*Channel, error)
 	Set(ctx context.Context, ch *Channel) error
 	Delete(ctx context.Context, id fields.ID) error
+	AddMembers(ctx context.Context, channelID fields.ID, members []*Member) error
+	CreateGroup(ctx context.Context, ch *Channel, members []*Member) error
+	GetBatchMembersByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, []fields.ID, error)
+	SetBatchMembers(ctx context.Context, channelMembersMap map[fields.ID][]*Member) error
 }
-
 type ChannelRepository interface {
 	Create(ctx context.Context, ch *Channel) (*Channel, error)
 	Delete(ctx context.Context, id fields.ID) error

@@ -15,7 +15,7 @@ const (
 	EventChannelUpdated = "channel.updated"
 
 	// Membership Events
-	EventChannelMemberAdded   = "channel.member.added"
+	EventChannelMembersAdded  = "channel.members.added"
 	EventChannelMemberUpdated = "channel.member.updated"
 	EventChannelMemberRemoved = "channel.member.removed"
 
@@ -28,7 +28,6 @@ const (
 	EventChannelReactionToggled = "channel.reaction.toggled"
 )
 
-// Payloads aligned with past-tense event naming
 type EventChannelCreatedPayload struct {
 	ExcludeSessionID fields.ID                       `json:"exclude_session_id"`
 	Channel          *Channel                        `json:"channel"`
@@ -48,7 +47,15 @@ type EventChannelUpdatedClientPayload struct {
 	Channel          *Channel  `json:"channel"`
 }
 
-type EventChannelMemberAddedPayload struct{}
+type EventChannelMembersAddedPayload struct {
+	ExcludeSessionID fields.ID                       `json:"exclude_session_id"`
+	Channel          *Channel                        `json:"channel"`
+	Users            map[fields.ID]*user.User        `json:"users"`
+	Presences        map[fields.ID]presence.Presence `json:"presences"`
+	MemberIDs        []fields.ID                     `json:"member_ids"`
+	SystemMessages   []*Message                      `json:"system_messages"`
+}
+
 type EventChannelMemberUpdatedPayload struct{}
 type EventChannelMemberRemovedPayload struct{}
 
@@ -76,6 +83,33 @@ func NewChannelCreatedEventHandler(gw outbox.Broadcaster) outbox.Handler {
 }
 
 func NewChannelUpdatedEventHandler(gw outbox.Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventChannelUpdatedPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		clientPayload := EventChannelUpdatedClientPayload{
+			ExcludeSessionID: p.ExcludeSessionID,
+			Channel:          p.Channel,
+		}
+
+		clientPayloadBytes, err := json.Marshal(clientPayload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]fields.ID{p.ExcludeSessionID},
+			EventChannelUpdated,
+			clientPayloadBytes,
+		)
+	}
+}
+
+func NewChannelMembersAddedEventHandler(gw outbox.Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
 		p, err := fields.ParseRawJSON[EventChannelUpdatedPayload](payload)
 		if err != nil {
