@@ -9,6 +9,10 @@ import (
 	"bonfire-api/internal/user"
 )
 
+type ChannelCache interface {
+	CreateGroup(ctx context.Context, ch *Channel, members []*Member) error
+}
+
 type ChannelRepository interface {
 	Create(ctx context.Context, ch *Channel) (*Channel, error)
 	Delete(ctx context.Context, id fields.ID) error
@@ -67,16 +71,19 @@ type RelationRepository interface {
 	HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) error
 }
 
+type PresenceCache interface {
+	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
+	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
+}
+
 type UserRepository interface {
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
 }
 
-type UserCache interface {
-	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
-	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
-	SetBatchPresence(ctx context.Context, items map[fields.ID]presence.Presence) error
+type UserService interface {
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
 }
 
 type TX interface {

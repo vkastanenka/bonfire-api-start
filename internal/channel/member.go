@@ -5,6 +5,8 @@ import (
 	"bonfire-api/internal/user"
 	"cmp"
 	"slices"
+	"sort"
+	"strings"
 )
 
 type Member struct {
@@ -131,6 +133,17 @@ func getChannels(channelMap map[fields.ID]*Channel) []*Channel {
 	return channels
 }
 
+func filterMembership(actorID fields.ID, membs []*Member) *Member {
+	var actorMember *Member
+	for _, m := range membs {
+		if m.UserID().Equals(actorID) {
+			actorMember = m
+			break
+		}
+	}
+	return actorMember
+}
+
 func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
 	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
 }
@@ -185,6 +198,23 @@ func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
 			return cmp
 		}
 		return a.UserID().Compare(b.UserID())
+	})
+}
+
+func sortMemberIDs(ids []fields.ID, users map[fields.ID]*user.User) {
+	sort.Slice(ids, func(i, j int) bool {
+		uI := users[ids[i]]
+		uJ := users[ids[j]]
+
+		var nameI, nameJ string
+		if uI != nil {
+			nameI = uI.DisplayName().String()
+		}
+		if uJ != nil {
+			nameJ = uJ.DisplayName().String()
+		}
+
+		return strings.ToLower(nameI) < strings.ToLower(nameJ)
 	})
 }
 

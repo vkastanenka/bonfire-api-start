@@ -14,64 +14,75 @@ import (
 )
 
 type ChannelService struct {
-	repo         ChannelRepository
-	memberRepo   MemberRepository
-	messageRepo  MessageRepository
-	reactionRepo ReactionRepository
-	userRepo     UserRepository
-	userCache    UserCache
-	outboxRepo   OutboxRepository
-	relationRepo RelationRepository
-	tx           TX
+	cache         ChannelCache
+	repo          ChannelRepository
+	memberRepo    MemberRepository
+	messageRepo   MessageRepository
+	reactionRepo  ReactionRepository
+	presenceCache PresenceCache
+	userRepo      UserRepository
+	userService   UserService
+	outboxRepo    OutboxRepository
+	relationRepo  RelationRepository
+	tx            TX
 }
 
 func NewChannelService(
+	cache ChannelCache,
 	repo ChannelRepository,
 	memberRepo MemberRepository,
 	messageRepo MessageRepository,
 	reactionRepo ReactionRepository,
+	presenceCache PresenceCache,
 	userRepo UserRepository,
-	userCache UserCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
-		repo:         repo,
-		memberRepo:   memberRepo,
-		messageRepo:  messageRepo,
-		reactionRepo: reactionRepo,
-		userRepo:     userRepo,
-		userCache:    userCache,
-		outboxRepo:   outboxRepo,
-		relationRepo: relationRepo,
-		tx:           tx,
+		cache:         cache,
+		repo:          repo,
+		memberRepo:    memberRepo,
+		messageRepo:   messageRepo,
+		reactionRepo:  reactionRepo,
+		presenceCache: presenceCache,
+		userRepo:      userRepo,
+		outboxRepo:    outboxRepo,
+		relationRepo:  relationRepo,
+		tx:            tx,
 	}
 }
 
+type CreateGroupResult struct {
+	Channel     *Channel
+	ActorMember *Member
+	Users       map[fields.ID]*user.User
+	Presences   map[fields.ID]presence.Presence
+	MemberIDs   []fields.ID
+}
+
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) error {
-	err := validateMaxPeers(rawPeerIDs)
-	if err != nil {
-		return err
+func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+	if err := validateMaxPeers(rawPeerIDs); err != nil {
+		return nil, err
 	}
 
 	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	memberIDs, err := fields.ParseIDs(rawPeerIDs)
+	peerMemberIDs, err := fields.ParseIDs(rawPeerIDs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	peerIDs := filterPeerIDs(actorID, memberIDs)
+	dedupedMemberIDs := fields.DedupeIDs(append(peerMemberIDs, actorID))
+	peerIDs := fields.RemoveID(dedupedMemberIDs, actorID)
 
 	if len(peerIDs) > 0 {
-		err = s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs)
-		if err != nil {
-			return err
+		if err = s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs); err != nil {
+			return nil, err
 		}
 	}
 
@@ -79,23 +90,65 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 
 	ch, err := NewGroupChannel(now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	membs := NewMembers(ch.ID(), actorID, peerIDs, now)
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if _, err = s.repo.Create(txCtx, ch); err != nil {
-			return err
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var repoErr error
+		if ch, repoErr = s.repo.Create(txCtx, ch); repoErr != nil {
+			return repoErr
 		}
 
-		if _, err = s.memberRepo.CreateBatch(txCtx, membs); err != nil {
-			return err
+		if membs, repoErr = s.memberRepo.CreateBatch(txCtx, membs); repoErr != nil {
+			return repoErr
 		}
 
 		// return s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{})
 		return nil
 	})
+	if txErr != nil {
+		return nil, txErr
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	var (
+		users     map[fields.ID]*user.User
+		presences map[fields.ID]presence.Presence
+	)
+
+	g.Go(func() error {
+		var fetchErr error
+		users, fetchErr = s.userService.GetBatch(gCtx, dedupedMemberIDs)
+		return fetchErr
+	})
+
+	g.Go(func() error {
+		var fetchErr error
+		presences, fetchErr = s.presenceCache.GetBatchPresence(gCtx, dedupedMemberIDs)
+		return fetchErr
+	})
+
+	g.Go(func() error {
+		_ = s.cache.CreateGroup(gCtx, ch, membs)
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	sortMemberIDs(dedupedMemberIDs, users)
+
+	return &CreateGroupResult{
+		Channel:     ch,
+		ActorMember: filterMembership(actorID, membs),
+		Users:       users,
+		Presences:   presences,
+		MemberIDs:   dedupedMemberIDs,
+	}, nil
 }
 
 // Get fetches all channel data needed to load a channel, including details, members, and messages.
@@ -170,7 +223,7 @@ func (s *ChannelService) Get(ctx context.Context, rawActorID, rawChannelID, rawM
 
 	g2.Go(func() error {
 		var err error
-		presenceMap, err = s.userCache.GetBatchPresence(ctx2, memberIDs)
+		presenceMap, err = s.presenceCache.GetBatchPresence(ctx2, memberIDs)
 		return err
 	})
 

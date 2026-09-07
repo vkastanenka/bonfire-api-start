@@ -30,10 +30,9 @@ func userNamespacedKey(id fields.ID, suffix string) string {
 	return "{" + userDomainKey + id.String() + "}:" + suffix
 }
 
-func userKey(id fields.ID) string         { return userNamespacedKey(id, "") }
-func userFriendsKey(id fields.ID) string  { return userNamespacedKey(id, "friends") }
-func userBlocksKey(id fields.ID) string   { return userNamespacedKey(id, "blocks") }
-func userChannelsKey(id fields.ID) string { return userNamespacedKey(id, "channels") }
+func userKey(id fields.ID) string        { return userNamespacedKey(id, "") }
+func userFriendsKey(id fields.ID) string { return userNamespacedKey(id, "friends") }
+func userBlocksKey(id fields.ID) string  { return userNamespacedKey(id, "blocks") }
 
 type UserCache struct {
 	client redisdriver.Cmdable
