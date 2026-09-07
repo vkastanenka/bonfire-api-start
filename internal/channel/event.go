@@ -1,5 +1,11 @@
 package channel
 
+import (
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
+)
+
 const (
 	EventChannelCreated               = "channel.created"
 	EventChannelUpdated               = "channel.updated"
@@ -16,7 +22,16 @@ const (
 	EventReactionToggle               = "channel.reaction_toggle"
 )
 
-type ChannelCreatedPayload struct{}
+type EventChannelCreatedPayload struct {
+	ActorID   string                          `json:"actor_id"`
+	SessionID string                          `json:"session_id,omitempty"`
+	Channel   *Channel                        `json:"channel"`
+	Members   map[fields.ID]*Member           `json:"members"`
+	Users     map[fields.ID]*user.User        `json:"users"`
+	Presences map[fields.ID]presence.Presence `json:"presences"`
+	MemberIDs []fields.ID                     `json:"member_ids"`
+}
+
 type ChannelUpdatedPayload struct{}
 
 type MembersAddedPayload struct{}

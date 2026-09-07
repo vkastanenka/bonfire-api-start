@@ -62,7 +62,7 @@ type CreateGroupResult struct {
 }
 
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID, sessionID string) (*CreateGroupResult, error) {
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
 		return nil, err
 	}
@@ -95,23 +95,6 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 
 	membs := NewMembers(ch.ID(), actorID, peerIDs, now)
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var repoErr error
-		if ch, repoErr = s.repo.Create(txCtx, ch); repoErr != nil {
-			return repoErr
-		}
-
-		if membs, repoErr = s.memberRepo.CreateBatch(txCtx, membs); repoErr != nil {
-			return repoErr
-		}
-
-		// return s.outboxRepo.Publish(txCtx, EventChannelCreated, ChannelCreatedPayload{})
-		return nil
-	})
-	if txErr != nil {
-		return nil, txErr
-	}
-
 	g, gCtx := errgroup.WithContext(ctx)
 
 	var (
@@ -131,16 +114,44 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID uuid.UUID, 
 		return fetchErr
 	})
 
-	g.Go(func() error {
-		_ = s.cache.CreateGroup(gCtx, ch, membs)
-		return nil
-	})
-
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
 	sortMemberIDs(dedupedMemberIDs, users)
+
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var repoErr error
+		if ch, repoErr = s.repo.Create(txCtx, ch); repoErr != nil {
+			return repoErr
+		}
+
+		if membs, repoErr = s.memberRepo.CreateBatch(txCtx, membs); repoErr != nil {
+			return repoErr
+		}
+
+		membersMap := make(map[fields.ID]*Member, len(membs))
+		for _, m := range membs {
+			membersMap[m.UserID()] = m
+		}
+
+		outboxPayload := EventChannelCreatedPayload{
+			ActorID:   actorID.String(),
+			SessionID: sessionID,
+			Channel:   ch,
+			Members:   membersMap,
+			Users:     users,
+			Presences: presences,
+			MemberIDs: dedupedMemberIDs,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventChannelCreated, outboxPayload, now)
+	})
+	if txErr != nil {
+		return nil, txErr
+	}
+
+	_ = s.cache.CreateGroup(ctx, ch, membs)
 
 	return &CreateGroupResult{
 		Channel:     ch,
