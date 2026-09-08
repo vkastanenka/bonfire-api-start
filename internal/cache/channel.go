@@ -16,13 +16,23 @@ const (
 )
 
 // String / Hash
-func channelKey(channelID fields.ID) string {
-	return "{channel:" + channelID.String() + "}"
+func channelKey(id fields.ID) string {
+	return "{channel:" + id.String() + "}"
 }
 
 // Hash
-func channelMembersKey(channelID fields.ID) string {
-	return "{channel:" + channelID.String() + "}:members"
+func channelMembersKey(id fields.ID) string {
+	return "{channel:" + id.String() + "}:members"
+}
+
+// ZSet: Score = UUIDv7 Timestamp (or 0 for Lex), Member = msg_id
+func channelMessagesKey(channelID fields.ID) string {
+	return "{channel:" + channelID.String() + "}:messages"
+}
+
+// String / Hash: Serialized Message Object
+func messageKey(msgID fields.ID) string {
+	return "{message:" + msgID.String() + "}"
 }
 
 // ZSet

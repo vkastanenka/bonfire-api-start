@@ -20,6 +20,17 @@ type ChannelCache interface {
 	GetMember(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
 }
 
+type MessageCache interface {
+	Delete(ctx context.Context, channelID fields.ID, msgID fields.ID) error
+	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
+	GetRecentByChannelID(ctx context.Context, channelID fields.ID, limit int) ([]*channel.Message, bool, error)
+	Set(ctx context.Context, msg *channel.Message) error
+	SetBatch(ctx context.Context, channelID fields.ID, messages []*channel.Message) error
+	GetAroundByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, beforeLimit int, afterLimit int) ([]*channel.Message, bool, bool, bool, error)
+	GetAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*channel.Message, bool, bool, error)
+	GetBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*channel.Message, bool, bool, error)
+}
+
 type UserCache interface {
 	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	AddFriendID(ctx context.Context, userID fields.ID, friendID fields.ID) error
