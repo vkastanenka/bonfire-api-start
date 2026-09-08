@@ -110,7 +110,7 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client, presence prese
 	isFirstUserSession := h.registerClient(client)
 
 	if isFirstUserSession {
-		h.registerNode(ctx, client.UserID, presence)
+		h.registerNode(ctx, client.UserID, client.SessionID, presence)
 	}
 
 	slog.Info("Client connected to gateway",
@@ -141,11 +141,11 @@ func (h *Hub) registerClient(client *Client) bool {
 	return isFirstUserSession
 }
 
-func (h *Hub) registerNode(ctx context.Context, userID fields.ID, presence presence.Presence) {
+func (h *Hub) registerNode(ctx context.Context, userID, sessionID fields.ID, presence presence.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RegisterNode(reqCtx, userID, h.id, presence); err != nil {
+	if err := h.service.RegisterNode(reqCtx, userID, sessionID, h.id, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -154,7 +154,7 @@ func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	isLastUserSession := h.unregisterClient(client)
 
 	if isLastUserSession {
-		h.unregisterNode(ctx, client.UserID)
+		h.unregisterNode(ctx, client.UserID, client.SessionID)
 	}
 
 	client.Close()
@@ -189,11 +189,11 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	return isLastUserSession
 }
 
-func (h *Hub) unregisterNode(ctx context.Context, userID fields.ID) {
+func (h *Hub) unregisterNode(ctx context.Context, userID, sessionID fields.ID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.UnregisterNode(reqCtx, userID, h.id); err != nil {
+	if err := h.service.UnregisterNode(reqCtx, userID, sessionID, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -309,7 +309,12 @@ func (h *Hub) dispatchEvent(ctx context.Context, payload string) {
 	}
 
 	if len(event.UserIDs) > 0 {
-		h.sendToUsers(event.UserIDs, outboundPayload)
+		excludeMap := make(map[uuid.UUID]struct{}, len(event.ExcludeSessionIDs))
+		for _, id := range event.ExcludeSessionIDs {
+			excludeMap[id] = struct{}{}
+		}
+
+		h.sendToUsers(event.UserIDs, excludeMap, outboundPayload)
 	}
 }
 

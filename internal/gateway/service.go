@@ -3,12 +3,10 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -36,39 +34,39 @@ func (s *Service) RegisterNode(
 	userID, nodeID, sessionID fields.ID,
 	presenceStatus presence.Presence,
 ) error {
-	wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, sessionID, presenceStatus)
-	if err != nil {
-		return err
-	}
+	// wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, sessionID, presenceStatus)
+	// if err != nil {
+	// 	return err
+	// }
 
-	if wasOffline {
-		payload := user.EventUpdatePresencePayload{
-			UserID:   userID.String(),
-			Presence: effPresence.String(),
-		}
-		if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update on register", "user_id", userID, "error", broadcastErr)
-		}
-	}
+	// if wasOffline {
+	// 	payload := user.EventUpdatePresencePayload{
+	// 		UserID:   userID.String(),
+	// 		Presence: effPresence.String(),
+	// 	}
+	// 	if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
+	// 		slog.ErrorContext(ctx, "failed to broadcast presence update on register", "user_id", userID, "error", broadcastErr)
+	// 	}
+	// }
 
 	return nil
 }
 
 func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID fields.ID) error {
-	wentOffline, err := s.presenceCache.UnregisterNode(ctx, userID, nodeID, sessionID)
-	if err != nil {
-		return err
-	}
+	// wentOffline, err := s.presenceCache.UnregisterNode(ctx, userID, nodeID, sessionID)
+	// if err != nil {
+	// 	return err
+	// }
 
-	if wentOffline {
-		payload := user.EventUpdatePresencePayload{
-			UserID:   userID.String(),
-			Presence: presence.NewOffline().String(),
-		}
-		if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
-		}
-	}
+	// if wentOffline {
+	// 	payload := user.EventUpdatePresencePayload{
+	// 		UserID:   userID.String(),
+	// 		Presence: presence.NewOffline().String(),
+	// 	}
+	// 	if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
+	// 		slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
+	// 	}
+	// }
 
 	return nil
 }
@@ -183,56 +181,56 @@ func (s *Service) BroadcastToUsers(
 	return s.BroadcastUserEvent(ctx, recipientIDs, excludeSessionIDs, eventType, payload)
 }
 
-func (s *Service) BroadcastToFriends(
-	ctx context.Context,
-	actorID fields.ID,
-	eventType string,
-	payload interface{},
-) error {
-	friendIDs, err := s.userCache.GetFriendIDs(ctx, actorID)
-	if err != nil {
-		return err
-	}
+// func (s *Service) BroadcastToFriends(
+// 	ctx context.Context,
+// 	actorID fields.ID,
+// 	eventType string,
+// 	payload interface{},
+// ) error {
+// 	friendIDs, err := s.userCache.GetFriendIDs(ctx, actorID)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	recipients := make([]fields.ID, 0, len(friendIDs)+1)
-	recipients = append(recipients, friendIDs...)
-	recipients = append(recipients, actorID)
+// 	recipients := make([]fields.ID, 0, len(friendIDs)+1)
+// 	recipients = append(recipients, friendIDs...)
+// 	recipients = append(recipients, actorID)
 
-	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
-}
+// 	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
+// }
 
-func (s *Service) BroadcastToPeers(
-	ctx context.Context,
-	actorID fields.ID,
-	eventType string,
-	payload interface{},
-) error {
-	peerIDs, err := s.userCache.GetPeerIDs(ctx, actorID)
-	if err != nil {
-		return err
-	}
+// func (s *Service) BroadcastToPeers(
+// 	ctx context.Context,
+// 	actorID fields.ID,
+// 	eventType string,
+// 	payload interface{},
+// ) error {
+// 	peerIDs, err := s.userCache.GetPeerIDs(ctx, actorID)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	recipients := make([]fields.ID, 0, len(peerIDs)+1)
-	recipients = append(recipients, peerIDs...)
-	recipients = append(recipients, actorID)
+// 	recipients := make([]fields.ID, 0, len(peerIDs)+1)
+// 	recipients = append(recipients, peerIDs...)
+// 	recipients = append(recipients, actorID)
 
-	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
-}
+// 	return s.BroadcastUserEvent(ctx, actorID, recipients, eventType, payload)
+// }
 
-func (s *Service) BroadcastToChannelMembers(
-	ctx context.Context,
-	actorID fields.ID,
-	actorExcludeSessionIDs []fields.ID,
-	eventType string,
-	payloads map[fields.ID]interface{},
-) error {
+// func (s *Service) BroadcastToChannelMembers(
+// 	ctx context.Context,
+// 	actorID fields.ID,
+// 	actorExcludeSessionIDs []fields.ID,
+// 	eventType string,
+// 	payloads map[fields.ID]interface{},
+// ) error {
 
-	// Get recipient ids (payloads keys)
+// 	// Get recipient ids (payloads keys)
 
-	// get batch nodes for the users
+// 	// get batch nodes for the users
 
-	// create node events
-}
+// 	// create node events
+// }
 
 /*
 BroadcastToChannelMembers

@@ -33,7 +33,7 @@ func ParsePayload[T any](op string, rawMessage json.RawMessage) (*T, error) {
 }
 
 // NewHeartbeatHandler handles websocket heartbeats and optional presence updates.
-func NewHeartbeatHandler(service *Service, nodeID fields.ID) MessageHandler {
+func NewHeartbeatHandler(service *Service, nodeID, sessionID fields.ID) MessageHandler {
 	return func(ctx context.Context, client *Client, data json.RawMessage) error {
 		payload, err := ParsePayload[HeartbeatPayload]("heartbeat", data)
 		if err != nil {
@@ -52,7 +52,7 @@ func NewHeartbeatHandler(service *Service, nodeID fields.ID) MessageHandler {
 		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
 
-		if err := service.HandleHeartbeat(reqCtx, client.UserID, nodeID, newPresence); err != nil {
+		if err := service.HandleHeartbeat(reqCtx, client.UserID, nodeID, sessionID, newPresence); err != nil {
 			slog.ErrorContext(reqCtx, "failed to handle heartbeat", "user_id", client.UserID, "error", err)
 			return err
 		}
