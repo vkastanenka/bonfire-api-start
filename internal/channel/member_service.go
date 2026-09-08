@@ -264,7 +264,7 @@ func (s *MemberService) AddMembers(
 
 		sortMessages(createdMessages)
 
-		payload := EventChannelMembersAddedPayload{
+		payload := EventMembersAddedPayload{
 			ExcludeSessionID: sessionID,
 			Channel:          chLock,
 			Users:            allUsers,
@@ -273,7 +273,7 @@ func (s *MemberService) AddMembers(
 			SystemMessages:   createdMessages,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventChannelMembersAdded, payload, now)
+		return s.outboxRepo.Publish(txCtx, EventMembersAdded, payload, now)
 	})
 	if err != nil {
 		return nil, err
@@ -344,7 +344,7 @@ func (s *MemberService) CloseDirect(
 			return err
 		}
 
-		payload := EventChannelMemberClosedDirectPayload{
+		payload := EventMemberClosedDirectPayload{
 			ExcludeSessionID: sessionID,
 			MemberID:         member.UserID(),
 			ChannelID:        ch.ID(),
@@ -352,7 +352,7 @@ func (s *MemberService) CloseDirect(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMemberClosedDirect,
+			EventMemberClosedDirect,
 			payload,
 			now,
 		)
@@ -421,7 +421,7 @@ func (s *MemberService) UpdateLastReadMessage(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMemberUpdated,
+			EventMemberUpdated,
 			payload,
 			now,
 		)
@@ -477,7 +477,7 @@ func (s *MemberService) UpdatePinnedAt(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMemberUpdated,
+			EventMemberUpdated,
 			payload,
 			now,
 		)
@@ -542,7 +542,7 @@ func (s *MemberService) UpdateMutedUntil(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMemberUpdated,
+			EventMemberUpdated,
 			payload,
 			now,
 		)
@@ -618,7 +618,7 @@ func (s *MemberService) LeaveGroup(
 
 			return s.outboxRepo.Publish(
 				txCtx,
-				EventChannelMemberLeft,
+				EventMemberLeft,
 				payload,
 				now,
 			)
@@ -644,7 +644,7 @@ func (s *MemberService) LeaveGroup(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMemberLeft,
+			EventMemberLeft,
 			payload,
 			now,
 		)

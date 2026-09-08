@@ -252,3 +252,46 @@ type EventMessageDeletedPayload struct {
 	MessageID        fields.ID        `json:"message_id"`
 	MessageDeletedAt fields.Timestamp `json:"message_deleted_at"`
 }
+
+func NewMessageDeletedHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventMessageDeletedPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]fields.ID{p.ExcludeSessionID},
+			EventMessageDeleted,
+			payload,
+		)
+	}
+}
+
+type EventReactionToggledPayload struct {
+	MemberIDs        []fields.ID      `json:"member_ids"`
+	ExcludeSessionID fields.ID        `json:"exclude_session_id"`
+	ActorID          fields.ID        `json:"actor_id"`
+	MessageID        fields.ID        `json:"message_id"`
+	EmojiCount       EmojiCount       `json:"emoji_count"`
+	ToggledAt        fields.Timestamp `json:"toggled_at"`
+}
+
+func NewReactionToggledHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventReactionToggledPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]fields.ID{p.ExcludeSessionID},
+			EventReactionToggled,
+			payload,
+		)
+	}
+}

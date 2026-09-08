@@ -533,10 +533,10 @@ func (s *MessageService) Delete(
 // ToggleReaction adds or removes a user's reaction on a message.
 func (s *MessageService) ToggleReaction(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMessageID uuid.UUID,
+	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
 	rawEmoji string,
 ) (*EmojiCount, error) {
-	actorID, channelID, messageID, err := validateMessageIDs(rawActorID, rawChannelID, rawMessageID)
+	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +546,7 @@ func (s *MessageService) ToggleReaction(
 		return nil, err
 	}
 
-	_, err = s.prepareUpdate(ctx, actorID, channelID, messageID)
+	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -557,6 +557,7 @@ func (s *MessageService) ToggleReaction(
 	)
 
 	now := fields.Now()
+	memberIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		existingRx, txErr := s.reactionRepo.Get(txCtx, messageID, actorID, emoji)
@@ -567,13 +568,13 @@ func (s *MessageService) ToggleReaction(
 		wasReacted := existingRx != nil
 		willBeReacted = !wasReacted
 
-		// Create / delete
 		if wasReacted {
 			if txErr := s.reactionRepo.Delete(txCtx, messageID, actorID, emoji); txErr != nil {
 				return txErr
 			}
 		} else {
-			if _, txErr := s.reactionRepo.Create(txCtx, ReconstituteReaction(messageID, actorID, emoji, now)); txErr != nil {
+			rx := ReconstituteReaction(messageID, actorID, emoji, now)
+			if _, txErr := s.reactionRepo.Create(txCtx, rx); txErr != nil {
 				return txErr
 			}
 		}
@@ -583,12 +584,23 @@ func (s *MessageService) ToggleReaction(
 			return txErr
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventReactionToggle,
-		// 	ReactionTogglePayload{},
-		// )
-		return nil
+		// Broadcast neutral Reacted: false so clients don't overwrite user-specific state
+		broadcastEmojiCount := EmojiCount{
+			Emoji:   emoji.String(),
+			Count:   updatedCount,
+			Reacted: false,
+		}
+
+		payload := EventReactionToggledPayload{
+			MemberIDs:        memberIDs,
+			ExcludeSessionID: sessionID,
+			ActorID:          actorID,
+			MessageID:        messageID,
+			EmojiCount:       broadcastEmojiCount,
+			ToggledAt:        now,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventReactionToggled, payload, now)
 	})
 	if err != nil {
 		return nil, err
@@ -647,7 +659,7 @@ func (s *MessageService) getMessageViews(ctx context.Context, actorID fields.ID,
 	g, ctxGrp := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		var err error // TODO: Cache aside
+		var err error
 		reactionSummaryMap, err = s.reactionRepo.GetBatchSummaryByMessageIDs(ctxGrp, actorID, msgIDs)
 		return err
 	})
@@ -699,13 +711,13 @@ func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, 
 func (s *MessageService) validateParams(
 	ctx context.Context,
 	rawActorID, rawChannelID, rawMsgID uuid.UUID,
-) (actorID, channelID, msgID fields.ID, err error) {
-	actorID, channelID, msgID, err = validateMessageIDs(rawActorID, rawChannelID, rawMsgID)
+) (fields.ID, fields.ID, fields.ID, error) {
+	actorID, _, channelID, msgID, err := validateMessageIDs(rawActorID, uuid.Nil, rawChannelID, rawMsgID)
 	if err != nil {
 		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 
-	if _, err = s.memberRepo.Require(ctx, channelID, actorID); err != nil {
+	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
 		return fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 
