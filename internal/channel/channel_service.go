@@ -13,15 +13,15 @@ import (
 )
 
 type ChannelService struct {
-	cache         ChannelCache
-	repo          ChannelRepository
-	memberRepo    MemberRepository
-	messageRepo   MessageRepository
-	presenceCache PresenceCache
-	userService   UserService
-	outboxRepo    OutboxRepository
-	relationRepo  RelationRepository
-	tx            TX
+	cache          ChannelCache
+	repo           ChannelRepository
+	memberRepo     MemberRepository
+	messageRepo    MessageRepository
+	presenceCache  PresenceCache
+	cachedUserRepo CachedUserRepository
+	outboxRepo     OutboxRepository
+	relationRepo   RelationRepository
+	tx             TX
 }
 
 func NewChannelService(
@@ -31,19 +31,21 @@ func NewChannelService(
 	messageRepo MessageRepository,
 	reactionRepo ReactionRepository,
 	presenceCache PresenceCache,
+	cachedUserRepo CachedUserRepository,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
-		cache:         cache,
-		repo:          repo,
-		memberRepo:    memberRepo,
-		messageRepo:   messageRepo,
-		presenceCache: presenceCache,
-		outboxRepo:    outboxRepo,
-		relationRepo:  relationRepo,
-		tx:            tx,
+		cache:          cache,
+		repo:           repo,
+		memberRepo:     memberRepo,
+		messageRepo:    messageRepo,
+		presenceCache:  presenceCache,
+		cachedUserRepo: cachedUserRepo,
+		outboxRepo:     outboxRepo,
+		relationRepo:   relationRepo,
+		tx:             tx,
 	}
 }
 
@@ -103,7 +105,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 
 	g.Go(func() error {
 		var fetchErr error
-		users, fetchErr = s.userService.GetBatch(gCtx, dedupedMemberIDs)
+		users, fetchErr = s.cachedUserRepo.GetBatchValid(gCtx, dedupedMemberIDs)
 		return fetchErr
 	})
 

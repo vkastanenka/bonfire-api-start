@@ -112,8 +112,11 @@ type UserRepository interface {
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
 }
 
-type UserService interface {
+type CachedUserRepository interface {
+	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
+	GetBatchValid(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
+	GetValid(ctx context.Context, id fields.ID) (*user.User, error)
 }
 
 type TX interface {

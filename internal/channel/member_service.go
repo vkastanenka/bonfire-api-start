@@ -14,47 +14,47 @@ import (
 )
 
 type MemberService struct {
-	repo           MemberRepository
-	channelCache   ChannelCache
-	channelRepo    ChannelRepository
-	channelService *ChannelService
-	messageRepo    MessageRepository
-	userCache      UserCache
-	userRepo       UserRepository
-	userService    UserService
-	presenceCache  PresenceCache
-	outboxRepo     OutboxRepository
-	relationRepo   RelationRepository
-	tx             TX
+	repo              MemberRepository
+	channelCache      ChannelCache
+	channelRepo       ChannelRepository
+	cachedChannelRepo CachedChannelRepository
+	messageRepo       MessageRepository
+	userCache         UserCache
+	userRepo          UserRepository
+	cachedUserRepo    CachedUserRepository
+	presenceCache     PresenceCache
+	outboxRepo        OutboxRepository
+	relationRepo      RelationRepository
+	tx                TX
 }
 
 func NewMemberService(
 	repo MemberRepository,
 	channelCache ChannelCache,
 	channelRepo ChannelRepository,
-	channelService *ChannelService,
+	cachedChannelRepo CachedChannelRepository,
 	messageRepo MessageRepository,
 	userCache UserCache,
 	userRepo UserRepository,
-	userService UserService,
+	cachedUserRepo CachedUserRepository,
 	presenceCache PresenceCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
 ) *MemberService {
 	return &MemberService{
-		repo:           repo,
-		channelCache:   channelCache,
-		channelRepo:    channelRepo,
-		channelService: channelService,
-		messageRepo:    messageRepo,
-		userCache:      userCache,
-		userRepo:       userRepo,
-		userService:    userService,
-		presenceCache:  presenceCache,
-		outboxRepo:     outboxRepo,
-		relationRepo:   relationRepo,
-		tx:             tx,
+		repo:              repo,
+		channelCache:      channelCache,
+		channelRepo:       channelRepo,
+		cachedChannelRepo: cachedChannelRepo,
+		messageRepo:       messageRepo,
+		userCache:         userCache,
+		userRepo:          userRepo,
+		cachedUserRepo:    cachedUserRepo,
+		presenceCache:     presenceCache,
+		outboxRepo:        outboxRepo,
+		relationRepo:      relationRepo,
+		tx:                tx,
 	}
 }
 
@@ -165,7 +165,7 @@ func (s *MemberService) AddMembers(
 
 	g.Go(func() error {
 		var fetchErr error
-		ch, fetchErr = s.channelService.Get(ctxGrp, channelID.UUID())
+		ch, fetchErr = s.cachedChannelRepo.Get(ctxGrp, channelID)
 		return fetchErr
 	})
 
@@ -198,7 +198,7 @@ func (s *MemberService) AddMembers(
 
 	gHydrate.Go(func() error {
 		var fetchErr error
-		allUsers, fetchErr = s.userService.GetBatch(ctxHydrate, allMemberIDs)
+		allUsers, fetchErr = s.cachedUserRepo.GetBatchValid(ctxHydrate, allMemberIDs)
 		return fetchErr
 	})
 
