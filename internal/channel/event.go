@@ -18,7 +18,7 @@ const (
 	EventChannelMembersAdded       = "channel.members.added"
 	EventChannelMemberClosedDirect = "channel.member.closed_direct"
 	EventChannelMemberUpdated      = "channel.member.updated"
-	EventChannelMemberRemoved      = "channel.member.removed"
+	EventChannelMemberLeft         = "channel.member.left"
 
 	// Message Events
 	EventChannelMessageCreated = "channel.message.created"
@@ -55,12 +55,6 @@ type EventChannelMembersAddedPayload struct {
 	Presences        map[fields.ID]presence.Presence `json:"presences"`
 	MemberIDs        []fields.ID                     `json:"member_ids"`
 	SystemMessages   []*Message                      `json:"system_messages"`
-}
-
-type EventChannelMemberCloseDirectPayload struct {
-	ExcludeSessionID fields.ID `json:"exclude_session_id"`
-	MemberID         fields.ID `json:"member_id"`
-	ChannelID        fields.ID `json:"channel_id"`
 }
 
 type EventChannelMemberRemovedPayload struct{}
@@ -138,6 +132,80 @@ func NewChannelMembersAddedEventHandler(gw outbox.Broadcaster) outbox.Handler {
 			[]fields.ID{p.ExcludeSessionID},
 			EventChannelUpdated,
 			clientPayloadBytes,
+		)
+	}
+}
+
+type EventChannelMemberClosedDirectPayload struct {
+	ExcludeSessionID fields.ID `json:"exclude_session_id"`
+	MemberID         fields.ID `json:"member_id"`
+	ChannelID        fields.ID `json:"channel_id"`
+}
+
+func NewMemberClosedDirectEventHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventChannelMemberClosedDirectPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUser(
+			ctx,
+			p.MemberID,
+			[]fields.ID{p.ExcludeSessionID},
+			EventChannelMemberClosedDirect,
+			payload,
+		)
+	}
+}
+
+type EventMemberUpdatedPayload struct {
+	ExcludeSessionID fields.ID         `json:"exclude_session_id,omitempty"`
+	ChannelID        fields.ID         `json:"channel_id"`
+	MemberID         fields.ID         `json:"member_id"`
+	LastReadID       *fields.ID        `json:"last_read_message_id,omitempty"`
+	PinnedAt         *fields.Timestamp `json:"pinned_at,omitempty"`
+	MutedUntil       *fields.Timestamp `json:"muted_until,omitempty"`
+}
+
+func NewMemberUpdatedEventHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventMemberUpdatedPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUser(
+			ctx,
+			p.MemberID,
+			[]fields.ID{p.ExcludeSessionID},
+			EventChannelMemberUpdated,
+			payload,
+		)
+	}
+}
+
+type EventMemberLeftPayload struct {
+	ExcludeSessionID fields.ID   `json:"exclude_session_id"`
+	ActorID          fields.ID   `json:"actor_id"`
+	ChannelID        fields.ID   `json:"channel_id"`
+	MemberIDs        []fields.ID `json:"member_ids"`
+	SystemMessage    *Message    `json:"system_message"`
+}
+
+func NewMemberLeftEventHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventMemberLeftPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]fields.ID{p.ExcludeSessionID},
+			EventChannelMemberLeft,
+			payload,
 		)
 	}
 }

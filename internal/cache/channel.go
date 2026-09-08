@@ -55,6 +55,22 @@ func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
 	return nil
 }
 
+// InvalidateMembers evicts the entire members Hash for a channel (used on topology/membership changes).
+func (c *ChannelCache) InvalidateMembers(ctx context.Context, channelID fields.ID) error {
+	if err := c.client.Del(ctx, channelMembersKey(channelID)).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeChannel)
+	}
+	return nil
+}
+
+// InvalidateMember removes a single user field from the channel's members Hash.
+func (c *ChannelCache) InvalidateMember(ctx context.Context, channelID, userID fields.ID) error {
+	if err := c.client.HDel(ctx, channelMembersKey(channelID), userID.String()).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeChannel)
+	}
+	return nil
+}
+
 func (c *ChannelCache) AddMembers(ctx context.Context, channelID fields.ID, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil

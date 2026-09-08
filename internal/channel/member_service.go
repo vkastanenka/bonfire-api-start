@@ -19,7 +19,7 @@ type MemberService struct {
 	channelRepo    ChannelRepository
 	channelService *ChannelService
 	messageRepo    MessageRepository
-	userCache      UserCache,
+	userCache      UserCache
 	userRepo       UserRepository
 	userService    UserService
 	presenceCache  PresenceCache
@@ -34,7 +34,7 @@ func NewMemberService(
 	channelRepo ChannelRepository,
 	channelService *ChannelService,
 	messageRepo MessageRepository,
-	userCache UserRepository,
+	userCache UserCache,
 	userRepo UserRepository,
 	userService UserService,
 	presenceCache PresenceCache,
@@ -48,7 +48,7 @@ func NewMemberService(
 		channelRepo:    channelRepo,
 		channelService: channelService,
 		messageRepo:    messageRepo,
-		userCache:       userCache,
+		userCache:      userCache,
 		userRepo:       userRepo,
 		userService:    userService,
 		presenceCache:  presenceCache,
@@ -344,9 +344,9 @@ func (s *MemberService) CloseDirect(
 			return err
 		}
 
-		payload := EventChannelMemberCloseDirectPayload{
+		payload := EventChannelMemberClosedDirectPayload{
 			ExcludeSessionID: sessionID,
-			MemberID:         member.userID,
+			MemberID:         member.UserID(),
 			ChannelID:        ch.ID(),
 		}
 
@@ -366,14 +366,20 @@ func (s *MemberService) CloseDirect(
 	return nil
 }
 
-// UpdateLastReadMessage updates a members last read message id and time.
+// UpdateLastReadMessage updates a member's last read message id and timestamp.
 func (s *MemberService) UpdateLastReadMessage(
 	ctx context.Context,
 	rawActorID,
+	rawSessionID,
 	rawChannelID,
 	rawLastReadMessageID uuid.UUID,
 ) (*Member, error) {
-	actorID, channelID, lastReadMessageID, err := validateMessageIDs(rawActorID, rawChannelID, rawLastReadMessageID)
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
+	if err != nil {
+		return nil, err
+	}
+
+	lastReadMessageID, err := fields.ParseRequiredID("last_read_message_id", rawLastReadMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -384,14 +390,12 @@ func (s *MemberService) UpdateLastReadMessage(
 	}
 
 	var mentionCount *int
-
 	if ch.LastMessageID().Equals(lastReadMessageID) {
 		zero := 0
 		mentionCount = &zero
 	}
 
 	var updatedMember *Member
-
 	now := fields.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -408,28 +412,38 @@ func (s *MemberService) UpdateLastReadMessage(
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMemberUpdateLastReadMessage,
-		// 	MemberUpdateLastReadMessagePayload{},
-		// )
-		return nil
+		payload := EventMemberUpdatedPayload{
+			ExcludeSessionID: sessionID,
+			ChannelID:        channelID,
+			MemberID:         actorID,
+			LastReadID:       &lastReadMessageID,
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventChannelMemberUpdated,
+			payload,
+			now,
+		)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+
 	return updatedMember, nil
 }
 
-// UpdatePinnedAt updates a members pinned at timestamp.
+// UpdatePinnedAt updates a member's pinned at timestamp.
 func (s *MemberService) UpdatePinnedAt(
 	ctx context.Context,
 	rawActorID,
+	rawSessionID,
 	rawChannelID uuid.UUID,
 	isPinned bool,
 ) (*Member, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -454,28 +468,38 @@ func (s *MemberService) UpdatePinnedAt(
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMemberUpdatePinnedAt,
-		// 	MemberUpdatePinnedAtPayload{},
-		// )
-		return nil
+		payload := EventMemberUpdatedPayload{
+			ExcludeSessionID: sessionID,
+			ChannelID:        channelID,
+			MemberID:         actorID,
+			PinnedAt:         &pinnedAt,
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventChannelMemberUpdated,
+			payload,
+			now,
+		)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+
 	return updatedMember, nil
 }
 
-// UpdateMutedUntil updates a members muted until timestamp.
+// UpdateMutedUntil updates a member's muted until timestamp.
 func (s *MemberService) UpdateMutedUntil(
 	ctx context.Context,
 	rawActorID,
+	rawSessionID,
 	rawChannelID uuid.UUID,
 	rawDuration *int,
 ) (*Member, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -509,34 +533,49 @@ func (s *MemberService) UpdateMutedUntil(
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMemberUpdateMutedUntil,
-		// 	MemberUpdateMutedUntilPayload{},
-		// )
-		return nil
+		payload := EventMemberUpdatedPayload{
+			ExcludeSessionID: sessionID,
+			ChannelID:        channelID,
+			MemberID:         actorID,
+			MutedUntil:       &mutedUntil,
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventChannelMemberUpdated,
+			payload,
+			now,
+		)
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+
 	return updatedMember, nil
 }
 
-// LeaveGroup deletes a member and a group channel if no remaining members.
+// LeaveGroup deletes a member and a group channel if no remaining members exist.
 func (s *MemberService) LeaveGroup(
 	ctx context.Context,
 	rawActorID,
+	rawSessionID,
 	rawChannelID uuid.UUID,
 ) error {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return err
 	}
 
 	now := fields.Now()
+	var (
+		channelDeleted bool
+		sysMsg         *Message
+		memberIDs      []fields.ID
+	)
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
@@ -546,38 +585,83 @@ func (s *MemberService) LeaveGroup(
 			return ErrCannotLeaveDirectChannel()
 		}
 
+		existingMembers, err := s.repo.GetBatchByChannelID(txCtx, channelID)
+		if err != nil {
+			return err
+		}
+
+		memberIDs = make([]fields.ID, len(existingMembers))
+		for i, m := range existingMembers {
+			memberIDs[i] = m.UserID()
+		}
+
 		err = s.repo.Delete(txCtx, channelID, actorID)
 		if err != nil {
 			return err
 		}
 
-		remainingCount, err := s.repo.CountByChannelID(txCtx, channelID)
-		if err != nil {
-			return err
-		}
+		remainingCount := len(existingMembers) - 1
 
-		if remainingCount == 0 {
-			err = s.channelRepo.Delete(txCtx, channelID)
-			if err != nil {
+		if remainingCount <= 0 {
+			channelDeleted = true
+			if err = s.channelRepo.Delete(txCtx, channelID); err != nil {
 				return err
 			}
-			return nil
+
+			payload := EventMemberLeftPayload{
+				ExcludeSessionID: sessionID,
+				ActorID:          actorID,
+				ChannelID:        channelID,
+				MemberIDs:        memberIDs,
+				SystemMessage:    nil,
+			}
+
+			return s.outboxRepo.Publish(
+				txCtx,
+				EventChannelMemberLeft,
+				payload,
+				now,
+			)
 		}
 
-		sysMsg, err := NewMessageMemberLeave(ch.id, actorID, now)
-
-		_, err = s.messageRepo.CreateAndMention(txCtx, sysMsg, ch.ID(), actorID, now)
+		msg, err := NewMessageMemberLeave(ch.ID(), actorID, now)
 		if err != nil {
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMemberDelete,
-		// 	MemberDeletePayload{},
-		// )
-		return nil
+		sysMsg, err = s.messageRepo.CreateAndMention(txCtx, msg, ch.ID(), actorID, now)
+		if err != nil {
+			return err
+		}
+
+		payload := EventMemberLeftPayload{
+			ExcludeSessionID: sessionID,
+			ActorID:          actorID,
+			ChannelID:        channelID,
+			MemberIDs:        memberIDs,
+			SystemMessage:    sysMsg,
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventChannelMemberLeft,
+			payload,
+			now,
+		)
 	})
+	if err != nil {
+		return err
+	}
+
+	if channelDeleted {
+		_ = s.channelCache.InvalidateMembers(ctx, channelID)
+	} else {
+		_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+	}
+
+	_ = s.userCache.RemoveChannelID(ctx, actorID, channelID)
+
+	return nil
 }
 
 func filterNewMemberIDs(actorID fields.ID, existingMembers []*Member, newPeerIDs []fields.ID) ([]fields.ID, error) {
