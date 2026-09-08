@@ -129,23 +129,6 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	return result, nil
 }
 
-func (r *MemberRepository) GetBatchByChannelID(
-	ctx context.Context,
-	channelID fields.ID,
-) ([]*channel.Member, error) {
-	memberMap, err := r.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
-	if err != nil {
-		return nil, err
-	}
-
-	members, ok := memberMap[channelID]
-	if !ok || len(members) == 0 {
-		return nil, errs.NotFound("entity not found")
-	}
-
-	return members, nil
-}
-
 func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*channel.Member, error) {
 	rows, err := r.store.ChannelMemberListVisibleByUserID(ctx, db.ChannelMemberListVisibleByUserIDParams{
 		UserID:   db.ToUUID(userID.UUID()),

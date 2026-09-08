@@ -9,6 +9,11 @@ import (
 	"encoding/json"
 )
 
+type Broadcaster interface {
+	BroadcastToUser(ctx context.Context, userID fields.ID, excludeSessionIDs []fields.ID, eventType string, payload interface{}) error
+	BroadcastToUsers(ctx context.Context, recipientIDs []fields.ID, excludeSessionIDs []fields.ID, eventType string, payload interface{}) error
+}
+
 const (
 	// Channel Lifecycle
 	EventChannelCreated = "channel.created"

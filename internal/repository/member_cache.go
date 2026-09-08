@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
 )
 
@@ -40,23 +39,6 @@ func (r *CachedMemberRepository) Get(ctx context.Context, channelID, userID fiel
 	_ = r.cache.AddMembers(ctx, channelID, []*channel.Member{mem})
 
 	return mem, nil
-}
-
-func (r *CachedMemberRepository) GetBatchByChannelID(
-	ctx context.Context,
-	channelID fields.ID,
-) ([]*channel.Member, error) {
-	memberMap, err := r.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
-	if err != nil {
-		return nil, err
-	}
-
-	members, ok := memberMap[channelID]
-	if !ok || len(members) == 0 {
-		return nil, errs.NotFound("entity not found")
-	}
-
-	return members, nil
 }
 
 func (r *CachedMemberRepository) GetBatchByChannelIDs(
