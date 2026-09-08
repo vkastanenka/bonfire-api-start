@@ -17,9 +17,7 @@ type ChannelService struct {
 	repo          ChannelRepository
 	memberRepo    MemberRepository
 	messageRepo   MessageRepository
-	reactionRepo  ReactionRepository
 	presenceCache PresenceCache
-	userRepo      UserRepository
 	userService   UserService
 	outboxRepo    OutboxRepository
 	relationRepo  RelationRepository
@@ -33,7 +31,6 @@ func NewChannelService(
 	messageRepo MessageRepository,
 	reactionRepo ReactionRepository,
 	presenceCache PresenceCache,
-	userRepo UserRepository,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
 	tx TX,
@@ -43,9 +40,7 @@ func NewChannelService(
 		repo:          repo,
 		memberRepo:    memberRepo,
 		messageRepo:   messageRepo,
-		reactionRepo:  reactionRepo,
 		presenceCache: presenceCache,
-		userRepo:      userRepo,
 		outboxRepo:    outboxRepo,
 		relationRepo:  relationRepo,
 		tx:            tx,
@@ -162,30 +157,6 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 		Presences:   presences,
 		MemberIDs:   dedupedMemberIDs,
 	}, nil
-}
-
-func (s *ChannelService) Get(ctx context.Context, rawID uuid.UUID) (*Channel, error) {
-	id, err := fields.ParseRequiredID("id", rawID)
-	if err != nil {
-		return nil, err
-	}
-
-	ch, err := s.cache.Get(ctx, id)
-	if err != nil {
-		// Non-fatal cache error
-	}
-	if ch != nil {
-		return ch, nil
-	}
-
-	ch, err = s.repo.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	_ = s.cache.Set(ctx, ch)
-
-	return ch, nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.

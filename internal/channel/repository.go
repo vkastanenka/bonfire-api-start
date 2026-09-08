@@ -30,6 +30,10 @@ type ChannelRepository interface {
 	UpdateLastMessage(ctx context.Context, id fields.ID, lastMessageID fields.ID, lastMessageAt fields.Timestamp, updatedAt fields.Timestamp) (*Channel, error)
 }
 
+type CachedChannelRepository interface {
+	Get(ctx context.Context, id fields.ID) (*Channel, error)
+}
+
 type MemberRepository interface {
 	CountByChannelID(ctx context.Context, channelID fields.ID) (int, error)
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
