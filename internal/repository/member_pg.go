@@ -94,17 +94,6 @@ func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID)
 	return memberFromRow(row)
 }
 
-func (r *MemberRepository) Require(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
-	member, err := r.Get(ctx, channelID, userID)
-	if err != nil {
-		if errs.IsNotFound(err) {
-			return nil, errs.PermissionDenied("You are not a member of this channel.")
-		}
-		return nil, err
-	}
-	return member, nil
-}
-
 func (r *MemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
 	channelIDs []fields.ID,

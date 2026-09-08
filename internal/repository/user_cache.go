@@ -35,30 +35,6 @@ func (r *CachedUserRepository) Get(ctx context.Context, id fields.ID) (*user.Use
 	return u, nil
 }
 
-func (r *CachedUserRepository) GetValid(ctx context.Context, id fields.ID) (*user.User, error) {
-	u, err := r.cache.Get(ctx, id)
-	if err == nil && u != nil {
-		if err := u.EnsureActive(); err != nil {
-			_ = r.cache.Delete(ctx, id)
-			return nil, err
-		}
-		return u, nil
-	}
-
-	u, err = r.repo.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := u.EnsureActive(); err != nil {
-		return nil, err
-	}
-
-	_ = r.cache.Set(ctx, u)
-
-	return u, nil
-}
-
 func (r *CachedUserRepository) GetBatch(
 	ctx context.Context,
 	ids []fields.ID,
@@ -101,65 +77,4 @@ func (r *CachedUserRepository) GetBatch(
 	}
 
 	return usersMap, nil
-}
-
-func (r *CachedUserRepository) GetBatchValid(
-	ctx context.Context,
-	ids []fields.ID,
-) (map[fields.ID]*user.User, error) {
-	if len(ids) == 0 {
-		return make(map[fields.ID]*user.User), nil
-	}
-
-	found, missing, err := r.cache.GetBatch(ctx, ids)
-	if err != nil {
-		missing = ids
-		found = make(map[fields.ID]*user.User)
-	}
-
-	validUsers := make(map[fields.ID]*user.User, len(ids))
-	var invalidIDs []fields.ID
-
-	for id, u := range found {
-		if u == nil {
-			missing = append(missing, id)
-			continue
-		}
-
-		if err := u.EnsureActive(); err == nil {
-			validUsers[id] = u
-		} else {
-			invalidIDs = append(invalidIDs, id)
-		}
-	}
-
-	if len(invalidIDs) > 0 {
-		_ = r.cache.DeleteBatch(ctx, invalidIDs)
-	}
-
-	if len(missing) == 0 {
-		return validUsers, nil
-	}
-
-	missing = fields.DedupeIDs(missing)
-
-	dbUsersMap, err := r.repo.GetBatch(ctx, missing)
-	if err != nil {
-		return nil, err
-	}
-
-	validDBUsers := make(map[fields.ID]*user.User, len(dbUsersMap))
-	for id, u := range dbUsersMap {
-		if u == nil || u.EnsureActive() != nil {
-			continue
-		}
-		validDBUsers[id] = u
-		validUsers[id] = u
-	}
-
-	if len(validDBUsers) > 0 {
-		_ = r.cache.SetBatch(ctx, validDBUsers)
-	}
-
-	return validUsers, nil
 }

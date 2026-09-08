@@ -17,6 +17,7 @@ type ChannelCache interface {
 	InvalidateMembers(ctx context.Context, channelID fields.ID) error
 	Set(ctx context.Context, ch *channel.Channel) error
 	SetBatchMembers(ctx context.Context, channelMembersMap map[fields.ID][]*channel.Member) error
+	GetMember(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
 }
 
 type UserCache interface {
@@ -36,4 +37,5 @@ type UserCache interface {
 	SetBatch(ctx context.Context, users map[fields.ID]*user.User) error
 	SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error
 	SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error
+	GetVisibleMembersByUserID(ctx context.Context, userID fields.ID, limit int) ([]*channel.Member, bool, error)
 }
