@@ -267,16 +267,16 @@ func validateForward(hasFwdMsg, hasFwdChan bool) error {
 	return nil
 }
 
-func validateMessageIDs(rawActorID, rawChannelID, rawMsgID uuid.UUID) (fields.ID, fields.ID, fields.ID, error) {
-	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+func validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMsgID uuid.UUID) (fields.ID, fields.ID, fields.ID, fields.ID, error) {
+	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
 	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
+		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 
 	msgID, err := fields.ParseRequiredID("message_id", rawMsgID)
 	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
+		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
 	}
 
-	return actorID, channelID, msgID, nil
+	return actorID, sessionID, channelID, msgID, nil
 }

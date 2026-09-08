@@ -13,14 +13,14 @@ import (
 )
 
 type MessageService struct {
-	repo         MessageRepository
-	channelRepo  ChannelRepository
-	memberRepo   MemberRepository
-	reactionRepo ReactionRepository
-	userRepo     UserRepository
-	userCache    UserCache
-	outboxRepo   OutboxRepository
-	tx           TX
+	repo          MessageRepository
+	channelRepo   ChannelRepository
+	memberRepo    MemberRepository
+	memberService MemberService
+	reactionRepo  ReactionRepository
+	userRepo      UserRepository
+	outboxRepo    OutboxRepository
+	tx            TX
 }
 
 func NewMessageService(
@@ -29,7 +29,6 @@ func NewMessageService(
 	memberRepo MemberRepository,
 	reactionRepo ReactionRepository,
 	userRepo UserRepository,
-	userCache UserCache,
 	outboxRepo OutboxRepository,
 	tx TX,
 ) *MessageService {
@@ -39,7 +38,6 @@ func NewMessageService(
 		memberRepo:   memberRepo,
 		reactionRepo: reactionRepo,
 		userRepo:     userRepo,
-		userCache:    userCache,
 		tx:           tx,
 	}
 }
@@ -48,6 +46,7 @@ func NewMessageService(
 func (s *MessageService) Create(
 	ctx context.Context,
 	rawAuthorID,
+	rawSessionID,
 	rawChannelID uuid.UUID,
 	rawContent *string,
 	rawReplyToMsgID *uuid.UUID,
@@ -66,7 +65,7 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	authorID, channelID, err := validateIDs(rawAuthorID, rawChannelID)
+	authorID, sessionID, channelID, err := validateIDs(rawAuthorID, rawSessionID, rawChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +93,7 @@ func (s *MessageService) Create(
 	g, ctxGrp := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
+		// TODO: Cache aside get
 		_, err := s.memberRepo.Require(ctxGrp, channelID, authorID)
 		if err != nil {
 			return err
@@ -103,6 +103,7 @@ func (s *MessageService) Create(
 
 	if hasReply {
 		g.Go(func() error {
+			// TODO: Cache aside get
 			parentMsg, err := s.repo.Get(ctxGrp, replyToID)
 			if err != nil {
 				return err
