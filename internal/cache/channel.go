@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
 const (
 	channelDomainKey = "channel:"
+	channelTTL       = 24 * time.Hour
 )
 
 // String / Hash
@@ -51,11 +53,11 @@ func NewChannelCache(client redisdriver.Cmdable) *ChannelCache {
 }
 
 func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
-	return getAndUnmarshal(ctx, c.client, userKey(id), redis.ScopeChannel, unmarshalChannel)
+	return getAndUnmarshal(ctx, c.client, channelKey(id), redis.ScopeChannel, unmarshalChannel)
 }
 
 func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
-	return marshalAndSet(ctx, c.client, userKey(ch.ID()), ch, userTTL, redis.ScopeChannel, marshalChannel)
+	return marshalAndSet(ctx, c.client, channelKey(ch.ID()), ch, channelTTL, redis.ScopeChannel, marshalChannel)
 }
 
 func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
@@ -63,6 +65,91 @@ func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
 		return redis.NewError(err, redis.ScopeChannel)
 	}
 	return nil
+}
+
+// GetBatch retrieves multiple channels by their IDs in chunked MGET calls.
+func (c *ChannelCache) GetBatch(
+	ctx context.Context,
+	ids []fields.ID,
+) (map[fields.ID]*channel.Channel, []fields.ID, error) {
+	if len(ids) == 0 {
+		return make(map[fields.ID]*channel.Channel), nil, nil
+	}
+
+	found := make(map[fields.ID]*channel.Channel, len(ids))
+	missing := make([]fields.ID, 0, len(ids))
+	var corruptedKeys []string
+
+	for i := 0; i < len(ids); i += MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+
+		end := min(i+MaxBatchSize, len(ids))
+		chunk := ids[i:end]
+
+		redisKeys := make([]string, len(chunk))
+		for j, id := range chunk {
+			redisKeys[j] = channelKey(id)
+		}
+
+		vals, err := getBatchKeys(ctx, c.client, redisKeys, redis.ScopeChannel)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		for j, raw := range vals {
+			id := chunk[j]
+			rKey := redisKeys[j]
+
+			data, ok := toBytes(raw)
+			if !ok {
+				missing = append(missing, id)
+				continue
+			}
+
+			ch, err := unmarshalChannel(data)
+			if err != nil {
+				corruptedKeys = append(corruptedKeys, rKey)
+				missing = append(missing, id)
+				continue
+			}
+
+			found[id] = ch
+		}
+	}
+
+	if len(corruptedKeys) > 0 {
+		deleteBatchKeys(ctx, c.client, corruptedKeys, redis.ScopeChannel)
+	}
+
+	return found, missing, nil
+}
+
+// SetBatch stores multiple channels into Redis using chunked pipeline requests.
+func (c *ChannelCache) SetBatch(ctx context.Context, channels map[fields.ID]*channel.Channel) error {
+	if len(channels) == 0 {
+		return nil
+	}
+
+	items := make([]CacheItem, 0, len(channels))
+	for id, ch := range channels {
+		if ch == nil || id.IsZero() {
+			continue
+		}
+
+		bytes, err := marshalChannel(ch)
+		if err != nil {
+			return err
+		}
+
+		items = append(items, CacheItem{
+			Key:   channelKey(id),
+			Value: bytes,
+		})
+	}
+
+	return setBatchPipeline(ctx, c.client, items, channelTTL, redis.ScopeChannel)
 }
 
 // InvalidateMembers evicts the entire members Hash for a channel (used on topology/membership changes).

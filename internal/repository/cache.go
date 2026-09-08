@@ -18,6 +18,8 @@ type ChannelCache interface {
 	Set(ctx context.Context, ch *channel.Channel) error
 	SetBatchMembers(ctx context.Context, channelMembersMap map[fields.ID][]*channel.Member) error
 	GetMember(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
+	SetBatch(ctx context.Context, channels map[fields.ID]*channel.Channel) error
+	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
 }
 
 type MessageCache interface {

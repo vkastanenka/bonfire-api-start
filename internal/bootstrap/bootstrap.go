@@ -1,5 +1,58 @@
 package bootstrap
 
+import (
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/fields"
+	"context"
+
+	"github.com/google/uuid"
+)
+
+type Service struct {
+	channelRepo       ChannelRepository
+	cachedChannelRepo CachedChannelRepository
+	memberRepo        MemberRepository
+	cachedMemberRepo  CachedMemberRepository
+	messageRepo       MessageRepository
+	cachedMessageRepo CachedMessageRepository
+	reactionRepo      ReactionRepository
+	outboxRepo        OutboxRepository
+	relationRepo      RelationRepository
+	userRepo          UserRepository
+	cachedUserRepo    CachedUserRepository
+	tx                TX
+}
+
+func NewService(
+	channelRepo ChannelRepository,
+	cachedChannelRepo CachedChannelRepository,
+	memberRepo MemberRepository,
+	cachedMemberRepo CachedMemberRepository,
+	messageRepo MessageRepository,
+	cachedMessageRepo CachedMessageRepository,
+	reactionRepo ReactionRepository,
+	outboxRepo OutboxRepository,
+	relationRepo RelationRepository,
+	userRepo UserRepository,
+	cachedUserRepo CachedUserRepository,
+	tx TX,
+) *Service {
+	return &Service{
+		channelRepo:       channelRepo,
+		cachedChannelRepo: cachedChannelRepo,
+		memberRepo:        memberRepo,
+		cachedMemberRepo:  cachedMemberRepo,
+		messageRepo:       messageRepo,
+		cachedMessageRepo: cachedMessageRepo,
+		reactionRepo:      reactionRepo,
+		outboxRepo:        outboxRepo,
+		relationRepo:      relationRepo,
+		userRepo:          userRepo,
+		cachedUserRepo:    cachedUserRepo,
+		tx:                tx,
+	}
+}
+
 // type BootstrapResult struct {
 // 	Channel       *Channel
 // 	Member        *Member
@@ -12,115 +65,141 @@ package bootstrap
 // 	HasMoreAfter  bool
 // }
 
-// // Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
-// func (s *ChannelService) Bootstrap(ctx context.Context, rawActorID, rawChannelID, rawMessageID uuid.UUID) (*BootstrapResult, error) {
-// 	actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+// Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
+func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMessageID uuid.UUID) (*any, error) {
+	userID, err := fields.ParseRequiredID("", rawUserID)
+	if err != nil {
+		return nil, err
+	}
 
-// 	messageID, err := fields.ParseID(rawMessageID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	// user, err := s.cachedUserRepo.Get(ctx, userID)
 
-// 	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	userMemberships, err := s.memberRepo.ListVisibleByUserID(ctx, userID, 100)
+	if err != nil {
+		return nil, err
+	}
 
-// 	actorMember, err := validateMembership(actorID, members)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	// if len(userMemberships) == 0 {}
 
-// 	memberIDs := getMemberIDs(members)
+	channelIDs := getMemberChannelIDs(userMemberships)
 
-// 	var (
-// 		channel       *Channel
-// 		messages      []*Message
-// 		hasMoreBefore bool
-// 		hasMoreAfter  bool
-// 	)
+	channels, err := s.cachedChannelRepo.GetBatch(ctx, channelIDs)
+	if err != nil {
+		return nil, err
+	}
 
-// 	g1, g1Ctx := errgroup.WithContext(ctx)
+	channelMembersMap, err := s.cachedMemberRepo.GetBatchByChannelIDs(ctx, channelIDs)
+	if err != nil {
+		return nil, err
+	}
 
-// 	g1.Go(func() error {
-// 		var getErr error
-// 		channel, getErr = s.Get(g1Ctx, channelID.UUID())
-// 		return getErr
-// 	})
+	// actorID, channelID, err := validateIDs(rawActorID, rawChannelID)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-// 	g1.Go(func() error {
-// 		cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
+	// messageID, err := fields.ParseID(rawMessageID)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-// 		var listErr error
-// 		messages, hasMoreBefore, hasMoreAfter, listErr = s.messageRepo.ListAroundByChannelID(
-// 			g1Ctx,
-// 			channelID,
-// 			cursor.ID(),
-// 			cursor.BeforeLimit(),
-// 			cursor.AfterLimit(),
-// 		)
-// 		return listErr
-// 	})
+	// members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-// 	if err := g1.Wait(); err != nil {
-// 		return nil, err
-// 	}
+	// actorMember, err := validateMembership(actorID, members)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-// 	allUserIDs := getChannelUserIDs(memberIDs, messages)
+	// memberIDs := getMemberIDs(members)
 
-// 	var (
-// 		users     map[fields.ID]*user.User
-// 		presences map[fields.ID]presence.Presence
-// 		reactions map[fields.ID]*ReactionSummary
-// 	)
+	// var (
+	// 	channel       *Channel
+	// 	messages      []*Message
+	// 	hasMoreBefore bool
+	// 	hasMoreAfter  bool
+	// )
 
-// 	g2, g2Ctx := errgroup.WithContext(ctx)
+	// g1, g1Ctx := errgroup.WithContext(ctx)
 
-// 	g2.Go(func() error {
-// 		var fetchErr error
-// 		users, fetchErr = s.userService.GetBatch(g2Ctx, allUserIDs)
-// 		return fetchErr
-// 	})
+	// g1.Go(func() error {
+	// 	var getErr error
+	// 	channel, getErr = s.Get(g1Ctx, channelID.UUID())
+	// 	return getErr
+	// })
 
-// 	g2.Go(func() error {
-// 		var fetchErr error
-// 		presences, fetchErr = s.presenceCache.GetBatchPresence(g2Ctx, memberIDs)
-// 		return fetchErr
-// 	})
+	// g1.Go(func() error {
+	// 	cursor := getMessagesCursor(actorMember.LastReadMessageID(), messageID)
 
-// 	g2.Go(func() error {
-// 		if len(messages) == 0 {
-// 			reactions = make(map[fields.ID]*ReactionSummary)
-// 			return nil
-// 		}
+	// 	var listErr error
+	// 	messages, hasMoreBefore, hasMoreAfter, listErr = s.messageRepo.ListAroundByChannelID(
+	// 		g1Ctx,
+	// 		channelID,
+	// 		cursor.ID(),
+	// 		cursor.BeforeLimit(),
+	// 		cursor.AfterLimit(),
+	// 	)
+	// 	return listErr
+	// })
 
-// 		messageIDs, _ := getMessageIDs(messages)
-// 		var fetchErr error
-// 		reactions, fetchErr = s.reactionRepo.GetBatchSummaryByMessageIDs(g2Ctx, actorID, messageIDs)
-// 		return fetchErr
-// 	})
+	// if err := g1.Wait(); err != nil {
+	// 	return nil, err
+	// }
 
-// 	if err := g2.Wait(); err != nil {
-// 		return nil, err
-// 	}
+	// allUserIDs := getChannelUserIDs(memberIDs, messages)
 
-// 	sortMemberIDs(memberIDs, users)
+	// var (
+	// 	users     map[fields.ID]*user.User
+	// 	presences map[fields.ID]presence.Presence
+	// 	reactions map[fields.ID]*ReactionSummary
+	// )
 
-// 	return &BootstrapResult{
-// 		Channel:       channel,
-// 		Member:        actorMember,
-// 		Messages:      messages,
-// 		Reactions:     reactions,
-// 		Users:         users,
-// 		Presences:     presences,
-// 		MemberIDs:     memberIDs,
-// 		HasMoreBefore: hasMoreBefore,
-// 		HasMoreAfter:  hasMoreAfter,
-// 	}, nil
-// }
+	// g2, g2Ctx := errgroup.WithContext(ctx)
+
+	// g2.Go(func() error {
+	// 	var fetchErr error
+	// 	users, fetchErr = s.userService.GetBatch(g2Ctx, allUserIDs)
+	// 	return fetchErr
+	// })
+
+	// g2.Go(func() error {
+	// 	var fetchErr error
+	// 	presences, fetchErr = s.presenceCache.GetBatchPresence(g2Ctx, memberIDs)
+	// 	return fetchErr
+	// })
+
+	// g2.Go(func() error {
+	// 	if len(messages) == 0 {
+	// 		reactions = make(map[fields.ID]*ReactionSummary)
+	// 		return nil
+	// 	}
+
+	// 	messageIDs, _ := getMessageIDs(messages)
+	// 	var fetchErr error
+	// 	reactions, fetchErr = s.reactionRepo.GetBatchSummaryByMessageIDs(g2Ctx, actorID, messageIDs)
+	// 	return fetchErr
+	// })
+
+	// if err := g2.Wait(); err != nil {
+	// 	return nil, err
+	// }
+
+	// sortMemberIDs(memberIDs, users)
+
+	// return &BootstrapResult{
+	// 	Channel:       channel,
+	// 	Member:        actorMember,
+	// 	Messages:      messages,
+	// 	Reactions:     reactions,
+	// 	Users:         users,
+	// 	Presences:     presences,
+	// 	MemberIDs:     memberIDs,
+	// 	HasMoreBefore: hasMoreBefore,
+	// 	HasMoreAfter:  hasMoreAfter,
+	// }, nil
+}
 
 // // GetSidebar fetches all sidebar related structures.
 // func (s *ChannelService) GetSidebar(ctx context.Context, rawActorID uuid.UUID) (
@@ -340,3 +419,16 @@ package bootstrap
 
 // 	return fields.DedupeIDs(peerIDs), fields.DedupeIDs(directPeerIDs)
 // }
+
+func getMemberChannelIDs(members []*channel.Member) []fields.ID {
+	channelIDs := make([]fields.ID, 0, len(members))
+
+	for _, m := range members {
+		if m == nil {
+			continue
+		}
+		channelIDs = append(channelIDs, m.ChannelID())
+	}
+
+	return channelIDs
+}
