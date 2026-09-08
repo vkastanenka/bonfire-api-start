@@ -20,18 +20,18 @@ const (
 	EventChannelUpdated = "channel.updated"
 
 	// Membership Events
-	EventChannelMembersAdded       = "channel.members.added"
-	EventChannelMemberClosedDirect = "channel.member.closed_direct"
-	EventChannelMemberUpdated      = "channel.member.updated"
-	EventChannelMemberLeft         = "channel.member.left"
+	EventMembersAdded       = "members.added"
+	EventMemberClosedDirect = "member.closed_direct"
+	EventMemberUpdated      = "member.updated"
+	EventMemberLeft         = "member.left"
 
 	// Message Events
-	EventChannelMessageCreated = "channel.message.created"
-	EventChannelMessageUpdated = "channel.message.updated"
-	EventChannelMessageDeleted = "channel.message.deleted"
+	EventMessageCreated = "message.created"
+	EventMessageUpdated = "message.updated"
+	EventMessageDeleted = "message.deleted"
 
 	// Reaction Events
-	EventChannelReactionToggled = "channel.reaction.toggled"
+	EventReactionToggled = "reaction.toggled"
 )
 
 type EventChannelCreatedPayload struct {
@@ -95,7 +95,7 @@ func NewChannelUpdatedEventHandler(gw Broadcaster) outbox.Handler {
 	}
 }
 
-type EventChannelMembersAddedPayload struct {
+type EventMembersAddedPayload struct {
 	ExcludeSessionID fields.ID                       `json:"exclude_session_id"`
 	Channel          *Channel                        `json:"channel"`
 	Users            map[fields.ID]*user.User        `json:"users"`
@@ -106,7 +106,7 @@ type EventChannelMembersAddedPayload struct {
 
 func NewChannelMembersAddedEventHandler(gw Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventChannelMembersAddedPayload](payload)
+		p, err := fields.ParseRawJSON[EventMembersAddedPayload](payload)
 		if err != nil {
 			return err
 		}
@@ -115,13 +115,13 @@ func NewChannelMembersAddedEventHandler(gw Broadcaster) outbox.Handler {
 			ctx,
 			p.MemberIDs,
 			[]fields.ID{p.ExcludeSessionID},
-			EventChannelMembersAdded,
+			EventMembersAdded,
 			payload,
 		)
 	}
 }
 
-type EventChannelMemberClosedDirectPayload struct {
+type EventMemberClosedDirectPayload struct {
 	ExcludeSessionID fields.ID `json:"exclude_session_id"`
 	MemberID         fields.ID `json:"member_id"`
 	ChannelID        fields.ID `json:"channel_id"`
@@ -129,7 +129,7 @@ type EventChannelMemberClosedDirectPayload struct {
 
 func NewMemberClosedDirectEventHandler(gw Broadcaster) outbox.Handler {
 	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventChannelMemberClosedDirectPayload](payload)
+		p, err := fields.ParseRawJSON[EventMemberClosedDirectPayload](payload)
 		if err != nil {
 			return err
 		}
@@ -138,7 +138,7 @@ func NewMemberClosedDirectEventHandler(gw Broadcaster) outbox.Handler {
 			ctx,
 			p.MemberID,
 			[]fields.ID{p.ExcludeSessionID},
-			EventChannelMemberClosedDirect,
+			EventMemberClosedDirect,
 			payload,
 		)
 	}
@@ -164,7 +164,7 @@ func NewMemberUpdatedEventHandler(gw Broadcaster) outbox.Handler {
 			ctx,
 			p.MemberID,
 			[]fields.ID{p.ExcludeSessionID},
-			EventChannelMemberUpdated,
+			EventMemberUpdated,
 			payload,
 		)
 	}
@@ -189,7 +189,7 @@ func NewMemberLeftEventHandler(gw Broadcaster) outbox.Handler {
 			ctx,
 			p.MemberIDs,
 			[]fields.ID{p.ExcludeSessionID},
-			EventChannelMemberLeft,
+			EventMemberLeft,
 			payload,
 		)
 	}
@@ -213,8 +213,42 @@ func NewMessageCreated(gw Broadcaster) outbox.Handler {
 			ctx,
 			p.MemberIDs,
 			[]fields.ID{p.ExcludeSessionID},
-			EventChannelMessageCreated,
+			EventMessageCreated,
 			payload,
 		)
 	}
+}
+
+type EventMessageUpdatedPayload struct {
+	MemberIDs        []fields.ID       `json:"member_ids"`
+	ExcludeSessionID fields.ID         `json:"exclude_session_id"`
+	MessageID        fields.ID         `json:"message_id"`
+	MessageContent   *MessageContent   `json:"message_content,omitempty"`
+	MessagePinnedAt  *fields.Timestamp `json:"message_pinned_at,omitempty"`
+	MessageUpdatedAt fields.Timestamp  `json:"message_updated_at"`
+	SystemMessage    *Message          `json:"system_message"`
+}
+
+func NewMessageUpdatedHandler(gw Broadcaster) outbox.Handler {
+	return func(ctx context.Context, payload json.RawMessage) error {
+		p, err := fields.ParseRawJSON[EventMessageUpdatedPayload](payload)
+		if err != nil {
+			return err
+		}
+
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]fields.ID{p.ExcludeSessionID},
+			EventMessageUpdated,
+			payload,
+		)
+	}
+}
+
+type EventMessageDeletedPayload struct {
+	MemberIDs        []fields.ID      `json:"member_ids"`
+	ExcludeSessionID fields.ID        `json:"exclude_session_id"`
+	MessageID        fields.ID        `json:"message_id"`
+	MessageDeletedAt fields.Timestamp `json:"message_deleted_at"`
 }

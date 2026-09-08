@@ -201,7 +201,7 @@ func (s *MessageService) Create(
 
 		return s.outboxRepo.Publish(
 			txCtx,
-			EventChannelMessageCreated,
+			EventMessageCreated,
 			payload,
 			now,
 		)
@@ -346,10 +346,10 @@ func (s *MessageService) ListPinned(
 // UpdateContent updates an author's message content.
 func (s *MessageService) UpdateContent(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMessageID uuid.UUID,
+	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
 	rawContent string,
 ) (*Message, error) {
-	actorID, channelID, messageID, err := validateMessageIDs(rawActorID, rawChannelID, rawMessageID)
+	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func (s *MessageService) UpdateContent(
 		return nil, ErrMessageContentMinLength()
 	}
 
-	msg, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	msg, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -373,8 +373,8 @@ func (s *MessageService) UpdateContent(
 	}
 
 	var updatedMsg *Message
-
 	now := fields.Now()
+	memIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedMsg, err = s.repo.UpdateContent(txCtx, messageID, content, now, now)
@@ -382,16 +382,25 @@ func (s *MessageService) UpdateContent(
 			return err
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMessageUpdateContent,
-		// 	MessageUpdateContentPayload{},
-		// )
-		return nil
+		payload := EventMessageUpdatedPayload{
+			ExcludeSessionID: sessionID,
+			MessageID:        updatedMsg.id,
+			MessageContent:   &updatedMsg.content,
+			MemberIDs:        memIDs,
+		}
+
+		return s.outboxRepo.Publish(
+			txCtx,
+			EventMessageUpdated,
+			payload,
+			now,
+		)
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	_ = s.cache.Delete(ctx, channelID, messageID)
 
 	return updatedMsg, nil
 }
@@ -399,29 +408,32 @@ func (s *MessageService) UpdateContent(
 // UpdatePinnedAt pins or unpins a message in a channel.
 func (s *MessageService) UpdatePinnedAt(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMessageID uuid.UUID,
+	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
 	isPinned bool,
 ) (*Message, error) {
-	actorID, channelID, messageID, err := validateMessageIDs(rawActorID, rawChannelID, rawMessageID)
+	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
 	if err != nil {
 		return nil, err
 	}
 
-	msg, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
-
-	pinnedAt := fields.Timestamp{}
 
 	now := fields.Now()
+	memIDs := getMemberIDs(mems)
 
+	var pinnedAt *fields.Timestamp
 	if isPinned {
-		pinnedAt = now
+		pinnedAt = &now
 	}
 
+	var updatedMsg *Message
+	var savedSysMsg *Message
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		msg, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
+		updatedMsg, err = s.repo.UpdatePinnedAt(txCtx, messageID, ptr.From(pinnedAt), now)
 		if err != nil {
 			return err
 		}
@@ -430,44 +442,60 @@ func (s *MessageService) UpdatePinnedAt(
 			sysMsg, err := NewMessagePin(
 				channelID,
 				actorID,
-				msg.ID(),
+				updatedMsg.ID(),
 				now,
 			)
 			if err != nil {
 				return err
 			}
 
-			_, err = s.repo.Create(txCtx, sysMsg)
+			savedSysMsg, err = s.repo.Create(txCtx, sysMsg)
+			if err != nil {
+				return err
+			}
+
+			_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, savedSysMsg.ID(), now, now)
 			if err != nil {
 				return err
 			}
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMessageUpdatePinnedAt,
-		// 	MessageUpdatePinnedAtPayload{},
-		// )
-		return nil
+		payload := EventMessageUpdatedPayload{
+			MemberIDs:        memIDs,
+			ExcludeSessionID: sessionID,
+			MessageID:        messageID,
+			MessagePinnedAt:  pinnedAt,
+			MessageUpdatedAt: updatedMsg.UpdatedAt(),
+			SystemMessage:    savedSysMsg,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventMessageUpdated, payload, now)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return msg, nil
+	_ = s.cache.Delete(ctx, channelID, messageID)
+
+	if savedSysMsg != nil {
+		_ = s.cache.Set(ctx, savedSysMsg)
+		_ = s.channelCache.Delete(ctx, channelID)
+	}
+
+	return updatedMsg, nil
 }
 
 // Delete deletes a message belonging to the actor and triggers side effects.
 func (s *MessageService) Delete(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMessageID uuid.UUID,
+	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
 ) error {
-	actorID, channelID, messageID, err := validateMessageIDs(rawActorID, rawChannelID, rawMessageID)
+	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
 	if err != nil {
 		return err
 	}
 
-	msg, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	msg, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return err
 	}
@@ -476,21 +504,28 @@ func (s *MessageService) Delete(
 		return ErrMessageNotAuthorizedToDelete()
 	}
 
+	now := fields.Now()
+	memIDs := getMemberIDs(mems)
+
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if txErr := s.repo.Delete(txCtx, messageID); txErr != nil {
 			return txErr
 		}
 
-		// return s.outboxRepo.Publish(
-		// 	txCtx,
-		// 	EventMessageDelete,
-		// 	MessageDeletePayload{},
-		// )
-		return nil
+		payload := EventMessageDeletedPayload{
+			MemberIDs:        memIDs,
+			ExcludeSessionID: sessionID,
+			MessageID:        messageID,
+			MessageDeletedAt: now,
+		}
+
+		return s.outboxRepo.Publish(txCtx, EventMessageDeleted, payload, now)
 	})
 	if err != nil {
 		return err
 	}
+
+	_ = s.cache.Delete(ctx, channelID, messageID)
 
 	return nil
 }
@@ -632,31 +667,33 @@ func (s *MessageService) getMessageViews(ctx context.Context, actorID fields.ID,
 	return &GetMessageViewsResult{messages, userMap, reactionSummaryMap}, nil
 }
 
-func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, msgID fields.ID) (*Message, error) {
+func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, msgID fields.ID) (*Message, []*Member, error) {
 	var msg *Message
+	var mems []*Member
 
 	g, ctxGrp := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		var err error
-		msg, err = s.repo.Get(ctxGrp, msgID)
+		msg, err = s.cachedRepo.Get(ctxGrp, msgID)
 		return err
 	})
 
 	g.Go(func() error {
-		_, err := s.memberRepo.Get(ctxGrp, channelID, actorID)
+		var err error
+		mems, err = s.getValidMemberships(ctxGrp, channelID, actorID)
 		return err
 	})
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !msg.ChannelID().Equals(channelID) {
-		return nil, ErrMessageNotFoundInChannel()
+		return nil, nil, ErrMessageNotFoundInChannel()
 	}
 
-	return msg, nil
+	return msg, mems, nil
 }
 
 func (s *MessageService) validateParams(
