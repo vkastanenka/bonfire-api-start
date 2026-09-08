@@ -26,6 +26,7 @@ type MemberRepository interface {
 	CreateBatch(ctx context.Context, members []*Member) ([]*Member, error)
 	Delete(ctx context.Context, channelID fields.ID, userID fields.ID) error
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
+	GetBatchByChannelID(ctx context.Context, channelID fields.ID) ([]*Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID fields.ID, userID fields.ID, incrementAmount int, updatedAt fields.Timestamp) error
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*Member, error)
@@ -37,6 +38,7 @@ type MemberRepository interface {
 
 type CachedMemberRepository interface {
 	Get(ctx context.Context, channelID fields.ID, userID fields.ID) (*Member, error)
+	GetBatchByChannelID(ctx context.Context, channelID fields.ID) ([]*Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*Member, error)
 	ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*Member, error)
 }
@@ -55,6 +57,13 @@ type MessageRepository interface {
 	ListPinnedByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, cursorPinnedAt fields.Timestamp, limit int) ([]*Message, bool, error)
 	UpdateContent(ctx context.Context, id fields.ID, content MessageContent, editedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
 	UpdatePinnedAt(ctx context.Context, id fields.ID, pinnedAt fields.Timestamp, updatedAt fields.Timestamp) (*Message, error)
+}
+
+type CachedMessageRepository interface {
+	Get(ctx context.Context, id fields.ID) (*Message, error)
+	ListAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*Message, bool, error)
+	ListAroundByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, beforeLimit int, afterLimit int) ([]*Message, bool, bool, error)
+	ListBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*Message, bool, error)
 }
 
 type ReactionRepository interface {
