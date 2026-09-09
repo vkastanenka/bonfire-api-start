@@ -53,6 +53,57 @@ ORDER BY
     created_at DESC
 LIMIT @limit_val::int;
 
+-- name: RelationListFriendsByUserID :many
+SELECT
+    relations.*
+FROM
+    relations
+WHERE (user1_id = @user_id::uuid
+    OR user2_id = @user_id::uuid)
+AND type = 2 -- Friend
+ORDER BY
+    created_at DESC
+LIMIT @limit_val::int;
+
+-- name: RelationListIncomingPendingByUserID :many
+SELECT
+    relations.*
+FROM
+    relations
+WHERE (user1_id = @user_id::uuid
+    OR user2_id = @user_id::uuid)
+AND type = 1 -- Pending
+AND actor_id != @user_id::uuid -- Initiated by the peer
+ORDER BY
+    created_at DESC
+LIMIT @limit_val::int;
+
+-- name: RelationListOutgoingBlocksByUserID :many
+SELECT
+    relations.*
+FROM
+    relations
+WHERE (user1_id = @user_id::uuid
+    OR user2_id = @user_id::uuid)
+AND type = 3 -- Block
+AND actor_id = @user_id::uuid -- Initiated by the user
+ORDER BY
+    created_at DESC
+LIMIT @limit_val::int;
+
+-- name: RelationListIncomingBlocksByUserID :many
+SELECT
+    relations.*
+FROM
+    relations
+WHERE (user1_id = @user_id::uuid
+    OR user2_id = @user_id::uuid)
+AND type = 3 -- Block
+AND actor_id != @user_id::uuid -- Initiated by the peer
+ORDER BY
+    created_at DESC
+LIMIT @limit_val::int;
+
 -- name: RelationHasIncomingBlock :one
 SELECT
     EXISTS (

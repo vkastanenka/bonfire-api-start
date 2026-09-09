@@ -1,0 +1,98 @@
+package repository
+
+import (
+	"context"
+	"log/slog"
+
+	"bonfire-api/internal/fields"
+	"bonfire-api/internal/relation"
+)
+
+const maxRelationFetchLimit = 1000
+
+type CachedRelationRepository struct {
+	cache UserCache
+	repo  *RelationRepository
+}
+
+func NewCachedRelationRepository(cache UserCache, repo *RelationRepository) *CachedRelationRepository {
+	return &CachedRelationRepository{
+		cache: cache,
+		repo:  repo,
+	}
+}
+
+// GetFriendIDs retrieves active friend IDs via Cache-Aside.
+func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	cachedIDs, err := r.cache.GetFriendIDs(ctx, userID)
+	if err == nil && cachedIDs != nil {
+		return cachedIDs, nil
+	}
+
+	rels, err := r.repo.ListFriendsByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	friendIDs := extractPeerIDs(rels, userID)
+
+	if err := r.cache.SetFriendIDs(ctx, userID, friendIDs); err != nil {
+		slog.WarnContext(ctx, "failed to backfill friend IDs cache", "user_id", userID.String(), "err", err)
+	}
+
+	return friendIDs, nil
+}
+
+// GetBlocklistIDs retrieves outgoing blocked user IDs via Cache-Aside.
+func (r *CachedRelationRepository) GetBlocklistIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	cachedIDs, err := r.cache.GetBlocklistIDs(ctx, userID)
+	if err == nil && cachedIDs != nil {
+		return cachedIDs, nil
+	}
+
+	rels, err := r.repo.ListOutgoingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	blockedIDs := extractPeerIDs(rels, userID)
+
+	if err := r.cache.SetBlocklistIDs(ctx, userID, blockedIDs); err != nil {
+		slog.WarnContext(ctx, "failed to backfill blocklist IDs cache", "user_id", userID.String(), "err", err)
+	}
+
+	return blockedIDs, nil
+}
+
+// GetBlockedByIDs retrieves incoming blocker user IDs via Cache-Aside.
+func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	cachedIDs, err := r.cache.GetBlockedByIDs(ctx, userID)
+	if err == nil && cachedIDs != nil {
+		return cachedIDs, nil
+	}
+
+	rels, err := r.repo.ListIncomingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	blockerIDs := extractPeerIDs(rels, userID)
+
+	if err := r.cache.SetBlockedByIDs(ctx, userID, blockerIDs); err != nil {
+		slog.WarnContext(ctx, "failed to backfill blocked_by IDs cache", "user_id", userID.String(), "err", err)
+	}
+
+	return blockerIDs, nil
+}
+
+func extractPeerIDs(rels []*relation.Relation, subjectID fields.ID) []fields.ID {
+	peerIDs := make([]fields.ID, 0, len(rels))
+	for _, rel := range rels {
+		if rel.User1ID().Equals(subjectID) {
+			peerIDs = append(peerIDs, rel.User2ID())
+		} else {
+			peerIDs = append(peerIDs, rel.User1ID())
+		}
+	}
+	return peerIDs
+}

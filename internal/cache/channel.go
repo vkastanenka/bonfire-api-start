@@ -37,11 +37,6 @@ func messageKey(msgID fields.ID) string {
 	return "{message:" + msgID.String() + "}"
 }
 
-// ZSet
-func userChannelsKey(userID fields.ID) string {
-	return "{user:" + userID.String() + "}:channels"
-}
-
 type ChannelCache struct {
 	client redisdriver.Cmdable
 }
@@ -374,57 +369,4 @@ func (c *ChannelCache) GetMember(
 	}
 
 	return member, nil
-}
-
-// GetVisibleMembersByUserID retrieves member representations for the given user across their cached channel ZSet.
-func (c *UserCache) GetVisibleMembersByUserID(
-	ctx context.Context,
-	userID fields.ID,
-	limit int,
-) ([]*channel.Member, bool, error) {
-	// 1. Get ordered channel IDs for the user using UserCache's native method
-	channelIDs, err := c.GetChannelIDs(ctx, userID)
-	if err != nil || len(channelIDs) == 0 {
-		return nil, false, err
-	}
-
-	if limit > 0 && len(channelIDs) > limit {
-		channelIDs = channelIDs[:limit]
-	}
-
-	// 2. Fetch the user's member object across all these channel Hash keys in a single pipeline
-	pipe := c.client.Pipeline()
-	userStr := userID.String()
-	cmds := make([]*redisdriver.StringCmd, len(channelIDs))
-
-	for i, chID := range channelIDs {
-		cmds[i] = pipe.HGet(ctx, channelMembersKey(chID), userStr)
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redisdriver.Nil) {
-		return nil, false, redis.NewError(err, redis.ScopeChannel)
-	}
-
-	members := make([]*channel.Member, 0, len(channelIDs))
-	for _, cmd := range cmds {
-		rawJSON, err := cmd.Result()
-		if err != nil {
-			// Missing field or hash -> partial cache miss
-			return nil, false, nil
-		}
-
-		var mDTO Member
-		if err := json.Unmarshal([]byte(rawJSON), &mDTO); err != nil {
-			return nil, false, nil
-		}
-
-		m, err := mDTO.ToDomain()
-		if err != nil {
-			return nil, false, nil
-		}
-
-		members = append(members, m)
-	}
-
-	return members, true, nil
 }

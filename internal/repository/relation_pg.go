@@ -81,6 +81,74 @@ func (r *RelationRepository) ListTypeByUserID(
 	return relationsFromRows(rows)
 }
 
+// ListFriendsByUserID retrieves active friendships for a user.
+func (r *RelationRepository) ListFriendsByUserID(
+	ctx context.Context,
+	userID fields.ID,
+	limit int,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListFriendsByUserID(ctx, db.RelationListFriendsByUserIDParams{
+		UserID:   db.ToUUID(userID.UUID()),
+		LimitVal: int32(limit),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationsFromRows(rows)
+}
+
+// ListIncomingPendingByUserID retrieves pending friend requests sent TO this user.
+func (r *RelationRepository) ListIncomingPendingByUserID(
+	ctx context.Context,
+	userID fields.ID,
+	limit int,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListIncomingPendingByUserID(ctx, db.RelationListIncomingPendingByUserIDParams{
+		UserID:   db.ToUUID(userID.UUID()),
+		LimitVal: int32(limit),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationsFromRows(rows)
+}
+
+// ListOutgoingBlocksByUserID retrieves users blocked BY this user.
+func (r *RelationRepository) ListOutgoingBlocksByUserID(
+	ctx context.Context,
+	userID fields.ID,
+	limit int,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListOutgoingBlocksByUserID(ctx, db.RelationListOutgoingBlocksByUserIDParams{
+		UserID:   db.ToUUID(userID.UUID()),
+		LimitVal: int32(limit),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationsFromRows(rows)
+}
+
+// ListIncomingBlocksByUserID retrieves users blocked BY this user.
+func (r *RelationRepository) ListIncomingBlocksByUserID(
+	ctx context.Context,
+	userID fields.ID,
+	limit int,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListIncomingBlocksByUserID(ctx, db.RelationListIncomingBlocksByUserIDParams{
+		UserID:   db.ToUUID(userID.UUID()),
+		LimitVal: int32(limit),
+	})
+	if err != nil {
+		return nil, r.store.Err(err)
+	}
+
+	return relationsFromRows(rows)
+}
+
 func ErrIncomingBlock() *errs.Error {
 	return errs.InvalidArgument("Cannot interact with users who have blocked you.").
 		Reason("INCOMING_BLOCK_DETECTED")

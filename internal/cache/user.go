@@ -2,9 +2,11 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
@@ -16,23 +18,21 @@ import (
 var (
 	userTTL         = 24 * time.Hour
 	userFriendsTTL  = 24 * time.Hour
+	userBlocksTTL   = 24 * time.Hour
 	userChannelsTTL = 24 * time.Hour
 )
 
 const (
-	userDomainKey = "user:"
+	emptySetSentinel = "__empty__"
 )
 
-func userNamespacedKey(id fields.ID, suffix string) string {
-	if suffix == "" {
-		return "{" + userDomainKey + id.String() + "}"
-	}
-	return "{" + userDomainKey + id.String() + "}:" + suffix
-}
-
-func userKey(id fields.ID) string        { return userNamespacedKey(id, "") }
-func userFriendsKey(id fields.ID) string { return userNamespacedKey(id, "friends") }
-func userBlocksKey(id fields.ID) string  { return userNamespacedKey(id, "blocks") }
+func userKey(id fields.ID) string          { return "{user:" + id.String() + "}" }
+func userPresenceKey(id fields.ID) string  { return "{user:" + id.String() + "}:presence" }
+func userSessionsKey(id fields.ID) string  { return "{user:" + id.String() + "}:sessions" }
+func userFriendsKey(id fields.ID) string   { return "{user:" + id.String() + "}:friends" }
+func userBlocksKey(id fields.ID) string    { return "{user:" + id.String() + "}:blocks" }
+func userBlockedByKey(id fields.ID) string { return "{user:" + id.String() + "}:blocked_by" }
+func userChannelsKey(id fields.ID) string  { return "{user:" + id.String() + "}:channels" }
 
 type UserCache struct {
 	client redisdriver.Cmdable
@@ -44,8 +44,23 @@ func NewUserCache(client redisdriver.Cmdable) *UserCache {
 	}
 }
 
+// -----------------------------------------------------------------------------
+// User Profile Operations
+// -----------------------------------------------------------------------------
+
 func (c *UserCache) Get(ctx context.Context, id fields.ID) (*user.User, error) {
 	return getAndUnmarshal(ctx, c.client, userKey(id), redis.ScopeUser, unmarshalUser)
+}
+
+func (c *UserCache) Set(ctx context.Context, usr *user.User) error {
+	return marshalAndSet(ctx, c.client, userKey(usr.ID()), usr, userTTL, redis.ScopeUser, marshalUser)
+}
+
+func (c *UserCache) Delete(ctx context.Context, id fields.ID) error {
+	if err := c.client.Del(ctx, userKey(id)).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
 func (c *UserCache) GetBatch(
@@ -106,10 +121,6 @@ func (c *UserCache) GetBatch(
 	return found, missing, nil
 }
 
-func (c *UserCache) Set(ctx context.Context, usr *user.User) error {
-	return marshalAndSet(ctx, c.client, userKey(usr.ID()), usr, userTTL, redis.ScopeUser, marshalUser)
-}
-
 func (c *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User) error {
 	if len(users) == 0 {
 		return nil
@@ -135,13 +146,6 @@ func (c *UserCache) SetBatch(ctx context.Context, users map[fields.ID]*user.User
 	return setBatchPipeline(ctx, c.client, items, userTTL, redis.ScopeUser)
 }
 
-func (c *UserCache) Delete(ctx context.Context, id fields.ID) error {
-	if err := c.client.Del(ctx, userKey(id)).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeUser)
-	}
-	return nil
-}
-
 func (c *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 	keys := make([]string, len(ids))
 	for i, id := range ids {
@@ -150,22 +154,26 @@ func (c *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 	return deleteBatchKeys(ctx, c.client, keys, redis.ScopeUser)
 }
 
-func (c *UserCache) SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error {
-	return setSetIDs(ctx, c.client, userFriendsKey(userID), friendIDs, userFriendsTTL, redis.ScopeUser)
-}
+// -----------------------------------------------------------------------------
+// Friends Operations
+// -----------------------------------------------------------------------------
 
+// GetFriendIDs fetches a user's friend IDs. Returns (nil, nil) on cache miss.
 func (c *UserCache) GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
-	return getSetIDs(ctx, c.client, userFriendsKey(userID), redis.ScopeUser)
+	return c.getRelationIDs(ctx, userFriendsKey(userID))
 }
 
+// SetFriendIDs sets the full list of friend IDs, caching a sentinel if the slice is empty.
+func (c *UserCache) SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error {
+	return c.setRelationIDs(ctx, userFriendsKey(userID), friendIDs, userFriendsTTL)
+}
+
+// AddFriendID adds a single friend to a user's friend set.
 func (c *UserCache) AddFriendID(ctx context.Context, userID, friendID fields.ID) error {
-	return addToSetID(ctx, c.client, userFriendsKey(userID), friendID, userFriendsTTL, redis.ScopeUser)
+	return c.addRelationID(ctx, userFriendsKey(userID), friendID, userFriendsTTL)
 }
 
-func (c *UserCache) RemoveFriendID(ctx context.Context, userID, friendID fields.ID) error {
-	return removeFromSetID(ctx, c.client, userFriendsKey(userID), friendID, redis.ScopeUser)
-}
-
+// RemoveFriendPair atomically removes two users from each other's friend sets.
 func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID) error {
 	removals := map[string]fields.ID{
 		userFriendsKey(userA): userB,
@@ -173,6 +181,130 @@ func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID
 	}
 	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
 }
+
+// -----------------------------------------------------------------------------
+// Block Operations
+// -----------------------------------------------------------------------------
+
+// GetBlocklistIDs retrieves all user IDs that the given user has blocked.
+func (c *UserCache) GetBlocklistIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	return c.getRelationIDs(ctx, userBlocksKey(userID))
+}
+
+// SetBlocklistIDs sets the complete list of user IDs blocked by this user.
+func (c *UserCache) SetBlocklistIDs(ctx context.Context, userID fields.ID, blockedIDs []fields.ID) error {
+	return c.setRelationIDs(ctx, userBlocksKey(userID), blockedIDs, userBlocksTTL)
+}
+
+// GetBlockedByIDs retrieves all user IDs that have blocked the given user.
+func (c *UserCache) GetBlockedByIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	return c.getRelationIDs(ctx, userBlockedByKey(userID))
+}
+
+// SetBlockedByIDs sets the complete list of user IDs who have blocked this user.
+func (c *UserCache) SetBlockedByIDs(ctx context.Context, userID fields.ID, blockerIDs []fields.ID) error {
+	return c.setRelationIDs(ctx, userBlockedByKey(userID), blockerIDs, userBlocksTTL)
+}
+
+// BlockUser performs an atomic bi-directional block update:
+// 1. Adds targetID to blockerID's blocklist ({user:blocker}:blocks).
+// 2. Adds blockerID to targetID's blocked_by list ({user:target}:blocked_by).
+// 3. Removes both users from each other's friend sets if a friendship existed.
+func (c *UserCache) BlockUser(ctx context.Context, blockerID, targetID fields.ID) error {
+	pipe := c.client.Pipeline()
+
+	// 1. Update Block Sets
+	pipe.SAdd(ctx, userBlocksKey(blockerID), targetID.String())
+	pipe.ExpireXX(ctx, userBlocksKey(blockerID), userBlocksTTL)
+	pipe.SRem(ctx, userBlocksKey(blockerID), emptySetSentinel)
+
+	pipe.SAdd(ctx, userBlockedByKey(targetID), blockerID.String())
+	pipe.ExpireXX(ctx, userBlockedByKey(targetID), userBlocksTTL)
+	pipe.SRem(ctx, userBlockedByKey(targetID), emptySetSentinel)
+
+	// 2. Sever Friendship if cached
+	pipe.SRem(ctx, userFriendsKey(blockerID), targetID.String())
+	pipe.SRem(ctx, userFriendsKey(targetID), blockerID.String())
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+// UnblockUser removes targetID from blockerID's blocklist and blockerID from targetID's blocked_by set.
+func (c *UserCache) UnblockUser(ctx context.Context, blockerID, targetID fields.ID) error {
+	removals := map[string]fields.ID{
+		userBlocksKey(blockerID):   targetID,
+		userBlockedByKey(targetID): blockerID,
+	}
+	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
+}
+
+// -----------------------------------------------------------------------------
+// Shared Set Abstractions (Handles Sentinel Filtering & Cache Penetration)
+// -----------------------------------------------------------------------------
+
+func (c *UserCache) getRelationIDs(ctx context.Context, key string) ([]fields.ID, error) {
+	members, err := c.client.SMembers(ctx, key).Result()
+	if errors.Is(err, redisdriver.Nil) || len(members) == 0 {
+		return nil, nil // Cache miss
+	}
+	if err != nil {
+		return nil, redis.NewError(err, redis.ScopeUser)
+	}
+
+	ids := make([]fields.ID, 0, len(members))
+	for _, m := range members {
+		if m == emptySetSentinel {
+			continue
+		}
+		if id, parseErr := uuid.Parse(m); parseErr == nil {
+			ids = append(ids, fields.ID(id))
+		}
+	}
+
+	return ids, nil
+}
+
+func (c *UserCache) setRelationIDs(ctx context.Context, key string, ids []fields.ID, ttl time.Duration) error {
+	_, err := c.client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, key)
+		if len(ids) == 0 {
+			pipe.SAdd(ctx, key, emptySetSentinel)
+		} else {
+			members := make([]interface{}, len(ids))
+			for i, id := range ids {
+				members[i] = id.String()
+			}
+			pipe.SAdd(ctx, key, members...)
+		}
+		pipe.Expire(ctx, key, ttl)
+		return nil
+	})
+
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+func (c *UserCache) addRelationID(ctx context.Context, key string, targetID fields.ID, ttl time.Duration) error {
+	_, err := c.client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.SAdd(ctx, key, targetID.String())
+		pipe.SRem(ctx, key, emptySetSentinel)
+		pipe.ExpireXX(ctx, key, ttl)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Channel Operations
+// -----------------------------------------------------------------------------
 
 // SetChannelIDs replaces the user's cached channels ZSet using ZADD inside a pipeline.
 func (c *UserCache) SetChannelIDs(ctx context.Context, userID fields.ID, channelIDs []fields.ID) error {
@@ -300,4 +432,57 @@ func (c *UserCache) GetPeerIDs(
 	}
 
 	return candidates, nil
+}
+
+// GetVisibleMembersByUserID retrieves member representations for the given user across their cached channel ZSet.
+func (c *UserCache) GetVisibleMembersByUserID(
+	ctx context.Context,
+	userID fields.ID,
+	limit int,
+) ([]*channel.Member, bool, error) {
+	// 1. Get ordered channel IDs for the user using UserCache's native method
+	channelIDs, err := c.GetChannelIDs(ctx, userID)
+	if err != nil || len(channelIDs) == 0 {
+		return nil, false, err
+	}
+
+	if limit > 0 && len(channelIDs) > limit {
+		channelIDs = channelIDs[:limit]
+	}
+
+	// 2. Fetch the user's member object across all these channel Hash keys in a single pipeline
+	pipe := c.client.Pipeline()
+	userStr := userID.String()
+	cmds := make([]*redisdriver.StringCmd, len(channelIDs))
+
+	for i, chID := range channelIDs {
+		cmds[i] = pipe.HGet(ctx, channelMembersKey(chID), userStr)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redisdriver.Nil) {
+		return nil, false, redis.NewError(err, redis.ScopeChannel)
+	}
+
+	members := make([]*channel.Member, 0, len(channelIDs))
+	for _, cmd := range cmds {
+		rawJSON, err := cmd.Result()
+		if err != nil {
+			// Missing field or hash -> partial cache miss
+			return nil, false, nil
+		}
+
+		var mDTO Member
+		if err := json.Unmarshal([]byte(rawJSON), &mDTO); err != nil {
+			return nil, false, nil
+		}
+
+		m, err := mDTO.ToDomain()
+		if err != nil {
+			return nil, false, nil
+		}
+
+		members = append(members, m)
+	}
+
+	return members, true, nil
 }

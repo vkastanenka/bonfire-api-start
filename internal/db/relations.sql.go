@@ -142,6 +142,193 @@ func (q *Queries) RelationHasIncomingBlock(ctx context.Context, arg RelationHasI
 	return exists, err
 }
 
+const relationListFriendsByUserID = `-- name: RelationListFriendsByUserID :many
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = 2 -- Friend
+ORDER BY
+    created_at DESC
+LIMIT $2::int
+`
+
+type RelationListFriendsByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) RelationListFriendsByUserID(ctx context.Context, arg RelationListFriendsByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListFriendsByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relation
+	for rows.Next() {
+		var i Relation
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationListIncomingBlocksByUserID = `-- name: RelationListIncomingBlocksByUserID :many
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = 3 -- Block
+AND actor_id != $1::uuid -- Initiated by the peer
+ORDER BY
+    created_at DESC
+LIMIT $2::int
+`
+
+type RelationListIncomingBlocksByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) RelationListIncomingBlocksByUserID(ctx context.Context, arg RelationListIncomingBlocksByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListIncomingBlocksByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relation
+	for rows.Next() {
+		var i Relation
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationListIncomingPendingByUserID = `-- name: RelationListIncomingPendingByUserID :many
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = 1 -- Pending
+AND actor_id != $1::uuid -- Initiated by the peer
+ORDER BY
+    created_at DESC
+LIMIT $2::int
+`
+
+type RelationListIncomingPendingByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) RelationListIncomingPendingByUserID(ctx context.Context, arg RelationListIncomingPendingByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListIncomingPendingByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relation
+	for rows.Next() {
+		var i Relation
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationListOutgoingBlocksByUserID = `-- name: RelationListOutgoingBlocksByUserID :many
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = 3 -- Block
+AND actor_id = $1::uuid -- Initiated by the user
+ORDER BY
+    created_at DESC
+LIMIT $2::int
+`
+
+type RelationListOutgoingBlocksByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) RelationListOutgoingBlocksByUserID(ctx context.Context, arg RelationListOutgoingBlocksByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListOutgoingBlocksByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relation
+	for rows.Next() {
+		var i Relation
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const relationListTypeByUserID = `-- name: RelationListTypeByUserID :many
 SELECT
     relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type

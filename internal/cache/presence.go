@@ -18,8 +18,7 @@ var (
 	userSessionsTTL = 90 * time.Second
 )
 
-func userPresenceKey(id fields.ID) string { return userNamespacedKey(id, "presence") }
-func userSessionsKey(id fields.ID) string { return userNamespacedKey(id, "sessions") }
+
 
 type PresenceCache struct {
 	client redisdriver.Cmdable
