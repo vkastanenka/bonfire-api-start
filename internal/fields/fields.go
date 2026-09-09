@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,170 +17,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/sanitize"
-
-	"github.com/google/uuid"
 )
 
-// ============================================================================
-// Bytes
-// ============================================================================
-
-type Bytes struct {
-	value []byte
-}
-
-func NewBytes(v []byte) Bytes {
-	if len(v) == 0 {
-		return Bytes{}
-	}
-	buf := make([]byte, len(v))
-	copy(buf, v)
-	return Bytes{value: buf}
-}
-
-func (b Bytes) Bytes() []byte {
-	if len(b.value) == 0 {
-		return nil
-	}
-	buf := make([]byte, len(b.value))
-	copy(buf, b.value)
-	return buf
-}
-
-func (b Bytes) IsZero() bool  { return len(b.value) == 0 }
-func (b Bytes) IsValid() bool { return !b.IsZero() }
-func (b Bytes) Len() int      { return len(b.value) }
-
-func (b Bytes) Equals(other Bytes) bool {
-	if b.IsZero() && other.IsZero() {
-		return true
-	}
-	return bytes.Equal(b.value, other.value)
-}
-
-func (b Bytes) MarshalBinary() ([]byte, error) {
-	return b.Bytes(), nil
-}
-
-func (b *Bytes) UnmarshalBinary(data []byte) error {
-	*b = NewBytes(data)
-	return nil
-}
-
-func (b Bytes) MarshalJSON() ([]byte, error) {
-	if b.IsZero() {
-		return []byte("null"), nil
-	}
-	return json.Marshal(base64.StdEncoding.EncodeToString(b.value))
-}
-
-func (b *Bytes) UnmarshalJSON(data []byte) error {
-	var encoded string
-	if err := json.Unmarshal(data, &encoded); err != nil {
-		return err
-	}
-	if encoded == "" {
-		*b = Bytes{}
-		return nil
-	}
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return err
-	}
-	*b = NewBytes(decoded)
-	return nil
-}
-
-// ============================================================================
-// Client
-// ============================================================================
-
-const (
-	MinClientLength = 1
-	MaxClientLength = 100
-)
-
-type Client struct {
-	value string
-}
-
-func NewClient(s string) Client {
-	return Client{value: s}
-}
-
-func ParseClient(fieldName, raw string) (Client, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return Client{}, nil
-	}
-
-	if len(s) > MaxClientLength {
-		return Client{}, ErrClientTooLong(fieldName)
-	}
-
-	return Client{value: s}, nil
-}
-
-func ParseRequiredClient(fieldName, raw string) (Client, error) {
-	client, err := ParseClient(fieldName, raw)
-	if err != nil {
-		return Client{}, err
-	}
-	if client.IsZero() {
-		return Client{}, ErrClientRequired(fieldName)
-	}
-	return client, nil
-}
-
-func (c Client) String() string { return c.value }
-func (c Client) StringPtr() *string {
-	if c.IsZero() {
-		return nil
-	}
-	return ptr.To(c.value)
-}
-func (c Client) IsZero() bool             { return c.value == "" }
-func (c Client) IsValid() bool            { return !c.IsZero() }
-func (c Client) Equals(other Client) bool { return c.value == other.value }
-
-func (c Client) MarshalText() ([]byte, error) {
-	if c.IsZero() {
-		return nil, nil
-	}
-	return []byte(c.value), nil
-}
-
-func (c *Client) UnmarshalText(text []byte) error {
-	v, err := ParseClient("client", string(text))
-	if err != nil {
-		return err
-	}
-	*c = v
-	return nil
-}
-
-func (c Client) MarshalJSON() ([]byte, error) {
-	if c.IsZero() {
-		return []byte("null"), nil
-	}
-	return json.Marshal(c.value)
-}
-
-func (c *Client) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	v, err := ParseClient("client", s)
-	if err != nil {
-		return err
-	}
-	*c = v
-	return nil
-}
+/*
+TODO:
+1. Fields
+2. Sanitize
+3. Errors
+*/
 
 // ============================================================================
 // Cursor
@@ -438,173 +283,6 @@ func ParseRequiredHexColor(fieldName, raw string) (HexColor, error) {
 		return HexColor{}, ErrHexColorRequired(fieldName)
 	}
 	return color, nil
-}
-
-// ============================================================================
-// ID
-// ============================================================================
-
-type ID uuid.UUID
-
-func NewID() (ID, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return ID{}, errs.Internal("Unable to create new ID.").Wrap(err)
-	}
-	return ID(id), nil
-}
-
-func ParseID(raw uuid.UUID) (ID, error) {
-	id := ID(raw)
-	if id.IsZero() {
-		return ID{}, nil
-	}
-	return id, nil
-}
-
-func ParseRequiredID(fieldName string, raw uuid.UUID) (ID, error) {
-	id := ID(raw)
-	if id.IsZero() {
-		return ID{}, ErrIDRequired(fieldName)
-	}
-	return id, nil
-}
-
-func ParseIDs(raws []uuid.UUID) ([]ID, error) {
-	if len(raws) == 0 {
-		return []ID{}, nil
-	}
-
-	ids := make([]ID, 0, len(raws))
-	for _, raw := range raws {
-		id, err := ParseID(raw)
-		if err != nil {
-			return nil, err
-		}
-		if id.IsZero() {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	return ids, nil
-}
-
-func ParseIDFromString(fieldName, raw string) (ID, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return ID{}, nil
-	}
-
-	parsed, err := uuid.Parse(s)
-	if err != nil {
-		return ID{}, ErrIDInvalid(fieldName)
-	}
-
-	return ID(parsed), nil
-}
-
-func ParseRequiredIDFromString(fieldName, raw string) (ID, error) {
-	id, err := ParseIDFromString(fieldName, raw)
-	if err != nil {
-		return ID{}, err
-	}
-	if id.IsZero() {
-		return ID{}, ErrIDRequired(fieldName)
-	}
-	return id, nil
-}
-
-func DedupeIDs(ids []ID) []ID {
-	if len(ids) == 0 {
-		return []ID{}
-	}
-	seen := make(map[ID]struct{}, len(ids))
-	result := make([]ID, 0, len(ids))
-	for _, id := range ids {
-		if id.IsZero() {
-			continue
-		}
-		if _, exists := seen[id]; !exists {
-			seen[id] = struct{}{}
-			result = append(result, id)
-		}
-	}
-	return result
-}
-
-func RemoveID(ids []ID, target ID) []ID {
-	if len(ids) == 0 {
-		return []ID{}
-	}
-	result := make([]ID, 0, len(ids))
-	for _, id := range ids {
-		if !id.Equals(target) {
-			result = append(result, id)
-		}
-	}
-	return result
-}
-
-func SortIDs(u1, u2 ID) (ID, ID) {
-	if u1.Compare(u2) < 0 {
-		return u1, u2
-	}
-	return u2, u1
-}
-
-func UUIDs(ids []ID) []uuid.UUID {
-	if len(ids) == 0 {
-		return nil
-	}
-	result := make([]uuid.UUID, len(ids))
-	for i, id := range ids {
-		result[i] = id.UUID()
-	}
-	return result
-}
-
-func (id ID) Bytes() []byte {
-	return id[:]
-}
-
-func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
-func (id ID) String() string       { return uuid.UUID(id).String() }
-func (id ID) IsZero() bool         { return uuid.UUID(id) == uuid.Nil }
-func (id ID) IsValid() bool        { return !id.IsZero() }
-func (id ID) Equals(other ID) bool { return id == other }
-func (id ID) Compare(other ID) int {
-	return bytes.Compare(id.Bytes(), other.Bytes())
-}
-
-func (id ID) UUIDPtr() *uuid.UUID {
-	if id.IsZero() {
-		return nil
-	}
-	return ptr.To(id.UUID())
-}
-
-func (id ID) StringPtr() *string {
-	if id.IsZero() {
-		return nil
-	}
-	return ptr.To(id.String())
-}
-
-func (id ID) MarshalText() ([]byte, error) {
-	if id.IsZero() {
-		return nil, nil
-	}
-	return []byte(id.String()), nil
-}
-
-func (id *ID) UnmarshalText(text []byte) error {
-	v, err := ParseIDFromString("id", string(text))
-	if err != nil {
-		return err
-	}
-	*id = v
-	return nil
 }
 
 // ============================================================================
@@ -1127,7 +805,13 @@ type Text struct {
 	value string
 }
 
-func NewText(v string) Text { return Text{value: v} }
+func NewText(v string) Text {
+	return Text{value: sanitize.Text(v)}
+}
+
+func ParseText(raw string) Text {
+	return Text{value: sanitize.Text(raw)}
+}
 
 func (t Text) String() string         { return t.value }
 func (t Text) IsZero() bool           { return t.value == "" }
@@ -1150,6 +834,26 @@ func (t Text) MarshalText() ([]byte, error) {
 
 func (t *Text) UnmarshalText(text []byte) error {
 	*t = NewText(string(text))
+	return nil
+}
+
+func (t Text) MarshalJSON() ([]byte, error) {
+	if t.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(t.value)
+}
+
+func (t *Text) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" || len(data) == 0 {
+		*t = Text{}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*t = NewText(s)
 	return nil
 }
 
@@ -1400,39 +1104,18 @@ func (t Token) Hash() (TokenHash, error) {
 
 const TokenHashByteLength = 32
 
-type TokenHash struct {
-	Bytes
-}
+type TokenHash [TokenHashByteLength]byte
 
 func NewTokenHash(b []byte) (TokenHash, error) {
 	if len(b) != TokenHashByteLength {
 		return TokenHash{}, ErrTokenHashInvalid("token_hash")
 	}
-	return TokenHash{Bytes: NewBytes(b)}, nil
+	var h TokenHash
+	copy(h[:], b)
+	return h, nil
 }
 
-func ParseTokenHash(fieldName string, raw []byte) (TokenHash, error) {
-	if len(raw) == 0 {
-		return TokenHash{}, nil
-	}
-	if len(raw) != TokenHashByteLength {
-		return TokenHash{}, ErrTokenHashInvalid(fieldName)
-	}
-	return TokenHash{Bytes: NewBytes(raw)}, nil
-}
-
-func ParseRequiredTokenHash(fieldName string, raw []byte) (TokenHash, error) {
-	th, err := ParseTokenHash(fieldName, raw)
-	if err != nil {
-		return TokenHash{}, err
-	}
-	if th.IsZero() {
-		return TokenHash{}, ErrTokenHashRequired(fieldName)
-	}
-	return th, nil
-}
-
-func ParseTokenHashFromHex(fieldName, raw string) (TokenHash, error) {
+func ParseTokenHashString(fieldName, raw string) (TokenHash, error) {
 	s := sanitize.Text(raw)
 	if s == "" {
 		return TokenHash{}, nil
@@ -1443,58 +1126,65 @@ func ParseTokenHashFromHex(fieldName, raw string) (TokenHash, error) {
 		return TokenHash{}, ErrTokenHashInvalid(fieldName)
 	}
 
-	return TokenHash{Bytes: NewBytes(decoded)}, nil
+	var h TokenHash
+	copy(h[:], decoded)
+	return h, nil
 }
 
-func ParseRequiredTokenHashFromHex(fieldName, raw string) (TokenHash, error) {
-	th, err := ParseTokenHashFromHex(fieldName, raw)
-	if err != nil {
-		return TokenHash{}, err
-	}
-	if th.IsZero() {
-		return TokenHash{}, ErrTokenHashRequired(fieldName)
-	}
-	return th, nil
-}
+func (h TokenHash) IsZero() bool  { return h == TokenHash{} }
+func (h TokenHash) IsValid() bool { return !h.IsZero() }
 
-func (h TokenHash) Hex() string {
+func (h TokenHash) String() string {
 	if h.IsZero() {
 		return ""
 	}
-	return hex.EncodeToString(h.value)
+	return hex.EncodeToString(h[:])
 }
 
-func (h TokenHash) HexPtr() *string {
+func (h TokenHash) StringPtr() *string {
 	if h.IsZero() {
 		return nil
 	}
-	return ptr.To(h.Hex())
+	s := h.String()
+	return &s
 }
 
 func (h TokenHash) Equals(other TokenHash) bool {
-	if h.IsZero() && other.IsZero() {
-		return true
-	}
-	if h.IsZero() || other.IsZero() {
-		return false
-	}
-	return subtle.ConstantTimeCompare(h.value, other.value) == 1
+	return subtle.ConstantTimeCompare(h[:], other[:]) == 1
 }
 
 func (h TokenHash) MarshalText() ([]byte, error) {
-	if h.IsZero() {
-		return nil, nil
-	}
-	return []byte(h.Hex()), nil
+	return []byte(h.String()), nil
 }
 
 func (h *TokenHash) UnmarshalText(text []byte) error {
-	v, err := ParseTokenHashFromHex("token_hash", string(text))
+	v, err := ParseTokenHashString("token_hash", string(text))
 	if err != nil {
 		return err
 	}
 	*h = v
 	return nil
+}
+
+func (h TokenHash) MarshalJSON() ([]byte, error) {
+	if h.IsZero() {
+		return []byte("null"), nil
+	}
+	return json.Marshal(h.String())
+}
+
+func (h *TokenHash) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" || len(data) == 0 {
+		*h = TokenHash{}
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	return h.UnmarshalText([]byte(s))
 }
 
 // ============================================================================

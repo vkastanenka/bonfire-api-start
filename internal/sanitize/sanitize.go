@@ -55,6 +55,8 @@ func Normalize(s any) {
 					str = Email(str)
 				case "text":
 					str = Text(str)
+				case "uuid":
+					str = UUID(str)
 				}
 			}
 
@@ -148,4 +150,25 @@ func URL(input string) string {
 	}
 
 	return cleaned
+}
+
+func UUID(input string) string {
+	s := strings.Trim(strings.TrimSpace(input), `"`)
+	if s == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(s))
+
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || r == '-' {
+			sb.WriteRune(r)
+		}
+	}
+
+	return strings.ToLower(sb.String())
 }
