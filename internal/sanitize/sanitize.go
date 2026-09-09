@@ -1,14 +1,143 @@
 package sanitize
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"unicode"
 )
 
+// String removes surrounding quotes, whitespace, and non-printable control characters.
+func String(s string) string {
+	s = strings.TrimSpace(strings.Trim(s, `"`))
+	if s == "" {
+		return ""
+	}
+
+	// Pre-scan to avoid allocation if s is already clean
+	needsCleaning := false
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			needsCleaning = true
+			break
+		}
+	}
+	if !needsCleaning {
+		return s
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for _, r := range s {
+		if !unicode.Is(unicode.Cc, r) && !unicode.Is(unicode.Cf, r) {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+// String removes surrounding quotes, whitespace, and non-printable control characters.
+func EnumValue(s string) string {
+	return strings.ToUpper(String(s))
+}
+
+// Bytes removes surrounding quotes, whitespace, and control characters from byte slices.
+func Bytes(raw []byte) []byte {
+	return bytes.TrimSpace(bytes.Trim(raw, `"`))
+}
+
+func Email(input string) string {
+	return strings.ToLower(String(input))
+}
+
+func Text(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return ""
+	}
+
+	// Fast path: Scan if modification is needed
+	needsAlloc := false
+	var lastWasSpace bool
+	for _, r := range trimmed {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) || (unicode.IsSpace(r) && lastWasSpace) {
+			needsAlloc = true
+			break
+		}
+		lastWasSpace = unicode.IsSpace(r)
+	}
+
+	if !needsAlloc {
+		return trimmed
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(trimmed))
+	lastWasSpace = false
+
+	for _, r := range trimmed {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if unicode.IsSpace(r) {
+			if !lastWasSpace {
+				sb.WriteRune(' ')
+				lastWasSpace = true
+			}
+			continue
+		}
+		sb.WriteRune(r)
+		lastWasSpace = false
+	}
+
+	return sb.String()
+}
+
+func Phone(input string) string {
+	s := String(input)
+	if s == "" {
+		return ""
+	}
+
+	hasPlus := strings.HasPrefix(s, "+")
+	var sb strings.Builder
+	sb.Grow(len(s))
+
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			sb.WriteRune(r)
+		}
+	}
+
+	if sb.Len() == 0 {
+		return ""
+	}
+	if hasPlus {
+		return "+" + sb.String()
+	}
+	return sb.String()
+}
+
+func URL(input string) string {
+	s := String(input)
+	if s == "" {
+		return ""
+	}
+
+	if idx := strings.Index(s, "://"); idx != -1 {
+		scheme := strings.ToLower(s[:idx])
+		return scheme + s[idx:]
+	}
+	return s
+}
+
+func UUID(input string) string {
+	return strings.ToLower(String(input))
+}
+
+// Normalize modifies struct fields in-place using "mod" tags zero-alloc.
 func Normalize(s any) {
 	val := reflect.ValueOf(s)
-
 	if val.Kind() != reflect.Ptr || val.IsNil() {
 		return
 	}
@@ -24,10 +153,8 @@ func Normalize(s any) {
 		fieldVal := val.Field(i)
 		fieldType := typ.Field(i)
 
-		if fieldVal.Kind() == reflect.Struct {
-			if fieldVal.CanAddr() {
-				Normalize(fieldVal.Addr().Interface())
-			}
+		if fieldVal.Kind() == reflect.Struct && fieldVal.CanAddr() {
+			Normalize(fieldVal.Addr().Interface())
 			continue
 		}
 		if fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() && fieldVal.Elem().Kind() == reflect.Struct {
@@ -47,128 +174,28 @@ func Normalize(s any) {
 
 		if targetVal.Kind() == reflect.String && targetVal.CanSet() {
 			str := targetVal.String()
+			for tag != "" {
+				var dir string
+				if idx := strings.IndexByte(tag, ','); idx != -1 {
+					dir, tag = tag[:idx], tag[idx+1:]
+				} else {
+					dir, tag = tag, ""
+				}
 
-			directives := strings.Split(tag, ",")
-			for _, d := range directives {
-				switch strings.TrimSpace(d) {
+				switch strings.TrimSpace(dir) {
 				case "email":
 					str = Email(str)
 				case "text":
 					str = Text(str)
 				case "uuid":
 					str = UUID(str)
+				case "phone":
+					str = Phone(str)
+				case "url":
+					str = URL(str)
 				}
 			}
-
 			targetVal.SetString(str)
 		}
 	}
-}
-
-func Email(input string) string {
-	return strings.ToLower(strings.TrimSpace(input))
-}
-
-func Text(input string) string {
-	input = strings.TrimSpace(input)
-
-	var sb strings.Builder
-	var lastWasSpace bool
-
-	for _, runeValue := range input {
-		if unicode.Is(unicode.Cc, runeValue) || unicode.Is(unicode.Cf, runeValue) {
-			continue
-		}
-
-		if unicode.IsSpace(runeValue) {
-			if !lastWasSpace {
-				sb.WriteRune(' ')
-				lastWasSpace = true
-			}
-			continue
-		}
-
-		sb.WriteRune(runeValue)
-		lastWasSpace = false
-	}
-
-	return sb.String()
-}
-
-func Phone(input string) string {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.Grow(len(input))
-
-	hasLeadingPlus := strings.HasPrefix(input, "+")
-
-	for _, runeValue := range input {
-		if unicode.IsDigit(runeValue) {
-			sb.WriteRune(runeValue)
-		}
-	}
-
-	if sb.Len() == 0 {
-		return ""
-	}
-
-	if hasLeadingPlus {
-		return "+" + sb.String()
-	}
-
-	return sb.String()
-}
-
-func URL(input string) string {
-	s := strings.TrimSpace(input)
-	if s == "" {
-		return ""
-	}
-
-	// Remove non-printable control characters (Cc) and format characters (Cf)
-	// to prevent CRLF injection or hidden character bypasses
-	var sb strings.Builder
-	sb.Grow(len(s))
-
-	for _, r := range s {
-		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
-			continue
-		}
-		sb.WriteRune(r)
-	}
-
-	cleaned := sb.String()
-
-	// Normalize scheme to lowercase for consistent checking/comparison
-	if idx := strings.Index(cleaned, "://"); idx != -1 {
-		scheme := strings.ToLower(cleaned[:idx])
-		cleaned = scheme + cleaned[idx:]
-	}
-
-	return cleaned
-}
-
-func UUID(input string) string {
-	s := strings.Trim(strings.TrimSpace(input), `"`)
-	if s == "" {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.Grow(len(s))
-
-	for _, r := range s {
-		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
-			continue
-		}
-		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || r == '-' {
-			sb.WriteRune(r)
-		}
-	}
-
-	return strings.ToLower(sb.String())
 }

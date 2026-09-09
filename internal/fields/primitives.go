@@ -4,6 +4,8 @@ import (
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/sanitize"
 	"bytes"
+	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 )
@@ -27,16 +29,28 @@ func ParseID(raw uuid.UUID) ID {
 }
 
 func ParseIDString(raw string) (ID, error) {
-	s := sanitize.UUID(raw)
-	if s == "" {
+	str := sanitize.String(raw)
+	if str == "" {
 		return ID{}, nil
 	}
 
-	u, err := uuid.Parse(s)
+	u, err := uuid.Parse(str)
 	if err != nil {
-		return ID{}, errs.InvalidArgument("invalid id string").Wrap(err)
+		return ID{}, fmt.Errorf("invalid id: %w", err)
+	}
+	return ParseID(u), nil
+}
+
+func ParseIDBytes(raw []byte) (ID, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return ID{}, nil
 	}
 
+	u, err := uuid.ParseBytes(cleaned)
+	if err != nil {
+		return ID{}, fmt.Errorf("invalid id: %w", err)
+	}
 	return ParseID(u), nil
 }
 
@@ -155,7 +169,7 @@ func (id ID) MarshalJSON() ([]byte, error) {
 	if id.IsZero() {
 		return []byte("null"), nil
 	}
-	return []byte(`"` + id.String() + `"`), nil
+	return strconv.AppendQuote(nil, id.String()), nil
 }
 
 func (id *ID) UnmarshalJSON(data []byte) error {
@@ -164,7 +178,7 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseIDString(string(data))
+	parsed, err := ParseIDBytes(data)
 	if err != nil {
 		return err
 	}
