@@ -3,14 +3,28 @@ package relation
 import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
 )
 
+type PresenceCache interface {
+	GetBatchNodeUsers(ctx context.Context, userIDs []fields.ID) (map[fields.ID][]fields.ID, error)
+	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]presence.Presence, error)
+	GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error)
+	GetSessionNode(ctx context.Context, userID fields.ID, sessionID fields.ID) (fields.ID, bool, error)
+	Heartbeat(ctx context.Context, nodeID fields.ID, userID fields.ID, sessionID fields.ID) error
+	RegisterNodeSession(ctx context.Context, nodeID fields.ID, userID fields.ID, sessionID fields.ID, p presence.Presence) (bool, presence.Presence, error)
+	RemoveBatchNodeUsers(ctx context.Context, nodeID fields.ID, userIDs []fields.ID) error
+	SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error
+	UnregisterNodeSession(ctx context.Context, nodeID fields.ID, userID fields.ID, sessionID fields.ID) (bool, error)
+}
+
 type UserCache interface {
 	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error
 	AddFriend(ctx context.Context, userID fields.ID, friendID fields.ID, channelID fields.ID) error
+	AddFriendPair(ctx context.Context, userA fields.ID, userB fields.ID, channelID fields.ID) error
 	BlockUser(ctx context.Context, blockerID fields.ID, targetID fields.ID) error
 	Delete(ctx context.Context, id fields.ID) error
 	DeleteBatch(ctx context.Context, ids []fields.ID) error

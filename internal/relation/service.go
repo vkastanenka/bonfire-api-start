@@ -2,12 +2,14 @@ package relation
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/google/uuid"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
 
@@ -18,6 +20,7 @@ type Service struct {
 	memberRepo        MemberRepository
 	cachedMemberRepo  CachedMemberRepository
 	outboxRepo        OutboxRepository
+	presenceCache     PresenceCache
 	userCache         UserCache
 	userRepo          UserRepository
 	cachedUserRepo    CachedUserRepository
@@ -31,6 +34,7 @@ func NewService(
 	memberRepo MemberRepository,
 	cachedMemberRepo CachedMemberRepository,
 	outboxRepo OutboxRepository,
+	presenceCache PresenceCache,
 	userCache UserCache,
 	userRepo UserRepository,
 	cachedUserRepo CachedUserRepository,
@@ -43,14 +47,13 @@ func NewService(
 		memberRepo:        memberRepo,
 		cachedMemberRepo:  cachedMemberRepo,
 		outboxRepo:        outboxRepo,
+		presenceCache:     presenceCache,
 		userCache:         userCache,
 		userRepo:          userRepo,
 		cachedUserRepo:    cachedUserRepo,
 		tx:                tx,
 	}
 }
-
-
 
 func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
@@ -66,7 +69,7 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	now := fields.Now()
 	rel := NewPending(u1, u2, actorID, channelID, now)
 
-	actor, err := s.userSvc.Get(ctx, rawActorID)
+	actor, err := s.cachedUserRepo.Get(ctx, actorID)
 	if err != nil {
 		return err
 	}
@@ -95,11 +98,8 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 			return ErrAlreadyFriends()
 		}
 
-		// TODO
 		if relLock.Type().IsPending() {
-			if err := validateAccept(actorID, relLock); err == nil {
-				return s.acceptPendingRequestTx(txCtx, actorID, relLock, now)
-			}
+
 			return ErrAlreadyPending()
 		}
 
@@ -107,23 +107,107 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	})
 }
 
-// TODO
-func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
+func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) (*channel.Channel, *channel.Member, *user.User, presence.Presence, error) {
+	actorID, peerID, u1, u2, err := validateIDs(rawActorID, rawPeerID)
 	if err != nil {
-		return err
+		return nil, nil, nil, presence.Presence{}, err
 	}
+
+	actorUser, err := s.cachedUserRepo.Get(ctx, actorID)
+	if err != nil {
+		return nil, nil, nil, presence.Presence{}, err
+	}
+
+	peerUser, err := s.cachedUserRepo.Get(ctx, peerID)
+	if err != nil {
+		return nil, nil, nil, presence.Presence{}, err
+	}
+
+	actorPresence, _ := s.presenceCache.GetPresence(ctx, actorID)
+	peerPresence, _ := s.presenceCache.GetPresence(ctx, peerID)
 
 	now := fields.Now()
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	var createdChannel *channel.Channel
+	var actorMember *channel.Member
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
 		if err != nil {
 			return err
 		}
 
-		return s.acceptPendingRequestTx(txCtx, actorID, rel, now)
+		if err := validateBlockedActor(actorID, rel); err != nil {
+			return err
+		}
+
+		if err := validateAccept(actorID, rel); err != nil {
+			return err
+		}
+
+		ch, err := channel.NewDirectChannel(now)
+		if err != nil {
+			return err
+		}
+
+		newCh, err := s.channelRepo.Create(txCtx, ch)
+		if err != nil {
+			return err
+		}
+		createdChannel = newCh
+
+		newMembers := channel.NewMembers(newCh.ID(), actorID, rel.PeerIDs(actorID), now)
+		createdMembers, err := s.memberRepo.CreateBatch(txCtx, newMembers)
+		if err != nil {
+			return err
+		}
+
+		var peerMember *channel.Member
+		for _, m := range createdMembers {
+			if m.UserID().Equals(actorID) {
+				actorMember = m
+			} else if m.UserID().Equals(peerID) {
+				peerMember = m
+			}
+		}
+
+		rel.Accept(actorID, newCh.ID(), now)
+
+		if _, err := s.repo.Save(txCtx, rel); err != nil {
+			return err
+		}
+
+		actorPayload := EventFriendAddedPayload{
+			Friend:         peerUser,
+			FriendPresence: peerPresence,
+			Channel:        newCh,
+			Member:         actorMember,
+			CreatedAt:      now,
+		}
+		if err := s.outboxRepo.Publish(txCtx, EventFriendAdded, actorPayload, now); err != nil {
+			return err
+		}
+
+		peerPayload := EventFriendAddedPayload{
+			Friend:         actorUser,
+			FriendPresence: actorPresence,
+			Channel:        newCh,
+			Member:         peerMember,
+			CreatedAt:      now,
+		}
+		return s.outboxRepo.Publish(txCtx, EventFriendAdded, peerPayload, now)
 	})
+	if err != nil {
+		return nil, nil, nil, presence.Presence{}, err
+	}
+
+	if err := s.userCache.AddFriendPair(ctx, actorID, peerID, createdChannel.ID()); err != nil {
+		slog.WarnContext(ctx, "failed to update friend pair cache", "actor_id", actorID, "peer_id", peerID, "err", err)
+	}
+
+	// TODO: Handle cache
+
+	return createdChannel, actorMember, peerUser, peerPresence, nil
 }
 
 func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
@@ -226,46 +310,5 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 		_ = s.userCache.RemoveFriendPair(ctx, u1, u2)
 	}
 
-	return nil
-}
-
-// TODO
-func (s *Service) acceptPendingRequestTx(txCtx context.Context, actorID fields.ID, rel *Relation, now fields.Timestamp) error {
-	if err := validateBlockedActor(actorID, rel); err != nil {
-		return err
-	}
-
-	if err := validateAccept(actorID, rel); err != nil {
-		return err
-	}
-
-	ch := channel.ReconstituteChannel(
-		rel.ChannelID(),
-		channel.NewChannelTypeDirect(),
-		channel.ChannelName{},
-		fields.URL{},
-		fields.ID{},
-		fields.Timestamp{},
-		now,
-		now,
-	)
-
-	newCh, err := s.channelRepo.Create(txCtx, ch)
-	if err != nil {
-		return err
-	}
-
-	members := channel.NewMembers(newCh.ID(), actorID, rel.PeerIDs(actorID), now)
-	if _, err := s.memberRepo.CreateBatch(txCtx, members); err != nil {
-		return err
-	}
-
-	rel.Accept(actorID, newCh.ID(), now)
-
-	if _, err := s.repo.Save(txCtx, rel); err != nil {
-		return err
-	}
-
-	// return s.outboxRepo.Publish(txCtx, EventFriendRequestAccepted, FriendRequestAcceptedPayload{})
 	return nil
 }

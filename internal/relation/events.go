@@ -1,17 +1,19 @@
 package relation
 
 import (
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
 	"encoding/json"
 )
 
 const (
-	EventFriendRequestSent     = "relation.friend_request_sent"
-	EventFriendRequestAccepted = "relation.friend_request_accepted"
-	EventFriendDeleted         = "relation.friend_deleted"
+	EventFriendRequestSent = "relation.friend_request_sent"
+	EventFriendAdded       = "relation.friend_added"
+	EventFriendDeleted     = "relation.friend_deleted"
 )
 
 type EventFriendRequestSentPayload struct {
@@ -19,11 +21,6 @@ type EventFriendRequestSentPayload struct {
 	PeerID    string       `json:"peer_id"`
 	Actor     user.Summary `json:"actor"`
 	CreatedAt string       `json:"created_at"`
-}
-
-type EventFriendDeletedPayload struct {
-	ActorID string `json:"actor_id"`
-	PeerID  string `json:"peer_id"`
 }
 
 func NewFriendRequestSentOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
@@ -34,6 +31,19 @@ func NewFriendRequestSentOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
 		}
 		return outbox.NewUserHandler(gw, EventFriendRequestSent, p.ActorID, p.PeerID)(ctx, payload)
 	}
+}
+
+type EventFriendAddedPayload struct {
+	Friend         *user.User        `json:"friend"`
+	FriendPresence presence.Presence `json:"friend_presence"`
+	Channel        *channel.Channel  `json:"channel"`
+	Member         *channel.Member   `json:"member"`
+	CreatedAt      fields.Timestamp  `json:"created_at"`
+}
+
+type EventFriendDeletedPayload struct {
+	ActorID string `json:"actor_id"`
+	PeerID  string `json:"peer_id"`
 }
 
 func NewFriendDeletedOutboxHandler(gw outbox.Broadcaster) outbox.Handler {

@@ -223,6 +223,30 @@ func (c *UserCache) AddFriend(ctx context.Context, userID fields.ID, friendID, c
 	return nil
 }
 
+// AddFriendPair atomically adds or updates a friend mapping for both users in a single pipeline.
+func (c *UserCache) AddFriendPair(ctx context.Context, userA, userB, channelID fields.ID) error {
+	keyA := userFriendsKey(userA)
+	keyB := userFriendsKey(userB)
+
+	_, err := c.client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		// Update User A's cache
+		pipe.HSet(ctx, keyA, userB.String(), channelID.String())
+		pipe.HDel(ctx, keyA, emptySetSentinel)
+		pipe.ExpireXX(ctx, keyA, userFriendsTTL)
+
+		// Update User B's cache
+		pipe.HSet(ctx, keyB, userA.String(), channelID.String())
+		pipe.HDel(ctx, keyB, emptySetSentinel)
+		pipe.ExpireXX(ctx, keyB, userFriendsTTL)
+
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
 // RemoveFriendPair atomically removes two users from each other's friend hashes.
 func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID) error {
 	pipe := c.client.Pipeline()
