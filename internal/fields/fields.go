@@ -29,28 +29,6 @@ TODO:
 */
 
 // ============================================================================
-// Cursor
-// ============================================================================
-
-type Cursor struct {
-	id          ID
-	beforeLimit int
-	afterLimit  int
-}
-
-func NewCursor(id ID, beforeLimit, afterLimit int) Cursor {
-	return Cursor{
-		id:          id,
-		beforeLimit: beforeLimit,
-		afterLimit:  afterLimit,
-	}
-}
-
-func (c Cursor) ID() ID           { return c.id }
-func (c Cursor) BeforeLimit() int { return c.beforeLimit }
-func (c Cursor) AfterLimit() int  { return c.afterLimit }
-
-// ============================================================================
 // Enum
 // ============================================================================
 
