@@ -2,7 +2,6 @@ package channel
 
 import (
 	"bonfire-api/internal/fields"
-	"slices"
 
 	"github.com/google/uuid"
 )
@@ -126,35 +125,6 @@ func indexChannels(channels []*Channel) []fields.ID {
 	}
 
 	return channelIDs
-}
-
-func sortSidebar(channels []*Channel, userMembersMap map[fields.ID]*Member) {
-	pinnedAt := func(c *Channel) fields.Timestamp {
-		if m := userMembersMap[c.ID()]; m != nil && m.PinnedAt().IsValid() {
-			return m.PinnedAt()
-		}
-		return fields.Timestamp{}
-	}
-
-	slices.SortFunc(channels, func(a, b *Channel) int {
-		pinA, pinB := pinnedAt(a), pinnedAt(b)
-
-		if pinA.IsValid() || pinB.IsValid() {
-			if cmp := pinB.Compare(pinA); cmp != 0 {
-				return cmp
-			}
-		}
-
-		if cmp := b.LastMessageAt().Compare(a.LastMessageAt()); cmp != 0 {
-			return cmp
-		}
-
-		if cmp := b.CreatedAt().Compare(a.CreatedAt()); cmp != 0 {
-			return cmp
-		}
-
-		return a.ID().Compare(b.ID())
-	})
 }
 
 func validateIDs(rawActorID, rawSessionID, rawChannelID uuid.UUID) (actorID, sessionID, channelID fields.ID, err error) {

@@ -84,6 +84,13 @@ type RelationRepository interface {
 	HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) error
 }
 
+type CachedRelationRepository interface {
+	GetBlockedByIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetBlocklistIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+	GetFriends(ctx context.Context, userID fields.ID) (map[fields.ID]fields.ID, error)
+	GetPendingIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error)
+}
+
 type UserRepository interface {
 	Get(ctx context.Context, id fields.ID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)

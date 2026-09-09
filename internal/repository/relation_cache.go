@@ -22,6 +22,27 @@ func NewCachedRelationRepository(cache UserCache, repo *RelationRepository) *Cac
 	}
 }
 
+// GetPendingIDs retrieves pending user IDs via Cache-Aside.
+func (r *CachedRelationRepository) GetPendingIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	cachedIDs, err := r.cache.GetPendingIDs(ctx, userID)
+	if err == nil && cachedIDs != nil {
+		return cachedIDs, nil
+	}
+
+	rels, err := r.repo.ListIncomingPendingByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingIDs := extractPeerIDs(rels, userID)
+
+	if err := r.cache.SetPendingIDs(ctx, userID, pendingIDs); err != nil {
+		slog.WarnContext(ctx, "failed to backfill pending IDs cache", "user_id", userID.String(), "err", err)
+	}
+
+	return pendingIDs, nil
+}
+
 // GetFriends retrieves active friend IDs mapped to their channel IDs via Cache-Aside.
 func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID fields.ID) (map[fields.ID]fields.ID, error) {
 	friendsMap, err := r.cache.GetFriends(ctx, userID)

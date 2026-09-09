@@ -18,8 +18,6 @@ var (
 	userSessionsTTL = 90 * time.Second
 )
 
-
-
 type PresenceCache struct {
 	client redisdriver.Cmdable
 }

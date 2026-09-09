@@ -547,9 +547,7 @@ func RemoveID(ids []ID, target ID) []ID {
 }
 
 func SortIDs(u1, u2 ID) (ID, ID) {
-	b1 := u1.UUID()
-	b2 := u2.UUID()
-	if bytes.Compare(b1[:], b2[:]) < 0 {
+	if u1.Compare(u2) < 0 {
 		return u1, u2
 	}
 	return u2, u1
@@ -566,13 +564,17 @@ func UUIDs(ids []ID) []uuid.UUID {
 	return result
 }
 
+func (id ID) Bytes() []byte {
+	return id[:]
+}
+
 func (id ID) UUID() uuid.UUID      { return uuid.UUID(id) }
 func (id ID) String() string       { return uuid.UUID(id).String() }
 func (id ID) IsZero() bool         { return uuid.UUID(id) == uuid.Nil }
 func (id ID) IsValid() bool        { return !id.IsZero() }
 func (id ID) Equals(other ID) bool { return id == other }
 func (id ID) Compare(other ID) int {
-	return bytes.Compare(id[:], other[:])
+	return bytes.Compare(id.Bytes(), other.Bytes())
 }
 
 func (id ID) UUIDPtr() *uuid.UUID {

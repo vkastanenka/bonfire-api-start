@@ -19,6 +19,7 @@ var (
 	userTTL         = 24 * time.Hour
 	userFriendsTTL  = 24 * time.Hour
 	userBlocksTTL   = 24 * time.Hour
+	userPendingsTTL = 24 * time.Hour
 	userChannelsTTL = 24 * time.Hour
 )
 
@@ -29,6 +30,7 @@ const (
 func userKey(id fields.ID) string          { return "{user:" + id.String() + "}" }
 func userPresenceKey(id fields.ID) string  { return "{user:" + id.String() + "}:presence" }
 func userSessionsKey(id fields.ID) string  { return "{user:" + id.String() + "}:sessions" }
+func userPendingsKey(id fields.ID) string  { return "{user:" + id.String() + "}:pendings" }
 func userFriendsKey(id fields.ID) string   { return "{user:" + id.String() + "}:friends" }
 func userBlocksKey(id fields.ID) string    { return "{user:" + id.String() + "}:blocks" }
 func userBlockedByKey(id fields.ID) string { return "{user:" + id.String() + "}:blocked_by" }
@@ -152,6 +154,42 @@ func (c *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 		keys[i] = userKey(id)
 	}
 	return deleteBatchKeys(ctx, c.client, keys, redis.ScopeUser)
+}
+
+// -----------------------------------------------------------------------------
+// Pending Relationship Operations
+// -----------------------------------------------------------------------------
+
+// GetPendingIDs retrieves all user IDs that have a pending relationship with the given user.
+func (c *UserCache) GetPendingIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+	return c.getRelationIDs(ctx, userPendingsKey(userID))
+}
+
+// SetPendingIDs sets the complete list of pending user IDs for a given user.
+func (c *UserCache) SetPendingIDs(ctx context.Context, userID fields.ID, pendingIDs []fields.ID) error {
+	return c.setRelationIDs(ctx, userPendingsKey(userID), pendingIDs, userPendingsTTL)
+}
+
+// AddPendingID adds a single user ID to a user's pending set and removes the empty sentinel.
+func (c *UserCache) AddPendingID(ctx context.Context, userID, pendingUserID fields.ID) error {
+	return c.addRelationID(ctx, userPendingsKey(userID), pendingUserID, userPendingsTTL)
+}
+
+// RemovePendingID removes a user ID from a user's pending set.
+func (c *UserCache) RemovePendingID(ctx context.Context, userID, pendingUserID fields.ID) error {
+	removals := map[string]fields.ID{
+		userPendingsKey(userID): pendingUserID,
+	}
+	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
+}
+
+// RemovePendingPair atomically removes pending relationship entries for both users (e.g., when accepting or rejecting a request).
+func (c *UserCache) RemovePendingPair(ctx context.Context, userA, userB fields.ID) error {
+	removals := map[string]fields.ID{
+		userPendingsKey(userA): userB,
+		userPendingsKey(userB): userA,
+	}
+	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
 }
 
 // -----------------------------------------------------------------------------
