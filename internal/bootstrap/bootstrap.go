@@ -432,3 +432,43 @@ func getMemberChannelIDs(members []*channel.Member) []fields.ID {
 
 	return channelIDs
 }
+
+// // TODO
+// func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (
+// 	peerChannelMap map[fields.ID]fields.ID,
+// 	peerIDs []fields.ID,
+// 	err error,
+// ) {
+// 	userID, err := fields.ParseRequiredID("user_id", rawUserID)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	relType, err := ParseString(rawType)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	relations, err := s.repo.ListTypeByUserID(ctx, userID, relType, maxPeerTypeLimit)
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	if len(relations) == 0 {
+// 		return make(map[fields.ID]fields.ID), []fields.ID{}, nil
+// 	}
+
+// 	peerIDs = make([]fields.ID, 0, len(relations))
+// 	peerChannelMap = make(map[fields.ID]fields.ID, len(relations))
+
+// 	for _, rel := range relations {
+// 		if rel == nil {
+// 			continue
+// 		}
+// 		pID := rel.PeerID(userID)
+// 		peerIDs = append(peerIDs, pID)
+// 		peerChannelMap[pID] = rel.ChannelID()
+// 	}
+
+// 	return peerChannelMap, peerIDs, nil
+// }

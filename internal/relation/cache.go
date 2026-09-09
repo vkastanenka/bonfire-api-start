@@ -1,4 +1,4 @@
-package repository
+package relation
 
 import (
 	"bonfire-api/internal/channel"
@@ -7,32 +7,6 @@ import (
 	"context"
 	"time"
 )
-
-type ChannelCache interface {
-	AddMembers(ctx context.Context, channelID fields.ID, members []*channel.Member) error
-	CreateGroup(ctx context.Context, ch *channel.Channel, members []*channel.Member) error
-	Delete(ctx context.Context, id fields.ID) error
-	Get(ctx context.Context, id fields.ID) (*channel.Channel, error)
-	GetBatchMembersByChannelIDs(ctx context.Context, channelIDs []fields.ID) (map[fields.ID][]*channel.Member, []fields.ID, error)
-	InvalidateMember(ctx context.Context, channelID fields.ID, userID fields.ID) error
-	InvalidateMembers(ctx context.Context, channelID fields.ID) error
-	Set(ctx context.Context, ch *channel.Channel) error
-	SetBatchMembers(ctx context.Context, channelMembersMap map[fields.ID][]*channel.Member) error
-	GetMember(ctx context.Context, channelID fields.ID, userID fields.ID) (*channel.Member, error)
-	SetBatch(ctx context.Context, channels map[fields.ID]*channel.Channel) error
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*channel.Channel, []fields.ID, error)
-}
-
-type MessageCache interface {
-	Delete(ctx context.Context, channelID fields.ID, msgID fields.ID) error
-	Get(ctx context.Context, id fields.ID) (*channel.Message, error)
-	GetRecentByChannelID(ctx context.Context, channelID fields.ID, limit int) ([]*channel.Message, bool, error)
-	Set(ctx context.Context, msg *channel.Message) error
-	SetBatch(ctx context.Context, channelID fields.ID, messages []*channel.Message) error
-	GetAroundByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, beforeLimit int, afterLimit int) ([]*channel.Message, bool, bool, bool, error)
-	GetAfterByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*channel.Message, bool, bool, error)
-	GetBeforeByChannelID(ctx context.Context, channelID fields.ID, cursorID fields.ID, limit int) ([]*channel.Message, bool, bool, error)
-}
 
 type UserCache interface {
 	AddChannelID(ctx context.Context, userID fields.ID, channelID fields.ID) error

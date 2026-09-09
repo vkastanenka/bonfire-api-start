@@ -12,77 +12,45 @@ import (
 )
 
 type Service struct {
-	repo        Repository
-	userCache   UserCache
-	userRepo    UserRepository
-	userSvc     UserService
-	channelRepo ChannelRepository
-	memberRepo  MemberRepository
-	outboxRepo  OutboxRepository
-	tx          TX
+	repo              Repository
+	channelRepo       ChannelRepository
+	cachedChannelRepo CachedChannelRepository
+	memberRepo        MemberRepository
+	cachedMemberRepo  CachedMemberRepository
+	outboxRepo        OutboxRepository
+	userCache         UserCache
+	userRepo          UserRepository
+	cachedUserRepo    CachedUserRepository
+	tx                TX
 }
 
 func NewService(
 	repo Repository,
+	channelRepo ChannelRepository,
+	cachedChannelRepo CachedChannelRepository,
+	memberRepo MemberRepository,
+	cachedMemberRepo CachedMemberRepository,
+	outboxRepo OutboxRepository,
 	userCache UserCache,
 	userRepo UserRepository,
-	userSvc UserService,
-	channelRepo ChannelRepository,
-	memberRepo MemberRepository,
-	outboxRepo OutboxRepository,
+	cachedUserRepo CachedUserRepository,
 	tx TX,
 ) *Service {
 	return &Service{
-		repo:        repo,
-		userCache:   userCache,
-		userRepo:    userRepo,
-		userSvc:     userSvc,
-		channelRepo: channelRepo,
-		memberRepo:  memberRepo,
-		outboxRepo:  outboxRepo,
-		tx:          tx,
+		repo:              repo,
+		channelRepo:       channelRepo,
+		cachedChannelRepo: cachedChannelRepo,
+		memberRepo:        memberRepo,
+		cachedMemberRepo:  cachedMemberRepo,
+		outboxRepo:        outboxRepo,
+		userCache:         userCache,
+		userRepo:          userRepo,
+		cachedUserRepo:    cachedUserRepo,
+		tx:                tx,
 	}
 }
 
-// TODO
-func (s *Service) GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (
-	peerChannelMap map[fields.ID]fields.ID,
-	peerIDs []fields.ID,
-	err error,
-) {
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return nil, nil, err
-	}
 
-	relType, err := ParseString(rawType)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	relations, err := s.repo.ListTypeByUserID(ctx, userID, relType, maxPeerTypeLimit)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if len(relations) == 0 {
-		return make(map[fields.ID]fields.ID), []fields.ID{}, nil
-	}
-
-	peerIDs = make([]fields.ID, 0, len(relations))
-	peerChannelMap = make(map[fields.ID]fields.ID, len(relations))
-
-	for _, rel := range relations {
-		if rel == nil {
-			continue
-		}
-		pID := rel.PeerID(userID)
-		peerIDs = append(peerIDs, pID)
-		peerChannelMap[pID] = rel.ChannelID()
-	}
-
-	return peerChannelMap, peerIDs, nil
-}
 
 func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
 	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)

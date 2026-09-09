@@ -22,11 +22,11 @@ func NewCachedRelationRepository(cache UserCache, repo *RelationRepository) *Cac
 	}
 }
 
-// GetFriendIDs retrieves active friend IDs via Cache-Aside.
-func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
-	cachedIDs, err := r.cache.GetFriendIDs(ctx, userID)
-	if err == nil && cachedIDs != nil {
-		return cachedIDs, nil
+// GetFriends retrieves active friend IDs mapped to their channel IDs via Cache-Aside.
+func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID fields.ID) (map[fields.ID]fields.ID, error) {
+	friendsMap, err := r.cache.GetFriends(ctx, userID)
+	if err == nil && friendsMap != nil {
+		return friendsMap, nil
 	}
 
 	rels, err := r.repo.ListFriendsByUserID(ctx, userID, maxRelationFetchLimit)
@@ -34,13 +34,22 @@ func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID fiel
 		return nil, err
 	}
 
-	friendIDs := extractPeerIDs(rels, userID)
-
-	if err := r.cache.SetFriendIDs(ctx, userID, friendIDs); err != nil {
-		slog.WarnContext(ctx, "failed to backfill friend IDs cache", "user_id", userID.String(), "err", err)
+	friendsMap = make(map[fields.ID]fields.ID, len(rels))
+	for _, rel := range rels {
+		var peerID fields.ID
+		if rel.User1ID().Equals(userID) {
+			peerID = rel.User2ID()
+		} else {
+			peerID = rel.User1ID()
+		}
+		friendsMap[peerID] = rel.ChannelID()
 	}
 
-	return friendIDs, nil
+	if err := r.cache.SetFriends(ctx, userID, friendsMap); err != nil {
+		slog.WarnContext(ctx, "failed to backfill friends cache", "user_id", userID.String(), "err", err)
+	}
+
+	return friendsMap, nil
 }
 
 // GetBlocklistIDs retrieves outgoing blocked user IDs via Cache-Aside.

@@ -158,28 +158,81 @@ func (c *UserCache) DeleteBatch(ctx context.Context, ids []fields.ID) error {
 // Friends Operations
 // -----------------------------------------------------------------------------
 
-// GetFriendIDs fetches a user's friend IDs. Returns (nil, nil) on cache miss.
-func (c *UserCache) GetFriendIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
-	return c.getRelationIDs(ctx, userFriendsKey(userID))
-}
-
-// SetFriendIDs sets the full list of friend IDs, caching a sentinel if the slice is empty.
-func (c *UserCache) SetFriendIDs(ctx context.Context, userID fields.ID, friendIDs []fields.ID) error {
-	return c.setRelationIDs(ctx, userFriendsKey(userID), friendIDs, userFriendsTTL)
-}
-
-// AddFriendID adds a single friend to a user's friend set.
-func (c *UserCache) AddFriendID(ctx context.Context, userID, friendID fields.ID) error {
-	return c.addRelationID(ctx, userFriendsKey(userID), friendID, userFriendsTTL)
-}
-
-// RemoveFriendPair atomically removes two users from each other's friend sets.
-func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID) error {
-	removals := map[string]fields.ID{
-		userFriendsKey(userA): userB,
-		userFriendsKey(userB): userA,
+// GetFriends fetches a user's friend-to-channel mapping. Returns (nil, nil) on cache miss.
+func (c *UserCache) GetFriends(ctx context.Context, userID fields.ID) (map[fields.ID]fields.ID, error) {
+	key := userFriendsKey(userID)
+	data, err := c.client.HGetAll(ctx, key).Result()
+	if errors.Is(err, redisdriver.Nil) || len(data) == 0 {
+		return nil, nil
 	}
-	return removeFromSetIDsPipelined(ctx, c.client, removals, redis.ScopeUser)
+	if err != nil {
+		return nil, redis.NewError(err, redis.ScopeUser)
+	}
+
+	if _, ok := data[emptySetSentinel]; ok {
+		return map[fields.ID]fields.ID{}, nil
+	}
+
+	friends := make(map[fields.ID]fields.ID, len(data))
+	for fStr, chStr := range data {
+		fUUID, err1 := uuid.Parse(fStr)
+		chUUID, err2 := uuid.Parse(chStr)
+		if err1 == nil && err2 == nil {
+			friends[fields.ID(fUUID)] = fields.ID(chUUID)
+		}
+	}
+
+	return friends, nil
+}
+
+// SetFriends sets the complete map of friends and their channels, caching a sentinel if empty.
+func (c *UserCache) SetFriends(ctx context.Context, userID fields.ID, friendsMap map[fields.ID]fields.ID) error {
+	key := userFriendsKey(userID)
+	_, err := c.client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, key)
+		if len(friendsMap) == 0 {
+			pipe.HSet(ctx, key, emptySetSentinel, "1")
+		} else {
+			vals := make([]interface{}, 0, len(friendsMap)*2)
+			for fID, chID := range friendsMap {
+				vals = append(vals, fID.String(), chID.String())
+			}
+			pipe.HSet(ctx, key, vals...)
+		}
+		pipe.Expire(ctx, key, userFriendsTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+// AddFriend adds or updates a single friend mapping in a user's friend hash.
+func (c *UserCache) AddFriend(ctx context.Context, userID fields.ID, friendID, channelID fields.ID) error {
+	key := userFriendsKey(userID)
+	_, err := c.client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.HSet(ctx, key, friendID.String(), channelID.String())
+		pipe.HDel(ctx, key, emptySetSentinel)
+		pipe.ExpireXX(ctx, key, userFriendsTTL)
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
+}
+
+// RemoveFriendPair atomically removes two users from each other's friend hashes.
+func (c *UserCache) RemoveFriendPair(ctx context.Context, userA, userB fields.ID) error {
+	pipe := c.client.Pipeline()
+	pipe.HDel(ctx, userFriendsKey(userA), userB.String())
+	pipe.HDel(ctx, userFriendsKey(userB), userA.String())
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
 // -----------------------------------------------------------------------------
