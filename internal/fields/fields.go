@@ -32,11 +32,6 @@ TODO:
 // Cursor
 // ============================================================================
 
-const (
-	DefaultCursorLimit = 50
-	MaxCursorLimit     = 100
-)
-
 type Cursor struct {
 	id          ID
 	beforeLimit int
@@ -51,75 +46,9 @@ func NewCursor(id ID, beforeLimit, afterLimit int) Cursor {
 	}
 }
 
-func ParseCursor(idRaw string, beforeLimitRaw, afterLimitRaw string) (Cursor, error) {
-	var (
-		id          ID
-		beforeLimit int
-		afterLimit  int
-		err         error
-	)
-
-	if idRaw != "" {
-		id, err = ParseIDFromString("anchor_message_id", idRaw)
-		if err != nil {
-			return Cursor{}, err
-		}
-	}
-
-	if beforeLimitRaw != "" {
-		beforeLimit, err = parseCursorLimit("before_limit", beforeLimitRaw)
-		if err != nil {
-			return Cursor{}, err
-		}
-	}
-
-	if afterLimitRaw != "" {
-		afterLimit, err = parseCursorLimit("after_limit", afterLimitRaw)
-		if err != nil {
-			return Cursor{}, err
-		}
-	}
-
-	if id.IsValid() && beforeLimit == 0 && afterLimit == 0 {
-		beforeLimit = DefaultCursorLimit
-	}
-
-	return NewCursor(id, beforeLimit, afterLimit), nil
-}
-
-func parseCursorLimit(fieldName, raw string) (int, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return 0, nil
-	}
-
-	val, err := strconv.Atoi(s)
-	if err != nil || val < 0 {
-		return 0, ErrLimitInvalid(fieldName)
-	}
-
-	if val > MaxCursorLimit {
-		return 0, ErrLimitExceeded(fieldName)
-	}
-
-	return val, nil
-}
-
 func (c Cursor) ID() ID           { return c.id }
 func (c Cursor) BeforeLimit() int { return c.beforeLimit }
 func (c Cursor) AfterLimit() int  { return c.afterLimit }
-
-func (c Cursor) IsZero() bool {
-	return c.id.IsZero() && c.beforeLimit == 0 && c.afterLimit == 0
-}
-
-func (c Cursor) IsValid() bool { return !c.IsZero() }
-
-func (c Cursor) Equals(other Cursor) bool {
-	return c.id.Equals(other.id) &&
-		c.beforeLimit == other.beforeLimit &&
-		c.afterLimit == other.afterLimit
-}
 
 // ============================================================================
 // Enum
