@@ -3,31 +3,21 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
 
-func (s *Service) VerifyEmail(ctx context.Context, rawUserID uuid.UUID, tokenStr string) (*user.User, error) {
-	userID, err := fields.ParseRequiredID("id", rawUserID)
+func (s *Service) VerifyEmail(ctx context.Context, userID uuid.UUID, token string) (*user.User, error) {
+	claims, err := s.tokenProvider.VerifyEmailVerify(token)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := fields.ParseRequiredToken("token", tokenStr)
-	if err != nil {
-		return nil, ErrVerificationTokenRequired()
-	}
-
-	claims, err := s.tokenProvider.VerifyEmailVerify(token.String())
-	if err != nil {
-		return nil, err
-	}
-
-	if !userID.Equals(claims.UserID) {
+	if userID != claims.UserID {
 		return nil, errors.New("Token doesn't belong to you.")
 	}
 
@@ -35,7 +25,7 @@ func (s *Service) VerifyEmail(ctx context.Context, rawUserID uuid.UUID, tokenStr
 		return nil, err
 	}
 
-	now := fields.Now()
+	now := time.Now()
 
 	u, err := s.userRepo.Verify(ctx, userID, now, now)
 	if err != nil {
@@ -47,13 +37,8 @@ func (s *Service) VerifyEmail(ctx context.Context, rawUserID uuid.UUID, tokenStr
 	return u, nil
 }
 
-func (s *Service) ResendVerify(ctx context.Context, rawUserID uuid.UUID) error {
-	userID, err := fields.ParseRequiredID("id", rawUserID)
-	if err != nil {
-		return err
-	}
-
-	u, err := s.userSvc.Get(ctx, userID.UUID())
+func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
+	u, err := s.cachedUserRepo.Get(ctx, userID)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			return nil
@@ -61,15 +46,15 @@ func (s *Service) ResendVerify(ctx context.Context, rawUserID uuid.UUID) error {
 		return err
 	}
 
-	verifyToken, _, err := s.tokenProvider.GenerateEmailVerify(u.ID())
+	verifyToken, _, err := s.tokenProvider.GenerateEmailVerify(u.ID)
 	if err != nil {
 		return err
 	}
 
-	now := fields.Now()
+	now := time.Now()
 	payload := EventResendVerifyPayload{
-		Email:    u.Email().String(),
-		Username: u.Username().String(),
+		Email:    u.Email,
+		Username: u.Username,
 		Token:    verifyToken,
 	}
 

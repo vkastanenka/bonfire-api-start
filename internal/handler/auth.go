@@ -23,7 +23,6 @@ type ForgotPasswordRequest struct {
 	Email string `json:"email" mod:"email" validate:"required,email,max=255"`
 }
 
-// Public
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var req ForgotPasswordRequest
 	err := h.bind.JSON(w, r, &req)
@@ -48,7 +47,6 @@ type ResetPasswordResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// Public
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	var req ResetPasswordRequest
 	err := h.bind.JSON(w, r, &req)
@@ -84,7 +82,6 @@ type LoginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// Public
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 	var req LoginRequest
 	err := h.bind.JSON(w, r, &req)
@@ -122,7 +119,6 @@ type RegisterResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// Public
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 	var req RegisterRequest
 	err := h.bind.JSON(w, r, &req)
@@ -155,7 +151,6 @@ type RefreshResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// Public
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
@@ -178,15 +173,19 @@ type VerifyEmailRequest struct {
 	Token string `json:"token" validate:"required,token"`
 }
 
-// Public (Token-based verification from email links)
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	var req VerifyEmailRequest
-	err := h.bind.JSON(w, r, &req)
+	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
 
-	if err := h.service.VerifyEmail(r.Context(), req.Token); err != nil {
+	var req VerifyEmailRequest
+	err = h.bind.JSON(w, r, &req)
+	if err != nil {
+		return err
+	}
+
+	if _, err := h.service.VerifyEmail(r.Context(), userID, req.Token); err != nil {
 		return err
 	}
 
@@ -194,14 +193,13 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-// Private
 func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
 	userID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
 		return err
 	}
 
-	if err := h.service.ResendVerify(r.Context(), userID.UUID()); err != nil {
+	if err := h.service.ResendVerify(r.Context(), userID); err != nil {
 		return err
 	}
 
@@ -213,14 +211,13 @@ type PrintWSTicketResponse struct {
 	Ticket string `json:"ticket"`
 }
 
-// Private
 func (h *AuthHandler) PrintWSTicket(w http.ResponseWriter, r *http.Request) error {
 	claims, err := httpio.CtxGetClaims(r.Context())
 	if err != nil {
 		return err
 	}
 
-	ticket, err := h.service.PrintWSTicket(r.Context(), claims.UserID.UUID(), claims.SessionID.UUID())
+	ticket, err := h.service.PrintWSTicket(r.Context(), claims.UserID, claims.SessionID)
 	if err != nil {
 		return err
 	}

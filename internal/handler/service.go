@@ -4,8 +4,10 @@ import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/fields"
+	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/session"
+	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
@@ -14,14 +16,15 @@ import (
 )
 
 type AuthService interface {
-	ForgotPassword(ctx context.Context, rawEmail string) error
+	ForgotPassword(ctx context.Context, email string) error
 	Login(ctx context.Context, p auth.LoginParams) (auth.LoginResult, error)
-	PrintWSTicket(ctx context.Context, rawUserID uuid.UUID, rawSessionID uuid.UUID) (fields.ID, error)
+	PrintWSTicket(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) (uuid.UUID, error)
 	Refresh(ctx context.Context, p auth.RefreshParams) (auth.RefreshResult, error)
 	Register(ctx context.Context, p auth.RegisterParams) (auth.RegisterResult, error)
-	ResendVerify(ctx context.Context, rawUserID uuid.UUID) error
+	ResendVerify(ctx context.Context, userID uuid.UUID) error
 	ResetPassword(ctx context.Context, p auth.ResetPasswordParams) (auth.ResetPasswordResult, error)
-	VerifyEmail(ctx context.Context, tokenStr string) error
+	VerifyEmail(ctx context.Context, userID uuid.UUID, token string) (*user.User, error)
+	generateSession(u *user.User, clientMeta httpio.ClientMeta, now time.Time) (*session.Session, token.Pair, error)
 }
 
 type ChannelService interface {

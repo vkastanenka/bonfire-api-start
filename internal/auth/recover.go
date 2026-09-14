@@ -6,23 +6,19 @@ import (
 
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
+
+	"github.com/google/uuid"
 )
 
 const (
 	forgotPasswordTimingWindow = 35 * time.Millisecond
 )
 
-func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
+func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	defer crypto.ConstantWindow(ctx, forgotPasswordTimingWindow)()
-
-	email, err := user.ParseRequiredEmail("email", rawEmail)
-	if err != nil || !email.IsValid() {
-		return nil
-	}
 
 	userRow, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
@@ -36,15 +32,15 @@ func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
 		return nil
 	}
 
-	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID())
+	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID)
 	if err != nil {
 		return err
 	}
 
-	now := fields.Now()
+	now := time.Now()
 
 	payload := EventForgotPasswordPayload{
-		Email: userRow.Email().String(),
+		Email: userRow.Email,
 		Token: t,
 	}
 
@@ -64,17 +60,7 @@ type ResetPasswordResult struct {
 }
 
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
-	token, err := fields.ParseRequiredToken("token", p.Token)
-	if err != nil {
-		return ResetPasswordResult{}, err
-	}
-
-	password, err := user.ParseRequiredPassword("password", p.Password)
-	if err != nil {
-		return ResetPasswordResult{}, err
-	}
-
-	claims, err := s.tokenProvider.VerifyPasswordReset(token.String())
+	claims, err := s.tokenProvider.VerifyPasswordReset(p.Token)
 	if err != nil {
 		return ResetPasswordResult{}, ErrResetTokenInvalid(err)
 	}
@@ -91,30 +77,29 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		return ResetPasswordResult{}, err
 	}
 
-	rawPasswordHash, err := crypto.HashPassword(password.String())
+	passwordHash, err := crypto.HashPassword(p.Password)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
-	passwordHash := user.NewPasswordHash(rawPasswordHash)
 
-	now := fields.Now()
+	now := time.Now()
 
 	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
 
-	var revokedSessionIDs []fields.ID
+	var revokedSessionIDs []uuid.UUID
 	var updatedUser *user.User
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		var err error
-		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, u.ID(), now)
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, u.ID, now)
 		if err != nil {
 			return err
 		}
 
-		updatedUser, err = s.userRepo.UpdatePasswordHash(txCtx, u.ID(), passwordHash, now)
+		updatedUser, err = s.userRepo.UpdatePasswordHash(txCtx, u.ID, passwordHash, now)
 		if err != nil {
 			return err
 		}
@@ -130,9 +115,9 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			}
 
 			revokePayload := session.EventRevokeAllPayload{
-				UserID:     u.ID().String(),
-				SessionIDs: revokedSessionIDStrings,
-				RevokedAt:  now.String(),
+				UserID:     u.ID,
+				SessionIDs: revokedSessionIDs,
+				RevokedAt:  now,
 			}
 
 			if err := s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now); err != nil {

@@ -6,33 +6,33 @@ import (
 
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
 
 type Service struct {
-	userCache     UserCache
-	userRepo      UserRepository
-	userSvc       UserService
-	sessionCache  SessionCache
-	sessionRepo   SessionRepository
-	outboxRepo    OutboxRepository
-	ticketCache   TicketCache
-	tokenCache    TokenCache
-	tokenProvider TokenProvider
-	tx            TX
+	userCache      UserCache
+	userRepo       UserRepository
+	cachedUserRepo CachedUserRepository
+	sessionCache   SessionCache
+	sessionRepo    SessionRepository
+	outboxRepo     OutboxRepository
+	ticketCache    TicketCache
+	tokenCache     TokenCache
+	tokenProvider  TokenProvider
+	tx             TX
 }
 
 func NewService(
 	userCache UserCache,
 	userRepo UserRepository,
-	userSvc UserService,
+	cachedUserRepo CachedUserRepository,
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	outboxRepo OutboxRepository,
@@ -42,16 +42,16 @@ func NewService(
 	tx TX,
 ) *Service {
 	return &Service{
-		userCache:     userCache,
-		userRepo:      userRepo,
-		userSvc:       userSvc,
-		sessionCache:  sessionCache,
-		sessionRepo:   sessionRepo,
-		outboxRepo:    outboxRepo,
-		ticketCache:   ticketCache,
-		tokenCache:    tokenCache,
-		tokenProvider: tokenProvider,
-		tx:            tx,
+		userCache:      userCache,
+		userRepo:       userRepo,
+		cachedUserRepo: cachedUserRepo,
+		sessionCache:   sessionCache,
+		sessionRepo:    sessionRepo,
+		outboxRepo:     outboxRepo,
+		ticketCache:    ticketCache,
+		tokenCache:     tokenCache,
+		tokenProvider:  tokenProvider,
+		tx:             tx,
 	}
 }
 
@@ -74,17 +74,7 @@ type LoginResult struct {
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
 	defer crypto.ConstantWindow(ctx, loginTimingWindow)()
 
-	email, err := user.ParseRequiredEmail("email", p.Email)
-	if err != nil {
-		return LoginResult{}, err
-	}
-
-	password, err := user.ParseRequiredPassword("password", p.Password)
-	if err != nil {
-		return LoginResult{}, err
-	}
-
-	u, err := s.userRepo.GetByEmail(ctx, email)
+	u, err := s.userRepo.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			crypto.CompareDummyPassword(p.Password)
@@ -93,12 +83,12 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	err = crypto.ComparePassword(u.PasswordHash().String(), password.String())
+	err = crypto.ComparePassword(u.PasswordHash, u.PasswordHash)
 	if err != nil {
 		return LoginResult{}, ErrCredentialsInvalid()
 	}
 
-	now := fields.Now()
+	now := time.Now()
 
 	var (
 		createdSession *session.Session
@@ -111,9 +101,9 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 			var err error
 
 			if u.IsScheduledForDeletion() {
-				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID(), fields.Timestamp{}, fields.Timestamp{}, now)
+				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID, time.Time{}, time.Time{}, now)
 			} else {
-				u, err = s.userRepo.SetDisabled(txCtx, u.ID(), fields.Timestamp{}, now)
+				u, err = s.userRepo.SetDisabled(txCtx, u.ID, time.Time{}, now)
 			}
 			if err != nil {
 				return err
@@ -176,28 +166,8 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
-	email, err := user.ParseRequiredEmail("email", p.Email)
-	if err != nil {
-		return RegisterResult{}, err
-	}
-
-	username, err := user.ParseRequiredUsername("username", p.Username)
-	if err != nil {
-		return RegisterResult{}, err
-	}
-
-	displayName, err := user.ParseDisplayName("display_name", p.ResolveDisplayName())
-	if err != nil {
-		return RegisterResult{}, err
-	}
-
-	password, err := user.ParseRequiredPassword("password", p.Password)
-	if err != nil {
-		return RegisterResult{}, err
-	}
-
 	var (
-		passwordHash   user.PasswordHash
+		passwordHash   string
 		emailAvailable bool
 		userAvailable  bool
 	)
@@ -205,17 +175,17 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		rawPassHash, hErr := crypto.HashPassword(password.String())
+		var hErr error
+		passwordHash, hErr = crypto.HashPassword(p.Password)
 		if hErr != nil {
-			return hErr // Fixed: returned hErr instead of outer err
+			return hErr
 		}
-		passwordHash = user.NewPasswordHash(rawPassHash)
 		return nil
 	})
 
 	g.Go(func() error {
 		var aErr error
-		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, ptr.To(email), ptr.To(username))
+		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, ptr.To(p.Email), ptr.To(p.Username))
 		return aErr
 	})
 
@@ -227,19 +197,24 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, ErrConflict(emailAvailable, userAvailable)
 	}
 
-	userID, err := fields.NewID()
+	userID, err := uuid.NewV7()
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	now := fields.Now()
-	newUser := user.New(userID, email, username, displayName, passwordHash, now)
+	username := p.Username
+	if p.DisplayName != nil {
+		username = *p.DisplayName
+	}
+
+	now := time.Now()
+	newUser := user.New(userID, p.Email, p.Username, username, passwordHash, now)
 	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID())
+	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID)
 	if err != nil {
 		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
 	}
@@ -258,8 +233,8 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		}
 
 		payload := EventRegisterPayload{
-			Email:    newUser.Email().String(),
-			Username: newUser.Username().String(),
+			Email:    newUser.Email,
+			Username: newUser.Username,
 			Token:    evToken,
 		}
 
@@ -280,33 +255,30 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) generateSession(u *user.User, clientMeta httpio.ClientMeta, now fields.Timestamp) (*session.Session, token.Pair, error) {
-	sessionID, err := fields.NewID()
+func (s *Service) generateSession(u *user.User, clientMeta httpio.ClientMeta, now time.Time) (*session.Session, token.Pair, error) {
+	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return nil, token.Pair{}, err
 	}
 
-	tokenPair, err := s.tokenProvider.GeneratePair(u.ID(), sessionID)
+	tokenPair, err := s.tokenProvider.GeneratePair(u.ID, sessionID)
 	if err != nil {
 		return nil, token.Pair{}, errs.Internal("failed to generate token pair").Wrap(err)
 	}
 
-	tokenHash, err := fields.NewTokenHash(crypto.HashToken(tokenPair.Refresh))
-	if err != nil {
-		return nil, token.Pair{}, errs.Internal("failed to hash refresh token").Wrap(err)
-	}
+	tokenHash := crypto.HashToken(tokenPair.Refresh)
 
 	newSession := session.Reconstitute(
 		sessionID,
-		u.ID(),
-		tokenHash,
+		u.ID,
+		string(tokenHash),
 		clientMeta.IP,
 		clientMeta.UserAgent,
 		clientMeta.OS,
 		clientMeta.Browser,
-		fields.NewTimestamp(tokenPair.RefreshExpiresAt),
+		tokenPair.RefreshExpiresAt,
 		now,
-		fields.Timestamp{},
+		nil,
 		now,
 		now,
 	)

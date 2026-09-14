@@ -3,39 +3,28 @@ package auth
 import (
 	"context"
 	"errors"
-
-	"bonfire-api/internal/fields"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-func (s *Service) PrintWSTicket(ctx context.Context, rawUserID, rawSessionID uuid.UUID) (fields.ID, error) {
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return fields.ID{}, err
-	}
-
-	sessionID, err := fields.ParseRequiredID("session_id", rawSessionID)
-	if err != nil {
-		return fields.ID{}, err
-	}
-
+func (s *Service) PrintWSTicket(ctx context.Context, userID, sessionID uuid.UUID) (uuid.UUID, error) {
 	sess, err := s.sessionCache.Get(ctx, sessionID)
 	if err != nil {
-		return fields.ID{}, err
+		return uuid.UUID{}, err
 	}
 
-	if sess.IsRevoked() || sess.IsExpired(fields.Now()) || !sess.UserID().Equals(userID) {
-		return fields.ID{}, errors.New("Session invalid!")
+	if sess.IsRevoked() || sess.IsExpired(time.Now()) || sess.UserID != userID {
+		return uuid.UUID{}, errors.New("Session invalid!")
 	}
 
-	ticketID, err := fields.NewID()
+	ticketID, err := uuid.NewV7()
 	if err != nil {
-		return fields.ID{}, err
+		return uuid.UUID{}, err
 	}
 
 	if err := s.ticketCache.Print(ctx, ticketID, userID, sessionID); err != nil {
-		return fields.ID{}, err
+		return uuid.UUID{}, err
 	}
 
 	return ticketID, nil
