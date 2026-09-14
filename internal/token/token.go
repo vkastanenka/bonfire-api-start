@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/fields"
-
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -20,8 +19,8 @@ const (
 )
 
 type Claims struct {
-	UserID    fields.ID `json:"uid"`
-	SessionID fields.ID `json:"sid"`
+	UserID    uuid.UUID `json:"uid"`
+	SessionID uuid.UUID `json:"sid"`
 	TokenType Type      `json:"type"`
 	jwt.RegisteredClaims
 }
@@ -79,7 +78,7 @@ type typeConfig struct {
 
 type Provider struct {
 	issuer   string
-	variants map[TypeValue]typeConfig
+	variants map[Type]typeConfig
 }
 
 func NewProvider(cfg Config) (*Provider, error) {
@@ -87,28 +86,23 @@ func NewProvider(cfg Config) (*Provider, error) {
 		cfg.Issuer = "bonfire-api"
 	}
 
-	specs := map[TypeValue]TypeConfig{
+	specs := map[Type]TypeConfig{
 		TypeAccess:        cfg.Access,
 		TypeRefresh:       cfg.Refresh,
 		TypeEmailVerify:   cfg.EmailVerify,
 		TypePasswordReset: cfg.PasswordReset,
 	}
 
-	defaults := map[TypeValue]time.Duration{
+	defaults := map[Type]time.Duration{
 		TypeAccess:        DefaultAccessTTL,
 		TypeRefresh:       DefaultRefreshTTL,
 		TypeEmailVerify:   DefaultEmailVerifyTTL,
 		TypePasswordReset: DefaultPasswordResetTTL,
 	}
 
-	variants := make(map[TypeValue]typeConfig, len(specs))
+	variants := make(map[Type]typeConfig, len(specs))
 
 	for val, spec := range specs {
-		t := NewType(val)
-		if spec.Secret == "" {
-			return nil, fmt.Errorf("token provider initialization failed: secret for %q cannot be empty", t.String())
-		}
-
 		ttl := spec.TTL
 		if ttl <= 0 {
 			ttl = defaults[val]
@@ -127,7 +121,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 }
 
 func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, error) {
-	spec, exists := p.variants[tokenType.Value()]
+	spec, exists := p.variants[tokenType]
 	if !exists || len(spec.secret) == 0 {
 		return "", time.Time{}, fmt.Errorf("%w: missing signing configuration for type %s", ErrInternal, tokenType.String())
 	}
@@ -135,7 +129,7 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 	now := time.Now()
 	expiresAt := now.Add(spec.ttl)
 
-	id, err := fields.NewID()
+	id, err := uuid.NewV7()
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -159,7 +153,7 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 }
 
 func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
-	spec, exists := p.variants[tokenType.Value()]
+	spec, exists := p.variants[tokenType]
 	if !exists || len(spec.secret) == 0 {
 		return nil, fmt.Errorf("%w: missing verification configuration for type %s", ErrInternal, tokenType.String())
 	}
@@ -198,7 +192,7 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("%w: expected %q, got %q", ErrIssuerMismatch, p.issuer, claims.Issuer)
 	}
 
-	if !claims.TokenType.Is(tokenType.Value()) {
+	if claims.TokenType != tokenType {
 		return nil, fmt.Errorf("%w: expected %q token context, got %q", ErrVariantMismatch, tokenType.String(), claims.TokenType.String())
 	}
 

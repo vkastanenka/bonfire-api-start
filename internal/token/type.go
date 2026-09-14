@@ -1,13 +1,17 @@
 package token
 
 import (
-	"bonfire-api/internal/fields"
+	"bytes"
+	"fmt"
+	"strconv"
+
+	"bonfire-api/internal/sanitize"
 )
 
-type TypeValue int
+type Type int
 
 const (
-	TypeUnknown TypeValue = iota
+	TypeUnknown Type = iota
 	TypeAccess
 	TypeRefresh
 	TypeEmailVerify
@@ -15,55 +19,87 @@ const (
 	typeMax
 )
 
-var typeSpec = &fields.EnumSpec{
-	Domain: "TOKEN_VARIANT",
-	Max:    int(typeMax),
-	Names: []string{
-		"UNKNOWN",
-		"ACCESS",
-		"REFRESH",
-		"EMAIL_VERIFY",
-		"PASSWORD_RESET",
-	},
-	Bytes: [][]byte{
-		[]byte(""),
-		[]byte("access"),
-		[]byte("refresh"),
-		[]byte("email-verify"),
-		[]byte("password-reset"),
-	},
+var typeNames = [...]string{
+	TypeUnknown:       "UNKNOWN",
+	TypeAccess:        "ACCESS",
+	TypeRefresh:       "REFRESH",
+	TypeEmailVerify:   "EMAIL_VERIFY",
+	TypePasswordReset: "PASSWORD_RESET",
 }
 
-type Type struct {
-	fields.Enum[TypeValue]
-}
-
-func NewType(val TypeValue) Type {
-	return Type{Enum: fields.NewEnum(val, typeSpec)}
-}
-
-func NewTypeAccess() Type        { return NewType(TypeAccess) }
-func NewTypeRefresh() Type       { return NewType(TypeRefresh) }
-func NewTypeEmailVerify() Type   { return NewType(TypeEmailVerify) }
-func NewTypePasswordReset() Type { return NewType(TypePasswordReset) }
-
-func ParseType[T fields.IntegerType](raw T) (Type, error) {
-	val := TypeValue(raw)
-	if val <= TypeUnknown || int(val) >= typeSpec.Max {
-		return Type{}, ErrTypeInvalid()
+func ParseType(raw int) (Type, error) {
+	t := Type(raw)
+	if !t.IsValid() {
+		return TypeUnknown, fmt.Errorf("invalid token type value: %d", raw)
 	}
-	return NewType(val), nil
+	return t, nil
 }
 
 func ParseTypeString(s string) (Type, error) {
-	val, ok := fields.ParseEnumString[TypeValue](s, typeSpec)
-	if !ok || val <= TypeUnknown {
-		return Type{}, ErrTypeInvalid()
+	str := sanitize.EnumValue(s)
+	if str == "" {
+		return TypeUnknown, nil
 	}
-	return NewType(val), nil
+	for i, name := range typeNames {
+		if name == str {
+			return Type(i), nil
+		}
+	}
+	return TypeUnknown, fmt.Errorf("invalid token type string: %q", s)
 }
 
-func (v Type) IsAccess() bool        { return v.Is(TypeAccess) }
-func (v Type) IsRefresh() bool       { return v.Is(TypeRefresh) }
-func (v Type) IsEmailVerify() bool   { return v.Is(TypeEmailVerify) }
-func (v Type) IsPasswordReset() bool { return v.Is(TypePasswordReset) }
+func ParseTypeBytes(raw []byte) (Type, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return TypeUnknown, nil
+	}
+	return ParseTypeString(string(cleaned))
+}
+
+func (t Type) IsValid() bool {
+	return t > TypeUnknown && t < typeMax
+}
+
+func (t Type) String() string {
+	if uint(t) < uint(len(typeNames)) {
+		return typeNames[t]
+	}
+	return typeNames[TypeUnknown]
+}
+
+func (t Type) IsAccess() bool        { return t == TypeAccess }
+func (t Type) IsRefresh() bool       { return t == TypeRefresh }
+func (t Type) IsEmailVerify() bool   { return t == TypeEmailVerify }
+func (t Type) IsPasswordReset() bool { return t == TypePasswordReset }
+
+func (t Type) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
+}
+
+func (t *Type) UnmarshalText(text []byte) error {
+	parsed, err := ParseTypeString(string(text))
+	if err != nil {
+		return err
+	}
+	*t = parsed
+	return nil
+}
+
+func (t Type) MarshalJSON() ([]byte, error) {
+	return strconv.AppendQuote(nil, t.String()), nil
+}
+
+func (t *Type) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*t = TypeUnknown
+		return nil
+	}
+
+	parsed, err := ParseTypeBytes(data)
+	if err != nil {
+		return err
+	}
+
+	*t = parsed
+	return nil
+}
