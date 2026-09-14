@@ -62,10 +62,9 @@ type RelationService interface {
 }
 
 type SessionService interface {
-	DeleteBatchExpired(ctx context.Context) error
-	ListValidByUserID(ctx context.Context, rawUserID uuid.UUID) ([]*session.Session, error)
-	Revoke(ctx context.Context, rawID uuid.UUID, rawUserID uuid.UUID) error
-	RevokeAll(ctx context.Context, rawUserID uuid.UUID) error
+	ListValidByUserID(ctx context.Context, userID uuid.UUID) ([]*session.Session, error)
+	Revoke(ctx context.Context, p session.RevokeParams) error
+	RevokeAll(ctx context.Context, userID uuid.UUID) error
 }
 
 type UserService interface {

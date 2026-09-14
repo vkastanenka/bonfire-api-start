@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/session"
 
 	"github.com/google/uuid"
 )
@@ -35,7 +36,7 @@ func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	httpio.RespondOK(w, r, sessions)
+	httpio.RespondOK(w, r, session.ParseViews(sessions))
 	return nil
 }
 
@@ -50,7 +51,9 @@ func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := h.service.Revoke(r.Context(), path.SessionID, userID.UUID()); err != nil {
+	params := session.RevokeParams{SessionID: path.SessionID, UserID: userID}
+
+	if err := h.service.Revoke(r.Context(), params); err != nil {
 		return err
 	}
 

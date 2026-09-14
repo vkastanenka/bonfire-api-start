@@ -1,8 +1,13 @@
 package session
 
 import (
-	"bonfire-api/internal/fields"
+	"bytes"
+	"cmp"
+	"net/netip"
 	"slices"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -12,61 +17,61 @@ const (
 )
 
 type Session struct {
-	id               fields.ID
-	userID           fields.ID
-	refreshTokenHash fields.TokenHash
-	clientIP         fields.IP
-	userAgent        fields.UserAgent
-	os               fields.OS
-	client           fields.Client
-	expiresAt        fields.Timestamp
-	lastSeenAt       fields.Timestamp
-	revokedAt        fields.Timestamp
-	createdAt        fields.Timestamp
-	updatedAt        fields.Timestamp
+	ID               uuid.UUID
+	UserID           uuid.UUID
+	RefreshTokenHash string
+	ClientIP         netip.Addr
+	UserAgent        string
+	OS               string
+	Client           string
+	ExpiresAt        time.Time
+	LastSeenAt       time.Time
+	RevokedAt        *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func Reconstitute(
-	id fields.ID,
-	userID fields.ID,
-	refreshTokenHash fields.TokenHash,
-	clientIP fields.IP,
-	userAgent fields.UserAgent,
-	os fields.OS,
-	client fields.Client,
+	id uuid.UUID,
+	userID uuid.UUID,
+	refreshTokenHash string,
+	clientIP netip.Addr,
+	userAgent string,
+	os string,
+	client string,
 	expiresAt,
-	lastSeenAt,
-	revokedAt,
+	lastSeenAt time.Time,
+	revokedAt *time.Time,
 	createdAt,
-	updatedAt fields.Timestamp,
+	updatedAt time.Time,
 ) *Session {
 	return &Session{
-		id:               id,
-		userID:           userID,
-		refreshTokenHash: refreshTokenHash,
-		clientIP:         clientIP,
-		userAgent:        userAgent,
-		os:               os,
-		client:           client,
-		expiresAt:        expiresAt,
-		lastSeenAt:       lastSeenAt,
-		revokedAt:        revokedAt,
-		createdAt:        createdAt,
-		updatedAt:        updatedAt,
+		ID:               id,
+		UserID:           userID,
+		RefreshTokenHash: refreshTokenHash,
+		ClientIP:         clientIP,
+		UserAgent:        userAgent,
+		OS:               os,
+		Client:           client,
+		ExpiresAt:        expiresAt,
+		LastSeenAt:       lastSeenAt,
+		RevokedAt:        revokedAt,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
 	}
 }
 
 func New(
-	userID fields.ID,
-	refreshTokenHash fields.TokenHash,
-	clientIP fields.IP,
-	userAgent fields.UserAgent,
-	os fields.OS,
-	client fields.Client,
+	userID uuid.UUID,
+	refreshTokenHash string,
+	clientIP netip.Addr,
+	userAgent string,
+	os string,
+	client string,
 	expiresAt,
-	now fields.Timestamp,
+	now time.Time,
 ) (*Session, error) {
-	id, err := fields.NewID()
+	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
@@ -81,47 +86,30 @@ func New(
 		client,
 		expiresAt,
 		now,
-		fields.Timestamp{},
+		nil,
 		now,
 		now,
 	), nil
 }
 
-func (s *Session) ID() fields.ID                      { return s.id }
-func (s *Session) UserID() fields.ID                  { return s.userID }
-func (s *Session) RefreshTokenHash() fields.TokenHash { return s.refreshTokenHash }
-func (s *Session) ClientIP() fields.IP                { return s.clientIP }
-func (s *Session) UserAgent() fields.UserAgent        { return s.userAgent }
-func (s *Session) OS() fields.OS                      { return s.os }
-func (s *Session) Client() fields.Client              { return s.client }
-func (s *Session) ExpiresAt() fields.Timestamp        { return s.expiresAt }
-func (s *Session) LastSeenAt() fields.Timestamp       { return s.lastSeenAt }
-func (s *Session) RevokedAt() fields.Timestamp        { return s.revokedAt }
-func (s *Session) CreatedAt() fields.Timestamp        { return s.createdAt }
-func (s *Session) UpdatedAt() fields.Timestamp        { return s.updatedAt }
-
 func (s *Session) IsRevoked() bool {
-	return s.revokedAt.IsValid()
+	return s.RevokedAt != nil
 }
 
-func (s *Session) IsExpired(now fields.Timestamp) bool {
-	return !s.expiresAt.Time().After(now.Time())
+func (s *Session) IsExpired(now time.Time) bool {
+	return !s.ExpiresAt.After(now)
 }
 
-func (s *Session) IsValid(now fields.Timestamp) bool {
+func (s *Session) IsValid(now time.Time) bool {
 	return !s.IsRevoked() && !s.IsExpired(now)
 }
 
 func sort(sessions []*Session) {
 	slices.SortFunc(sessions, func(a, b *Session) int {
-		if c := b.LastSeenAt().Compare(a.LastSeenAt()); c != 0 {
-			return c
-		}
-
-		if c := b.CreatedAt().Compare(a.CreatedAt()); c != 0 {
-			return c
-		}
-
-		return a.ID().Compare(b.ID())
+		return cmp.Or(
+			b.LastSeenAt.Compare(a.LastSeenAt),
+			b.CreatedAt.Compare(a.CreatedAt),
+			bytes.Compare(a.ID[:], b.ID[:]),
+		)
 	})
 }

@@ -2,8 +2,7 @@ package session
 
 import (
 	"context"
-
-	"bonfire-api/internal/fields"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -29,13 +28,8 @@ func NewService(
 	}
 }
 
-func (s *Service) ListValidByUserID(ctx context.Context, rawUserID uuid.UUID) ([]*Session, error) {
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	now := fields.Now()
+func (s *Service) ListValidByUserID(ctx context.Context, userID uuid.UUID) ([]*Session, error) {
+	now := time.Now()
 
 	sessions, err := s.repo.ListValidByUserID(ctx, userID, now, listValidByUserIDLimit)
 	if err != nil {
@@ -52,28 +46,18 @@ type RevokeParams struct {
 	UserID    uuid.UUID
 }
 
-func (s *Service) Revoke(ctx context.Context, rawID, rawUserID uuid.UUID) error {
-	id, err := fields.ParseRequiredID("id", rawID)
-	if err != nil {
-		return err
-	}
+func (s *Service) Revoke(ctx context.Context, p RevokeParams) error {
+	now := time.Now()
 
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return err
-	}
-
-	now := fields.Now()
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if err := s.repo.Revoke(txCtx, id, userID, now); err != nil {
+	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if err := s.repo.Revoke(txCtx, p.SessionID, p.UserID, now); err != nil {
 			return err
 		}
 
 		payload := EventRevokePayload{
-			SessionID: id.String(),
-			UserID:    userID.String(),
-			RevokedAt: now.String(),
+			SessionID: p.SessionID,
+			UserID:    p.UserID,
+			RevokedAt: now,
 		}
 
 		return s.outboxRepo.Publish(txCtx, EventRevoke, payload, now)
@@ -82,29 +66,22 @@ func (s *Service) Revoke(ctx context.Context, rawID, rawUserID uuid.UUID) error 
 		return err
 	}
 
-	_ = s.cache.Delete(ctx, id)
+	_ = s.cache.Delete(ctx, p.SessionID)
 
 	return nil
 }
 
-func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
-	userID, err := fields.ParseRequiredID("user_id", rawUserID)
-	if err != nil {
-		return err
-	}
-
-	now := fields.Now()
+func (s *Service) RevokeAll(ctx context.Context, userID uuid.UUID) error {
+	now := time.Now()
 
 	activeSessions, err := s.repo.ListValidByUserID(ctx, userID, now, listValidByUserIDLimit)
 	if err != nil {
 		return err
 	}
 
-	sessionIDs := make([]fields.ID, len(activeSessions))
-	sessionIDStrings := make([]string, len(activeSessions))
+	sessionIDs := make([]uuid.UUID, len(activeSessions))
 	for i, sess := range activeSessions {
-		sessionIDs[i] = sess.ID()
-		sessionIDStrings[i] = sess.ID().String()
+		sessionIDs[i] = sess.ID
 	}
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -113,9 +90,9 @@ func (s *Service) RevokeAll(ctx context.Context, rawUserID uuid.UUID) error {
 		}
 
 		payload := EventRevokeAllPayload{
-			UserID:     userID.String(),
-			SessionIDs: sessionIDStrings,
-			RevokedAt:  now.String(),
+			UserID:     userID,
+			SessionIDs: sessionIDs,
+			RevokedAt:  now,
 		}
 
 		return s.outboxRepo.Publish(txCtx, EventRevokeAll, payload, now)
