@@ -1,11 +1,10 @@
 package user
 
 import (
-	"context"
-	"encoding/json"
+	"bonfire-api/internal/presence"
+	"time"
 
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/outbox"
+	"github.com/google/uuid"
 )
 
 const (
@@ -16,67 +15,72 @@ const (
 )
 
 type EventUpdateUsernamePayload struct {
-	UserID    string `json:"user_id"`
-	Username  string `json:"new_username"`
-	UpdatedAt string `json:"updated_at"`
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"new_username"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type EventUpdatePresencePayload struct {
-	UserID    string `json:"user_id"`
-	Presence  string `json:"presence"`
-	UpdatedAt string `json:"updated_at"`
+	UserID    uuid.UUID         `json:"user_id"`
+	Presence  presence.Presence `json:"presence"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 type EventUpdateProfilePayload struct {
-	UserID      string  `json:"user_id"`
-	DisplayName string  `json:"display_name"`
-	Bio         *string `json:"bio,omitempty"`
-	AvatarURL   *string `json:"avatar_url,omitempty"`
-	BannerColor *string `json:"banner_color,omitempty"`
-	UpdatedAt   string  `json:"updated_at"`
+	UserID      uuid.UUID `json:"user_id"`
+	DisplayName string    `json:"display_name"`
+	Bio         *string   `json:"bio,omitempty"`
+	AvatarURL   *string   `json:"avatar_url,omitempty"`
+	BannerColor *string   `json:"banner_color,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type EventDisablePayload struct {
-	UserID    string `json:"user_id"`
-	UpdatedAt string `json:"updated_at"`
+	UserID    uuid.UUID `json:"user_id"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventUpdateUsernamePayload](payload)
-		if err != nil {
-			return err
-		}
-		return outbox.NewPeersHandler(gw, EventUpdateUsername, p.UserID)(ctx, payload)
-	}
-}
+// type Broadcaster interface {
+// 	BroadcastToPeers(ctx context.Context, actorID fields.ID, eventType string, payload interface{}) error
+// 	BroadcastToUser(ctx context.Context, actorID, targetUserID fields.ID, eventType string, payload interface{}) error
+// }
 
-func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventUpdatePresencePayload](payload)
-		if err != nil {
-			return err
-		}
-		return outbox.NewPeersHandler(gw, EventUpdatePresence, p.UserID)(ctx, payload)
-	}
-}
+// func NewUpdateUsernameOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
+// 	return func(ctx context.Context, payload json.RawMessage) error {
+// 		p, err := fields.ParseRawJSON[EventUpdateUsernamePayload](payload)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		return outbox.NewPeersHandler(gw, EventUpdateUsername, p.UserID)(ctx, payload)
+// 	}
+// }
 
-func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventUpdateProfilePayload](payload)
-		if err != nil {
-			return err
-		}
-		return outbox.NewPeersHandler(gw, EventUpdateProfile, p.UserID)(ctx, payload)
-	}
-}
+// func NewUpdatePresenceOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
+// 	return func(ctx context.Context, payload json.RawMessage) error {
+// 		p, err := fields.ParseRawJSON[EventUpdatePresencePayload](payload)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		return outbox.NewPeersHandler(gw, EventUpdatePresence, p.UserID)(ctx, payload)
+// 	}
+// }
 
-func NewDisableOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-	return func(ctx context.Context, payload json.RawMessage) error {
-		p, err := fields.ParseRawJSON[EventDisablePayload](payload)
-		if err != nil {
-			return err
-		}
-		return outbox.NewPeersHandler(gw, EventDisable, p.UserID)(ctx, payload)
-	}
-}
+// func NewUpdateProfileOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
+// 	return func(ctx context.Context, payload json.RawMessage) error {
+// 		p, err := fields.ParseRawJSON[EventUpdateProfilePayload](payload)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		return outbox.NewPeersHandler(gw, EventUpdateProfile, p.UserID)(ctx, payload)
+// 	}
+// }
+
+// func NewDisableOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
+// 	return func(ctx context.Context, payload json.RawMessage) error {
+// 		p, err := fields.ParseRawJSON[EventDisablePayload](payload)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		return outbox.NewPeersHandler(gw, EventDisable, p.UserID)(ctx, payload)
+// 	}
+// }

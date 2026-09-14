@@ -1,424 +1,85 @@
 package user
 
 import (
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/sanitize"
-	"encoding/json"
-	"regexp"
-	"strings"
+	"bytes"
+	"fmt"
+	"strconv"
 	"time"
 )
 
-// ============================================================================
-// Bio
-// ============================================================================
-
-const MaxBioLength = 190
-
-type Bio struct {
-	fields.Text
-}
-
-func NewBio(s string) Bio {
-	return Bio{Text: fields.NewText(s)}
-}
-
-func ParseBio(fieldName, raw string) (Bio, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return Bio{}, nil
-	}
-
-	if len(s) > MaxBioLength {
-		return Bio{}, ErrBioTooLong(fieldName)
-	}
-
-	return NewBio(s), nil
-}
-
-// ============================================================================
-// DisplayName
-// ============================================================================
-
-const MaxDisplayNameLength = 32
-
-type DisplayName struct {
-	fields.Text
-}
-
-func NewDisplayName(s string) DisplayName {
-	return DisplayName{Text: fields.NewText(s)}
-}
-
-func ParseDisplayName(fieldName, raw string) (DisplayName, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return DisplayName{}, nil
-	}
-
-	if len(s) > MaxDisplayNameLength {
-		return DisplayName{}, ErrDisplayNameTooLong(fieldName)
-	}
-
-	return NewDisplayName(s), nil
-}
-
-func ParseRequiredDisplayName(fieldName, raw string) (DisplayName, error) {
-	dn, err := ParseDisplayName(fieldName, raw)
-	if err != nil {
-		return DisplayName{}, err
-	}
-	if dn.IsZero() {
-		return DisplayName{}, ErrDisplayNameRequired(fieldName)
-	}
-	return dn, nil
-}
-
-// ============================================================================
-// Email
-// ============================================================================
-
-const MaxEmailLength = 255
-
-var rgxEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-
-type Email struct {
-	fields.Text
-}
-
-func NewEmail(s string) Email {
-	return Email{Text: fields.NewText(s)}
-}
-
-func ParseEmail(fieldName, raw string) (Email, error) {
-	s := sanitize.Email(raw)
-	if s == "" {
-		return Email{}, nil
-	}
-
-	if len(s) > MaxEmailLength {
-		return Email{}, ErrEmailTooLong(fieldName)
-	}
-
-	if !rgxEmail.MatchString(s) {
-		return Email{}, ErrEmailInvalid(fieldName)
-	}
-
-	return NewEmail(s), nil
-}
-
-func ParseRequiredEmail(fieldName, raw string) (Email, error) {
-	email, err := ParseEmail(fieldName, raw)
-	if err != nil {
-		return Email{}, err
-	}
-	if email.IsZero() {
-		return Email{}, ErrEmailRequired(fieldName)
-	}
-	return email, nil
-}
-
-// ============================================================================
-// Password
-// ============================================================================
+type PreferredPresenceDuration int
 
 const (
-	MinPasswordLength = 12
-	MaxPasswordLength = 255
-)
-
-type Password struct {
-	fields.Text
-}
-
-func NewPassword(s string) Password {
-	return Password{Text: fields.NewText(s)}
-}
-
-func ParsePassword(fieldName, raw string) (Password, error) {
-	if raw == "" {
-		return Password{}, nil
-	}
-
-	if len(raw) < MinPasswordLength {
-		return Password{}, ErrPasswordTooShort(fieldName)
-	}
-
-	if len(raw) > MaxPasswordLength {
-		return Password{}, ErrPasswordTooLong(fieldName)
-	}
-
-	return NewPassword(raw), nil
-}
-
-func ParseRequiredPassword(fieldName, raw string) (Password, error) {
-	pw, err := ParsePassword(fieldName, raw)
-	if err != nil {
-		return Password{}, err
-	}
-	if pw.IsZero() {
-		return Password{}, ErrPasswordRequired(fieldName)
-	}
-	return pw, nil
-}
-
-// ============================================================================
-// PasswordHash
-// ============================================================================
-
-const (
-	MinPasswordHashLength = 50
-	MaxPasswordHashLength = 255
-)
-
-type PasswordHash struct {
-	fields.Text
-}
-
-func NewPasswordHash(s string) PasswordHash {
-	return PasswordHash{Text: fields.NewText(s)}
-}
-
-func ParsePasswordHash(fieldName, raw string) (PasswordHash, error) {
-	if raw == "" {
-		return PasswordHash{}, nil
-	}
-
-	if len(raw) < MinPasswordHashLength {
-		return PasswordHash{}, ErrPasswordHashTooShort(fieldName)
-	}
-
-	if len(raw) > MaxPasswordHashLength {
-		return PasswordHash{}, ErrPasswordHashTooLong(fieldName)
-	}
-
-	return NewPasswordHash(raw), nil
-}
-
-func ParseRequiredPasswordHash(fieldName, raw string) (PasswordHash, error) {
-	ph, err := ParsePasswordHash(fieldName, raw)
-	if err != nil {
-		return PasswordHash{}, err
-	}
-	if ph.IsZero() {
-		return PasswordHash{}, ErrPasswordHashRequired(fieldName)
-	}
-	return ph, nil
-}
-
-// ============================================================================
-// Phone
-// ============================================================================
-
-var rgxPhone = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
-
-type Phone struct {
-	fields.Text
-}
-
-func NewPhone(s string) Phone {
-	return Phone{Text: fields.NewText(s)}
-}
-
-func ParsePhone(fieldName, raw string) (Phone, error) {
-	s := sanitize.Phone(raw)
-	if s == "" {
-		return Phone{}, nil
-	}
-
-	if !rgxPhone.MatchString(s) {
-		return Phone{}, ErrPhoneInvalid(fieldName)
-	}
-
-	return NewPhone(s), nil
-}
-
-// ============================================================================
-// PreferredPresence
-// ============================================================================
-
-type PreferredPresence struct {
-	value presence.Presence
-}
-
-func NewPreferredPresence(p presence.Presence) PreferredPresence {
-	return PreferredPresence{value: p}
-}
-
-func ParsePreferredPresence(fieldName, raw string) (PreferredPresence, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return PreferredPresence{}, nil
-	}
-
-	p, err := presence.ParseString(s)
-	if err != nil {
-		return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
-	}
-
-	return ParsePreferredPresenceFromPresence(fieldName, p)
-}
-
-func ParsePreferredPresenceFromInt[T fields.IntegerType](fieldName string, v T) (PreferredPresence, error) {
-	if v == 0 {
-		return PreferredPresence{}, nil
-	}
-
-	p, err := presence.Parse(v)
-	if err != nil {
-		return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
-	}
-
-	return ParsePreferredPresenceFromPresence(fieldName, p)
-}
-
-func ParsePreferredPresenceFromPresence(fieldName string, p presence.Presence) (PreferredPresence, error) {
-	if presence.IsPreferred(p) {
-		return NewPreferredPresence(p), nil
-	}
-	return PreferredPresence{}, ErrPreferredPresenceInvalid(fieldName)
-}
-
-func (pp PreferredPresence) Presence() presence.Presence { return pp.value }
-
-func (pp PreferredPresence) IsSet() bool {
-	return presence.IsPreferred(pp.value)
-}
-
-func (pp PreferredPresence) IsZero() bool {
-	return pp.value.Value() == presence.PresenceUnknown
-}
-
-func (pp PreferredPresence) IsValid() bool {
-	return pp.IsZero() || pp.IsSet()
-}
-
-func (pp PreferredPresence) String() string {
-	if !pp.IsSet() {
-		return ""
-	}
-	return pp.value.String()
-}
-
-func (pp PreferredPresence) Equals(other PreferredPresence) bool {
-	return pp.value.Value() == other.value.Value()
-}
-
-func (pp PreferredPresence) MarshalText() ([]byte, error) {
-	if !pp.IsSet() {
-		return nil, nil
-	}
-	return []byte(pp.String()), nil
-}
-
-func (pp *PreferredPresence) UnmarshalText(text []byte) error {
-	v, err := ParsePreferredPresence("preferred_presence", string(text))
-	if err != nil {
-		return err
-	}
-	*pp = v
-	return nil
-}
-
-func (pp PreferredPresence) MarshalJSON() ([]byte, error) {
-	if !pp.IsSet() {
-		return []byte("null"), nil
-	}
-	return json.Marshal(pp.String())
-}
-
-func (pp *PreferredPresence) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	v, err := ParsePreferredPresence("preferred_presence", s)
-	if err != nil {
-		return err
-	}
-	*pp = v
-	return nil
-}
-
-// -----------------------------------------------------------------------------
-// Preferred Presence Duration
-// -----------------------------------------------------------------------------
-
-type PreferredPresenceDurationValue int
-
-const (
-	PreferredPresenceDurationUnknown PreferredPresenceDurationValue = iota
+	PreferredPresenceDurationUnknown PreferredPresenceDuration = iota
 	PreferredPresenceDuration15Min
 	PreferredPresenceDuration1Hour
 	PreferredPresenceDuration8Hours
 	PreferredPresenceDuration24Hours
 	PreferredPresenceDuration3Days
 	PreferredPresenceDurationForever
-	preferredPresenceDurationMax
+	durationMax
 )
 
-var preferredPresenceDurationSpec = &fields.EnumSpec{
-	Domain: "PREFERRED_PRESENCE_DURATION",
-	Max:    int(preferredPresenceDurationMax),
-	Names:  []string{"UNKNOWN", "15_MIN", "1_HOUR", "8_HOURS", "24_HOURS", "3_DAYS", "FOREVER"},
-	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("15_MIN"), []byte("1_HOUR"), []byte("8_HOURS"), []byte("24_HOURS"), []byte("3_DAYS"), []byte("FOREVER")},
+var durationNames = [...]string{
+	PreferredPresenceDurationUnknown: "UNKNOWN",
+	PreferredPresenceDuration15Min:   "15_MIN",
+	PreferredPresenceDuration1Hour:   "1_HOUR",
+	PreferredPresenceDuration8Hours:  "8_HOURS",
+	PreferredPresenceDuration24Hours: "24_HOURS",
+	PreferredPresenceDuration3Days:   "3_DAYS",
+	PreferredPresenceDurationForever: "FOREVER",
 }
 
-type PreferredPresenceDuration struct {
-	fields.Enum[PreferredPresenceDurationValue]
-}
-
-func NewPreferredPresenceDuration(val PreferredPresenceDurationValue) PreferredPresenceDuration {
-	return PreferredPresenceDuration{Enum: fields.NewEnum(val, preferredPresenceDurationSpec)}
-}
-
-func NewPreferredPresenceDuration15Min() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDuration15Min)
-}
-func NewPreferredPresenceDuration1Hour() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDuration1Hour)
-}
-func NewPreferredPresenceDuration8Hours() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDuration8Hours)
-}
-func NewPreferredPresenceDuration24Hours() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDuration24Hours)
-}
-func NewPreferredPresenceDuration3Days() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDuration3Days)
-}
-func NewPreferredPresenceDurationForever() PreferredPresenceDuration {
-	return NewPreferredPresenceDuration(PreferredPresenceDurationForever)
-}
-
-func (p PreferredPresenceDuration) Is15Min() bool  { return p.Is(PreferredPresenceDuration15Min) }
-func (p PreferredPresenceDuration) Is1Hour() bool  { return p.Is(PreferredPresenceDuration1Hour) }
-func (p PreferredPresenceDuration) Is8Hours() bool { return p.Is(PreferredPresenceDuration8Hours) }
-func (p PreferredPresenceDuration) Is24Hours() bool {
-	return p.Is(PreferredPresenceDuration24Hours)
-}
-func (p PreferredPresenceDuration) Is3Days() bool   { return p.Is(PreferredPresenceDuration3Days) }
-func (p PreferredPresenceDuration) IsForever() bool { return p.Is(PreferredPresenceDurationForever) }
-
-func ParsePreferredPresenceDuration[T fields.IntegerType](raw T) (PreferredPresenceDuration, error) {
-	val := PreferredPresenceDurationValue(raw)
-	if val <= PreferredPresenceDurationUnknown || int(val) >= preferredPresenceDurationSpec.Max {
-		return PreferredPresenceDuration{}, ErrPreferredPresenceDurationInvalid()
+func ParsePreferredPresenceDuration(raw int) (PreferredPresenceDuration, error) {
+	d := PreferredPresenceDuration(raw)
+	if !d.IsValid() {
+		return PreferredPresenceDurationUnknown, fmt.Errorf("invalid duration value: %d", raw)
 	}
-	return NewPreferredPresenceDuration(val), nil
+	return d, nil
 }
 
 func ParsePreferredPresenceDurationString(s string) (PreferredPresenceDuration, error) {
-	val, ok := fields.ParseEnumString[PreferredPresenceDurationValue](s, preferredPresenceDurationSpec)
-	if !ok || val <= PreferredPresenceDurationUnknown {
-		return PreferredPresenceDuration{}, ErrPreferredPresenceDurationInvalid()
+	str := sanitize.EnumValue(s)
+	if str == "" {
+		return PreferredPresenceDurationUnknown, nil
 	}
-	return NewPreferredPresenceDuration(val), nil
+	for i, name := range durationNames {
+		if name == str {
+			return PreferredPresenceDuration(i), nil
+		}
+	}
+	return PreferredPresenceDurationUnknown, fmt.Errorf("invalid duration string: %q", s)
 }
 
-func (p PreferredPresenceDuration) ToDuration() (time.Duration, bool) {
-	switch p.Value() {
+func ParsePreferredPresenceDurationBytes(raw []byte) (PreferredPresenceDuration, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return PreferredPresenceDurationUnknown, nil
+	}
+	return ParsePreferredPresenceDurationString(string(cleaned))
+}
+
+func (d PreferredPresenceDuration) IsValid() bool {
+	return d > PreferredPresenceDurationUnknown && d < durationMax
+}
+
+func (d PreferredPresenceDuration) String() string {
+	if uint(d) < uint(len(durationNames)) {
+		return durationNames[d]
+	}
+	return durationNames[PreferredPresenceDurationUnknown]
+}
+
+func (d PreferredPresenceDuration) Is15Min() bool   { return d == PreferredPresenceDuration15Min }
+func (d PreferredPresenceDuration) Is1Hour() bool   { return d == PreferredPresenceDuration1Hour }
+func (d PreferredPresenceDuration) Is8Hours() bool  { return d == PreferredPresenceDuration8Hours }
+func (d PreferredPresenceDuration) Is24Hours() bool { return d == PreferredPresenceDuration24Hours }
+func (d PreferredPresenceDuration) Is3Days() bool   { return d == PreferredPresenceDuration3Days }
+func (d PreferredPresenceDuration) IsForever() bool { return d == PreferredPresenceDurationForever }
+
+func (d PreferredPresenceDuration) ToPreferredPresenceDuration() (time.Duration, bool) {
+	switch d {
 	case PreferredPresenceDuration15Min:
 		return 15 * time.Minute, true
 	case PreferredPresenceDuration1Hour:
@@ -436,71 +97,47 @@ func (p PreferredPresenceDuration) ToDuration() (time.Duration, bool) {
 	}
 }
 
-func (p PreferredPresenceDuration) CalculateUntil(now fields.Timestamp) (fields.Timestamp, error) {
-	if p.IsForever() {
-		return fields.Timestamp{}, nil
+func (d PreferredPresenceDuration) CalculateUntil(now time.Time) (*time.Time, error) {
+	if !d.IsValid() {
+		return nil, fmt.Errorf("cannot calculate expiry for invalid duration: %s", d)
+	}
+	if d.IsForever() {
+		return nil, nil
 	}
 
-	d, ok := p.ToDuration()
-	if !ok {
-		return fields.Timestamp{}, ErrPreferredPresenceDurationInvalid()
-	}
-
-	return fields.NewTimestamp(now.Time().Add(d)), nil
+	stdPreferredPresenceDuration, _ := d.ToPreferredPresenceDuration()
+	until := now.Add(stdPreferredPresenceDuration)
+	return &until, nil
 }
 
-// ============================================================================
-// Username
-// ============================================================================
-
-const (
-	MinUsernameLength = 3
-	MaxUsernameLength = 32
-)
-
-var rgxUsername = regexp.MustCompile(`^[a-zA-Z0-9]+(?:[._][a-zA-Z0-9]+)*$`)
-
-type Username struct {
-	fields.Text
+func (d PreferredPresenceDuration) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
 }
 
-func NewUsername(s string) Username {
-	return Username{Text: fields.NewText(s)}
-}
-
-func ParseUsername(fieldName, raw string) (Username, error) {
-	s := sanitize.Text(raw)
-	if s == "" {
-		return Username{}, nil
-	}
-
-	if len(s) < MinUsernameLength {
-		return Username{}, ErrUsernameTooShort(fieldName)
-	}
-
-	if len(s) > MaxUsernameLength {
-		return Username{}, ErrUsernameTooLong(fieldName)
-	}
-
-	if !rgxUsername.MatchString(s) {
-		return Username{}, ErrUsernameInvalid(fieldName)
-	}
-
-	switch strings.ToLower(s) {
-	case "admin", "root", "support", "system", "moderator", "bonfire":
-		return Username{}, ErrUsernameReserved(fieldName)
-	}
-
-	return NewUsername(s), nil
-}
-
-func ParseRequiredUsername(fieldName, raw string) (Username, error) {
-	u, err := ParseUsername(fieldName, raw)
+func (d *PreferredPresenceDuration) UnmarshalText(text []byte) error {
+	parsed, err := ParsePreferredPresenceDurationString(string(text))
 	if err != nil {
-		return Username{}, err
+		return err
 	}
-	if u.IsZero() {
-		return Username{}, ErrUsernameRequired(fieldName)
+	*d = parsed
+	return nil
+}
+
+func (d PreferredPresenceDuration) MarshalJSON() ([]byte, error) {
+	return strconv.AppendQuote(nil, d.String()), nil
+}
+
+func (d *PreferredPresenceDuration) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*d = PreferredPresenceDurationUnknown
+		return nil
 	}
-	return u, nil
+
+	parsed, err := ParsePreferredPresenceDurationBytes(data)
+	if err != nil {
+		return err
+	}
+
+	*d = parsed
+	return nil
 }

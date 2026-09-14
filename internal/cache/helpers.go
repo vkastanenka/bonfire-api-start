@@ -5,7 +5,6 @@ import (
 	"time"
 	"unsafe"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
@@ -152,8 +151,8 @@ func toBytes(raw any) ([]byte, bool) {
 	}
 }
 
-// getSetIDs retrieves members from a Redis Set key and parses them into fields.ID slices.
-func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]fields.ID, error) {
+// getSetIDs retrieves members from a Redis Set key and parses them into uuid.UUID slices.
+func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]uuid.UUID, error) {
 	members, err := client.SMembers(ctx, key).Result()
 	if redis.IsCacheMiss(err) {
 		return nil, nil
@@ -165,10 +164,10 @@ func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scop
 		return nil, nil
 	}
 
-	ids := make([]fields.ID, 0, len(members))
+	ids := make([]uuid.UUID, 0, len(members))
 	for _, m := range members {
 		if id, parseErr := uuid.Parse(m); parseErr == nil {
-			ids = append(ids, fields.ID(id))
+			ids = append(ids, uuid.UUID(id))
 		}
 	}
 
@@ -176,7 +175,7 @@ func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scop
 }
 
 // setSetIDs replaces a Redis Set key with a new slice of IDs inside an atomic TxPipeline.
-func setSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, ids []fields.ID, ttl time.Duration, scope redis.Scope) error {
+func setSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, ids []uuid.UUID, ttl time.Duration, scope redis.Scope) error {
 	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.Del(ctx, key)
 		if len(ids) > 0 {
@@ -196,7 +195,7 @@ func setSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, ids 
 }
 
 // addToSetID adds a single field ID to a Redis Set and conditionally updates its TTL if the key exists.
-func addToSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID fields.ID, ttl time.Duration, scope redis.Scope) error {
+func addToSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID uuid.UUID, ttl time.Duration, scope redis.Scope) error {
 	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.SAdd(ctx, key, targetID.String())
 		pipe.ExpireXX(ctx, key, ttl)
@@ -209,7 +208,7 @@ func addToSetID(ctx context.Context, client redisdriver.Cmdable, key string, tar
 }
 
 // removeFromSetID removes a single field ID from a Redis Set.
-func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID fields.ID, scope redis.Scope) error {
+func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID uuid.UUID, scope redis.Scope) error {
 	if err := client.SRem(ctx, key, targetID.String()).Err(); err != nil {
 		return redis.NewError(err, scope)
 	}
@@ -220,7 +219,7 @@ func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string
 func removeFromSetIDsPipelined(
 	ctx context.Context,
 	client redisdriver.Cmdable,
-	removals map[string]fields.ID,
+	removals map[string]uuid.UUID,
 	scope redis.Scope,
 ) error {
 	if len(removals) == 0 {

@@ -72,13 +72,13 @@ type UserService interface {
 	AnonymizeBatch(ctx context.Context) error
 	Disable(ctx context.Context, p user.DisableParams) error
 	Get(ctx context.Context, userID uuid.UUID) (*user.User, error)
-	GetBatch(ctx context.Context, ids []fields.ID) (map[fields.ID]*user.User, error)
-	GetBatchPresence(ctx context.Context, userIDs []fields.ID) (map[fields.ID]user.Presence, error)
-	GetView(ctx context.Context, userID uuid.UUID) (user.UserView, error)
 	ScheduleDelete(ctx context.Context, p user.ScheduleDeleteParams) error
 	UpdateEmail(ctx context.Context, p user.UpdateEmailParams) (*user.User, error)
 	UpdatePassword(ctx context.Context, p user.UpdatePasswordParams) error
 	UpdatePreferredPresence(ctx context.Context, p user.UpdatePreferredPresenceParams) (*user.User, error)
 	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*user.User, error)
 	UpdateUsername(ctx context.Context, p user.UpdateUsernameParams) (*user.User, error)
+	fetchAndAuthenticate(ctx context.Context, actorID uuid.UUID, password string) (*user.User, error)
+	fetchBatchValid(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.User, error)
+	fetchValid(ctx context.Context, actorID uuid.UUID) (*user.User, error)
 }

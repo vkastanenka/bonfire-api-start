@@ -2,13 +2,13 @@ package cache
 
 import (
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
@@ -18,22 +18,22 @@ const (
 )
 
 // String / Hash
-func channelKey(id fields.ID) string {
+func channelKey(id uuid.UUID) string {
 	return "{channel:" + id.String() + "}"
 }
 
 // Hash
-func channelMembersKey(id fields.ID) string {
+func channelMembersKey(id uuid.UUID) string {
 	return "{channel:" + id.String() + "}:members"
 }
 
 // ZSet: Score = UUIDv7 Timestamp (or 0 for Lex), Member = msg_id
-func channelMessagesKey(channelID fields.ID) string {
+func channelMessagesKey(channelID uuid.UUID) string {
 	return "{channel:" + channelID.String() + "}:messages"
 }
 
 // String / Hash: Serialized Message Object
-func messageKey(msgID fields.ID) string {
+func messageKey(msgID uuid.UUID) string {
 	return "{message:" + msgID.String() + "}"
 }
 
@@ -47,15 +47,15 @@ func NewChannelCache(client redisdriver.Cmdable) *ChannelCache {
 	}
 }
 
-func (c *ChannelCache) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+func (c *ChannelCache) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
 	return getAndUnmarshal(ctx, c.client, channelKey(id), redis.ScopeChannel, unmarshalChannel)
 }
 
 func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
-	return marshalAndSet(ctx, c.client, channelKey(ch.ID()), ch, channelTTL, redis.ScopeChannel, marshalChannel)
+	return marshalAndSet(ctx, c.client, channelKey(ch.ID), ch, channelTTL, redis.ScopeChannel, marshalChannel)
 }
 
-func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
+func (c *ChannelCache) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := c.client.Del(ctx, channelKey(id)).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeChannel)
 	}
@@ -65,14 +65,14 @@ func (c *ChannelCache) Delete(ctx context.Context, id fields.ID) error {
 // GetBatch retrieves multiple channels by their IDs in chunked MGET calls.
 func (c *ChannelCache) GetBatch(
 	ctx context.Context,
-	ids []fields.ID,
-) (map[fields.ID]*channel.Channel, []fields.ID, error) {
+	ids []uuid.UUID,
+) (map[uuid.UUID]*channel.Channel, []uuid.UUID, error) {
 	if len(ids) == 0 {
-		return make(map[fields.ID]*channel.Channel), nil, nil
+		return make(map[uuid.UUID]*channel.Channel), nil, nil
 	}
 
-	found := make(map[fields.ID]*channel.Channel, len(ids))
-	missing := make([]fields.ID, 0, len(ids))
+	found := make(map[uuid.UUID]*channel.Channel, len(ids))
+	missing := make([]uuid.UUID, 0, len(ids))
 	var corruptedKeys []string
 
 	for i := 0; i < len(ids); i += MaxBatchSize {
@@ -122,7 +122,7 @@ func (c *ChannelCache) GetBatch(
 }
 
 // SetBatch stores multiple channels into Redis using chunked pipeline requests.
-func (c *ChannelCache) SetBatch(ctx context.Context, channels map[fields.ID]*channel.Channel) error {
+func (c *ChannelCache) SetBatch(ctx context.Context, channels map[uuid.UUID]*channel.Channel) error {
 	if len(channels) == 0 {
 		return nil
 	}
@@ -148,7 +148,7 @@ func (c *ChannelCache) SetBatch(ctx context.Context, channels map[fields.ID]*cha
 }
 
 // InvalidateMembers evicts the entire members Hash for a channel (used on topology/membership changes).
-func (c *ChannelCache) InvalidateMembers(ctx context.Context, channelID fields.ID) error {
+func (c *ChannelCache) InvalidateMembers(ctx context.Context, channelID uuid.UUID) error {
 	if err := c.client.Del(ctx, channelMembersKey(channelID)).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeChannel)
 	}
@@ -156,14 +156,14 @@ func (c *ChannelCache) InvalidateMembers(ctx context.Context, channelID fields.I
 }
 
 // InvalidateMember removes a single user field from the channel's members Hash.
-func (c *ChannelCache) InvalidateMember(ctx context.Context, channelID, userID fields.ID) error {
+func (c *ChannelCache) InvalidateMember(ctx context.Context, channelID, userID uuid.UUID) error {
 	if err := c.client.HDel(ctx, channelMembersKey(channelID), userID.String()).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeChannel)
 	}
 	return nil
 }
 
-func (c *ChannelCache) AddMembers(ctx context.Context, channelID fields.ID, members []*channel.Member) error {
+func (c *ChannelCache) AddMembers(ctx context.Context, channelID uuid.UUID, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil
 	}
@@ -255,14 +255,14 @@ func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, mem
 // Returns map of found members per channel ID, missing channel IDs, and any execution error.
 func (c *ChannelCache) GetBatchMembersByChannelIDs(
 	ctx context.Context,
-	channelIDs []fields.ID,
-) (map[fields.ID][]*channel.Member, []fields.ID, error) {
+	channelIDs []uuid.UUID,
+) (map[uuid.UUID][]*channel.Member, []uuid.UUID, error) {
 	if len(channelIDs) == 0 {
-		return make(map[fields.ID][]*channel.Member), nil, nil
+		return make(map[uuid.UUID][]*channel.Member), nil, nil
 	}
 
 	pipe := c.client.Pipeline()
-	cmds := make(map[fields.ID]*redisdriver.MapStringStringCmd, len(channelIDs))
+	cmds := make(map[uuid.UUID]*redisdriver.MapStringStringCmd, len(channelIDs))
 
 	for _, id := range channelIDs {
 		cmds[id] = pipe.HGetAll(ctx, channelMembersKey(id))
@@ -272,8 +272,8 @@ func (c *ChannelCache) GetBatchMembersByChannelIDs(
 		return nil, nil, redis.NewError(err, redis.ScopeChannel)
 	}
 
-	found := make(map[fields.ID][]*channel.Member, len(channelIDs))
-	var missing []fields.ID
+	found := make(map[uuid.UUID][]*channel.Member, len(channelIDs))
+	var missing []uuid.UUID
 
 	for id, cmd := range cmds {
 		rawMap, err := cmd.Result()
@@ -309,7 +309,7 @@ func (c *ChannelCache) GetBatchMembersByChannelIDs(
 // SetBatchMembers writes a map of channel members into Redis Hashes via a single pipeline.
 func (c *ChannelCache) SetBatchMembers(
 	ctx context.Context,
-	channelMembersMap map[fields.ID][]*channel.Member,
+	channelMembersMap map[uuid.UUID][]*channel.Member,
 ) error {
 	if len(channelMembersMap) == 0 {
 		return nil
@@ -345,7 +345,7 @@ func (c *ChannelCache) SetBatchMembers(
 
 func (c *ChannelCache) GetMember(
 	ctx context.Context,
-	channelID, userID fields.ID,
+	channelID, userID uuid.UUID,
 ) (*channel.Member, error) {
 	rawJSON, err := c.client.HGet(ctx, channelMembersKey(channelID), userID.String()).Result()
 	if err != nil {

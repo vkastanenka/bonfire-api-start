@@ -3,34 +3,27 @@ package handler
 import (
 	"net/http"
 
-	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/relation"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 )
 
 type UserHandler struct {
-	service     UserService
-	relService  RelationService
-	chanService ChannelService
-	bind        *httpio.Bind
+	service UserService
+	bind    *httpio.Bind
 }
 
-func NewUserHandler(service UserService, relService RelationService, chanService ChannelService, bind *httpio.Bind) *UserHandler {
+func NewUserHandler(service UserService, bind *httpio.Bind) *UserHandler {
 	return &UserHandler{
-		service:     service,
-		relService:  relService,
-		chanService: chanService,
-		bind:        bind,
+		service: service,
+		bind:    bind,
 	}
 }
 
 type UserGetPath struct {
-	UserID uuid.UUID `path:"userId" validate:"required,uuid"`
+	UserID uuid.UUID `path:"userID" validate:"required"`
 }
 
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
@@ -39,126 +32,12 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	u, err := h.service.GetView(r.Context(), path.UserID)
+	u, err := h.service.Get(r.Context(), path.UserID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, u)
-	return nil
-}
-
-type UserGetMeResponse struct {
-	Me             user.UserMeView                `json:"me"`
-	Users          map[fields.ID]*user.UserView   `json:"users"`
-	Presences      map[fields.ID]user.Presence    `json:"presences"`
-	Channels       map[fields.ID]*channel.Channel `json:"channels"`
-	Members        map[fields.ID]*channel.Member  `json:"members"`
-	PeerIDs        map[fields.ID][]fields.ID      `json:"peerIDs"`
-	FriendChannels map[fields.ID]fields.ID        `json:"friendChannels"` // friendID -> channelID
-	ChannelIDs     []fields.ID                    `json:"channelIds"`     // ordered sidebar channels
-	FriendIDs      []fields.ID                    `json:"friendIds"`      // sorted friend IDs
-}
-
-func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	userID, err := httpio.CtxGetUserID(ctx)
-	if err != nil {
-		return err
-	}
-
-	g1, gCtx1 := errgroup.WithContext(ctx)
-
-	var (
-		me                *user.User
-		channelMap        map[fields.ID]*channel.Channel
-		memberMap         map[fields.ID]*channel.Member
-		peerIDsMap        map[fields.ID][]fields.ID
-		channelIDs        []fields.ID
-		peerIDs           []fields.ID
-		friendChannelsMap map[fields.ID]fields.ID
-		friendIDs         []fields.ID
-	)
-
-	g1.Go(func() error {
-		var err error
-		me, err = h.service.Get(gCtx1, userID.UUID())
-		return err
-	})
-
-	g1.Go(func() error {
-		var err error
-		channelMap, memberMap, peerIDsMap, channelIDs, peerIDs, _, err = h.chanService.GetSidebar(gCtx1, userID.UUID())
-		return err
-	})
-
-	g1.Go(func() error {
-		var err error
-		friendChannelsMap, friendIDs, err = h.relService.GetPeers(gCtx1, userID.UUID(), relation.NewTypeFriends().String())
-		return err
-	})
-
-	if err := g1.Wait(); err != nil {
-		return err
-	}
-
-	allUserIDs := make([]fields.ID, 0, len(peerIDs)+len(friendIDs)+1)
-	allUserIDs = append(allUserIDs, userID)
-	allUserIDs = append(allUserIDs, peerIDs...)
-	allUserIDs = append(allUserIDs, friendIDs...)
-	dedupedUserIDs := fields.DedupeIDs(allUserIDs)
-
-	g2, gCtx2 := errgroup.WithContext(ctx)
-
-	var (
-		usersMap     map[fields.ID]*user.User
-		presencesMap map[fields.ID]user.Presence
-	)
-
-	g2.Go(func() error {
-		var err error
-		usersMap, err = h.service.GetBatch(gCtx2, dedupedUserIDs)
-		return err
-	})
-
-	g2.Go(func() error {
-		var err error
-		presencesMap, err = h.service.GetBatchPresence(gCtx2, dedupedUserIDs)
-		return err
-	})
-
-	if err := g2.Wait(); err != nil {
-		return err
-	}
-
-	relation.SortFriendIDs(friendIDs, usersMap)
-
-	userViews := make(map[fields.ID]*user.UserView, len(usersMap))
-	for id, u := range usersMap {
-		if u == nil {
-			continue
-		}
-		p, exists := presencesMap[id]
-		if !exists {
-			p = user.NewPresenceOffline()
-		}
-		view := user.ToUserView(u, p, fields.Now())
-		userViews[id] = &view
-	}
-
-	response := UserGetMeResponse{
-		Me:             user.ToUserMeView(me),
-		Users:          userViews,
-		Presences:      presencesMap,
-		Channels:       channelMap,
-		Members:        memberMap,
-		PeerIDs:        peerIDsMap,
-		FriendChannels: friendChannelsMap,
-		ChannelIDs:     channelIDs,
-		FriendIDs:      friendIDs,
-	}
-
-	httpio.RespondOK(w, r, response)
+	httpio.RespondOK(w, r, user.ParseView(u))
 	return nil
 }
 
@@ -187,12 +66,12 @@ func (h *UserHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 
-	httpio.RespondOK(w, r, user.ToUserMeView(u))
+	httpio.RespondOK(w, r, user.ParseMe(u))
 	return nil
 }
 
 type UserUpdateUsernameRequest struct {
-	NewUsername string `json:"newUsername" mod:"text" validate:"required,alphanum,min=3,max=32"`
+	NewUsername string `json:"newUsername" mod:"text" validate:"required,min=3,max=32,alphanum"`
 	Password    string `json:"password" validate:"required,min=12,max=255"`
 }
 
@@ -216,14 +95,14 @@ func (h *UserHandler) UpdateUsername(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	httpio.RespondOK(w, r, user.ToUserMeView(u))
+	httpio.RespondOK(w, r, user.ParseMe(u))
 	return nil
 }
 
 type UserUpdatePasswordRequest struct {
 	CurrentPassword    string `json:"currentPassword" validate:"required,min=12,max=255"`
 	NewPassword        string `json:"newPassword" validate:"required,min=12,max=255"`
-	NewPasswordConfirm string `json:"newPasswordConfirm" validate:"required,min=12,max=255"`
+	NewPasswordConfirm string `json:"newPasswordConfirm" validate:"required,eqfield=NewPassword"`
 }
 
 func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) error {
@@ -251,8 +130,8 @@ func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) err
 }
 
 type UserUpdatePreferredPresenceRequest struct {
-	Presence *string `json:"presence,omitempty"`
-	Duration *string `json:"duration,omitempty"`
+	Presence *presence.Presence              `json:"presence,omitempty" validate:"omitempty,oneof=4 5 6"`
+	Duration *user.PreferredPresenceDuration `json:"duration,omitempty" validate:"omitempty,oneof=1 2 3 4 5 6"`
 }
 
 func (h *UserHandler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
@@ -275,7 +154,7 @@ func (h *UserHandler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Req
 		return err
 	}
 
-	httpio.RespondOK(w, r, user.ToUserMeView(u))
+	httpio.RespondOK(w, r, user.ParseMe(u))
 	return nil
 }
 
@@ -308,7 +187,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondOK(w, r, user.ToUserMeView(u))
+	httpio.RespondOK(w, r, user.ParseMe(u))
 	return nil
 }
 
