@@ -53,12 +53,10 @@ type MessageService interface {
 }
 
 type RelationService interface {
-	DeleteByUserID(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
-	GetPeer(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) (relation.Peer, error)
-	GetPeers(ctx context.Context, rawUserID uuid.UUID, rawType string) (peerChannelMap map[fields.ID]fields.ID, peerIDs []fields.ID, err error)
-	TransitionBlocked(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
-	TransitionFriends(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
-	TransitionPending(ctx context.Context, rawActorID uuid.UUID, rawPeerID uuid.UUID) error
+	DeleteByUserID(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
+	TransitionBlocked(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
+	TransitionFriends(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) (*relation.TransitionFriendsResult, error)
+	TransitionPending(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
 }
 
 type SessionService interface {

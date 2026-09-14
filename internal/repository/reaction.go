@@ -2,12 +2,9 @@ package repository
 
 import (
 	"context"
-	"fmt"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 
 	"github.com/google/uuid"
 )
@@ -24,10 +21,10 @@ func NewReactionRepository(store *db.Store) *ReactionRepository {
 
 func (r *ReactionRepository) Create(ctx context.Context, rx *channel.Reaction) (*channel.Reaction, error) {
 	row, err := r.store.ReactionCreate(ctx, db.ReactionCreateParams{
-		MessageID: db.ToUUID(rx.MessageID().UUID()),
-		UserID:    db.ToUUID(rx.UserID().UUID()),
-		Emoji:     rx.Emoji().String(),
-		CreatedAt: db.ToTimestamptz(rx.CreatedAt().Time()),
+		MessageID: db.ToUUID(rx.MessageID),
+		UserID:    db.ToUUID(rx.UserID),
+		Emoji:     rx.Emoji,
+		CreatedAt: db.ToTimestamptz(rx.CreatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -38,13 +35,13 @@ func (r *ReactionRepository) Create(ctx context.Context, rx *channel.Reaction) (
 
 func (r *ReactionRepository) Get(
 	ctx context.Context,
-	messageID, userID fields.ID,
-	emoji channel.ReactionEmoji,
+	messageID, userID uuid.UUID,
+	emoji string,
 ) (*channel.Reaction, error) {
 	row, err := r.store.ReactionGet(ctx, db.ReactionGetParams{
-		MessageID: db.ToUUID(messageID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
-		Emoji:     emoji.String(),
+		MessageID: db.ToUUID(messageID),
+		UserID:    db.ToUUID(userID),
+		Emoji:     emoji,
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
@@ -55,17 +52,17 @@ func (r *ReactionRepository) Get(
 
 func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 	ctx context.Context,
-	userID fields.ID,
-	messageIDs []fields.ID,
-) (map[fields.ID]*channel.ReactionSummary, error) {
-	summaries := make(map[fields.ID]*channel.ReactionSummary, len(messageIDs))
+	userID uuid.UUID,
+	messageIDs []uuid.UUID,
+) (map[uuid.UUID]*channel.ReactionSummary, error) {
+	summaries := make(map[uuid.UUID]*channel.ReactionSummary, len(messageIDs))
 	if len(messageIDs) == 0 {
 		return summaries, nil
 	}
 
 	uuidMsgs := make([]uuid.UUID, len(messageIDs))
 	for i, id := range messageIDs {
-		uuidMsgs[i] = id.UUID()
+		uuidMsgs[i] = id
 		summaries[id] = &channel.ReactionSummary{
 			MessageID: id,
 			Counts:    []channel.EmojiCount{},
@@ -77,43 +74,27 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 		return nil, r.store.Err(err)
 	}
 
-	countsMap := make(map[fields.ID]map[string]int, len(messageIDs))
+	countsMap := make(map[uuid.UUID]map[string]int, len(messageIDs))
 	for _, row := range dbRows {
-		rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
-		msgID, parseErr := fields.ParseRequiredID("message_id", rawMsgID)
-		if parseErr != nil {
-			return nil, errs.Internal("failed to parse message id from reaction summary row").
-				Wrap(parseErr).
-				Reason("CORRUPT_DATABASE_RECORD").
-				Meta("message_id", rawMsgID.String())
-		}
-
+		msgID := db.FromUUID[uuid.UUID](row.MessageID)
 		if countsMap[msgID] == nil {
 			countsMap[msgID] = make(map[string]int)
 		}
 		countsMap[msgID][row.Emoji] = int(row.Count)
 	}
 
-	userReactions := make(map[fields.ID]map[string]bool)
-	if !userID.IsZero() {
+	userReactions := make(map[uuid.UUID]map[string]bool)
+	if userID != uuid.Nil {
 		userRows, err := r.store.ReactionGetBatchByUserIDAndMessageIDs(ctx, db.ReactionGetBatchByUserIDAndMessageIDsParams{
 			MessageIds: db.ToUUIDs(uuidMsgs),
-			UserID:     db.ToUUID(userID.UUID()),
+			UserID:     db.ToUUID(userID),
 		})
 		if err != nil {
 			return nil, r.store.Err(err)
 		}
 
 		for _, row := range userRows {
-			rawMsgID := db.FromUUID[uuid.UUID](row.MessageID)
-			msgID, parseErr := fields.ParseRequiredID("message_id", rawMsgID)
-			if parseErr != nil {
-				return nil, errs.Internal("failed to parse message id from user reaction row").
-					Wrap(parseErr).
-					Reason("CORRUPT_DATABASE_RECORD").
-					Meta("message_id", rawMsgID.String())
-			}
-
+			msgID := db.FromUUID[uuid.UUID](row.MessageID)
 			if userReactions[msgID] == nil {
 				userReactions[msgID] = make(map[string]bool)
 			}
@@ -144,12 +125,12 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 
 func (r *ReactionRepository) CountByEmoji(
 	ctx context.Context,
-	messageID fields.ID,
-	emoji channel.ReactionEmoji,
+	messageID uuid.UUID,
+	emoji string,
 ) (int, error) {
 	count, err := r.store.ReactionCountByEmoji(ctx, db.ReactionCountByEmojiParams{
-		MessageID: db.ToUUID(messageID.UUID()),
-		Emoji:     emoji.String(),
+		MessageID: db.ToUUID(messageID),
+		Emoji:     emoji,
 	})
 	if err != nil {
 		return 0, r.store.Err(err)
@@ -160,13 +141,13 @@ func (r *ReactionRepository) CountByEmoji(
 
 func (r *ReactionRepository) Delete(
 	ctx context.Context,
-	messageID, userID fields.ID,
-	emoji channel.ReactionEmoji,
+	messageID, userID uuid.UUID,
+	emoji string,
 ) error {
 	err := r.store.ReactionDelete(ctx, db.ReactionDeleteParams{
-		MessageID: db.ToUUID(messageID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
-		Emoji:     emoji.String(),
+		MessageID: db.ToUUID(messageID),
+		UserID:    db.ToUUID(userID),
+		Emoji:     emoji,
 	})
 	if err != nil {
 		return r.store.Err(err)
@@ -176,39 +157,10 @@ func (r *ReactionRepository) Delete(
 }
 
 func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {
-	msgID := db.FromUUID[uuid.UUID](row.MessageID)
-	userID := db.FromUUID[uuid.UUID](row.UserID)
-	compositeKey := fmt.Sprintf("%s:%s:%s", msgID.String(), userID.String(), row.Emoji)
-
-	mapErr := func(msgText, key string, val any, err error) *errs.Error {
-		return errs.Internal(msgText).
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta(key, fmt.Sprintf("%v", val)).
-			Resource("MessageReaction", compositeKey, "", "database row mapping")
-	}
-
-	parsedMessageID, err := fields.ParseRequiredID("message_id", msgID)
-	if err != nil {
-		return nil, mapErr("failed to parse message id from database", "message_id", msgID.String(), err)
-	}
-
-	parsedUserID, err := fields.ParseRequiredID("user_id", userID)
-	if err != nil {
-		return nil, mapErr("failed to parse user id from database", "user_id", userID.String(), err)
-	}
-
-	emoji, err := channel.ParseReactionEmoji(row.Emoji)
-	if err != nil {
-		return nil, mapErr("failed to parse emoji from database", "emoji", row.Emoji, err)
-	}
-
-	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
-
 	return channel.ReconstituteReaction(
-		parsedMessageID,
-		parsedUserID,
-		emoji,
-		createdAt,
+		db.FromUUID[uuid.UUID](row.MessageID),
+		db.FromUUID[uuid.UUID](row.UserID),
+		row.Emoji,
+		db.FromTimestamptz(row.CreatedAt),
 	), nil
 }

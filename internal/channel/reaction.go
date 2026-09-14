@@ -1,14 +1,16 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type Reaction struct {
-	messageID fields.ID
-	userID    fields.ID
-	emoji     ReactionEmoji
-	createdAt fields.Timestamp
+	MessageID uuid.UUID
+	UserID    uuid.UUID
+	Emoji     string
+	CreatedAt time.Time
 }
 
 type EmojiCount struct {
@@ -18,25 +20,20 @@ type EmojiCount struct {
 }
 
 type ReactionSummary struct {
-	MessageID fields.ID
+	MessageID uuid.UUID
 	Counts    []EmojiCount
 }
 
 func ReconstituteReaction(
-	messageID fields.ID,
-	userID fields.ID,
-	emoji ReactionEmoji,
-	createdAt fields.Timestamp,
+	messageID uuid.UUID,
+	userID uuid.UUID,
+	emoji string,
+	createdAt time.Time,
 ) *Reaction {
 	return &Reaction{
-		messageID: messageID,
-		userID:    userID,
-		emoji:     emoji,
-		createdAt: createdAt,
+		MessageID: messageID,
+		UserID:    userID,
+		Emoji:     emoji,
+		CreatedAt: createdAt,
 	}
 }
-
-func (r *Reaction) MessageID() fields.ID        { return r.messageID }
-func (r *Reaction) UserID() fields.ID           { return r.userID }
-func (r *Reaction) Emoji() ReactionEmoji        { return r.emoji }
-func (r *Reaction) CreatedAt() fields.Timestamp { return r.createdAt }

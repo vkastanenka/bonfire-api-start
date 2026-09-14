@@ -3,7 +3,10 @@ package handler
 import (
 	"net/http"
 
+	"bonfire-api/internal/channel"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -21,73 +24,8 @@ func NewRelationHandler(service RelationService, bind *httpio.Bind) *RelationHan
 }
 
 type RelationPeerPath struct {
-	PeerID uuid.UUID `path:"peerId" validate:"required,uuid"`
+	PeerID uuid.UUID `path:"peerId" validate:"required"`
 }
-
-func (h *RelationHandler) GetPeer(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	var path RelationPeerPath
-	if err := h.bind.Path(r, &path); err != nil {
-		return err
-	}
-
-	peer, err := h.service.GetPeer(r.Context(), actorID.UUID(), path.PeerID)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, peer)
-	return nil
-}
-
-// func (h *RelationHandler) GetFriends(w http.ResponseWriter, r *http.Request) error {
-// 	actorID, err := httpio.CtxGetUserID(r.Context())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeFriends().String())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	httpio.RespondOK(w, r, peers)
-// 	return nil
-// }
-
-// func (h *RelationHandler) GetPending(w http.ResponseWriter, r *http.Request) error {
-// 	actorID, err := httpio.CtxGetUserID(r.Context())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypePending().String())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	httpio.RespondOK(w, r, peers)
-// 	return nil
-// }
-
-// func (h *RelationHandler) GetBlocked(w http.ResponseWriter, r *http.Request) error {
-// 	actorID, err := httpio.CtxGetUserID(r.Context())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	peers, err := h.service.GetPeers(r.Context(), actorID.UUID(), relation.NewTypeBlocked().String())
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	httpio.RespondOK(w, r, peers)
-// 	return nil
-// }
 
 func (h *RelationHandler) SendRequest(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
@@ -108,6 +46,13 @@ func (h *RelationHandler) SendRequest(w http.ResponseWriter, r *http.Request) er
 	return nil
 }
 
+type AcceptRequestResponsePayload struct {
+	Channel      *channel.Channel
+	ActorMember  *channel.Member
+	PeerUser     user.View
+	PeerPresence presence.Presence
+}
+
 func (h *RelationHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) error {
 	actorID, err := httpio.CtxGetUserID(r.Context())
 	if err != nil {
@@ -119,11 +64,19 @@ func (h *RelationHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	if err := h.service.TransitionFriends(r.Context(), actorID.UUID(), path.PeerID); err != nil {
+	result, err := h.service.TransitionFriends(r.Context(), actorID.UUID(), path.PeerID)
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondNoContent(w)
+	payload := &AcceptRequestResponsePayload{
+		Channel:      result.Channel,     // TODO: Update view
+		ActorMember:  result.ActorMember, // TODO: Update view
+		PeerUser:     user.ParseView(result.PeerUser),
+		PeerPresence: result.PeerPresence,
+	}
+
+	httpio.RespondOK(w, r, payload)
 	return nil
 }
 

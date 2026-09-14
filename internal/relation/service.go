@@ -3,12 +3,12 @@ package relation
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
@@ -55,19 +55,10 @@ func NewService(
 	}
 }
 
-func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
-	if err != nil {
-		return err
-	}
-
-	channelID, err := fields.NewID()
-	if err != nil {
-		return err
-	}
-
-	now := fields.Now()
-	rel := NewPending(u1, u2, actorID, channelID, now)
+func (s *Service) TransitionPending(ctx context.Context, actorID, peerID uuid.UUID) error {
+	u1, u2 := sortIDPair(actorID, peerID)
+	now := time.Now()
+	rel := NewPending(u1, u2, actorID, now)
 
 	actor, err := s.cachedUserRepo.Get(ctx, actorID)
 	if err != nil {
@@ -82,10 +73,10 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 			}
 
 			payload := EventFriendRequestSentPayload{
-				ActorID:   actorID.UUID().String(),
-				PeerID:    rel.PeerID(actorID).UUID().String(),
+				ActorID:   actorID,
+				PeerID:    rel.PeerID(actorID),
 				Actor:     user.ParseSummary(actor),
-				CreatedAt: now.String(),
+				CreatedAt: now,
 			}
 
 			return s.outboxRepo.Publish(txCtx, EventFriendRequestSent, payload, now)
@@ -94,12 +85,11 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 			return err
 		}
 
-		if relLock.Type().IsFriends() {
+		if relLock.Type.IsFriends() {
 			return ErrAlreadyFriends()
 		}
 
-		if relLock.Type().IsPending() {
-
+		if relLock.Type.IsPending() {
 			return ErrAlreadyPending()
 		}
 
@@ -107,29 +97,31 @@ func (s *Service) TransitionPending(ctx context.Context, rawActorID, rawPeerID u
 	})
 }
 
-func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID uuid.UUID) (*channel.Channel, *channel.Member, *user.User, presence.Presence, error) {
-	actorID, peerID, u1, u2, err := validateIDs(rawActorID, rawPeerID)
-	if err != nil {
-		return nil, nil, nil, presence.Presence{}, err
-	}
+type TransitionFriendsResult struct {
+	Channel      *channel.Channel
+	ActorMember  *channel.Member
+	PeerUser     *user.User
+	PeerPresence presence.Presence
+}
 
+func (s *Service) TransitionFriends(ctx context.Context, actorID, peerID uuid.UUID) (*TransitionFriendsResult, error) {
 	actorUser, err := s.cachedUserRepo.Get(ctx, actorID)
 	if err != nil {
-		return nil, nil, nil, presence.Presence{}, err
+		return nil, err
 	}
 
 	peerUser, err := s.cachedUserRepo.Get(ctx, peerID)
 	if err != nil {
-		return nil, nil, nil, presence.Presence{}, err
+		return nil, err
 	}
 
 	actorPresence, _ := s.presenceCache.GetPresence(ctx, actorID)
 	peerPresence, _ := s.presenceCache.GetPresence(ctx, peerID)
 
-	now := fields.Now()
-
 	var createdChannel *channel.Channel
 	var actorMember *channel.Member
+	u1, u2 := sortIDPair(actorID, peerID)
+	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		rel, err := s.repo.GetForUpdate(txCtx, u1, u2)
@@ -137,7 +129,7 @@ func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID u
 			return err
 		}
 
-		if err := validateBlockedActor(actorID, rel); err != nil {
+		if err := validateNonBlockedActor(actorID, rel); err != nil {
 			return err
 		}
 
@@ -198,7 +190,7 @@ func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID u
 		return s.outboxRepo.Publish(txCtx, EventFriendAdded, peerPayload, now)
 	})
 	if err != nil {
-		return nil, nil, nil, presence.Presence{}, err
+		return nil, err
 	}
 
 	if err := s.userCache.AddFriendPair(ctx, actorID, peerID, createdChannel.ID()); err != nil {
@@ -207,37 +199,38 @@ func (s *Service) TransitionFriends(ctx context.Context, rawActorID, rawPeerID u
 
 	// TODO: Handle cache
 
-	return createdChannel, actorMember, peerUser, peerPresence, nil
+	return &TransitionFriendsResult{
+		Channel:      createdChannel,
+		ActorMember:  actorMember,
+		PeerUser:     peerUser,
+		PeerPresence: peerPresence,
+	}, nil
 }
 
-func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
-	if err != nil {
-		return err
-	}
-
-	now := fields.Now()
+func (s *Service) DeleteByUserID(ctx context.Context, actorID, peerID uuid.UUID) error {
 	var rel *Relation
+	u1, u2 := sortIDPair(actorID, peerID)
+	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		var dbErr error
 		rel, dbErr = s.repo.GetForUpdate(txCtx, u1, u2)
-		if err != nil {
+		if dbErr != nil {
 			return dbErr
 		}
 
-		if dbErr = validateBlockedActor(actorID, rel); err != nil {
+		if dbErr = validateNonBlockedActor(actorID, rel); dbErr != nil {
 			return dbErr
 		}
 
-		if dbErr = s.repo.DeleteByUserID(txCtx, u1, u2, actorID); err != nil {
+		if dbErr = s.repo.DeleteByUserID(txCtx, u1, u2, actorID); dbErr != nil {
 			return dbErr
 		}
 
 		if rel.IsFriends() {
 			payload := EventFriendDeletedPayload{
-				ActorID: actorID.String(),
-				PeerID:  rel.PeerID(actorID).String(),
+				ActorID: actorID,
+				PeerID:  rel.PeerID(actorID),
 			}
 			return s.outboxRepo.Publish(txCtx, EventFriendDeleted, payload, now)
 		}
@@ -255,33 +248,29 @@ func (s *Service) DeleteByUserID(ctx context.Context, rawActorID, rawPeerID uuid
 	return nil
 }
 
-func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID uuid.UUID) error {
-	actorID, _, u1, u2, err := validateIDs(rawActorID, rawPeerID)
-	if err != nil {
-		return err
-	}
-
-	now := fields.Now()
+func (s *Service) TransitionBlocked(ctx context.Context, actorID, peerID uuid.UUID) error {
 	var wasFriends bool
+	u1, u2 := sortIDPair(actorID, peerID)
+	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		relLock, getErr := s.repo.GetForUpdate(txCtx, u1, u2)
 		if getErr != nil && !errs.IsNotFound(getErr) {
 			return getErr
 		}
 
-		if err := validateBlockedActor(actorID, relLock); err != nil {
+		if err := validateNonBlockedActor(actorID, relLock); err != nil {
 			return err
 		}
 
-		if relLock != nil && relLock.Type().IsFriends() {
+		if relLock != nil && relLock.Type.IsFriends() {
 			wasFriends = true
 		}
 
 		if errs.IsNotFound(getErr) {
 			relLock = NewBlocked(u1, u2, actorID, now)
 		} else {
-			if relLock.Type().IsBlocked() {
+			if relLock.Type.IsBlocked() {
 				return nil
 			}
 			relLock.Block(actorID, now)
@@ -294,8 +283,8 @@ func (s *Service) TransitionBlocked(ctx context.Context, rawActorID, rawPeerID u
 
 		if wasFriends {
 			payload := EventFriendDeletedPayload{
-				ActorID: actorID.String(),
-				PeerID:  relLock.PeerID(actorID).String(),
+				ActorID: actorID,
+				PeerID:  relLock.PeerID(actorID),
 			}
 			return s.outboxRepo.Publish(txCtx, EventFriendDeleted, payload, now)
 		}

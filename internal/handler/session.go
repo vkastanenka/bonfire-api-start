@@ -22,7 +22,7 @@ func NewSessionHandler(service SessionService, bind *httpio.Bind) *SessionHandle
 }
 
 type SessionPath struct {
-	SessionID uuid.UUID `path:"sessionId" validate:"required,uuid"`
+	SessionID uuid.UUID `path:"sessionId" validate:"required"`
 }
 
 func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error {

@@ -76,12 +76,12 @@ func (c *UserCache) GetBatch(
 	missing := make([]uuid.UUID, 0, len(ids))
 	var corruptedKeys []string
 
-	for i := 0; i < len(ids); i += MaxBatchSize {
+	for i := 0; i < len(ids); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 
-		end := min(i+MaxBatchSize, len(ids))
+		end := min(i+maxBatchSize, len(ids))
 		chunk := ids[i:end]
 
 		redisKeys := make([]string, len(chunk))

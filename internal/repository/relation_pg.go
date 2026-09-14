@@ -2,11 +2,9 @@ package repository
 
 import (
 	"context"
-	"fmt"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/relation"
 
 	"github.com/google/uuid"
@@ -24,148 +22,139 @@ func NewRelationRepository(store *db.Store) *RelationRepository {
 
 func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (*relation.Relation, error) {
 	row, err := r.store.RelationSave(ctx, db.RelationSaveParams{
-		User1ID:   db.ToUUID(rel.User1ID().UUID()),
-		User2ID:   db.ToUUID(rel.User2ID().UUID()),
-		ActorID:   db.ToUUID(rel.ActorID().UUID()),
-		ChannelID: db.ToUUIDPtr(rel.ChannelID().UUIDPtr()),
-		Type:      int16(rel.Type().Int()),
-		CreatedAt: db.ToTimestamptz(rel.CreatedAt().Time()),
-		UpdatedAt: db.ToTimestamptz(rel.UpdatedAt().Time()),
+		User1ID:   db.ToUUID(rel.User1ID),
+		User2ID:   db.ToUUID(rel.User2ID),
+		ActorID:   db.ToUUID(rel.ActorID),
+		ChannelID: db.ToUUIDPtr(rel.ChannelID),
+		Type:      int16(rel.Type),
+		CreatedAt: db.ToTimestamptz(rel.CreatedAt),
+		UpdatedAt: db.ToTimestamptz(rel.UpdatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationFromRow(row)
+	return relationFromRow(row), nil
 }
 
-func (r *RelationRepository) Get(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
+func (r *RelationRepository) Get(ctx context.Context, user1ID, user2ID uuid.UUID) (*relation.Relation, error) {
 	row, err := r.store.RelationGet(ctx, db.RelationGetParams{
-		User1ID: db.ToUUID(user1ID.UUID()),
-		User2ID: db.ToUUID(user2ID.UUID()),
+		User1ID: db.ToUUID(user1ID),
+		User2ID: db.ToUUID(user2ID),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationFromRow(row)
+	return relationFromRow(row), nil
 }
 
-func (r *RelationRepository) GetForUpdate(ctx context.Context, user1ID, user2ID fields.ID) (*relation.Relation, error) {
+func (r *RelationRepository) GetForUpdate(ctx context.Context, user1ID, user2ID uuid.UUID) (*relation.Relation, error) {
 	row, err := r.store.RelationGetForUpdate(ctx, db.RelationGetForUpdateParams{
-		User1ID: db.ToUUID(user1ID.UUID()),
-		User2ID: db.ToUUID(user2ID.UUID()),
+		User1ID: db.ToUUID(user1ID),
+		User2ID: db.ToUUID(user2ID),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationFromRow(row)
+	return relationFromRow(row), nil
 }
 
 func (r *RelationRepository) ListTypeByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	relType relation.Type,
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListTypeByUserID(ctx, db.RelationListTypeByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
-		Type:     int16(relType.Int()),
+		UserID:   db.ToUUID(userID),
+		Type:     int16(relType),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationsFromRows(rows)
+	return relationsFromRows(rows), nil
 }
 
-// ListFriendsByUserID retrieves active friendships for a user.
 func (r *RelationRepository) ListFriendsByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListFriendsByUserID(ctx, db.RelationListFriendsByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
+		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationsFromRows(rows)
+	return relationsFromRows(rows), nil
 }
 
-// ListIncomingPendingByUserID retrieves pending friend requests sent TO this user.
 func (r *RelationRepository) ListIncomingPendingByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListIncomingPendingByUserID(ctx, db.RelationListIncomingPendingByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
+		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationsFromRows(rows)
+	return relationsFromRows(rows), nil
 }
 
-// ListOutgoingBlocksByUserID retrieves users blocked BY this user.
 func (r *RelationRepository) ListOutgoingBlocksByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListOutgoingBlocksByUserID(ctx, db.RelationListOutgoingBlocksByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
+		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationsFromRows(rows)
+	return relationsFromRows(rows), nil
 }
 
-// ListIncomingBlocksByUserID retrieves users blocked BY this user.
 func (r *RelationRepository) ListIncomingBlocksByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListIncomingBlocksByUserID(ctx, db.RelationListIncomingBlocksByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
+		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return relationsFromRows(rows)
+	return relationsFromRows(rows), nil
 }
 
-func ErrIncomingBlock() *errs.Error {
-	return errs.InvalidArgument("Cannot interact with users who have blocked you.").
-		Reason("INCOMING_BLOCK_DETECTED")
-}
-
-func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID fields.ID, peerIDs []fields.ID) error {
+func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID uuid.UUID, peerIDs []uuid.UUID) error {
 	if len(peerIDs) == 0 {
 		return nil
 	}
 
 	uuids := make([]uuid.UUID, len(peerIDs))
 	for i, id := range peerIDs {
-		uuids[i] = id.UUID()
+		uuids[i] = id
 	}
 
 	hasBlock, err := r.store.RelationHasIncomingBlock(ctx, db.RelationHasIncomingBlockParams{
-		ActorID: db.ToUUID(actorID.UUID()),
+		ActorID: db.ToUUID(actorID),
 		PeerIds: db.ToUUIDs(uuids),
 	})
 	if err != nil {
@@ -173,17 +162,18 @@ func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID field
 	}
 
 	if hasBlock {
-		return ErrIncomingBlock()
+		return errs.InvalidArgument("Cannot interact with users who have blocked you.").
+			Reason("INCOMING_BLOCK_DETECTED")
 	}
 
 	return nil
 }
 
-func (r *RelationRepository) DeleteByUserID(ctx context.Context, user1ID, user2ID, actorID fields.ID) error {
+func (r *RelationRepository) DeleteByUserID(ctx context.Context, user1ID, user2ID, actorID uuid.UUID) error {
 	err := r.store.RelationDeleteByUserID(ctx, db.RelationDeleteByUserIDParams{
-		User1ID: db.ToUUID(user1ID.UUID()),
-		User2ID: db.ToUUID(user2ID.UUID()),
-		ActorID: db.ToUUID(actorID.UUID()),
+		User1ID: db.ToUUID(user1ID),
+		User2ID: db.ToUUID(user2ID),
+		ActorID: db.ToUUID(actorID),
 	})
 	if err != nil {
 		return r.store.Err(err)
@@ -192,74 +182,22 @@ func (r *RelationRepository) DeleteByUserID(ctx context.Context, user1ID, user2I
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// Row Mappers
-// -----------------------------------------------------------------------------
-
-func relationFromRow(row db.Relation) (*relation.Relation, error) {
-	u1UUID := db.FromUUID[uuid.UUID](row.User1ID)
-	u2UUID := db.FromUUID[uuid.UUID](row.User2ID)
-
-	mapErr := func(msg, key string, val any, err error) *errs.Error {
-		return errs.Internal(msg).
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta(key, fmt.Sprintf("%v", val)).
-			Resource("Relation", fmt.Sprintf("%s:%s", u1UUID.String(), u2UUID.String()), "", "database row mapping")
-	}
-
-	user1ID, err := fields.ParseRequiredID("user1_id", u1UUID)
-	if err != nil {
-		return nil, mapErr("failed to parse user1_id from database", "user1_id", u1UUID.String(), err)
-	}
-
-	user2ID, err := fields.ParseRequiredID("user2_id", u2UUID)
-	if err != nil {
-		return nil, mapErr("failed to parse user2_id from database", "user2_id", u2UUID.String(), err)
-	}
-
-	actorUUID := db.FromUUID[uuid.UUID](row.ActorID)
-	actorID, err := fields.ParseRequiredID("actor_id", actorUUID)
-	if err != nil {
-		return nil, mapErr("failed to parse actor_id from database", "actor_id", actorUUID.String(), err)
-	}
-
-	var channelID fields.ID
-	if row.ChannelID.Valid {
-		chUUID := db.FromUUID[uuid.UUID](row.ChannelID)
-		channelID, err = fields.ParseRequiredID("channel_id", chUUID)
-		if err != nil {
-			return nil, mapErr("failed to parse channel_id from database", "channel_id", chUUID.String(), err)
-		}
-	}
-
-	relType, err := relation.Parse(int(row.Type))
-	if err != nil {
-		return nil, mapErr("failed to parse type from database", "type", row.Type, err)
-	}
-
-	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
-	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
-
+func relationFromRow(row db.Relation) *relation.Relation {
 	return relation.Reconstitute(
-		user1ID,
-		user2ID,
-		actorID,
-		channelID,
-		relType,
-		createdAt,
-		updatedAt,
-	), nil
+		db.FromUUID[uuid.UUID](row.User1ID),
+		db.FromUUID[uuid.UUID](row.User2ID),
+		db.FromUUID[uuid.UUID](row.ActorID),
+		db.FromUUIDPtr[uuid.UUID](row.ChannelID),
+		relation.Type(int(row.Type)),
+		db.FromTimestamptz(row.CreatedAt),
+		db.FromTimestamptz(row.UpdatedAt),
+	)
 }
 
-func relationsFromRows(rows []db.Relation) ([]*relation.Relation, error) {
+func relationsFromRows(rows []db.Relation) []*relation.Relation {
 	relations := make([]*relation.Relation, 0, len(rows))
 	for _, row := range rows {
-		rel, err := relationFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		relations = append(relations, rel)
+		relations = append(relations, relationFromRow(row))
 	}
-	return relations, nil
+	return relations
 }

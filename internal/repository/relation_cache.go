@@ -4,8 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/relation"
+
+	"github.com/google/uuid"
 )
 
 const maxRelationFetchLimit = 1000
@@ -22,8 +23,7 @@ func NewCachedRelationRepository(cache UserCache, repo *RelationRepository) *Cac
 	}
 }
 
-// GetPendingIDs retrieves pending user IDs via Cache-Aside.
-func (r *CachedRelationRepository) GetPendingIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+func (r *CachedRelationRepository) GetPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	cachedIDs, err := r.cache.GetPendingIDs(ctx, userID)
 	if err == nil && cachedIDs != nil {
 		return cachedIDs, nil
@@ -43,8 +43,7 @@ func (r *CachedRelationRepository) GetPendingIDs(ctx context.Context, userID fie
 	return pendingIDs, nil
 }
 
-// GetFriends retrieves active friend IDs mapped to their channel IDs via Cache-Aside.
-func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID fields.ID) (map[fields.ID]fields.ID, error) {
+func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
 	friendsMap, err := r.cache.GetFriends(ctx, userID)
 	if err == nil && friendsMap != nil {
 		return friendsMap, nil
@@ -55,15 +54,18 @@ func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID fields
 		return nil, err
 	}
 
-	friendsMap = make(map[fields.ID]fields.ID, len(rels))
+	friendsMap = make(map[uuid.UUID]uuid.UUID, len(rels))
 	for _, rel := range rels {
-		var peerID fields.ID
-		if rel.User1ID().Equals(userID) {
-			peerID = rel.User2ID()
+		var peerID uuid.UUID
+		if rel.User1ID == userID {
+			peerID = rel.User2ID
 		} else {
-			peerID = rel.User1ID()
+			peerID = rel.User1ID
 		}
-		friendsMap[peerID] = rel.ChannelID()
+
+		if rel.ChannelID != nil {
+			friendsMap[peerID] = *rel.ChannelID
+		}
 	}
 
 	if err := r.cache.SetFriends(ctx, userID, friendsMap); err != nil {
@@ -73,8 +75,7 @@ func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID fields
 	return friendsMap, nil
 }
 
-// GetBlocklistIDs retrieves outgoing blocked user IDs via Cache-Aside.
-func (r *CachedRelationRepository) GetBlocklistIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+func (r *CachedRelationRepository) GetBlocklistIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	cachedIDs, err := r.cache.GetBlocklistIDs(ctx, userID)
 	if err == nil && cachedIDs != nil {
 		return cachedIDs, nil
@@ -94,8 +95,7 @@ func (r *CachedRelationRepository) GetBlocklistIDs(ctx context.Context, userID f
 	return blockedIDs, nil
 }
 
-// GetBlockedByIDs retrieves incoming blocker user IDs via Cache-Aside.
-func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID fields.ID) ([]fields.ID, error) {
+func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	cachedIDs, err := r.cache.GetBlockedByIDs(ctx, userID)
 	if err == nil && cachedIDs != nil {
 		return cachedIDs, nil
@@ -115,13 +115,13 @@ func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID f
 	return blockerIDs, nil
 }
 
-func extractPeerIDs(rels []*relation.Relation, subjectID fields.ID) []fields.ID {
-	peerIDs := make([]fields.ID, 0, len(rels))
+func extractPeerIDs(rels []*relation.Relation, subjectID uuid.UUID) []uuid.UUID {
+	peerIDs := make([]uuid.UUID, 0, len(rels))
 	for _, rel := range rels {
-		if rel.User1ID().Equals(subjectID) {
-			peerIDs = append(peerIDs, rel.User2ID())
+		if rel.User1ID == subjectID {
+			peerIDs = append(peerIDs, rel.User2ID)
 		} else {
-			peerIDs = append(peerIDs, rel.User1ID())
+			peerIDs = append(peerIDs, rel.User1ID)
 		}
 	}
 	return peerIDs

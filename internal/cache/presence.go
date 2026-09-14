@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 
@@ -28,10 +27,10 @@ func NewPresenceCache(client redisdriver.Cmdable) *PresenceCache {
 	}
 }
 
-func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (presence.Presence, error) {
+func (c *PresenceCache) GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error) {
 	data, found, err := getKey(ctx, c.client, userPresenceKey(userID), redis.ScopePresence)
 	if err != nil || !found {
-		return presence.NewOffline(), err
+		return presence.PresenceOffline, err
 	}
 
 	return parsePresence(string(data)), nil
@@ -39,19 +38,19 @@ func (c *PresenceCache) GetPresence(ctx context.Context, userID fields.ID) (pres
 
 func (c *PresenceCache) GetBatchPresence(
 	ctx context.Context,
-	userIDs []fields.ID,
-) (map[fields.ID]presence.Presence, error) {
-	result := make(map[fields.ID]presence.Presence, len(userIDs))
+	userIDs []uuid.UUID,
+) (map[uuid.UUID]presence.Presence, error) {
+	result := make(map[uuid.UUID]presence.Presence, len(userIDs))
 	if len(userIDs) == 0 {
 		return result, nil
 	}
 
-	for i := 0; i < len(userIDs); i += MaxBatchSize {
+	for i := 0; i < len(userIDs); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		end := min(i+MaxBatchSize, len(userIDs))
+		end := min(i+maxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
 
 		redisKeys := make([]string, len(chunk))
@@ -69,7 +68,7 @@ func (c *PresenceCache) GetBatchPresence(
 
 			data, ok := toBytes(raw)
 			if !ok {
-				result[id] = presence.NewOffline()
+				result[id] = presence.PresenceOffline
 				continue
 			}
 
@@ -80,8 +79,8 @@ func (c *PresenceCache) GetBatchPresence(
 	return result, nil
 }
 
-func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p presence.Presence) error {
-	if err := c.client.Set(ctx, userPresenceKey(userID), p.Int(), userPresenceTTL).Err(); err != nil {
+func (c *PresenceCache) SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error {
+	if err := c.client.Set(ctx, userPresenceKey(userID), p, userPresenceTTL).Err(); err != nil {
 		return redis.NewError(err, redis.ScopePresence)
 	}
 	return nil
@@ -89,22 +88,22 @@ func (c *PresenceCache) SetPresence(ctx context.Context, userID fields.ID, p pre
 
 func (c *PresenceCache) GetSessionNode(
 	ctx context.Context,
-	userID, sessionID fields.ID,
-) (fields.ID, bool, error) {
+	userID, sessionID uuid.UUID,
+) (uuid.UUID, bool, error) {
 	nodeIDStr, err := c.client.HGet(ctx, userSessionsKey(userID), sessionID.String()).Result()
 	if err == redisdriver.Nil {
-		return fields.ID{}, false, nil
+		return uuid.UUID{}, false, nil
 	}
 	if err != nil {
-		return fields.ID{}, false, redis.NewError(err, redis.ScopePresence)
+		return uuid.UUID{}, false, redis.NewError(err, redis.ScopePresence)
 	}
 
 	parsedUUID, err := uuid.Parse(nodeIDStr)
 	if err != nil {
-		return fields.ID{}, false, nil
+		return uuid.UUID{}, false, nil
 	}
 
-	return fields.ID(parsedUUID), true, nil
+	return uuid.UUID(parsedUUID), true, nil
 }
 
 var registerNodeSessionScript = redisdriver.NewScript(`
@@ -135,12 +134,12 @@ var registerNodeSessionScript = redisdriver.NewScript(`
 
 func (c *PresenceCache) RegisterNodeSession(
 	ctx context.Context,
-	nodeID, userID, sessionID fields.ID,
+	nodeID, userID, sessionID uuid.UUID,
 	p presence.Presence,
 ) (bool, presence.Presence, error) {
 	targetPresence := p
 	if !targetPresence.IsValid() {
-		targetPresence = presence.NewOnline()
+		targetPresence = presence.PresenceOnline
 	}
 
 	keys := []string{
@@ -154,12 +153,12 @@ func (c *PresenceCache) RegisterNodeSession(
 		keys,
 		nodeID.String(),
 		sessionID.String(),
-		targetPresence.Int(),
+		targetPresence,
 		int(userPresenceTTL.Seconds()),
 	).Slice()
 
 	if err != nil {
-		return false, presence.NewOffline(), redis.NewError(err, redis.ScopePresence)
+		return false, presence.PresenceOffline, redis.NewError(err, redis.ScopePresence)
 	}
 
 	wasOffline := res[0].(int64) == 1
@@ -190,7 +189,7 @@ var unregisterNodeSessionScript = redisdriver.NewScript(`
 		return 0 -- wentOffline = false
 	`)
 
-func (c *PresenceCache) UnregisterNodeSession(ctx context.Context, nodeID, userID, sessionID fields.ID) (bool, error) {
+func (c *PresenceCache) UnregisterNodeSession(ctx context.Context, nodeID, userID, sessionID uuid.UUID) (bool, error) {
 	keys := []string{
 		userPresenceKey(userID),
 		userSessionsKey(userID),
@@ -211,7 +210,7 @@ func (c *PresenceCache) UnregisterNodeSession(ctx context.Context, nodeID, userI
 	return wentOffline == 1, nil
 }
 
-func (c *PresenceCache) Heartbeat(ctx context.Context, nodeID, userID, sessionID fields.ID) error {
+func (c *PresenceCache) Heartbeat(ctx context.Context, nodeID, userID, sessionID uuid.UUID) error {
 	pKey := userPresenceKey(userID)
 	sHashKey := userSessionsKey(userID)
 
@@ -229,20 +228,20 @@ func (c *PresenceCache) Heartbeat(ctx context.Context, nodeID, userID, sessionID
 
 func (c *PresenceCache) GetBatchNodeUsers(
 	ctx context.Context,
-	userIDs []fields.ID,
-) (map[fields.ID][]fields.ID, error) {
+	userIDs []uuid.UUID,
+) (map[uuid.UUID][]uuid.UUID, error) {
 	if len(userIDs) == 0 {
 		return nil, nil
 	}
 
-	nodeToUsers := make(map[fields.ID][]fields.ID)
+	nodeToUsers := make(map[uuid.UUID][]uuid.UUID)
 
-	for i := 0; i < len(userIDs); i += MaxBatchSize {
+	for i := 0; i < len(userIDs); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		end := min(i+MaxBatchSize, len(userIDs))
+		end := min(i+maxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
 		cmds := make([]*redisdriver.MapStringStringCmd, len(chunk))
 
@@ -263,10 +262,10 @@ func (c *PresenceCache) GetBatchNodeUsers(
 				continue
 			}
 
-			nodeSet := make(map[fields.ID]struct{})
+			nodeSet := make(map[uuid.UUID]struct{})
 			for _, nodeIDStr := range sessionMap {
 				if parsedUUID, parseErr := uuid.Parse(nodeIDStr); parseErr == nil {
-					nodeSet[fields.ID(parsedUUID)] = struct{}{}
+					nodeSet[uuid.UUID(parsedUUID)] = struct{}{}
 				}
 			}
 
@@ -307,17 +306,17 @@ var removeBatchNodeUsersScript = redisdriver.NewScript(`
 		return 0 -- wentOffline = false
 	`)
 
-func (c *PresenceCache) RemoveBatchNodeUsers(ctx context.Context, nodeID fields.ID, userIDs []fields.ID) error {
+func (c *PresenceCache) RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 
-	for i := 0; i < len(userIDs); i += MaxBatchSize {
+	for i := 0; i < len(userIDs); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+MaxBatchSize, len(userIDs))
+		end := min(i+maxBatchSize, len(userIDs))
 		chunk := userIDs[i:end]
 
 		_, err := c.client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
