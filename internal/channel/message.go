@@ -1,8 +1,10 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
+	"encoding/json"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,65 +16,65 @@ const (
 )
 
 type Message struct {
-	id               fields.ID
-	channelID        fields.ID
-	authorID         fields.ID
-	msgType          MessageType
-	content          MessageContent
-	metadata         fields.JSON
-	replyToMessageID fields.ID
-	forwardMessageID fields.ID
-	forwardChannelID fields.ID
-	pinnedAt         fields.Timestamp
-	createdAt        fields.Timestamp
-	updatedAt        fields.Timestamp
-	editedAt         fields.Timestamp
+	ID               uuid.UUID
+	ChannelID        uuid.UUID
+	AuthorID         *uuid.UUID
+	Type             MessageType
+	Content          *string
+	Metadata         json.RawMessage
+	ReplyToMessageID *uuid.UUID
+	ForwardMessageID *uuid.UUID
+	ForwardChannelID *uuid.UUID
+	PinnedAt         *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	EditedAt         *time.Time
 }
 
 func ReconstituteMessage(
-	id fields.ID,
-	channelID fields.ID,
-	authorID fields.ID,
+	id uuid.UUID,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
 	msgType MessageType,
-	content MessageContent,
-	metadata fields.JSON,
-	replyToMessageID fields.ID,
-	forwardMessageID fields.ID,
-	forwardChannelID fields.ID,
-	pinnedAt fields.Timestamp,
-	createdAt fields.Timestamp,
-	updatedAt fields.Timestamp,
-	editedAt fields.Timestamp,
+	content *string,
+	metadata json.RawMessage,
+	replyToMessageID *uuid.UUID,
+	forwardMessageID *uuid.UUID,
+	forwardChannelID *uuid.UUID,
+	pinnedAt *time.Time,
+	createdAt time.Time,
+	updatedAt time.Time,
+	editedAt *time.Time,
 ) *Message {
 	return &Message{
-		id:               id,
-		channelID:        channelID,
-		authorID:         authorID,
-		msgType:          msgType,
-		content:          content,
-		metadata:         metadata,
-		replyToMessageID: replyToMessageID,
-		forwardMessageID: forwardMessageID,
-		forwardChannelID: forwardChannelID,
-		pinnedAt:         pinnedAt,
-		createdAt:        createdAt,
-		updatedAt:        updatedAt,
-		editedAt:         editedAt,
+		ID:               id,
+		ChannelID:        channelID,
+		AuthorID:         authorID,
+		Type:             msgType,
+		Content:          content,
+		Metadata:         metadata,
+		ReplyToMessageID: replyToMessageID,
+		ForwardMessageID: forwardMessageID,
+		ForwardChannelID: forwardChannelID,
+		PinnedAt:         pinnedAt,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
+		EditedAt:         editedAt,
 	}
 }
 
 func NewRawMessage(
-	channelID,
-	authorID fields.ID,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
 	msgType MessageType,
-	content MessageContent,
-	metadata fields.JSON,
-	replyToMessageID,
-	forwardMessageID,
-	forwardChannelID fields.ID,
-	now fields.Timestamp,
+	content *string,
+	metadata json.RawMessage,
+	replyToMessageID *uuid.UUID,
+	forwardMessageID *uuid.UUID,
+	forwardChannelID *uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
-	id, err := fields.NewID()
+	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
@@ -87,28 +89,28 @@ func NewRawMessage(
 		replyToMessageID,
 		forwardMessageID,
 		forwardChannelID,
-		fields.Timestamp{},
+		nil,
 		now,
 		now,
-		fields.Timestamp{},
+		nil,
 	), nil
 }
 
 func NewMessage(
-	channelID,
-	authorID fields.ID,
-	content MessageContent,
-	replyToMessageID,
-	forwardMessageID,
-	forwardChannelID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID uuid.UUID,
+	content string,
+	replyToMessageID *uuid.UUID,
+	forwardMessageID *uuid.UUID,
+	forwardChannelID *uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
 	return NewRawMessage(
 		channelID,
-		authorID,
-		NewMessageTypeDefault(),
-		content,
-		fields.JSON{},
+		&authorID,
+		MessageTypeDefault,
+		&content,
+		nil,
 		replyToMessageID,
 		forwardMessageID,
 		forwardChannelID,
@@ -117,139 +119,160 @@ func NewMessage(
 }
 
 func NewSystemMessage(
-	channelID,
-	authorID fields.ID,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
 	msgType MessageType,
-	metadata fields.JSON,
-	now fields.Timestamp,
+	metadata json.RawMessage,
+	now time.Time,
 ) (*Message, error) {
 	return NewRawMessage(
 		channelID,
 		authorID,
 		msgType,
-		MessageContent{},
+		nil,
 		metadata,
-		fields.ID{},
-		fields.ID{},
-		fields.ID{},
+		nil,
+		nil,
+		nil,
 		now,
 	)
 }
 
 func NewMessageMemberAdd(
-	channelID,
-	authorID,
-	memberID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
+	memberID uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
-	metadataJSON := fields.NewJSON(map[string]any{"user_id": memberID.String()})
+	metadata, err := json.Marshal(map[string]any{"user_id": memberID.String()})
+	if err != nil {
+		return nil, err
+	}
 
 	return NewSystemMessage(
 		channelID,
 		authorID,
-		NewMessageTypeMemberAdd(),
-		metadataJSON,
+		MessageTypeMemberAdd,
+		metadata,
 		now,
 	)
 }
 
 func NewMessageMemberLeave(
-	channelID,
-	authorID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
 	return NewSystemMessage(
 		channelID,
 		authorID,
-		NewMessageTypeMemberRemove(),
-		fields.JSON{},
+		MessageTypeMemberRemove,
+		nil,
 		now,
 	)
 }
 
 func NewMessageNameChange(
-	channelID,
-	authorID fields.ID,
-	newName ChannelName,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
+	newName string,
+	now time.Time,
 ) (*Message, error) {
-	metadataJSON := fields.NewJSON(map[string]any{"name": newName.String()})
+	metadata, err := json.Marshal(map[string]any{"name": newName})
+	if err != nil {
+		return nil, err
+	}
 
 	return NewSystemMessage(
 		channelID,
 		authorID,
-		NewMessageTypeNameChange(),
-		metadataJSON,
+		MessageTypeNameChange,
+		metadata,
 		now,
 	)
 }
 
 func NewMessageIconChange(
-	channelID,
-	authorID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
 	return NewSystemMessage(
 		channelID,
 		authorID,
-		NewMessageTypeIconChange(),
-		fields.JSON{},
+		MessageTypeIconChange,
+		nil,
 		now,
 	)
 }
 
 func NewMessagePin(
-	channelID,
-	authorID,
-	pinnedMessageID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	authorID *uuid.UUID,
+	pinnedMessageID uuid.UUID,
+	now time.Time,
 ) (*Message, error) {
-	metadataJSON := fields.NewJSON(map[string]any{"message_id": pinnedMessageID.String()})
+	metadata, err := json.Marshal(map[string]any{"message_id": pinnedMessageID.String()})
+	if err != nil {
+		return nil, err
+	}
 
 	return NewSystemMessage(
 		channelID,
 		authorID,
-		NewMessageTypePin(),
-		metadataJSON,
+		MessageTypePin,
+		metadata,
 		now,
 	)
 }
 
-func (m *Message) ID() fields.ID               { return m.id }
-func (m *Message) ChannelID() fields.ID        { return m.channelID }
-func (m *Message) AuthorID() fields.ID         { return m.authorID }
-func (m *Message) Type() MessageType           { return m.msgType }
-func (m *Message) Content() MessageContent     { return m.content }
-func (m *Message) Metadata() fields.JSON       { return m.metadata }
-func (m *Message) ReplyToMessageID() fields.ID { return m.replyToMessageID }
-func (m *Message) ForwardMessageID() fields.ID { return m.forwardMessageID }
-func (m *Message) ForwardChannelID() fields.ID { return m.forwardChannelID }
-func (m *Message) PinnedAt() fields.Timestamp  { return m.pinnedAt }
-func (m *Message) CreatedAt() fields.Timestamp { return m.createdAt }
-func (m *Message) UpdatedAt() fields.Timestamp { return m.updatedAt }
-func (m *Message) EditedAt() fields.Timestamp  { return m.editedAt }
+func getMessageIDs(messages []*Message) ([]uuid.UUID, []uuid.UUID) {
+	msgIDs := make([]uuid.UUID, 0, len(messages))
+	authorIDs := make([]uuid.UUID, 0, len(messages))
+	seenAuthors := make(map[uuid.UUID]struct{}, len(messages))
 
-func getMessageIDs(messages []*Message) ([]fields.ID, []fields.ID) {
-	msgIDs := make([]fields.ID, 0, len(messages))
-	authorIDs := make([]fields.ID, 0, len(messages))
 	for _, m := range messages {
-		msgIDs = append(msgIDs, m.ID())
-		if m.authorID.IsValid() {
-			authorIDs = append(authorIDs, m.AuthorID())
+		if m == nil {
+			continue
+		}
+		msgIDs = append(msgIDs, m.ID)
+		if m.AuthorID != nil && *m.AuthorID != (uuid.UUID{}) {
+			if _, exists := seenAuthors[*m.AuthorID]; !exists {
+				seenAuthors[*m.AuthorID] = struct{}{}
+				authorIDs = append(authorIDs, *m.AuthorID)
+			}
 		}
 	}
-	return msgIDs, fields.DedupeIDs(authorIDs)
+	return msgIDs, authorIDs
 }
 
 func sortMessages(messages []*Message) {
 	slices.SortFunc(messages, func(a, b *Message) int {
-		return a.ID().Compare(b.ID())
+		if a == nil && b == nil {
+			return 0
+		}
+		if a == nil {
+			return -1
+		}
+		if b == nil {
+			return 1
+		}
+		return strings.Compare(a.ID.String(), b.ID.String())
 	})
 }
 
 func sortPinnedMessages(messages []*Message) {
 	slices.SortFunc(messages, func(a, b *Message) int {
-		return b.ID().Compare(a.ID())
+		if a == nil && b == nil {
+			return 0
+		}
+		if a == nil {
+			return 1
+		}
+		if b == nil {
+			return -1
+		}
+		return strings.Compare(b.ID.String(), a.ID.String())
 	})
 }
 
@@ -265,18 +288,4 @@ func validateForward(hasFwdMsg, hasFwdChan bool) error {
 		return ErrMessageForwardIncomplete()
 	}
 	return nil
-}
-
-func validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMsgID uuid.UUID) (fields.ID, fields.ID, fields.ID, fields.ID, error) {
-	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-
-	msgID, err := fields.ParseRequiredID("message_id", rawMsgID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-
-	return actorID, sessionID, channelID, msgID, nil
 }

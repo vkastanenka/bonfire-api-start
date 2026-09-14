@@ -590,12 +590,7 @@ func (c *UserCache) GetVisibleMembersByUserID(
 			return nil, false, nil
 		}
 
-		m, err := mDTO.ToDomain()
-		if err != nil {
-			return nil, false, nil
-		}
-
-		members = append(members, m)
+		members = append(members, mDTO.ToDomain())
 	}
 
 	return members, true, nil

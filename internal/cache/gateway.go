@@ -1,9 +1,9 @@
 package cache
 
 import (
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
@@ -11,7 +11,7 @@ const (
 	gatewayDomainKey = "gateway:"
 )
 
-func gatewayEventsKey(id fields.ID) string {
+func gatewayEventsKey(id uuid.UUID) string {
 	return gatewayDomainKey + id.String() + ":events"
 }
 

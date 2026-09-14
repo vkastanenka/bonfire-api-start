@@ -1,152 +1,116 @@
 package channel
 
 import (
+	"bytes"
+	"fmt"
+	"strconv"
 	"time"
-	"unicode/utf8"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/sanitize"
 )
-
-// -----------------------------------------------------------------------------
-// Channel Name
-// -----------------------------------------------------------------------------
-
-const channelNameMaxLength = 100
-
-type ChannelName struct {
-	fields.Text
-}
-
-func NewChannelName(v string) ChannelName {
-	return ChannelName{Text: fields.NewText(v)}
-}
-
-func ParseChannelName(raw string) (ChannelName, error) {
-	cleaned := sanitize.Text(raw)
-	if cleaned == "" {
-		return ChannelName{}, nil
-	}
-
-	if utf8.RuneCountInString(cleaned) > channelNameMaxLength {
-		return ChannelName{}, ErrChannelNameTooLong()
-	}
-
-	return NewChannelName(cleaned), nil
-}
-
-func ParseRequiredChannelName(raw string) (ChannelName, error) {
-	name, err := ParseChannelName(raw)
-	if err != nil {
-		return ChannelName{}, err
-	}
-	if name.IsZero() {
-		return ChannelName{}, ErrChannelNameRequired()
-	}
-	return name, nil
-}
 
 // -----------------------------------------------------------------------------
 // Channel Type
 // -----------------------------------------------------------------------------
 
-type ChannelTypeValue int
+type ChannelType int
 
 const (
-	ChannelTypeUnknown ChannelTypeValue = iota
+	ChannelTypeUnknown ChannelType = iota
 	ChannelTypeDirect
 	ChannelTypeGroup
 	channelTypeMax
 )
 
-var channelTypeSpec = &fields.EnumSpec{
-	Domain: "CHANNEL_TYPE",
-	Max:    int(channelTypeMax),
-	Names:  []string{"UNKNOWN", "DIRECT", "GROUP"},
-	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("DIRECT"), []byte("GROUP")},
+var channelTypeNames = [...]string{
+	ChannelTypeUnknown: "UNKNOWN",
+	ChannelTypeDirect:  "DIRECT",
+	ChannelTypeGroup:   "GROUP",
 }
 
-type ChannelType struct {
-	fields.Enum[ChannelTypeValue]
-}
-
-func NewChannelType(val ChannelTypeValue) ChannelType {
-	return ChannelType{Enum: fields.NewEnum(val, channelTypeSpec)}
-}
-
-func NewChannelTypeDirect() ChannelType {
-	return NewChannelType(ChannelTypeDirect)
-}
-
-func NewChannelTypeGroup() ChannelType {
-	return NewChannelType(ChannelTypeGroup)
-}
-
-func ParseChannelType[T fields.IntegerType](raw T) (ChannelType, error) {
-	val := ChannelTypeValue(raw)
-	if val <= ChannelTypeUnknown || int(val) >= channelTypeSpec.Max {
-		return ChannelType{}, ErrChannelTypeInvalid()
+func ParseChannelType(raw int) (ChannelType, error) {
+	ct := ChannelType(raw)
+	if !ct.IsValid() {
+		return ChannelTypeUnknown, fmt.Errorf("invalid channel type value: %d", raw)
 	}
-	return NewChannelType(val), nil
+	return ct, nil
 }
 
 func ParseChannelTypeString(s string) (ChannelType, error) {
-	val, ok := fields.ParseEnumString[ChannelTypeValue](s, channelTypeSpec)
-	if !ok || val <= ChannelTypeUnknown {
-		return ChannelType{}, ErrChannelTypeInvalid()
+	str := sanitize.EnumValue(s)
+	if str == "" {
+		return ChannelTypeUnknown, nil
 	}
-	return NewChannelType(val), nil
-}
-
-func (t ChannelType) IsDirect() bool { return t.Is(ChannelTypeDirect) }
-func (t ChannelType) IsGroup() bool  { return t.Is(ChannelTypeGroup) }
-
-// -----------------------------------------------------------------------------
-// Message Content
-// -----------------------------------------------------------------------------
-
-const messageContentMaxLength = 4000
-
-type MessageContent struct {
-	fields.Text
-}
-
-func NewMessageContent(v string) MessageContent {
-	return MessageContent{Text: fields.NewText(v)}
-}
-
-func ParseMessageContent(raw string) (MessageContent, error) {
-	cleaned := sanitize.Text(raw)
-	if cleaned == "" {
-		return MessageContent{}, nil
+	for i, name := range channelTypeNames {
+		if name == str {
+			return ChannelType(i), nil
+		}
 	}
-
-	if utf8.RuneCountInString(cleaned) > messageContentMaxLength {
-		return MessageContent{}, ErrMessageContentTooLong()
-	}
-
-	return NewMessageContent(cleaned), nil
+	return ChannelTypeUnknown, fmt.Errorf("invalid channel type string: %q", s)
 }
 
-func ParseRequiredMessageContent(raw string) (MessageContent, error) {
-	content, err := ParseMessageContent(raw)
+func ParseChannelTypeBytes(raw []byte) (ChannelType, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return ChannelTypeUnknown, nil
+	}
+	return ParseChannelTypeString(string(cleaned))
+}
+
+func (ct ChannelType) IsValid() bool {
+	return ct > ChannelTypeUnknown && ct < channelTypeMax
+}
+
+func (ct ChannelType) String() string {
+	if uint(ct) < uint(len(channelTypeNames)) {
+		return channelTypeNames[ct]
+	}
+	return channelTypeNames[ChannelTypeUnknown]
+}
+
+func (ct ChannelType) IsDirect() bool { return ct == ChannelTypeDirect }
+func (ct ChannelType) IsGroup() bool  { return ct == ChannelTypeGroup }
+
+func (ct ChannelType) MarshalText() ([]byte, error) {
+	return []byte(ct.String()), nil
+}
+
+func (ct *ChannelType) UnmarshalText(text []byte) error {
+	parsed, err := ParseChannelTypeString(string(text))
 	if err != nil {
-		return MessageContent{}, err
+		return err
 	}
-	if content.IsZero() {
-		return MessageContent{}, ErrMessageContentRequired()
+	*ct = parsed
+	return nil
+}
+
+func (ct ChannelType) MarshalJSON() ([]byte, error) {
+	return strconv.AppendQuote(nil, ct.String()), nil
+}
+
+func (ct *ChannelType) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*ct = ChannelTypeUnknown
+		return nil
 	}
-	return content, nil
+
+	parsed, err := ParseChannelTypeBytes(data)
+	if err != nil {
+		return err
+	}
+
+	*ct = parsed
+	return nil
 }
 
 // -----------------------------------------------------------------------------
 // Message Type
 // -----------------------------------------------------------------------------
 
-type MessageTypeValue int
+type MessageType int
 
 const (
-	MessageTypeUnknown MessageTypeValue = iota
+	MessageTypeUnknown MessageType = iota
 	MessageTypeDefault
 	MessageTypeReply
 	MessageTypeForward
@@ -158,83 +122,107 @@ const (
 	messageTypeMax
 )
 
-var messageTypeSpec = &fields.EnumSpec{
-	Domain: "MESSAGE_TYPE",
-	Max:    int(messageTypeMax),
-	Names: []string{
-		"UNKNOWN",
-		"DEFAULT",
-		"REPLY",
-		"FORWARD",
-		"MEMBER_ADD",
-		"MEMBER_REMOVE",
-		"NAME_CHANGE",
-		"ICON_CHANGE",
-		"PIN",
-	},
-	Bytes: [][]byte{
-		[]byte("UNKNOWN"),
-		[]byte("DEFAULT"),
-		[]byte("REPLY"),
-		[]byte("FORWARD"),
-		[]byte("MEMBER_ADD"),
-		[]byte("MEMBER_REMOVE"),
-		[]byte("NAME_CHANGE"),
-		[]byte("ICON_CHANGE"),
-		[]byte("PIN"),
-	},
+var messageTypeNames = [...]string{
+	MessageTypeUnknown:      "UNKNOWN",
+	MessageTypeDefault:      "DEFAULT",
+	MessageTypeReply:        "REPLY",
+	MessageTypeForward:      "FORWARD",
+	MessageTypeMemberAdd:    "MEMBER_ADD",
+	MessageTypeMemberRemove: "MEMBER_REMOVE",
+	MessageTypeNameChange:   "NAME_CHANGE",
+	MessageTypeIconChange:   "ICON_CHANGE",
+	MessageTypePin:          "PIN",
 }
 
-type MessageType struct {
-	fields.Enum[MessageTypeValue]
-}
-
-func NewMessageType(val MessageTypeValue) MessageType {
-	return MessageType{Enum: fields.NewEnum(val, messageTypeSpec)}
-}
-
-func NewMessageTypeDefault() MessageType      { return NewMessageType(MessageTypeDefault) }
-func NewMessageTypeReply() MessageType        { return NewMessageType(MessageTypeReply) }
-func NewMessageTypeForward() MessageType      { return NewMessageType(MessageTypeForward) }
-func NewMessageTypeMemberAdd() MessageType    { return NewMessageType(MessageTypeMemberAdd) }
-func NewMessageTypeMemberRemove() MessageType { return NewMessageType(MessageTypeMemberRemove) }
-func NewMessageTypeNameChange() MessageType   { return NewMessageType(MessageTypeNameChange) }
-func NewMessageTypeIconChange() MessageType   { return NewMessageType(MessageTypeIconChange) }
-func NewMessageTypePin() MessageType          { return NewMessageType(MessageTypePin) }
-
-func (t MessageType) IsDefault() bool      { return t.Is(MessageTypeDefault) }
-func (t MessageType) IsReply() bool        { return t.Is(MessageTypeReply) }
-func (t MessageType) IsForward() bool      { return t.Is(MessageTypeForward) }
-func (t MessageType) IsMemberAdd() bool    { return t.Is(MessageTypeMemberAdd) }
-func (t MessageType) IsMemberRemove() bool { return t.Is(MessageTypeMemberRemove) }
-func (t MessageType) IsNameChange() bool   { return t.Is(MessageTypeNameChange) }
-func (t MessageType) IsIconChange() bool   { return t.Is(MessageTypeIconChange) }
-func (t MessageType) IsPin() bool          { return t.Is(MessageTypePin) }
-
-func ParseMessageType[T fields.IntegerType](raw T) (MessageType, error) {
-	val := MessageTypeValue(raw)
-	if val <= MessageTypeUnknown || int(val) >= messageTypeSpec.Max {
-		return MessageType{}, ErrMessageTypeInvalid()
+func ParseMessageType(raw int) (MessageType, error) {
+	mt := MessageType(raw)
+	if !mt.IsValid() {
+		return MessageTypeUnknown, fmt.Errorf("invalid message type value: %d", raw)
 	}
-	return NewMessageType(val), nil
+	return mt, nil
 }
 
 func ParseMessageTypeString(s string) (MessageType, error) {
-	val, ok := fields.ParseEnumString[MessageTypeValue](s, messageTypeSpec)
-	if !ok || val <= MessageTypeUnknown {
-		return MessageType{}, ErrMessageTypeInvalid()
+	str := sanitize.EnumValue(s)
+	if str == "" {
+		return MessageTypeUnknown, nil
 	}
-	return NewMessageType(val), nil
+	for i, name := range messageTypeNames {
+		if name == str {
+			return MessageType(i), nil
+		}
+	}
+	return MessageTypeUnknown, fmt.Errorf("invalid message type string: %q", s)
+}
+
+func ParseMessageTypeBytes(raw []byte) (MessageType, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return MessageTypeUnknown, nil
+	}
+	return ParseMessageTypeString(string(cleaned))
+}
+
+func (mt MessageType) IsValid() bool {
+	return mt > MessageTypeUnknown && mt < messageTypeMax
+}
+
+func (mt MessageType) String() string {
+	if uint(mt) < uint(len(messageTypeNames)) {
+		return messageTypeNames[mt]
+	}
+	return messageTypeNames[MessageTypeUnknown]
+}
+
+func (mt MessageType) IsDefault() bool      { return mt == MessageTypeDefault }
+func (mt MessageType) IsReply() bool        { return mt == MessageTypeReply }
+func (mt MessageType) IsForward() bool      { return mt == MessageTypeForward }
+func (mt MessageType) IsMemberAdd() bool    { return mt == MessageTypeMemberAdd }
+func (mt MessageType) IsMemberRemove() bool { return mt == MessageTypeMemberRemove }
+func (mt MessageType) IsNameChange() bool   { return mt == MessageTypeNameChange }
+func (mt MessageType) IsIconChange() bool   { return mt == MessageTypeIconChange }
+func (mt MessageType) IsPin() bool          { return mt == MessageTypePin }
+
+func (mt MessageType) MarshalText() ([]byte, error) {
+	return []byte(mt.String()), nil
+}
+
+func (mt *MessageType) UnmarshalText(text []byte) error {
+	parsed, err := ParseMessageTypeString(string(text))
+	if err != nil {
+		return err
+	}
+	*mt = parsed
+	return nil
+}
+
+func (mt MessageType) MarshalJSON() ([]byte, error) {
+	return strconv.AppendQuote(nil, mt.String()), nil
+}
+
+func (mt *MessageType) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*mt = MessageTypeUnknown
+		return nil
+	}
+
+	parsed, err := ParseMessageTypeBytes(data)
+	if err != nil {
+		return err
+	}
+
+	*mt = parsed
+	return nil
 }
 
 // -----------------------------------------------------------------------------
 // Mute Duration
 // -----------------------------------------------------------------------------
 
-type MuteDurationValue int
+type MuteDuration int
 
 const (
-	MuteDurationUnknown MuteDurationValue = iota
+	MuteDurationUnknown MuteDuration = iota
 	MuteDuration15Min
 	MuteDuration1Hour
 	MuteDuration8Hours
@@ -244,53 +232,65 @@ const (
 	muteDurationMax
 )
 
-var muteDurationSpec = &fields.EnumSpec{
-	Domain: "MUTE_DURATION",
-	Max:    int(muteDurationMax),
-	Names:  []string{"UNKNOWN", "15_MIN", "1_HOUR", "8_HOURS", "24_HOURS", "3_DAYS", "FOREVER"},
-	Bytes:  [][]byte{[]byte("UNKNOWN"), []byte("15_MIN"), []byte("1_HOUR"), []byte("8_HOURS"), []byte("24_HOURS"), []byte("3_DAYS"), []byte("FOREVER")},
+var muteDurationNames = [...]string{
+	MuteDurationUnknown: "UNKNOWN",
+	MuteDuration15Min:   "15_MIN",
+	MuteDuration1Hour:   "1_HOUR",
+	MuteDuration8Hours:  "8_HOURS",
+	MuteDuration24Hours: "24_HOURS",
+	MuteDuration3Days:   "3_DAYS",
+	MuteDurationForever: "FOREVER",
 }
 
-type MuteDuration struct {
-	fields.Enum[MuteDurationValue]
-}
-
-func NewMuteDuration(val MuteDurationValue) MuteDuration {
-	return MuteDuration{Enum: fields.NewEnum(val, muteDurationSpec)}
-}
-
-func NewMuteDuration15Min() MuteDuration   { return NewMuteDuration(MuteDuration15Min) }
-func NewMuteDuration1Hour() MuteDuration   { return NewMuteDuration(MuteDuration1Hour) }
-func NewMuteDuration8Hours() MuteDuration  { return NewMuteDuration(MuteDuration8Hours) }
-func NewMuteDuration24Hours() MuteDuration { return NewMuteDuration(MuteDuration24Hours) }
-func NewMuteDuration3Days() MuteDuration   { return NewMuteDuration(MuteDuration3Days) }
-func NewMuteDurationForever() MuteDuration { return NewMuteDuration(MuteDurationForever) }
-
-func (m MuteDuration) Is15Min() bool   { return m.Is(MuteDuration15Min) }
-func (m MuteDuration) Is1Hour() bool   { return m.Is(MuteDuration1Hour) }
-func (m MuteDuration) Is8Hours() bool  { return m.Is(MuteDuration8Hours) }
-func (m MuteDuration) Is24Hours() bool { return m.Is(MuteDuration24Hours) }
-func (m MuteDuration) Is3Days() bool   { return m.Is(MuteDuration3Days) }
-func (m MuteDuration) IsForever() bool { return m.Is(MuteDurationForever) }
-
-func ParseMuteDuration[T fields.IntegerType](raw T) (MuteDuration, error) {
-	val := MuteDurationValue(raw)
-	if val <= MuteDurationUnknown || int(val) >= muteDurationSpec.Max {
-		return MuteDuration{}, ErrMuteDurationInvalid()
+func ParseMuteDuration(raw int) (MuteDuration, error) {
+	m := MuteDuration(raw)
+	if !m.IsValid() {
+		return MuteDurationUnknown, fmt.Errorf("invalid mute duration value: %d", raw)
 	}
-	return NewMuteDuration(val), nil
+	return m, nil
 }
 
 func ParseMuteDurationString(s string) (MuteDuration, error) {
-	val, ok := fields.ParseEnumString[MuteDurationValue](s, muteDurationSpec)
-	if !ok || val <= MuteDurationUnknown {
-		return MuteDuration{}, ErrMuteDurationInvalid()
+	str := sanitize.EnumValue(s)
+	if str == "" {
+		return MuteDurationUnknown, nil
 	}
-	return NewMuteDuration(val), nil
+	for i, name := range muteDurationNames {
+		if name == str {
+			return MuteDuration(i), nil
+		}
+	}
+	return MuteDurationUnknown, fmt.Errorf("invalid mute duration string: %q", s)
 }
 
+func ParseMuteDurationBytes(raw []byte) (MuteDuration, error) {
+	cleaned := sanitize.Bytes(raw)
+	if len(cleaned) == 0 {
+		return MuteDurationUnknown, nil
+	}
+	return ParseMuteDurationString(string(cleaned))
+}
+
+func (m MuteDuration) IsValid() bool {
+	return m > MuteDurationUnknown && m < muteDurationMax
+}
+
+func (m MuteDuration) String() string {
+	if uint(m) < uint(len(muteDurationNames)) {
+		return muteDurationNames[m]
+	}
+	return muteDurationNames[MuteDurationUnknown]
+}
+
+func (m MuteDuration) Is15Min() bool   { return m == MuteDuration15Min }
+func (m MuteDuration) Is1Hour() bool   { return m == MuteDuration1Hour }
+func (m MuteDuration) Is8Hours() bool  { return m == MuteDuration8Hours }
+func (m MuteDuration) Is24Hours() bool { return m == MuteDuration24Hours }
+func (m MuteDuration) Is3Days() bool   { return m == MuteDuration3Days }
+func (m MuteDuration) IsForever() bool { return m == MuteDurationForever }
+
 func (m MuteDuration) ToDuration() (time.Duration, bool) {
-	switch m.Value() {
+	switch m {
 	case MuteDuration15Min:
 		return 15 * time.Minute, true
 	case MuteDuration1Hour:
@@ -308,54 +308,47 @@ func (m MuteDuration) ToDuration() (time.Duration, bool) {
 	}
 }
 
-func (m MuteDuration) CalculateUntil(now fields.Timestamp) (fields.Timestamp, error) {
+func (m MuteDuration) CalculateUntil(now time.Time) (*time.Time, error) {
+	if !m.IsValid() {
+		return nil, fmt.Errorf("cannot calculate expiry for invalid duration: %s", m)
+	}
 	if m.IsForever() {
-		farFuture := time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
-		return fields.NewTimestamp(farFuture), nil
+		return nil, nil
 	}
 
-	d, ok := m.ToDuration()
-	if !ok {
-		return fields.Timestamp{}, ErrMuteDurationInvalid()
-	}
-
-	return fields.NewTimestamp(now.Time().Add(d)), nil
+	dur, _ := m.ToDuration()
+	until := now.Add(dur)
+	return &until, nil
 }
 
-// -----------------------------------------------------------------------------
-// Reaction Emoji
-// -----------------------------------------------------------------------------
-
-const reactionEmojiMaxLength = 64
-
-type ReactionEmoji struct {
-	fields.Text
+func (m MuteDuration) MarshalText() ([]byte, error) {
+	return []byte(m.String()), nil
 }
 
-func NewReactionEmoji(v string) ReactionEmoji {
-	return ReactionEmoji{Text: fields.NewText(v)}
-}
-
-func ParseReactionEmoji(raw string) (ReactionEmoji, error) {
-	cleaned := sanitize.Text(raw)
-	if cleaned == "" {
-		return ReactionEmoji{}, nil
-	}
-
-	if utf8.RuneCountInString(cleaned) > reactionEmojiMaxLength {
-		return ReactionEmoji{}, ErrReactionEmojiTooLong()
-	}
-
-	return NewReactionEmoji(cleaned), nil
-}
-
-func ParseRequiredReactionEmoji(raw string) (ReactionEmoji, error) {
-	emoji, err := ParseReactionEmoji(raw)
+func (m *MuteDuration) UnmarshalText(text []byte) error {
+	parsed, err := ParseMuteDurationString(string(text))
 	if err != nil {
-		return ReactionEmoji{}, err
+		return err
 	}
-	if emoji.IsZero() {
-		return ReactionEmoji{}, ErrReactionEmojiRequired()
+	*m = parsed
+	return nil
+}
+
+func (m MuteDuration) MarshalJSON() ([]byte, error) {
+	return strconv.AppendQuote(nil, m.String()), nil
+}
+
+func (m *MuteDuration) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*m = MuteDurationUnknown
+		return nil
 	}
-	return emoji, nil
+
+	parsed, err := ParseMuteDurationBytes(data)
+	if err != nil {
+		return err
+	}
+
+	*m = parsed
+	return nil
 }

@@ -33,7 +33,7 @@ func (c *PresenceCache) GetPresence(ctx context.Context, userID uuid.UUID) (pres
 		return presence.PresenceOffline, err
 	}
 
-	return parsePresence(string(data)), nil
+	return ParsePresence(string(data)), nil
 }
 
 func (c *PresenceCache) GetBatchPresence(
@@ -72,7 +72,7 @@ func (c *PresenceCache) GetBatchPresence(
 				continue
 			}
 
-			result[id] = parsePresence(string(data))
+			result[id] = ParsePresence(string(data))
 		}
 	}
 
@@ -162,7 +162,7 @@ func (c *PresenceCache) RegisterNodeSession(
 	}
 
 	wasOffline := res[0].(int64) == 1
-	effPresence := parsePresence(fmt.Sprintf("%v", res[1]))
+	effPresence := ParsePresence(fmt.Sprintf("%v", res[1]))
 
 	return wasOffline, effPresence, nil
 }

@@ -1,7 +1,7 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,40 +14,40 @@ const (
 )
 
 type Channel struct {
-	id            fields.ID
-	chType        ChannelType
-	name          ChannelName
-	iconURL       fields.URL
-	lastMessageID fields.ID
-	lastMessageAt fields.Timestamp
-	createdAt     fields.Timestamp
-	updatedAt     fields.Timestamp
+	ID            uuid.UUID
+	Type          ChannelType
+	Name          *string
+	IconURL       *string
+	LastMessageID *uuid.UUID
+	LastMessageAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func ReconstituteChannel(
-	id fields.ID,
+	id uuid.UUID,
 	chType ChannelType,
-	name ChannelName,
-	iconURL fields.URL,
-	lastMessageID fields.ID,
-	lastMessageAt fields.Timestamp,
-	createdAt fields.Timestamp,
-	updatedAt fields.Timestamp,
+	name *string,
+	iconURL *string,
+	lastMessageID *uuid.UUID,
+	lastMessageAt *time.Time,
+	createdAt time.Time,
+	updatedAt time.Time,
 ) *Channel {
 	return &Channel{
-		id:            id,
-		chType:        chType,
-		name:          name,
-		iconURL:       iconURL,
-		lastMessageID: lastMessageID,
-		lastMessageAt: lastMessageAt,
-		createdAt:     createdAt,
-		updatedAt:     updatedAt,
+		ID:            id,
+		Type:          chType,
+		Name:          name,
+		IconURL:       iconURL,
+		LastMessageID: lastMessageID,
+		LastMessageAt: lastMessageAt,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
 	}
 }
 
-func NewChannel(chType ChannelType, now fields.Timestamp) (*Channel, error) {
-	id, err := fields.NewID()
+func NewChannel(chType ChannelType, now time.Time) (*Channel, error) {
+	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
@@ -55,45 +55,39 @@ func NewChannel(chType ChannelType, now fields.Timestamp) (*Channel, error) {
 	return ReconstituteChannel(
 		id,
 		chType,
-		ChannelName{},
-		fields.URL{},
-		fields.ID{},
-		fields.Timestamp{},
+		nil,
+		nil,
+		nil,
+		nil,
 		now,
 		now,
 	), nil
 }
 
-func NewDirectChannel(now fields.Timestamp) (*Channel, error) {
-	return NewChannel(NewChannelTypeDirect(), now)
+func NewDirectChannel(now time.Time) (*Channel, error) {
+	return NewChannel(ChannelTypeDirect, now)
 }
 
-func NewGroupChannel(now fields.Timestamp) (*Channel, error) {
-	return NewChannel(NewChannelTypeGroup(), now)
+func NewGroupChannel(now time.Time) (*Channel, error) {
+	return NewChannel(ChannelTypeGroup, now)
 }
-
-func (c *Channel) ID() fields.ID                   { return c.id }
-func (c *Channel) Type() ChannelType               { return c.chType }
-func (c *Channel) Name() ChannelName               { return c.name }
-func (c *Channel) IconURL() fields.URL             { return c.iconURL }
-func (c *Channel) LastMessageID() fields.ID        { return c.lastMessageID }
-func (c *Channel) LastMessageAt() fields.Timestamp { return c.lastMessageAt }
-func (c *Channel) CreatedAt() fields.Timestamp     { return c.createdAt }
-func (c *Channel) UpdatedAt() fields.Timestamp     { return c.updatedAt }
 
 func (c *Channel) IsDirect() bool {
-	return c.chType.IsDirect()
+	return c.Type.IsDirect()
 }
 
 func (c *Channel) IsGroup() bool {
-	return c.chType.IsGroup()
+	return c.Type.IsGroup()
 }
 
-func getChannelUserIDs(memberIDs []fields.ID, messages []*Message) []fields.ID {
-	seen := make(map[fields.ID]struct{}, len(memberIDs)+len(messages))
-	result := make([]fields.ID, 0, len(memberIDs)+len(messages))
+func getChannelUserIDs(memberIDs []uuid.UUID, messages []*Message) []uuid.UUID {
+	seen := make(map[uuid.UUID]struct{}, len(memberIDs)+len(messages))
+	result := make([]uuid.UUID, 0, len(memberIDs)+len(messages))
 
 	for _, id := range memberIDs {
+		if id == (uuid.UUID{}) {
+			continue
+		}
 		if _, exists := seen[id]; !exists {
 			seen[id] = struct{}{}
 			result = append(result, id)
@@ -101,10 +95,15 @@ func getChannelUserIDs(memberIDs []fields.ID, messages []*Message) []fields.ID {
 	}
 
 	for _, msg := range messages {
-		authorID := msg.AuthorID()
-		if authorID.IsZero() {
+		if msg == nil || msg.AuthorID == nil {
 			continue
 		}
+
+		authorID := *msg.AuthorID
+		if authorID == (uuid.UUID{}) {
+			continue
+		}
+
 		if _, exists := seen[authorID]; !exists {
 			seen[authorID] = struct{}{}
 			result = append(result, authorID)
@@ -114,31 +113,17 @@ func getChannelUserIDs(memberIDs []fields.ID, messages []*Message) []fields.ID {
 	return result
 }
 
-func indexChannels(channels []*Channel) []fields.ID {
-	channelIDs := make([]fields.ID, 0, len(channels))
+func indexChannels(channels []*Channel) []uuid.UUID {
+	channelIDs := make([]uuid.UUID, 0, len(channels))
 
 	for _, ch := range channels {
 		if ch == nil {
 			continue
 		}
-		channelIDs = append(channelIDs, ch.ID())
+		channelIDs = append(channelIDs, ch.ID)
 	}
 
 	return channelIDs
-}
-
-func validateIDs(rawActorID, rawSessionID, rawChannelID uuid.UUID) (actorID, sessionID, channelID fields.ID, err error) {
-	if actorID, err = fields.ParseRequiredID("actor_id", rawActorID); err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-	sessionID, err = fields.ParseRequiredID("session_id", rawSessionID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-	if channelID, err = fields.ParseRequiredID("channel_id", rawChannelID); err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-	return actorID, sessionID, channelID, nil
 }
 
 func validateMaxPeers(rawPeerIDs []uuid.UUID) error {

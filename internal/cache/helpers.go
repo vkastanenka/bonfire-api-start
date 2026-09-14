@@ -43,12 +43,12 @@ func deleteBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []str
 		return nil
 	}
 
-	for i := 0; i < len(keys); i += MaxBatchSize {
+	for i := 0; i < len(keys); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+MaxBatchSize, len(keys))
+		end := min(i+maxBatchSize, len(keys))
 		chunk := keys[i:end]
 
 		if err := client.Del(ctx, chunk...).Err(); err != nil {
@@ -64,12 +64,12 @@ func setBatchPipeline(ctx context.Context, client redisdriver.Cmdable, items []C
 		return nil
 	}
 
-	for i := 0; i < len(items); i += MaxBatchSize {
+	for i := 0; i < len(items); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		end := min(i+MaxBatchSize, len(items))
+		end := min(i+maxBatchSize, len(items))
 		chunk := items[i:end]
 
 		pipe := client.Pipeline()

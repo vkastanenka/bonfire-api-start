@@ -75,12 +75,12 @@ func (c *ChannelCache) GetBatch(
 	missing := make([]uuid.UUID, 0, len(ids))
 	var corruptedKeys []string
 
-	for i := 0; i < len(ids); i += MaxBatchSize {
+	for i := 0; i < len(ids); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 
-		end := min(i+MaxBatchSize, len(ids))
+		end := min(i+maxBatchSize, len(ids))
 		chunk := ids[i:end]
 
 		redisKeys := make([]string, len(chunk))
@@ -129,7 +129,7 @@ func (c *ChannelCache) SetBatch(ctx context.Context, channels map[uuid.UUID]*cha
 
 	items := make([]CacheItem, 0, len(channels))
 	for id, ch := range channels {
-		if ch == nil || id.IsZero() {
+		if ch == nil || id == uuid.Nil {
 			continue
 		}
 
@@ -175,7 +175,7 @@ func (c *ChannelCache) AddMembers(ctx context.Context, channelID uuid.UUID, memb
 		if err != nil {
 			return err
 		}
-		memberMap[m.UserID().String()] = mBytes
+		memberMap[m.UserID.String()] = mBytes
 	}
 
 	hashKey := channelMembersKey(channelID)
@@ -195,8 +195,8 @@ func (c *ChannelCache) AddMembers(ctx context.Context, channelID uuid.UUID, memb
 
 	// 2. Add channel ID to each new member's userChannels ZSet scored by member creation time
 	for _, m := range members {
-		score := float64(m.CreatedAt().Time().Unix())
-		pipe.ZAdd(ctx, userChannelsKey(m.UserID()), redisdriver.Z{
+		score := float64(m.CreatedAt.Unix())
+		pipe.ZAdd(ctx, userChannelsKey(m.UserID), redisdriver.Z{
 			Score:  score,
 			Member: channelID.String(),
 		})
@@ -224,26 +224,26 @@ func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, mem
 		if err != nil {
 			return err
 		}
-		memberMap[m.UserID().String()] = mBytes
+		memberMap[m.UserID.String()] = mBytes
 	}
 
 	pipe := c.client.Pipeline()
 
 	// 1. Set channel metadata
-	pipe.Set(ctx, channelKey(ch.ID()), chBytes, 0)
+	pipe.Set(ctx, channelKey(ch.ID), chBytes, 0)
 
 	// 2. Set channel members hash (field = userID, value = member JSON)
 	if len(memberMap) > 0 {
-		pipe.HSet(ctx, channelMembersKey(ch.ID()), memberMap)
+		pipe.HSet(ctx, channelMembersKey(ch.ID), memberMap)
 	}
 
 	// 3. Add channel ID to each member's userChannels ZSet scored by creation time
 	// TODO: Improve to follow actual sidebar sorting score
-	score := float64(ch.CreatedAt().Time().Unix())
+	score := float64(ch.CreatedAt.Unix())
 	for _, m := range members {
-		pipe.ZAdd(ctx, userChannelsKey(m.UserID()), redisdriver.Z{
+		pipe.ZAdd(ctx, userChannelsKey(m.UserID), redisdriver.Z{
 			Score:  score,
-			Member: ch.ID().String(),
+			Member: ch.ID.String(),
 		})
 	}
 
@@ -291,11 +291,7 @@ func (c *ChannelCache) GetBatchMembersByChannelIDs(
 				delete(found, id)
 				break
 			}
-			member, err := mDTO.ToDomain()
-			if err != nil {
-				// TODO
-			}
-			members = append(members, member)
+			members = append(members, mDTO.ToDomain())
 		}
 
 		if _, isMissing := found[id]; !isMissing {
@@ -329,7 +325,7 @@ func (c *ChannelCache) SetBatchMembers(
 			if err != nil {
 				return err
 			}
-			memberMap[m.UserID().String()] = mBytes
+			memberMap[m.UserID.String()] = mBytes
 		}
 
 		pipe.HSet(ctx, channelMembersKey(channelID), memberMap)
@@ -362,11 +358,5 @@ func (c *ChannelCache) GetMember(
 		return nil, nil
 	}
 
-	member, err := mDTO.ToDomain()
-	if err != nil {
-		_ = c.InvalidateMember(ctx, channelID, userID)
-		return nil, nil
-	}
-
-	return member, nil
+	return mDTO.ToDomain(), nil
 }

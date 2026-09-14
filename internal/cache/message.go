@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
@@ -30,16 +30,13 @@ func NewMessageCache(client redisdriver.Cmdable) *MessageCache {
 	}
 }
 
-func (c *MessageCache) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
+func (c *MessageCache) Get(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
 	return getAndUnmarshal(ctx, c.client, messageKey(id), redis.ScopeMessage, unmarshalMessage)
 }
 
 // Set writes a single message object and updates its channel message index ring buffer.
 func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
-	dto, err := parseMessage(msg)
-	if err != nil {
-		return err
-	}
+	dto := ParseMessage(msg)
 	msgBytes, err := json.Marshal(dto)
 	if err != nil {
 		return err
@@ -48,17 +45,17 @@ func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 	pipe := c.client.Pipeline()
 
 	// 1. Store serialized message object with a TTL
-	pipe.Set(ctx, messageKey(msg.ID()), msgBytes, messageTTL)
+	pipe.Set(ctx, messageKey(msg.ID), msgBytes, messageTTL)
 
 	// 2. Add message ID to the channel's ZSet scored by its UUIDv7 timestamp
-	score := float64(msg.CreatedAt().Time().UnixMilli())
-	pipe.ZAdd(ctx, channelMessagesKey(msg.ChannelID()), redisdriver.Z{
+	score := float64(msg.CreatedAt.UnixMilli())
+	pipe.ZAdd(ctx, channelMessagesKey(msg.ChannelID), redisdriver.Z{
 		Score:  score,
-		Member: msg.ID().String(),
+		Member: msg.ID.String(),
 	})
 
 	// 3. Trim channel ring buffer to keep only the newest channelHistoryMax entries
-	pipe.ZRemRangeByRank(ctx, channelMessagesKey(msg.ChannelID()), 0, -int64(channelHistoryMax+1))
+	pipe.ZRemRangeByRank(ctx, channelMessagesKey(msg.ChannelID), 0, -int64(channelHistoryMax+1))
 
 	_, err = pipe.Exec(ctx)
 	if err != nil {
@@ -69,7 +66,7 @@ func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 }
 
 // Delete evicts a single message key and removes it from its channel message ZSet index.
-func (c *MessageCache) Delete(ctx context.Context, channelID, msgID fields.ID) error {
+func (c *MessageCache) Delete(ctx context.Context, channelID, msgID uuid.UUID) error {
 	pipe := c.client.Pipeline()
 	pipe.Del(ctx, messageKey(msgID))
 	pipe.ZRem(ctx, channelMessagesKey(channelID), msgID.String())
@@ -84,7 +81,7 @@ func (c *MessageCache) Delete(ctx context.Context, channelID, msgID fields.ID) e
 // Returns (messages, hit, error). Hit is false if the channel index is empty or has a missing message payload.
 func (c *MessageCache) GetRecentByChannelID(
 	ctx context.Context,
-	channelID fields.ID,
+	channelID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	if limit <= 0 {
@@ -122,12 +119,7 @@ func (c *MessageCache) GetRecentByChannelID(
 			return nil, false, nil
 		}
 
-		msg, err := dto.ToDomain()
-		if err != nil {
-			return nil, false, nil
-		}
-
-		messages = append(messages, msg)
+		messages = append(messages, dto.ToDomain())
 	}
 
 	return messages, true, nil
@@ -135,7 +127,7 @@ func (c *MessageCache) GetRecentByChannelID(
 
 // SetBatch stores a batch of messages for a channel into Redis in a single atomic pipeline.
 // Useful for backfilling the cache after a DB history fetch.
-func (c *MessageCache) SetBatch(ctx context.Context, channelID fields.ID, messages []*channel.Message) error {
+func (c *MessageCache) SetBatch(ctx context.Context, channelID uuid.UUID, messages []*channel.Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -144,20 +136,17 @@ func (c *MessageCache) SetBatch(ctx context.Context, channelID fields.ID, messag
 
 	zEntries := make([]redisdriver.Z, 0, len(messages))
 	for _, msg := range messages {
-		dto, err := parseMessage(msg)
-		if err != nil {
-			return err
-		}
+		dto := ParseMessage(msg)
 		msgBytes, err := json.Marshal(dto)
 		if err != nil {
 			return err
 		}
 
-		pipe.Set(ctx, messageKey(msg.ID()), msgBytes, messageTTL)
+		pipe.Set(ctx, messageKey(msg.ID), msgBytes, messageTTL)
 
 		zEntries = append(zEntries, redisdriver.Z{
-			Score:  float64(msg.CreatedAt().Time().UnixMilli()),
-			Member: msg.ID().String(),
+			Score:  float64(msg.CreatedAt.UnixMilli()),
+			Member: msg.ID.String(),
 		})
 	}
 
@@ -177,7 +166,7 @@ func (c *MessageCache) SetBatch(ctx context.Context, channelID fields.ID, messag
 // Returns (messages, hasMoreBefore, hasMoreAfter, hit, error).
 func (c *MessageCache) GetAroundByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	beforeLimit, afterLimit int,
 ) ([]*channel.Message, bool, bool, bool, error) {
 	// 1. Get score (timestamp in ms) of the target cursor message
@@ -254,11 +243,7 @@ func (c *MessageCache) GetAroundByChannelID(
 			return nil, false, false, false, nil
 		}
 
-		msg, err := dto.ToDomain()
-		if err != nil {
-			return nil, false, false, false, nil
-		}
-		messages = append(messages, msg)
+		messages = append(messages, dto.ToDomain())
 	}
 
 	return messages, hasMoreBefore, hasMoreAfter, true, nil
@@ -268,7 +253,7 @@ func (c *MessageCache) GetAroundByChannelID(
 // Returns (messages, hasMoreBefore, hit, error).
 func (c *MessageCache) GetBeforeByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, bool, error) {
 	// Get timestamp score of the target cursor message
@@ -312,7 +297,7 @@ func (c *MessageCache) GetBeforeByChannelID(
 // Returns (messages, hasMoreAfter, hit, error).
 func (c *MessageCache) GetAfterByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, bool, error) {
 	// Get timestamp score of the target cursor message
@@ -373,12 +358,7 @@ func (c *MessageCache) fetchAndUnmarshalBatch(ctx context.Context, ids []string)
 			return nil, nil
 		}
 
-		msg, err := dto.ToDomain()
-		if err != nil {
-			return nil, nil
-		}
-
-		messages = append(messages, msg)
+		messages = append(messages, dto.ToDomain())
 	}
 
 	return messages, nil

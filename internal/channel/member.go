@@ -1,65 +1,68 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
-	"bonfire-api/internal/user"
 	"cmp"
 	"slices"
 	"strings"
+	"time"
+
+	"bonfire-api/internal/user"
+
+	"github.com/google/uuid"
 )
 
 type Member struct {
-	channelID         fields.ID
-	userID            fields.ID
-	lastReadMessageID fields.ID
-	lastReadMessageAt fields.Timestamp
-	pinnedAt          fields.Timestamp
-	mutedUntil        fields.Timestamp
-	mentionCount      int
-	isVisible         bool
-	createdAt         fields.Timestamp
-	updatedAt         fields.Timestamp
+	ChannelID         uuid.UUID
+	UserID            uuid.UUID
+	LastReadMessageID *uuid.UUID
+	LastReadMessageAt *time.Time
+	PinnedAt          *time.Time
+	MutedUntil        *time.Time
+	MentionCount      int
+	IsVisible         bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 func ReconstituteMember(
-	channelID fields.ID,
-	userID fields.ID,
-	lastReadMessageID fields.ID,
-	lastReadMessageAt fields.Timestamp,
-	pinnedAt fields.Timestamp,
-	mutedUntil fields.Timestamp,
+	channelID uuid.UUID,
+	userID uuid.UUID,
+	lastReadMessageID *uuid.UUID,
+	lastReadMessageAt *time.Time,
+	pinnedAt *time.Time,
+	mutedUntil *time.Time,
 	mentionCount int,
 	isVisible bool,
-	createdAt fields.Timestamp,
-	updatedAt fields.Timestamp,
+	createdAt time.Time,
+	updatedAt time.Time,
 ) *Member {
 	return &Member{
-		channelID:         channelID,
-		userID:            userID,
-		lastReadMessageID: lastReadMessageID,
-		lastReadMessageAt: lastReadMessageAt,
-		pinnedAt:          pinnedAt,
-		mutedUntil:        mutedUntil,
-		mentionCount:      mentionCount,
-		isVisible:         isVisible,
-		createdAt:         createdAt,
-		updatedAt:         updatedAt,
+		ChannelID:         channelID,
+		UserID:            userID,
+		LastReadMessageID: lastReadMessageID,
+		LastReadMessageAt: lastReadMessageAt,
+		PinnedAt:          pinnedAt,
+		MutedUntil:        mutedUntil,
+		MentionCount:      mentionCount,
+		IsVisible:         isVisible,
+		CreatedAt:         createdAt,
+		UpdatedAt:         updatedAt,
 	}
 }
 
 func NewMember(
-	channelID fields.ID,
-	userID fields.ID,
+	channelID uuid.UUID,
+	userID uuid.UUID,
 	mentionCount int,
-	now fields.Timestamp,
+	now time.Time,
 ) *Member {
 	return ReconstituteMember(
 		channelID,
 		userID,
-		fields.ID{},
-		fields.Timestamp{},
-		fields.Timestamp{},
-		fields.Timestamp{},
+		nil,
+		nil,
+		nil,
+		nil,
 		mentionCount,
 		true,
 		now,
@@ -68,25 +71,25 @@ func NewMember(
 }
 
 func NewCreator(
-	channelID fields.ID,
-	userID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	userID uuid.UUID,
+	now time.Time,
 ) *Member {
 	return NewMember(channelID, userID, 0, now)
 }
 
 func NewPeer(
-	channelID fields.ID,
-	userID fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	userID uuid.UUID,
+	now time.Time,
 ) *Member {
 	return NewMember(channelID, userID, 1, now)
 }
 
 func NewPeers(
-	channelID fields.ID,
-	userIDs []fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	userIDs []uuid.UUID,
+	now time.Time,
 ) []*Member {
 	peers := make([]*Member, 0, len(userIDs))
 	for _, userID := range userIDs {
@@ -96,10 +99,10 @@ func NewPeers(
 }
 
 func NewMembers(
-	channelID fields.ID,
-	creatorID fields.ID,
-	peerIDs []fields.ID,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	creatorID uuid.UUID,
+	peerIDs []uuid.UUID,
+	now time.Time,
 ) []*Member {
 	members := make([]*Member, 0, len(peerIDs)+1)
 	members = append(members, NewCreator(channelID, creatorID, now))
@@ -111,18 +114,7 @@ func NewMembers(
 	return members
 }
 
-func (m *Member) ChannelID() fields.ID                { return m.channelID }
-func (m *Member) UserID() fields.ID                   { return m.userID }
-func (m *Member) LastReadMessageID() fields.ID        { return m.lastReadMessageID }
-func (m *Member) LastReadMessageAt() fields.Timestamp { return m.lastReadMessageAt }
-func (m *Member) PinnedAt() fields.Timestamp          { return m.pinnedAt }
-func (m *Member) MutedUntil() fields.Timestamp        { return m.mutedUntil }
-func (m *Member) MentionCount() int                   { return m.mentionCount }
-func (m *Member) IsVisible() bool                     { return m.isVisible }
-func (m *Member) CreatedAt() fields.Timestamp         { return m.createdAt }
-func (m *Member) UpdatedAt() fields.Timestamp         { return m.updatedAt }
-
-func getChannels(channelMap map[fields.ID]*Channel) []*Channel {
+func getChannels(channelMap map[uuid.UUID]*Channel) []*Channel {
 	channels := make([]*Channel, 0, len(channelMap))
 	for _, ch := range channelMap {
 		if ch != nil {
@@ -132,22 +124,33 @@ func getChannels(channelMap map[fields.ID]*Channel) []*Channel {
 	return channels
 }
 
-func filterMembership(actorID fields.ID, membs []*Member) *Member {
-	var actorMember *Member
+func filterMembership(actorID uuid.UUID, membs []*Member) *Member {
 	for _, m := range membs {
-		if m.UserID().Equals(actorID) {
-			actorMember = m
-			break
+		if m != nil && m.UserID == actorID {
+			return m
 		}
 	}
-	return actorMember
+	return nil
 }
 
-func filterPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) []fields.ID {
-	return fields.RemoveID(fields.DedupeIDs(parsedPeerIDs), actorID)
+func filterPeerIDs(actorID uuid.UUID, parsedPeerIDs []uuid.UUID) []uuid.UUID {
+	peerIDs := make([]uuid.UUID, 0, len(parsedPeerIDs))
+	seen := make(map[uuid.UUID]struct{}, len(parsedPeerIDs))
+
+	for _, id := range parsedPeerIDs {
+		if id == actorID || id == (uuid.UUID{}) {
+			continue
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			peerIDs = append(peerIDs, id)
+		}
+	}
+
+	return peerIDs
 }
 
-func filterRequiredPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) ([]fields.ID, error) {
+func filterRequiredPeerIDs(actorID uuid.UUID, parsedPeerIDs []uuid.UUID) ([]uuid.UUID, error) {
 	peerIDs := filterPeerIDs(actorID, parsedPeerIDs)
 	if len(peerIDs) == 0 {
 		return nil, ErrNoNewMembers()
@@ -155,25 +158,31 @@ func filterRequiredPeerIDs(actorID fields.ID, parsedPeerIDs []fields.ID) ([]fiel
 	return peerIDs, nil
 }
 
-func getMemberIDs(members []*Member) []fields.ID {
-	ids := make([]fields.ID, 0, len(members))
+func getMemberIDs(members []*Member) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(members))
+	seen := make(map[uuid.UUID]struct{}, len(members))
+
 	for _, m := range members {
-		if m != nil {
-			ids = append(ids, m.UserID())
+		if m != nil && m.UserID != (uuid.UUID{}) {
+			if _, exists := seen[m.UserID]; !exists {
+				seen[m.UserID] = struct{}{}
+				ids = append(ids, m.UserID)
+			}
 		}
 	}
-	return fields.DedupeIDs(ids)
+
+	return ids
 }
 
-func indexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
-	channelIDs := make([]fields.ID, 0, len(members))
-	membershipMap := make(map[fields.ID]*Member, len(members))
+func indexMemberships(members []*Member) ([]uuid.UUID, map[uuid.UUID]*Member) {
+	channelIDs := make([]uuid.UUID, 0, len(members))
+	membershipMap := make(map[uuid.UUID]*Member, len(members))
 
 	for _, m := range members {
 		if m == nil {
 			continue
 		}
-		chID := m.ChannelID()
+		chID := m.ChannelID
 		channelIDs = append(channelIDs, chID)
 		membershipMap[chID] = m
 	}
@@ -181,27 +190,35 @@ func indexMemberships(members []*Member) ([]fields.ID, map[fields.ID]*Member) {
 	return channelIDs, membershipMap
 }
 
-func sortMembers(members []*Member, userMap map[fields.ID]*user.User) {
+func sortMembers(members []*Member, userMap map[uuid.UUID]*user.User) {
 	displayName := func(m *Member) string {
 		if m == nil {
 			return ""
 		}
-		if u := userMap[m.UserID()]; u != nil {
-			return u.DisplayName().String()
+		if u := userMap[m.UserID]; u != nil {
+			return u.DisplayName
 		}
 		return ""
 	}
 
 	slices.SortFunc(members, func(a, b *Member) int {
-		if cmp := cmp.Compare(displayName(a), displayName(b)); cmp != 0 {
-			return cmp
+		if cmpVal := cmp.Compare(displayName(a), displayName(b)); cmpVal != 0 {
+			return cmpVal
 		}
-		return a.UserID().Compare(b.UserID())
+
+		var idA, idB string
+		if a != nil {
+			idA = a.UserID.String()
+		}
+		if b != nil {
+			idB = b.UserID.String()
+		}
+		return strings.Compare(idA, idB)
 	})
 }
 
-func sortMemberIDs(memberIDs []fields.ID, users map[fields.ID]*user.User) {
-	slices.SortFunc(memberIDs, func(a, b fields.ID) int {
+func sortMemberIDs(memberIDs []uuid.UUID, users map[uuid.UUID]*user.User) {
+	slices.SortFunc(memberIDs, func(a, b uuid.UUID) int {
 		uA, okA := users[a]
 		uB, okB := users[b]
 
@@ -215,13 +232,13 @@ func sortMemberIDs(memberIDs []fields.ID, users map[fields.ID]*user.User) {
 			return -1
 		}
 
-		return strings.Compare(uA.DisplayName().String(), uB.DisplayName().String())
+		return strings.Compare(uA.DisplayName, uB.DisplayName)
 	})
 }
 
-func validateMembership(userID fields.ID, members []*Member) (*Member, error) {
+func validateMembership(userID uuid.UUID, members []*Member) (*Member, error) {
 	for _, m := range members {
-		if m != nil && m.UserID().Equals(userID) {
+		if m != nil && m.UserID == userID {
 			return m, nil
 		}
 	}
