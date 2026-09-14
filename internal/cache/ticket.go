@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 	"time"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 
+	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-func wsTicketKey(ticketID fields.ID) string {
+func wsTicketKey(ticketID uuid.UUID) string {
 	return "ticket:ws:" + ticketID.String()
 }
 
 type WSTicketData struct {
-	UserID    fields.ID `json:"user_id"`
-	SessionID fields.ID `json:"session_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	SessionID uuid.UUID `json:"session_id"`
 }
 
 type WSTicketCache struct {
@@ -35,7 +35,7 @@ func NewWSTicketCache(client redisdriver.Cmdable, scope redis.Scope, ttl time.Du
 }
 
 // Print stores the ticket data mapping a ticketID to both userID and sessionID.
-func (c *WSTicketCache) Print(ctx context.Context, ticketID, userID, sessionID fields.ID) error {
+func (c *WSTicketCache) Print(ctx context.Context, ticketID, userID, sessionID uuid.UUID) error {
 	data := WSTicketData{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -53,15 +53,15 @@ func (c *WSTicketCache) Print(ctx context.Context, ticketID, userID, sessionID f
 }
 
 // Punch atomically retrieves and deletes the ticket, returning both userID and sessionID.
-func (c *WSTicketCache) Punch(ctx context.Context, ticketID fields.ID) (fields.ID, fields.ID, error) {
+func (c *WSTicketCache) Punch(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	val, err := c.client.GetDel(ctx, wsTicketKey(ticketID)).Result()
 	if err != nil {
-		return fields.ID{}, fields.ID{}, redis.NewError(err, c.scope)
+		return uuid.UUID{}, uuid.UUID{}, redis.NewError(err, c.scope)
 	}
 
 	var data WSTicketData
 	if err := json.Unmarshal([]byte(val), &data); err != nil {
-		return fields.ID{}, fields.ID{}, redis.NewError(err, c.scope)
+		return uuid.UUID{}, uuid.UUID{}, redis.NewError(err, c.scope)
 	}
 
 	return data.UserID, data.SessionID, nil

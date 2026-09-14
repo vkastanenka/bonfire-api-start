@@ -38,7 +38,7 @@ func (h *RelationHandler) SendRequest(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 
-	if err := h.service.TransitionPending(r.Context(), actorID.UUID(), path.PeerID); err != nil {
+	if err := h.service.TransitionPending(r.Context(), actorID, path.PeerID); err != nil {
 		return err
 	}
 
@@ -64,7 +64,7 @@ func (h *RelationHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	result, err := h.service.TransitionFriends(r.Context(), actorID.UUID(), path.PeerID)
+	result, err := h.service.TransitionFriends(r.Context(), actorID, path.PeerID)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (h *RelationHandler) BlockUser(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	if err := h.service.TransitionBlocked(r.Context(), actorID.UUID(), path.PeerID); err != nil {
+	if err := h.service.TransitionBlocked(r.Context(), actorID, path.PeerID); err != nil {
 		return err
 	}
 
@@ -110,7 +110,7 @@ func (h *RelationHandler) RemoveRelation(w http.ResponseWriter, r *http.Request)
 		return err
 	}
 
-	if err := h.service.DeleteByUserID(r.Context(), actorID.UUID(), path.PeerID); err != nil {
+	if err := h.service.DeleteByUserID(r.Context(), actorID, path.PeerID); err != nil {
 		return err
 	}
 

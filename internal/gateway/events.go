@@ -8,8 +8,9 @@ import (
 	"log/slog"
 	"time"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
+
+	"github.com/google/uuid"
 )
 
 type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
@@ -33,7 +34,7 @@ func ParsePayload[T any](op string, rawMessage json.RawMessage) (*T, error) {
 }
 
 // NewHeartbeatHandler handles websocket heartbeats and optional presence updates.
-func NewHeartbeatHandler(service *Service, nodeID, sessionID fields.ID) MessageHandler {
+func NewHeartbeatHandler(service *Service, nodeID, sessionID uuid.UUID) MessageHandler {
 	return func(ctx context.Context, client *Client, data json.RawMessage) error {
 		payload, err := ParsePayload[HeartbeatPayload]("heartbeat", data)
 		if err != nil {

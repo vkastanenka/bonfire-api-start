@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 	"context"
@@ -30,7 +29,7 @@ type Event struct {
 }
 
 type Hub struct {
-	id fields.ID
+	id uuid.UUID
 
 	sessionIdx map[uuid.UUID]*Client
 	userIdx    map[uuid.UUID]map[uuid.UUID]*Client
@@ -50,7 +49,7 @@ type Hub struct {
 
 func NewHub(redisClient *goredis.Client, service *Service) *Hub {
 	return &Hub{
-		id:          fields.ID(uuid.New()),
+		id:          uuid.New(),
 		sessionIdx:  make(map[uuid.UUID]*Client),
 		userIdx:     make(map[uuid.UUID]map[uuid.UUID]*Client),
 		register:    make(chan ClientRegistration, clientBufferLength),
@@ -61,7 +60,7 @@ func NewHub(redisClient *goredis.Client, service *Service) *Hub {
 	}
 }
 
-func (h *Hub) ID() fields.ID {
+func (h *Hub) ID() uuid.UUID {
 	return h.id
 }
 
@@ -116,7 +115,7 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client, presence prese
 	slog.Info("Client connected to gateway",
 		"node_id", h.id,
 		"user_id", client.UserID,
-		"session_id", client.SessionID.UUID(),
+		"session_id", client.SessionID,
 	)
 }
 
@@ -124,24 +123,24 @@ func (h *Hub) registerClient(client *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if oldClient, exists := h.sessionIdx[client.SessionID.UUID()]; exists {
+	if oldClient, exists := h.sessionIdx[client.SessionID]; exists {
 		oldClient.Close()
 	}
 
-	h.sessionIdx[client.SessionID.UUID()] = client
+	h.sessionIdx[client.SessionID] = client
 
-	sessions, exists := h.userIdx[client.UserID.UUID()]
+	sessions, exists := h.userIdx[client.UserID]
 	isFirstUserSession := !exists || len(sessions) == 0
 	if !exists {
 		sessions = make(map[uuid.UUID]*Client)
-		h.userIdx[client.UserID.UUID()] = sessions
+		h.userIdx[client.UserID] = sessions
 	}
-	sessions[client.SessionID.UUID()] = client
+	sessions[client.SessionID] = client
 
 	return isFirstUserSession
 }
 
-func (h *Hub) registerNode(ctx context.Context, userID, sessionID fields.ID, presence presence.Presence) {
+func (h *Hub) registerNode(ctx context.Context, userID, sessionID uuid.UUID, presence presence.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
@@ -162,7 +161,7 @@ func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
 	slog.Info("Client disconnected from gateway",
 		"node_id", h.id,
 		"user_id", client.UserID,
-		"session_id", client.SessionID.UUID(),
+		"session_id", client.SessionID,
 	)
 }
 
@@ -170,18 +169,18 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	current, exists := h.sessionIdx[client.SessionID.UUID()]
+	current, exists := h.sessionIdx[client.SessionID]
 	if !exists || current != client {
 		return false
 	}
 
-	delete(h.sessionIdx, client.SessionID.UUID())
+	delete(h.sessionIdx, client.SessionID)
 
 	isLastUserSession := false
-	if sessions, ok := h.userIdx[client.UserID.UUID()]; ok {
-		delete(sessions, client.SessionID.UUID())
+	if sessions, ok := h.userIdx[client.UserID]; ok {
+		delete(sessions, client.SessionID)
 		if len(sessions) == 0 {
-			delete(h.userIdx, client.UserID.UUID())
+			delete(h.userIdx, client.UserID)
 			isLastUserSession = true
 		}
 	}
@@ -189,7 +188,7 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	return isLastUserSession
 }
 
-func (h *Hub) unregisterNode(ctx context.Context, userID, sessionID fields.ID) {
+func (h *Hub) unregisterNode(ctx context.Context, userID, sessionID uuid.UUID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
@@ -214,9 +213,9 @@ func (h *Hub) unsubscribe() {
 
 func (h *Hub) cleanupNodes(ctx context.Context) {
 	h.mu.Lock()
-	userIDs := make([]fields.ID, 0, len(h.userIdx))
+	userIDs := make([]uuid.UUID, 0, len(h.userIdx))
 	for rawUserID := range h.userIdx {
-		userIDs = append(userIDs, fields.ID(rawUserID))
+		userIDs = append(userIDs, uuid.UUID(rawUserID))
 	}
 	h.mu.Unlock()
 

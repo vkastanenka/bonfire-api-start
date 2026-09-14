@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/token"
 
 	"net/netip"
+
+	"github.com/google/uuid"
 )
 
 type CtxKey string
@@ -30,15 +31,15 @@ func CtxGetMeta(ctx context.Context) (ClientMeta, error) {
 				err.Detail(reqInfo)
 			}
 		}
-		return ClientMeta{IP: fields.NewIP(netip.IPv4Unspecified())}, err
+		return ClientMeta{IP: netip.IPv4Unspecified()}, err
 	}
 	return meta, nil
 }
 
-func CtxGetIP(ctx context.Context) (fields.IP, error) {
+func CtxGetIP(ctx context.Context) (netip.Addr, error) {
 	meta, err := CtxGetMeta(ctx)
 	if err != nil {
-		return fields.IP{}, err
+		return netip.Addr{}, err
 	}
 	return meta.IP, nil
 }
@@ -52,10 +53,10 @@ func CtxGetClaims(ctx context.Context) (*token.Claims, error) {
 	return claims, nil
 }
 
-func CtxGetUserID(ctx context.Context) (fields.ID, error) {
+func CtxGetUserID(ctx context.Context) (uuid.UUID, error) {
 	claims, err := CtxGetClaims(ctx)
 	if err != nil {
-		return fields.ID{}, err
+		return uuid.UUID{}, err
 	}
 	return claims.UserID, nil
 }
@@ -67,9 +68,9 @@ func CtxGetReqID(ctx context.Context) string {
 	return ""
 }
 
-func CtxGetTraceID(ctx context.Context) fields.TraceID {
+func CtxGetTraceID(ctx context.Context) string {
 	if v, ok := ctx.Value(CtxTraceIDKey).(string); ok {
-		return fields.NewTraceID(v)
+		return v
 	}
-	return fields.TraceID{}
+	return ""
 }

@@ -2,7 +2,6 @@ package httpio
 
 import (
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"context"
 	"fmt"
 	"log/slog"
@@ -41,7 +40,7 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 			ipAddr, err := CtxGetIP(ctx)
 			if err != nil {
 				slog.ErrorContext(ctx, "rate limiter missing telemetry context", "error", err)
-				ipAddr = fields.NewIP(extractIP(r, false))
+				ipAddr = extractIP(r, false)
 			}
 			ip := ipAddr.String()
 

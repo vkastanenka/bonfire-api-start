@@ -58,7 +58,7 @@ func (h *UserHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	u, err := h.service.UpdateEmail(r.Context(), user.UpdateEmailParams{
-		UserID:   userID.UUID(),
+		UserID:   userID,
 		NewEmail: req.NewEmail,
 		Password: req.Password,
 	})
@@ -87,7 +87,7 @@ func (h *UserHandler) UpdateUsername(w http.ResponseWriter, r *http.Request) err
 	}
 
 	u, err := h.service.UpdateUsername(r.Context(), user.UpdateUsernameParams{
-		UserID:      userID.UUID(),
+		UserID:      userID,
 		NewUsername: req.NewUsername,
 		Password:    req.Password,
 	})
@@ -117,7 +117,7 @@ func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) err
 	}
 
 	if err := h.service.UpdatePassword(r.Context(), user.UpdatePasswordParams{
-		UserID:             userID.UUID(),
+		UserID:             userID,
 		CurrentPassword:    req.CurrentPassword,
 		NewPassword:        req.NewPassword,
 		NewPasswordConfirm: req.NewPasswordConfirm,
@@ -146,7 +146,7 @@ func (h *UserHandler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Req
 	}
 
 	u, err := h.service.UpdatePreferredPresence(r.Context(), user.UpdatePreferredPresenceParams{
-		UserID:   userID.UUID(),
+		UserID:   userID,
 		Presence: req.Presence,
 		Duration: req.Duration,
 	})
@@ -177,7 +177,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	u, err := h.service.UpdateProfile(r.Context(), user.UpdateProfileParams{
-		UserID:      userID.UUID(),
+		UserID:      userID,
 		DisplayName: req.DisplayName,
 		Bio:         req.Bio,
 		AvatarURL:   req.AvatarURL,
@@ -207,7 +207,7 @@ func (h *UserHandler) Disable(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if err := h.service.Disable(r.Context(), user.DisableParams{
-		UserID:   userID.UUID(),
+		UserID:   userID,
 		Password: req.Password,
 	}); err != nil {
 		return err
@@ -233,7 +233,7 @@ func (h *UserHandler) ScheduleDelete(w http.ResponseWriter, r *http.Request) err
 	}
 
 	if err := h.service.ScheduleDelete(r.Context(), user.ScheduleDeleteParams{
-		UserID:   userID.UUID(),
+		UserID:   userID,
 		Password: req.Password,
 	}); err != nil {
 		return err

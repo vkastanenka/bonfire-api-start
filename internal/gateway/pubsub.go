@@ -1,11 +1,11 @@
 package gateway
 
 import (
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
 
+	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -13,7 +13,7 @@ const (
 	gatewayDomainKey = "gateway:"
 )
 
-func gatewayEventsKey(id fields.ID) string {
+func gatewayEventsKey(id uuid.UUID) string {
 	return gatewayDomainKey + id.String() + ":events"
 }
 
@@ -25,7 +25,7 @@ func NewPublisher(client goredis.Cmdable) *Publisher {
 	return &Publisher{client: client}
 }
 
-func (p *Publisher) PublishEvents(ctx context.Context, events map[fields.ID]Event) error {
+func (p *Publisher) PublishEvents(ctx context.Context, events map[uuid.UUID]Event) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -60,6 +60,6 @@ func (p *Publisher) PublishEvents(ctx context.Context, events map[fields.ID]Even
 	return nil
 }
 
-func SubscribeGatewayEvents(ctx context.Context, client *goredis.Client, nodeID fields.ID) (*redis.Subscription, error) {
+func SubscribeGatewayEvents(ctx context.Context, client *goredis.Client, nodeID uuid.UUID) (*redis.Subscription, error) {
 	return redis.Subscribe(ctx, client, redis.ScopeGateway, gatewayEventsKey(nodeID))
 }

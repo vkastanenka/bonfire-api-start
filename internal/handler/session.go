@@ -31,7 +31,7 @@ func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	sessions, err := h.service.ListValidByUserID(r.Context(), userID.UUID())
+	sessions, err := h.service.ListValidByUserID(r.Context(), userID)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (h *SessionHandler) RevokeAll(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	if err := h.service.RevokeAll(r.Context(), userID.UUID()); err != nil {
+	if err := h.service.RevokeAll(r.Context(), userID); err != nil {
 		return err
 	}
 

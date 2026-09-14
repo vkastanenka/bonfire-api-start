@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
@@ -31,7 +30,7 @@ func NewService(
 
 func (s *Service) RegisterNode(
 	ctx context.Context,
-	userID, nodeID, sessionID fields.ID,
+	userID, nodeID, sessionID uuid.UUID,
 	presenceStatus presence.Presence,
 ) error {
 	// wasOffline, effPresence, err := s.presenceCache.RegisterNode(ctx, userID, nodeID, sessionID, presenceStatus)
@@ -52,7 +51,7 @@ func (s *Service) RegisterNode(
 	return nil
 }
 
-func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID fields.ID) error {
+func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID uuid.UUID) error {
 	// wentOffline, err := s.presenceCache.UnregisterNode(ctx, userID, nodeID, sessionID)
 	// if err != nil {
 	// 	return err
@@ -61,7 +60,7 @@ func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID 
 	// if wentOffline {
 	// 	payload := user.EventUpdatePresencePayload{
 	// 		UserID:   userID.String(),
-	// 		Presence: presence.NewOffline().String(),
+	// 		Presence: presence.PresenceOffline.String(),
 	// 	}
 	// 	if broadcastErr := s.BroadcastToPeers(ctx, userID, user.EventUpdatePresence, payload); broadcastErr != nil {
 	// 		slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
@@ -73,7 +72,7 @@ func (s *Service) UnregisterNode(ctx context.Context, userID, nodeID, sessionID 
 
 func (s *Service) HandleHeartbeat(
 	ctx context.Context,
-	userID, nodeID, sessionID fields.ID,
+	userID, nodeID, sessionID uuid.UUID,
 	newPresence presence.Presence,
 ) error {
 	currentPresence, err := s.presenceCache.GetPresence(ctx, userID)
@@ -81,29 +80,29 @@ func (s *Service) HandleHeartbeat(
 		return err
 	}
 
-	if currentPresence == presence.NewOffline() || (newPresence.IsValid() && newPresence != currentPresence) {
+	if currentPresence == presence.PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
 		return s.RegisterNode(ctx, userID, nodeID, sessionID, newPresence)
 	}
 
 	return s.presenceCache.Heartbeat(ctx, userID, nodeID, sessionID)
 }
 
-func (s *Service) RemoveBatchNodes(ctx context.Context, userIDs []fields.ID, nodeID fields.ID) error {
+func (s *Service) RemoveBatchNodes(ctx context.Context, userIDs []uuid.UUID, nodeID uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
-	return s.presenceCache.RemoveBatchNodes(ctx, userIDs, nodeID)
+	return s.presenceCache.RemoveBatchNodeUsers(ctx, nodeID, userIDs)
 }
 
 func (s *Service) BroadcastToSession(
 	ctx context.Context,
-	actorID fields.ID,
-	targetUserID fields.ID,
-	targetSessionID fields.ID,
+	actorID uuid.UUID,
+	targetUserID uuid.UUID,
+	targetSessionID uuid.UUID,
 	eventType string,
 	payload interface{},
 ) error {
-	nodeID, found, err := s.presenceCache.GetSessionNode(ctx, targetSessionID)
+	nodeID, found, err := s.presenceCache.GetSessionNode(ctx, targetUserID, targetSessionID)
 	if err != nil || !found {
 		return err
 	}
@@ -113,9 +112,9 @@ func (s *Service) BroadcastToSession(
 		return errs.Internal("Failed to marshal event payload.").Wrap(err)
 	}
 
-	nodeEvents := map[fields.ID]Event{
+	nodeEvents := map[uuid.UUID]Event{
 		nodeID: {
-			SessionIDs: []uuid.UUID{targetSessionID.UUID()},
+			SessionIDs: []uuid.UUID{targetSessionID},
 			Type:       eventType,
 			Data:       rawPayload,
 		},
@@ -126,8 +125,8 @@ func (s *Service) BroadcastToSession(
 
 func (s *Service) BroadcastUserEvent(
 	ctx context.Context,
-	recipientIDs []fields.ID,
-	excludeSessionIDs []fields.ID,
+	recipientIDs []uuid.UUID,
+	excludeSessionIDs []uuid.UUID,
 	eventType string,
 	payload interface{},
 ) error {
@@ -135,7 +134,7 @@ func (s *Service) BroadcastUserEvent(
 		return nil
 	}
 
-	nodeToRecipients, err := s.presenceCache.GetBatchNodes(ctx, recipientIDs)
+	nodeToRecipients, err := s.presenceCache.GetBatchNodeUsers(ctx, recipientIDs)
 	if err != nil {
 		return err
 	}
@@ -148,11 +147,11 @@ func (s *Service) BroadcastUserEvent(
 		return errs.Internal("Failed to marshal event payload.").Wrap(err)
 	}
 
-	nodeEvents := make(map[fields.ID]Event, len(nodeToRecipients))
+	nodeEvents := make(map[uuid.UUID]Event, len(nodeToRecipients))
 	for nodeID, targetUserIDs := range nodeToRecipients {
 		nodeEvents[nodeID] = Event{
-			UserIDs:           fields.UUIDs(targetUserIDs),
-			ExcludeSessionIDs: fields.UUIDs(excludeSessionIDs),
+			UserIDs:           targetUserIDs,
+			ExcludeSessionIDs: excludeSessionIDs,
 			Type:              eventType,
 			Data:              rawPayload,
 		}
@@ -163,18 +162,18 @@ func (s *Service) BroadcastUserEvent(
 
 func (s *Service) BroadcastToUser(
 	ctx context.Context,
-	userID fields.ID,
-	excludeSessionIDs []fields.ID,
+	userID uuid.UUID,
+	excludeSessionIDs []uuid.UUID,
 	eventType string,
 	payload interface{},
 ) error {
-	return s.BroadcastUserEvent(ctx, []fields.ID{userID}, excludeSessionIDs, eventType, payload)
+	return s.BroadcastUserEvent(ctx, []uuid.UUID{userID}, excludeSessionIDs, eventType, payload)
 }
 
 func (s *Service) BroadcastToUsers(
 	ctx context.Context,
-	recipientIDs []fields.ID,
-	excludeSessionIDs []fields.ID,
+	recipientIDs []uuid.UUID,
+	excludeSessionIDs []uuid.UUID,
 	eventType string,
 	payload interface{},
 ) error {
@@ -183,7 +182,7 @@ func (s *Service) BroadcastToUsers(
 
 // func (s *Service) BroadcastToFriends(
 // 	ctx context.Context,
-// 	actorID fields.ID,
+// 	actorID uuid.UUID,
 // 	eventType string,
 // 	payload interface{},
 // ) error {
@@ -192,7 +191,7 @@ func (s *Service) BroadcastToUsers(
 // 		return err
 // 	}
 
-// 	recipients := make([]fields.ID, 0, len(friendIDs)+1)
+// 	recipients := make([]uuid.UUID, 0, len(friendIDs)+1)
 // 	recipients = append(recipients, friendIDs...)
 // 	recipients = append(recipients, actorID)
 
@@ -201,7 +200,7 @@ func (s *Service) BroadcastToUsers(
 
 // func (s *Service) BroadcastToPeers(
 // 	ctx context.Context,
-// 	actorID fields.ID,
+// 	actorID uuid.UUID,
 // 	eventType string,
 // 	payload interface{},
 // ) error {
@@ -210,7 +209,7 @@ func (s *Service) BroadcastToUsers(
 // 		return err
 // 	}
 
-// 	recipients := make([]fields.ID, 0, len(peerIDs)+1)
+// 	recipients := make([]uuid.UUID, 0, len(peerIDs)+1)
 // 	recipients = append(recipients, peerIDs...)
 // 	recipients = append(recipients, actorID)
 
@@ -219,10 +218,10 @@ func (s *Service) BroadcastToUsers(
 
 // func (s *Service) BroadcastToChannelMembers(
 // 	ctx context.Context,
-// 	actorID fields.ID,
-// 	actorExcludeSessionIDs []fields.ID,
+// 	actorID uuid.UUID,
+// 	actorExcludeSessionIDs []uuid.UUID,
 // 	eventType string,
-// 	payloads map[fields.ID]interface{},
+// 	payloads map[uuid.UUID]interface{},
 // ) error {
 
 // 	// Get recipient ids (payloads keys)
@@ -237,8 +236,8 @@ BroadcastToChannelMembers
 
 (
 	ctx context.Context,
-	actorID fields.ID,
-	actorSessionID fields.ID,
+	actorID uuid.UUID,
+	actorSessionID uuid.UUID,
 	eventType string,
 	payloads interface{},
 )

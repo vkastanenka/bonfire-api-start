@@ -3,7 +3,6 @@ package gateway
 import (
 	"net/http"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/presence"
 
@@ -32,8 +31,8 @@ func NewHandler(hub *Hub, userCache UserCache, ticketCache TicketCache, bind *ht
 }
 
 type ServeWSQuery struct {
-	TicketID uuid.UUID `form:"ticketId" validate:"required,uuid"`
-	Presence string    `form:"presence" mod:"text" validate:"required,max=12"`
+	TicketID uuid.UUID         `form:"ticketId" validate:"required"`
+	Presence presence.Presence `form:"presence" validate:"required,oneof=1 2 3 4 5 6"`
 }
 
 func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
@@ -42,21 +41,11 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	ticketID, err := fields.ParseID(query.TicketID)
-	if err != nil {
-		return err
-	}
-
 	ctx := r.Context()
 
-	userID, sessionID, err := h.ticketCache.Punch(ctx, ticketID)
+	userID, sessionID, err := h.ticketCache.Punch(ctx, query.TicketID)
 	if err != nil {
 		return err
-	}
-
-	userPresence, err := presence.ParseString(query.Presence)
-	if err != nil || !userPresence.IsValid() {
-		userPresence = presence.NewOnline()
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -65,7 +54,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	client := NewClient(ctx, userID, sessionID, conn)
-	h.hub.Register(client, userPresence)
+	h.hub.Register(client, query.Presence)
 	client.StartPumps(h.hub)
 
 	return nil
