@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"errors"
-	"fmt"
 
 	"bonfire-api/internal/errs"
 )
@@ -17,11 +16,11 @@ func ErrTypeRequired() *errs.Error {
 		FieldViolation("event_type", "Field is required.", "REQUIRED")
 }
 
-func ErrTypeTooLong() *errs.Error {
-	return errs.InvalidArgument("Event type exceeds maximum length.").
-		Reason("EVENT_TYPE_TOO_LONG").
-		FieldViolation("event_type", fmt.Sprintf("Must not exceed %d characters.", typeMaxLength), "MAX_LENGTH_EXCEEDED")
-}
+// func ErrTypeTooLong() *errs.Error {
+// 	return errs.InvalidArgument("Event type exceeds maximum length.").
+// 		Reason("EVENT_TYPE_TOO_LONG").
+// 		FieldViolation("event_type", fmt.Sprintf("Must not exceed %d characters.", typeMaxLength), "MAX_LENGTH_EXCEEDED")
+// }
 
 func ErrPayloadEmpty() *errs.Error {
 	return errs.InvalidArgument("Payload cannot be empty.").
@@ -41,8 +40,8 @@ func ErrPayloadRequired() *errs.Error {
 		FieldViolation("payload", "Field is required.", "REQUIRED")
 }
 
-func ErrPayloadTooLarge() *errs.Error {
-	return errs.InvalidArgument("Payload size exceeds maximum allowed size.").
-		Reason("PAYLOAD_TOO_LARGE").
-		FieldViolation("payload", fmt.Sprintf("Payload size must be under %d bytes.", maxPayloadByteSize), "MAX_SIZE_EXCEEDED")
-}
+// func ErrPayloadTooLarge() *errs.Error {
+// 	return errs.InvalidArgument("Payload size exceeds maximum allowed size.").
+// 		Reason("PAYLOAD_TOO_LARGE").
+// 		FieldViolation("payload", fmt.Sprintf("Payload size must be under %d bytes.", maxPayloadByteSize), "MAX_SIZE_EXCEEDED")
+// }

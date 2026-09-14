@@ -2,164 +2,153 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
+
+	"github.com/google/uuid"
 )
 
 const maxAttemptsDefault = 5
 
 type Event struct {
-	id             fields.ID
-	eventType      Type
-	payload        Payload
-	traceID        fields.TraceID
-	processedAt    fields.Timestamp
-	attempts       int
-	maxAttempts    int
-	nextAttemptAt  fields.Timestamp
-	lockedBy       fields.ID
-	leaseExpiresAt fields.Timestamp
-	createdAt      fields.Timestamp
-	updatedAt      fields.Timestamp
+	ID             uuid.UUID
+	Type           string
+	Payload        json.RawMessage
+	TraceID        *string
+	ProcessedAt    *time.Time
+	Attempts       int
+	MaxAttempts    int
+	NextAttemptAt  time.Time
+	LockedBy       *uuid.UUID
+	LeaseExpiresAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func ReconstituteEvent(
-	id fields.ID,
-	eventType Type,
-	payload Payload,
-	traceID fields.TraceID,
-	processedAt fields.Timestamp,
+	id uuid.UUID,
+	eventType string,
+	payload json.RawMessage,
+	traceID *string,
+	processedAt *time.Time,
 	attempts int,
 	maxAttempts int,
-	nextAttemptAt fields.Timestamp,
-	lockedBy fields.ID,
-	leaseExpiresAt fields.Timestamp,
-	createdAt fields.Timestamp,
-	updatedAt fields.Timestamp,
+	nextAttemptAt time.Time,
+	lockedBy *uuid.UUID,
+	leaseExpiresAt *time.Time,
+	createdAt time.Time,
+	updatedAt time.Time,
 ) *Event {
 	return &Event{
-		id:             id,
-		eventType:      eventType,
-		payload:        payload,
-		traceID:        traceID,
-		processedAt:    processedAt,
-		attempts:       attempts,
-		maxAttempts:    maxAttempts,
-		nextAttemptAt:  nextAttemptAt,
-		lockedBy:       lockedBy,
-		leaseExpiresAt: leaseExpiresAt,
-		createdAt:      createdAt,
-		updatedAt:      updatedAt,
+		ID:             id,
+		Type:           eventType,
+		Payload:        payload,
+		TraceID:        traceID,
+		ProcessedAt:    processedAt,
+		Attempts:       attempts,
+		MaxAttempts:    maxAttempts,
+		NextAttemptAt:  nextAttemptAt,
+		LockedBy:       lockedBy,
+		LeaseExpiresAt: leaseExpiresAt,
+		CreatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
 	}
 }
 
 func New(
 	ctx context.Context,
-	eventType Type,
-	payload Payload,
-	now fields.Timestamp,
+	eventType string,
+	payload json.RawMessage,
+	now time.Time,
 ) (*Event, error) {
-	id, err := fields.NewID()
+	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
 
-	traceID := httpio.CtxGetTraceID(ctx)
+	var tracePtr *string
+	if tid := httpio.CtxGetTraceID(ctx); tid != "" {
+		tracePtr = &tid
+	}
 
 	return ReconstituteEvent(
 		id,
 		eventType,
 		payload,
-		traceID,
-		fields.Timestamp{},
+		tracePtr,
+		nil,
 		0,
 		maxAttemptsDefault,
 		now,
-		fields.ID{},
-		fields.Timestamp{},
+		nil,
+		nil,
 		now,
 		now,
 	), nil
 }
 
-func (e *Event) ID() fields.ID                    { return e.id }
-func (e *Event) EventType() Type                  { return e.eventType }
-func (e *Event) Payload() Payload                 { return e.payload }
-func (e *Event) TraceID() fields.TraceID          { return e.traceID }
-func (e *Event) ProcessedAt() fields.Timestamp    { return e.processedAt }
-func (e *Event) Attempts() int                    { return e.attempts }
-func (e *Event) MaxAttempts() int                 { return e.maxAttempts }
-func (e *Event) NextAttemptAt() fields.Timestamp  { return e.nextAttemptAt }
-func (e *Event) LockedBy() fields.ID              { return e.lockedBy }
-func (e *Event) LeaseExpiresAt() fields.Timestamp { return e.leaseExpiresAt }
-func (e *Event) CreatedAt() fields.Timestamp      { return e.createdAt }
-func (e *Event) UpdatedAt() fields.Timestamp      { return e.updatedAt }
+func (e *Event) IsProcessed() bool  { return e.ProcessedAt != nil }
+func (e *Event) IsDeadLetter() bool { return e.Attempts >= e.MaxAttempts }
+func (e *Event) IsLocked() bool     { return e.LockedBy != nil }
 
-func (e *Event) IsProcessed() bool  { return e.processedAt.IsValid() }
-func (e *Event) IsDeadLetter() bool { return e.attempts >= e.maxAttempts }
-func (e *Event) IsLocked() bool     { return e.lockedBy.IsValid() }
-
-func (e *Event) CanProcess(now fields.Timestamp) bool {
+func (e *Event) CanProcess(now time.Time) bool {
 	if e.IsProcessed() || e.IsDeadLetter() {
 		return false
 	}
-	if e.nextAttemptAt.HasPassed(now.Time()) {
-		return true
-	}
-	return e.nextAttemptAt.Equals(now)
+	return !e.NextAttemptAt.After(now)
 }
 
 // Claim updates worker lock ownership and sets the lease duration.
-func (e *Event) Claim(workerID fields.ID, leaseExpiresAt fields.Timestamp, at fields.Timestamp) {
-	e.lockedBy = workerID
-	e.leaseExpiresAt = leaseExpiresAt
+func (e *Event) Claim(workerID uuid.UUID, leaseExpiresAt time.Time, at time.Time) {
+	e.LockedBy = &workerID
+	e.LeaseExpiresAt = &leaseExpiresAt
 	e.touch(at)
 }
 
 // MarkProcessed transitions the event to a completed state and clears locks.
-func (e *Event) MarkProcessed(at fields.Timestamp) {
-	e.processedAt = at
-	e.lockedBy = fields.ID{}
-	e.leaseExpiresAt = fields.Timestamp{}
+func (e *Event) MarkProcessed(at time.Time) {
+	e.ProcessedAt = &at
+	e.LockedBy = nil
+	e.LeaseExpiresAt = nil
 	e.touch(at)
 }
 
 // MarkFailure increments attempts, calculates exponential backoff, and releases worker locks.
-func (e *Event) MarkFailure(at fields.Timestamp) {
-	e.attempts++
-	e.lockedBy = fields.ID{}
-	e.leaseExpiresAt = fields.Timestamp{}
+func (e *Event) MarkFailure(at time.Time) {
+	e.Attempts++
+	e.LockedBy = nil
+	e.LeaseExpiresAt = nil
 
 	// Exponential backoff: 2^attempts seconds (e.g., 2s, 4s, 8s, 16s...)
-	backoffSec := time.Duration(1<<e.attempts) * time.Second
-	e.nextAttemptAt = fields.NewTimestamp(at.Time().Add(backoffSec))
+	backoffSec := time.Duration(1<<e.Attempts) * time.Second
+	e.NextAttemptAt = at.Add(backoffSec)
 	e.touch(at)
 }
 
 // MarkDeadLetter maxes out attempts and parks the event without scheduling future attempts.
-func (e *Event) MarkDeadLetter(at fields.Timestamp) {
-	e.attempts = e.maxAttempts
-	e.lockedBy = fields.ID{}
-	e.leaseExpiresAt = fields.Timestamp{}
+func (e *Event) MarkDeadLetter(at time.Time) {
+	e.Attempts = e.MaxAttempts
+	e.LockedBy = nil
+	e.LeaseExpiresAt = nil
 
 	e.touch(at)
 }
 
 // RenewLease extends the worker's lock reservation time.
-func (e *Event) RenewLease(newLeaseExpiresAt fields.Timestamp, at fields.Timestamp) {
-	e.leaseExpiresAt = newLeaseExpiresAt
+func (e *Event) RenewLease(newLeaseExpiresAt time.Time, at time.Time) {
+	e.LeaseExpiresAt = &newLeaseExpiresAt
 	e.touch(at)
 }
 
 // ReleaseLease explicitly clears worker ownership without altering retry counts or errors.
-func (e *Event) ReleaseLease(at fields.Timestamp) {
-	e.lockedBy = fields.ID{}
-	e.leaseExpiresAt = fields.Timestamp{}
+func (e *Event) ReleaseLease(at time.Time) {
+	e.LockedBy = nil
+	e.LeaseExpiresAt = nil
 	e.touch(at)
 }
 
-func (e *Event) touch(at fields.Timestamp) {
-	e.updatedAt = at
+func (e *Event) touch(at time.Time) {
+	e.UpdatedAt = at
 }

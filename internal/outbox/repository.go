@@ -1,20 +1,21 @@
 package outbox
 
 import (
-	"bonfire-api/internal/fields"
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 )
 
-// Repository abstracts the Outbox persistence operations required by the Worker.
 type Repository interface {
-	ClaimPending(ctx context.Context, workerID fields.ID, leaseExpiresAt fields.Timestamp, now fields.Timestamp, limitVal int) ([]*Event, error)
+	ClaimPending(ctx context.Context, workerID uuid.UUID, leaseExpiresAt time.Time, now time.Time, limitVal int) ([]*Event, error)
 	Create(ctx context.Context, e *Event) error
 	CreateBatch(ctx context.Context, events []*Event) error
-	DeleteProcessedBatch(ctx context.Context, before fields.Timestamp, limitVal int) (int64, error)
-	MarkDeadLetter(ctx context.Context, e *Event, workerID fields.ID) error
-	MarkFailure(ctx context.Context, e *Event, workerID fields.ID) error
-	MarkProcessed(ctx context.Context, e *Event, workerID fields.ID) error
-	Publish(ctx context.Context, eventType Type, payload Payload, now fields.Timestamp) error
-	ReleaseLease(ctx context.Context, e *Event, workerID fields.ID) error
-	RenewLease(ctx context.Context, e *Event, workerID fields.ID) error
+	DeleteProcessedBatch(ctx context.Context, before time.Time, limitVal int) (int64, error)
+	MarkDeadLetter(ctx context.Context, e *Event, workerID uuid.UUID) error
+	MarkFailure(ctx context.Context, e *Event, workerID uuid.UUID) error
+	MarkProcessed(ctx context.Context, e *Event, workerID uuid.UUID) error
+	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
+	ReleaseLease(ctx context.Context, e *Event, workerID uuid.UUID) error
+	RenewLease(ctx context.Context, e *Event, workerID uuid.UUID) error
 }
