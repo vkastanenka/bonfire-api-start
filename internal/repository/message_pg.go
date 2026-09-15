@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"time"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 
 	"github.com/google/uuid"
 )
@@ -30,32 +28,32 @@ func NewMessageRepository(store *db.Store, memberRepo *MemberRepository) *Messag
 
 func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	row, err := r.store.MessageCreate(ctx, db.MessageCreateParams{
-		ID:               db.ToUUID(msg.ID().UUID()),
-		ChannelID:        db.ToUUID(msg.ChannelID().UUID()),
-		AuthorID:         db.ToUUIDPtr(msg.AuthorID().UUIDPtr()),
-		ReplyToMessageID: db.ToUUIDPtr(msg.ReplyToMessageID().UUIDPtr()),
-		ForwardMessageID: db.ToUUIDPtr(msg.ForwardMessageID().UUIDPtr()),
-		ForwardChannelID: db.ToUUIDPtr(msg.ForwardChannelID().UUIDPtr()),
-		CreatedAt:        db.ToTimestamptz(msg.CreatedAt().Time()),
-		UpdatedAt:        db.ToTimestamptz(msg.UpdatedAt().Time()),
-		EditedAt:         db.ToTimestamptzPtr(msg.EditedAt().TimePtr()),
-		PinnedAt:         db.ToTimestamptzPtr(msg.PinnedAt().TimePtr()),
-		Type:             int16(msg.Type().Int()),
-		Content:          db.ToTextPtr(msg.Content().StringPtr()),
-		Metadata:         msg.Metadata().Bytes(),
+		ID:               db.ToUUID(msg.ID),
+		ChannelID:        db.ToUUID(msg.ChannelID),
+		AuthorID:         db.ToUUIDPtr(msg.AuthorID),
+		ReplyToMessageID: db.ToUUIDPtr(msg.ReplyToMessageID),
+		ForwardMessageID: db.ToUUIDPtr(msg.ForwardMessageID),
+		ForwardChannelID: db.ToUUIDPtr(msg.ForwardChannelID),
+		CreatedAt:        db.ToTimestamptz(msg.CreatedAt),
+		UpdatedAt:        db.ToTimestamptz(msg.UpdatedAt),
+		EditedAt:         db.ToTimestamptzPtr(msg.EditedAt),
+		PinnedAt:         db.ToTimestamptzPtr(msg.PinnedAt),
+		Type:             int16(msg.Type),
+		Content:          db.ToTextPtr(msg.Content),
+		Metadata:         msg.Metadata,
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return messageFromRow(row)
+	return messageFromRow(row), nil
 }
 
 func (r *MessageRepository) CreateAndMention(
 	ctx context.Context,
 	msg *channel.Message,
-	channelID, userID fields.ID,
-	updatedAt fields.Timestamp,
+	channelID, userID uuid.UUID,
+	updatedAt time.Time,
 ) (*channel.Message, error) {
 	newMsg, err := r.Create(ctx, msg)
 	if err != nil {
@@ -103,26 +101,26 @@ func (r *MessageRepository) CreateBatch(
 	payloads := make([]messagePayload, len(messages))
 	for i, msg := range messages {
 		payloads[i] = messagePayload{
-			ID:               msg.ID().UUID(),
-			ChannelID:        msg.ChannelID().UUID(),
-			AuthorID:         msg.AuthorID().UUIDPtr(),
-			ReplyToMessageID: msg.ReplyToMessageID().UUIDPtr(),
-			ForwardMessageID: msg.ForwardMessageID().UUIDPtr(),
-			ForwardChannelID: msg.ForwardChannelID().UUIDPtr(),
-			CreatedAt:        msg.CreatedAt().Time(),
-			UpdatedAt:        msg.UpdatedAt().Time(),
-			EditedAt:         msg.EditedAt().TimePtr(),
-			PinnedAt:         msg.PinnedAt().TimePtr(),
-			Type:             int16(msg.Type().Int()),
-			Content:          msg.Content().StringPtr(),
-			Metadata:         json.RawMessage(msg.Metadata().Bytes()),
+			ID:               msg.ID,
+			ChannelID:        msg.ChannelID,
+			AuthorID:         msg.AuthorID,
+			ReplyToMessageID: msg.ReplyToMessageID,
+			ForwardMessageID: msg.ForwardMessageID,
+			ForwardChannelID: msg.ForwardChannelID,
+			CreatedAt:        msg.CreatedAt,
+			UpdatedAt:        msg.UpdatedAt,
+			EditedAt:         msg.EditedAt,
+			PinnedAt:         msg.PinnedAt,
+			Type:             int16(msg.Type),
+			Content:          msg.Content,
+			Metadata:         msg.Metadata,
 		}
 	}
 
 	jsonBytes, err := json.Marshal(payloads)
 	if err != nil {
 		return nil, errs.Internal("failed to marshal create message batch payload").
-			Meta("entity", db.EntityMessage.String()).
+			Meta("entity", "message").
 			Wrap(err)
 	}
 
@@ -133,10 +131,7 @@ func (r *MessageRepository) CreateBatch(
 
 	result := make([]*channel.Message, len(rows))
 	for i, row := range rows {
-		msg, err := messageFromRow(row)
-		if err != nil {
-			return nil, err
-		}
+		msg := messageFromRow(row)
 		result[i] = msg
 	}
 
@@ -146,8 +141,8 @@ func (r *MessageRepository) CreateBatch(
 func (r *MessageRepository) CreateBatchAndMention(
 	ctx context.Context,
 	messages []*channel.Message,
-	channelID, userID fields.ID,
-	updatedAt fields.Timestamp,
+	channelID, userID uuid.UUID,
+	updatedAt time.Time,
 ) ([]*channel.Message, error) {
 	if len(messages) == 0 {
 		return []*channel.Message{}, nil
@@ -172,23 +167,23 @@ func (r *MessageRepository) CreateBatchAndMention(
 	return newMsgs, nil
 }
 
-func (r *MessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
-	row, err := r.store.MessageGet(ctx, db.ToUUID(id.UUID()))
+func (r *MessageRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
+	row, err := r.store.MessageGet(ctx, db.ToUUID(id))
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return messageFromRow(row)
+	return messageFromRow(row), nil
 }
 
 func (r *MessageRepository) ListAroundByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	beforeLimit, afterLimit int,
 ) ([]*channel.Message, bool, bool, error) {
 	rows, err := r.store.MessageListAroundByChannelID(ctx, db.MessageListAroundByChannelIDParams{
-		ChannelID:         db.ToUUID(channelID.UUID()),
-		LastReadMessageID: db.ToUUID(cursorID.UUID()),
+		ChannelID:         db.ToUUID(channelID),
+		LastReadMessageID: db.ToUUID(cursorID),
 		BeforeLimit:       int32(beforeLimit),
 		AfterLimit:        int32(afterLimit),
 	})
@@ -204,11 +199,11 @@ func (r *MessageRepository) ListAroundByChannelID(
 	var (
 		beforeCount int
 		afterCount  int
-		targetID    = cursorID.UUID()
+		targetID    = cursorID
 	)
 
 	for _, msg := range messages {
-		msgUUID := msg.ID().UUID()
+		msgUUID := msg.ID
 		if bytes.Compare(msgUUID[:], targetID[:]) <= 0 {
 			beforeCount++
 		} else {
@@ -224,12 +219,12 @@ func (r *MessageRepository) ListAroundByChannelID(
 
 func (r *MessageRepository) ListBeforeByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListBeforeByChannelID(ctx, db.MessageListBeforeByChannelIDParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		CursorID:  db.ToUUID(cursorID.UUID()),
+		ChannelID: db.ToUUID(channelID),
+		CursorID:  db.ToUUID(cursorID),
 		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
@@ -252,12 +247,12 @@ func (r *MessageRepository) ListBeforeByChannelID(
 
 func (r *MessageRepository) ListAfterByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListAfterByChannelID(ctx, db.MessageListAfterByChannelIDParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		CursorID:  db.ToUUID(cursorID.UUID()),
+		ChannelID: db.ToUUID(channelID),
+		CursorID:  db.ToUUID(cursorID),
 		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
@@ -279,15 +274,15 @@ func (r *MessageRepository) ListAfterByChannelID(
 
 func (r *MessageRepository) ListPinnedByChannelID(
 	ctx context.Context,
-	channelID fields.ID,
-	cursorID fields.ID,
-	cursorPinnedAt fields.Timestamp,
+	channelID uuid.UUID,
+	cursorID *uuid.UUID,
+	cursorPinnedAt *time.Time,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	rows, err := r.store.MessageListPinnedByChannelID(ctx, db.MessageListPinnedByChannelIDParams{
-		ChannelID:      db.ToUUID(channelID.UUID()),
-		CursorID:       db.ToUUIDPtr(cursorID.UUIDPtr()),
-		CursorPinnedAt: db.ToTimestamptzPtr(cursorPinnedAt.TimePtr()),
+		ChannelID:      db.ToUUID(channelID),
+		CursorID:       db.ToUUIDPtr(cursorID),
+		CursorPinnedAt: db.ToTimestamptzPtr(cursorPinnedAt),
 		LimitVal:       int32(limit),
 	})
 	if err != nil {
@@ -304,8 +299,8 @@ func (r *MessageRepository) ListPinnedByChannelID(
 	return messages, hasMoreBefore, nil
 }
 
-func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int, error) {
-	count, err := r.store.MessageCountByChannelID(ctx, db.ToUUID(channelID.UUID()))
+func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID uuid.UUID) (int, error) {
+	count, err := r.store.MessageCountByChannelID(ctx, db.ToUUID(channelID))
 	if err != nil {
 		return 0, r.store.Err(err)
 	}
@@ -315,42 +310,43 @@ func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID fiel
 
 func (r *MessageRepository) UpdateContent(
 	ctx context.Context,
-	id fields.ID,
-	content channel.MessageContent,
-	editedAt, updatedAt fields.Timestamp,
+	id uuid.UUID,
+	content string,
+	editedAt, updatedAt time.Time,
 ) (*channel.Message, error) {
 	row, err := r.store.MessageUpdateContent(ctx, db.MessageUpdateContentParams{
-		ID:        db.ToUUID(id.UUID()),
-		Content:   content.String(),
-		EditedAt:  db.ToTimestamptz(editedAt.Time()),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		ID:        db.ToUUID(id),
+		Content:   content,
+		EditedAt:  db.ToTimestamptz(editedAt),
+		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return messageFromRow(row)
+	return messageFromRow(row), nil
 }
 
 func (r *MessageRepository) UpdatePinnedAt(
 	ctx context.Context,
-	id fields.ID,
-	pinnedAt, updatedAt fields.Timestamp,
+	id uuid.UUID,
+	pinnedAt *time.Time,
+	updatedAt time.Time,
 ) (*channel.Message, error) {
 	row, err := r.store.MessageUpdatePinnedAt(ctx, db.MessageUpdatePinnedAtParams{
-		ID:        db.ToUUID(id.UUID()),
-		PinnedAt:  db.ToTimestamptzPtr(pinnedAt.TimePtr()),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		ID:        db.ToUUID(id),
+		PinnedAt:  db.ToTimestamptzPtr(pinnedAt),
+		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return messageFromRow(row)
+	return messageFromRow(row), nil
 }
 
-func (r *MessageRepository) Delete(ctx context.Context, id fields.ID) error {
-	err := r.store.MessageDelete(ctx, db.ToUUID(id.UUID()))
+func (r *MessageRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	err := r.store.MessageDelete(ctx, db.ToUUID(id))
 	if err != nil {
 		return r.store.Err(err)
 	}
@@ -361,90 +357,25 @@ func (r *MessageRepository) Delete(ctx context.Context, id fields.ID) error {
 func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {
 	messages := make([]*channel.Message, 0, len(rows))
 	for _, row := range rows {
-		msg, err := messageFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, msg)
+		messages = append(messages, messageFromRow(row))
 	}
 	return messages, nil
 }
 
-func messageFromRow(row db.Message) (*channel.Message, error) {
-	msgID := db.FromUUID[uuid.UUID](row.ID)
-	msgIDStr := msgID.String()
-
-	mapErr := func(msgText, key string, val any, err error) *errs.Error {
-		return errs.Internal(msgText).
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta(key, fmt.Sprintf("%v", val)).
-			Resource("Message", msgIDStr, "", "database row mapping")
-	}
-
-	id, err := fields.ParseRequiredID("id", msgID)
-	if err != nil {
-		return nil, mapErr("failed to parse message id from database", "id", msgIDStr, err)
-	}
-
-	channelID, err := fields.ParseRequiredID("channel_id", db.FromUUID[uuid.UUID](row.ChannelID))
-	if err != nil {
-		return nil, mapErr("failed to parse channel id from database", "channel_id", row.ChannelID, err)
-	}
-
-	authorID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.AuthorID))
-	if err != nil {
-		return nil, mapErr("failed to parse author id from database", "author_id", row.AuthorID, err)
-	}
-
-	replyToMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ReplyToMessageID))
-	if err != nil {
-		return nil, mapErr("failed to parse reply to message id from database", "reply_to_message_id", row.ReplyToMessageID, err)
-	}
-
-	forwardMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardMessageID))
-	if err != nil {
-		return nil, mapErr("failed to parse forward message id from database", "forward_message_id", row.ForwardMessageID, err)
-	}
-
-	forwardChannelID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.ForwardChannelID))
-	if err != nil {
-		return nil, mapErr("failed to parse forward channel id from database", "forward_channel_id", row.ForwardChannelID, err)
-	}
-
-	msgType, err := channel.ParseMessageType(row.Type)
-	if err != nil {
-		return nil, mapErr("failed to parse message type from database", "type", row.Type, err)
-	}
-
-	content, err := channel.ParseMessageContent(db.FromText[string](row.Content))
-	if err != nil {
-		return nil, mapErr("failed to parse message content from database", "content", row.Content, err)
-	}
-
-	metadata, err := fields.ParseJSON("system_metadata", row.Metadata)
-	if err != nil {
-		return nil, mapErr("failed to parse system metadata from database", "system_metadata", string(row.Metadata), err)
-	}
-
-	editedAt := fields.NewTimestamp(db.FromTimestamptz(row.EditedAt))
-	pinnedAt := fields.NewTimestamp(db.FromTimestamptz(row.PinnedAt))
-	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
-	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
-
+func messageFromRow(row db.Message) *channel.Message {
 	return channel.ReconstituteMessage(
-		id,
-		channelID,
-		authorID,
-		msgType,
-		content,
-		metadata,
-		replyToMessageID,
-		forwardMessageID,
-		forwardChannelID,
-		editedAt,
-		pinnedAt,
-		createdAt,
-		updatedAt,
-	), nil
+		db.FromUUID[uuid.UUID](row.ID),
+		db.FromUUID[uuid.UUID](row.ChannelID),
+		db.FromUUIDPtr[uuid.UUID](row.AuthorID),
+		channel.MessageType(int(row.Type)),
+		db.FromTextPtr[string](row.Content),
+		row.Metadata,
+		db.FromUUIDPtr[uuid.UUID](row.ReplyToMessageID),
+		db.FromUUIDPtr[uuid.UUID](row.ForwardMessageID),
+		db.FromUUIDPtr[uuid.UUID](row.ForwardChannelID),
+		db.FromTimestamptzPtr(row.PinnedAt),
+		db.FromTimestamptzPtr(row.EditedAt),
+		db.FromTimestamptz(row.CreatedAt),
+		db.FromTimestamptz(row.UpdatedAt),
+	)
 }

@@ -3,13 +3,11 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 
 	"github.com/google/uuid"
 )
@@ -35,7 +33,7 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 		LastReadMessageID *uuid.UUID `json:"last_read_message_id,omitempty"`
 		CreatedAt         time.Time  `json:"created_at"`
 		UpdatedAt         time.Time  `json:"updated_at"`
-		LastReadMessageAt time.Time  `json:"last_read_message_at"`
+		LastReadMessageAt *time.Time `json:"last_read_message_at,omitempty"`
 		PinnedAt          *time.Time `json:"pinned_at,omitempty"`
 		MutedUntil        *time.Time `json:"muted_until,omitempty"`
 		MentionCount      int32      `json:"mention_count"`
@@ -45,16 +43,16 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 	payloads := make([]memberPayload, len(members))
 	for i, m := range members {
 		payloads[i] = memberPayload{
-			ChannelID:         m.ChannelID().UUID(),
-			UserID:            m.UserID().UUID(),
-			LastReadMessageID: m.LastReadMessageID().UUIDPtr(),
-			CreatedAt:         m.CreatedAt().Time(),
-			UpdatedAt:         m.UpdatedAt().Time(),
-			LastReadMessageAt: m.LastReadMessageAt().Time(),
-			PinnedAt:          m.PinnedAt().TimePtr(),
-			MutedUntil:        m.MutedUntil().TimePtr(),
-			MentionCount:      int32(m.MentionCount()),
-			IsVisible:         m.IsVisible(),
+			ChannelID:         m.ChannelID,
+			UserID:            m.UserID,
+			LastReadMessageID: m.LastReadMessageID,
+			CreatedAt:         m.CreatedAt,
+			UpdatedAt:         m.UpdatedAt,
+			LastReadMessageAt: m.LastReadMessageAt,
+			PinnedAt:          m.PinnedAt,
+			MutedUntil:        m.MutedUntil,
+			MentionCount:      int32(m.MentionCount),
+			IsVisible:         m.IsVisible,
 		}
 	}
 
@@ -72,41 +70,37 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 
 	result := make([]*channel.Member, len(rows))
 	for i, row := range rows {
-		m, err := memberFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		result[i] = m
+		result[i] = memberFromRow(row)
 	}
 
 	return result, nil
 }
 
-func (r *MemberRepository) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
+func (r *MemberRepository) Get(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberGet(ctx, db.ChannelMemberGetParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
+		ChannelID: db.ToUUID(channelID),
+		UserID:    db.ToUUID(userID),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return memberFromRow(row)
+	return memberFromRow(row), nil
 }
 
 func (r *MemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
-	channelIDs []fields.ID,
-) (map[fields.ID][]*channel.Member, error) {
+	channelIDs []uuid.UUID,
+) (map[uuid.UUID][]*channel.Member, error) {
 	if len(channelIDs) == 0 {
-		return make(map[fields.ID][]*channel.Member), nil
+		return make(map[uuid.UUID][]*channel.Member), nil
 	}
 
-	result := make(map[fields.ID][]*channel.Member, len(channelIDs))
+	result := make(map[uuid.UUID][]*channel.Member, len(channelIDs))
 	uuids := make([]uuid.UUID, len(channelIDs))
 
 	for i, id := range channelIDs {
-		uuidVal := id.UUID()
+		uuidVal := id
 		uuids[i] = uuidVal
 		result[id] = []*channel.Member{}
 	}
@@ -117,12 +111,8 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 	}
 
 	for _, row := range rows {
-		m, err := memberFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-
-		cid := m.ChannelID()
+		m := memberFromRow(row)
+		cid := m.ChannelID
 		result[cid] = append(result[cid], m)
 	}
 
@@ -131,9 +121,9 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 
 func (r *MemberRepository) GetBatchByChannelID(
 	ctx context.Context,
-	channelID fields.ID,
+	channelID uuid.UUID,
 ) ([]*channel.Member, error) {
-	memberMap, err := r.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	memberMap, err := r.GetBatchByChannelIDs(ctx, []uuid.UUID{channelID})
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +136,9 @@ func (r *MemberRepository) GetBatchByChannelID(
 	return members, nil
 }
 
-func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID fields.ID, limit int) ([]*channel.Member, error) {
+func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*channel.Member, error) {
 	rows, err := r.store.ChannelMemberListVisibleByUserID(ctx, db.ChannelMemberListVisibleByUserIDParams{
-		UserID:   db.ToUUID(userID.UUID()),
+		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
 	if err != nil {
@@ -157,18 +147,14 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID field
 
 	members := make([]*channel.Member, 0, len(rows))
 	for _, row := range rows {
-		m, err := memberFromRow(row)
-		if err != nil {
-			return nil, err
-		}
-		members = append(members, m)
+		members = append(members, memberFromRow(row))
 	}
 
 	return members, nil
 }
 
-func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID fields.ID) (int, error) {
-	count, err := r.store.ChannelMemberCountByChannelID(ctx, db.ToUUID(channelID.UUID()))
+func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID uuid.UUID) (int, error) {
+	count, err := r.store.ChannelMemberCountByChannelID(ctx, db.ToUUID(channelID))
 	if err != nil {
 		return 0, r.store.Err(err)
 	}
@@ -178,91 +164,94 @@ func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID field
 
 func (r *MemberRepository) UpdateIsVisible(
 	ctx context.Context,
-	channelID, userID fields.ID,
+	channelID, userID uuid.UUID,
 	isVisible bool,
-	updatedAt fields.Timestamp,
+	updatedAt time.Time,
 ) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberUpdateIsVisible(ctx, db.ChannelMemberUpdateIsVisibleParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
+		ChannelID: db.ToUUID(channelID),
+		UserID:    db.ToUUID(userID),
 		IsVisible: isVisible,
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return memberFromRow(row)
+	return memberFromRow(row), nil
 }
 
 func (r *MemberRepository) UpdateLastReadMessage(
 	ctx context.Context,
-	channelID, userID, lastReadMessageID fields.ID,
-	lastReadMessageAt, updatedAt fields.Timestamp,
+	channelID, userID uuid.UUID,
+	lastReadMessageID *uuid.UUID,
+	lastReadMessageAt, updatedAt time.Time,
 	mentionCount *int,
 ) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberUpdateLastReadMessage(ctx, db.ChannelMemberUpdateLastReadMessageParams{
-		ChannelID:         db.ToUUID(channelID.UUID()),
-		UserID:            db.ToUUID(userID.UUID()),
-		LastReadMessageID: db.ToUUIDPtr(lastReadMessageID.UUIDPtr()),
-		LastReadMessageAt: db.ToTimestamptz(lastReadMessageAt.Time()),
+		ChannelID:         db.ToUUID(channelID),
+		UserID:            db.ToUUID(userID),
+		LastReadMessageID: db.ToUUIDPtr(lastReadMessageID),
+		LastReadMessageAt: db.ToTimestamptz(lastReadMessageAt),
 		MentionCount:      db.ToInt4Ptr(mentionCount),
-		UpdatedAt:         db.ToTimestamptz(updatedAt.Time()),
+		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return memberFromRow(row)
+	return memberFromRow(row), nil
 }
 
 func (r *MemberRepository) UpdatePinnedAt(
 	ctx context.Context,
-	channelID, userID fields.ID,
-	pinnedAt, updatedAt fields.Timestamp,
+	channelID, userID uuid.UUID,
+	pinnedAt *time.Time,
+	updatedAt time.Time,
 ) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberUpdatePinnedAt(ctx, db.ChannelMemberUpdatePinnedAtParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
-		PinnedAt:  db.ToTimestamptzPtr(pinnedAt.TimePtr()),
-		UpdatedAt: db.ToTimestamptz(updatedAt.Time()),
+		ChannelID: db.ToUUID(channelID),
+		UserID:    db.ToUUID(userID),
+		PinnedAt:  db.ToTimestamptzPtr(pinnedAt),
+		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return memberFromRow(row)
+	return memberFromRow(row), nil
 }
 
 func (r *MemberRepository) UpdateMutedUntil(
 	ctx context.Context,
-	channelID, userID fields.ID,
-	mutedUntil, updatedAt fields.Timestamp,
+	channelID, userID uuid.UUID,
+	mutedUntil *time.Time,
+	updatedAt time.Time,
 ) (*channel.Member, error) {
 	row, err := r.store.ChannelMemberUpdateMutedUntil(ctx, db.ChannelMemberUpdateMutedUntilParams{
-		ChannelID:  db.ToUUID(channelID.UUID()),
-		UserID:     db.ToUUID(userID.UUID()),
-		MutedUntil: db.ToTimestamptzPtr(mutedUntil.TimePtr()),
-		UpdatedAt:  db.ToTimestamptz(updatedAt.Time()),
+		ChannelID:  db.ToUUID(channelID),
+		UserID:     db.ToUUID(userID),
+		MutedUntil: db.ToTimestamptzPtr(mutedUntil),
+		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
 
-	return memberFromRow(row)
+	return memberFromRow(row), nil
 }
 
 func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 	ctx context.Context,
-	channelID, userID fields.ID,
+	channelID, userID uuid.UUID,
 	incrementAmount int,
-	updatedAt fields.Timestamp,
+	updatedAt time.Time,
 ) error {
 	err := r.store.ChannelMemberIncrementPeersMentionCountByChannelID(ctx, db.ChannelMemberIncrementPeersMentionCountByChannelIDParams{
 		IncrementAmount: int32(incrementAmount),
-		ChannelID:       db.ToUUID(channelID.UUID()),
-		UserID:          db.ToUUID(userID.UUID()),
-		UpdatedAt:       db.ToTimestamptz(updatedAt.Time()),
+		ChannelID:       db.ToUUID(channelID),
+		UserID:          db.ToUUID(userID),
+		UpdatedAt:       db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
 		return r.store.Err(err)
@@ -271,10 +260,10 @@ func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 	return nil
 }
 
-func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.ID) error {
+func (r *MemberRepository) Delete(ctx context.Context, channelID, userID uuid.UUID) error {
 	err := r.store.ChannelMemberDelete(ctx, db.ChannelMemberDeleteParams{
-		ChannelID: db.ToUUID(channelID.UUID()),
-		UserID:    db.ToUUID(userID.UUID()),
+		ChannelID: db.ToUUID(channelID),
+		UserID:    db.ToUUID(userID),
 	})
 	if err != nil {
 		return r.store.Err(err)
@@ -283,50 +272,17 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID fields.
 	return nil
 }
 
-func memberFromRow(row db.ChannelMember) (*channel.Member, error) {
-	channelID := db.FromUUID[uuid.UUID](row.ChannelID)
-	userID := db.FromUUID[uuid.UUID](row.UserID)
-	compositeKey := fmt.Sprintf("%s:%s", channelID.String(), userID.String())
-
-	mapErr := func(msg, key string, val any, err error) *errs.Error {
-		return errs.Internal(msg).
-			Wrap(err).
-			Reason("CORRUPT_DATABASE_RECORD").
-			Meta(key, fmt.Sprintf("%v", val)).
-			Resource("ChannelMember", compositeKey, "", "database row mapping")
-	}
-
-	parsedChannelID, err := fields.ParseRequiredID("channel_id", channelID)
-	if err != nil {
-		return nil, mapErr("failed to parse channel id from database", "channel_id", channelID.String(), err)
-	}
-
-	parsedUserID, err := fields.ParseRequiredID("user_id", userID)
-	if err != nil {
-		return nil, mapErr("failed to parse user id from database", "user_id", userID.String(), err)
-	}
-
-	lastReadMessageID, err := fields.ParseID(db.FromUUID[uuid.UUID](row.LastReadMessageID))
-	if err != nil {
-		return nil, mapErr("failed to parse last read message id from database", "last_read_message_id", row.LastReadMessageID, err)
-	}
-
-	lastReadMessageAt := fields.NewTimestamp(db.FromTimestamptz(row.LastReadMessageAt))
-	pinnedAt := fields.NewTimestamp(db.FromTimestamptz(row.PinnedAt))
-	mutedUntil := fields.NewTimestamp(db.FromTimestamptz(row.MutedUntil))
-	createdAt := fields.NewTimestamp(db.FromTimestamptz(row.CreatedAt))
-	updatedAt := fields.NewTimestamp(db.FromTimestamptz(row.UpdatedAt))
-
+func memberFromRow(row db.ChannelMember) *channel.Member {
 	return channel.ReconstituteMember(
-		parsedChannelID,
-		parsedUserID,
-		lastReadMessageID,
-		lastReadMessageAt,
-		pinnedAt,
-		mutedUntil,
+		db.FromUUID[uuid.UUID](row.ChannelID),
+		db.FromUUID[uuid.UUID](row.UserID),
+		db.FromUUIDPtr[uuid.UUID](row.LastReadMessageID),
+		db.FromTimestamptzPtr(row.LastReadMessageAt),
+		db.FromTimestamptzPtr(row.PinnedAt),
+		db.FromTimestamptzPtr(row.MutedUntil),
 		int(row.MentionCount),
 		row.IsVisible,
-		createdAt,
-		updatedAt,
-	), nil
+		db.FromTimestamptz(row.CreatedAt),
+		db.FromTimestamptz(row.UpdatedAt),
+	)
 }

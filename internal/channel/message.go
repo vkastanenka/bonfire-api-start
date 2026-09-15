@@ -42,9 +42,9 @@ func ReconstituteMessage(
 	forwardMessageID *uuid.UUID,
 	forwardChannelID *uuid.UUID,
 	pinnedAt *time.Time,
+	editedAt *time.Time,
 	createdAt time.Time,
 	updatedAt time.Time,
-	editedAt *time.Time,
 ) *Message {
 	return &Message{
 		ID:               id,
@@ -57,9 +57,9 @@ func ReconstituteMessage(
 		ForwardMessageID: forwardMessageID,
 		ForwardChannelID: forwardChannelID,
 		PinnedAt:         pinnedAt,
+		EditedAt:         editedAt,
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
-		EditedAt:         editedAt,
 	}
 }
 
@@ -90,9 +90,9 @@ func NewRawMessage(
 		forwardMessageID,
 		forwardChannelID,
 		nil,
-		now,
-		now,
 		nil,
+		now,
+		now,
 	), nil
 }
 

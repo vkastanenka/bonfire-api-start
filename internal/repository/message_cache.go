@@ -4,7 +4,8 @@ import (
 	"context"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
+
+	"github.com/google/uuid"
 )
 
 type CachedMessageRepository struct {
@@ -19,7 +20,7 @@ func NewCachedMessageRepository(cache MessageCache, repo *MessageRepository) *Ca
 	}
 }
 
-func (r *CachedMessageRepository) Get(ctx context.Context, id fields.ID) (*channel.Message, error) {
+func (r *CachedMessageRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
 	msg, err := r.cache.Get(ctx, id)
 	if err == nil && msg != nil {
 		return msg, nil
@@ -37,7 +38,7 @@ func (r *CachedMessageRepository) Get(ctx context.Context, id fields.ID) (*chann
 
 func (r *CachedMessageRepository) ListAroundByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	beforeLimit, afterLimit int,
 ) ([]*channel.Message, bool, bool, error) {
 	messages, hasMoreBefore, hasMoreAfter, hit, err := r.cache.GetAroundByChannelID(
@@ -69,7 +70,7 @@ func (r *CachedMessageRepository) ListAroundByChannelID(
 
 func (r *CachedMessageRepository) ListBeforeByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	messages, hasMoreBefore, hit, err := r.cache.GetBeforeByChannelID(ctx, channelID, cursorID, limit)
@@ -89,7 +90,7 @@ func (r *CachedMessageRepository) ListBeforeByChannelID(
 
 func (r *CachedMessageRepository) ListAfterByChannelID(
 	ctx context.Context,
-	channelID, cursorID fields.ID,
+	channelID, cursorID uuid.UUID,
 	limit int,
 ) ([]*channel.Message, bool, error) {
 	messages, hasMoreAfter, hit, err := r.cache.GetAfterByChannelID(ctx, channelID, cursorID, limit)

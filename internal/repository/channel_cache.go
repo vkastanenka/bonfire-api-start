@@ -4,7 +4,8 @@ import (
 	"context"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
+
+	"github.com/google/uuid"
 )
 
 type CachedChannelRepository struct {
@@ -19,7 +20,7 @@ func NewCachedChannelRepository(cache ChannelCache, repo *ChannelRepository) *Ca
 	}
 }
 
-func (r *CachedChannelRepository) Get(ctx context.Context, id fields.ID) (*channel.Channel, error) {
+func (r *CachedChannelRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
 	ch, err := r.cache.Get(ctx, id)
 	if err == nil && ch != nil {
 		return ch, nil
@@ -37,16 +38,16 @@ func (r *CachedChannelRepository) Get(ctx context.Context, id fields.ID) (*chann
 
 func (r *CachedChannelRepository) GetBatch(
 	ctx context.Context,
-	ids []fields.ID,
-) (map[fields.ID]*channel.Channel, error) {
+	ids []uuid.UUID,
+) (map[uuid.UUID]*channel.Channel, error) {
 	if len(ids) == 0 {
-		return make(map[fields.ID]*channel.Channel), nil
+		return make(map[uuid.UUID]*channel.Channel), nil
 	}
 
 	cached, missing, err := r.cache.GetBatch(ctx, ids)
 	if err != nil {
 		missing = ids
-		cached = make(map[fields.ID]*channel.Channel, len(ids))
+		cached = make(map[uuid.UUID]*channel.Channel, len(ids))
 	}
 
 	if len(missing) == 0 {

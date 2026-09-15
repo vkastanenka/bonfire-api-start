@@ -6,6 +6,8 @@ import (
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/fields"
+
+	"github.com/google/uuid"
 )
 
 type CachedMemberRepository struct {
@@ -26,7 +28,7 @@ func NewCachedMemberRepository(
 	}
 }
 
-func (r *CachedMemberRepository) Get(ctx context.Context, channelID, userID fields.ID) (*channel.Member, error) {
+func (r *CachedMemberRepository) Get(ctx context.Context, channelID, userID uuid.UUID) (*channel.Member, error) {
 	mem, err := r.cache.GetMember(ctx, channelID, userID)
 	if err == nil && mem != nil {
 		return mem, nil
@@ -44,9 +46,9 @@ func (r *CachedMemberRepository) Get(ctx context.Context, channelID, userID fiel
 
 func (r *CachedMemberRepository) GetBatchByChannelID(
 	ctx context.Context,
-	channelID fields.ID,
+	channelID uuid.UUID,
 ) ([]*channel.Member, error) {
-	memberMap, err := r.GetBatchByChannelIDs(ctx, []fields.ID{channelID})
+	memberMap, err := r.GetBatchByChannelIDs(ctx, []uuid.UUID{channelID})
 	if err != nil {
 		return nil, err
 	}
@@ -61,16 +63,16 @@ func (r *CachedMemberRepository) GetBatchByChannelID(
 
 func (r *CachedMemberRepository) GetBatchByChannelIDs(
 	ctx context.Context,
-	channelIDs []fields.ID,
-) (map[fields.ID][]*channel.Member, error) {
+	channelIDs []uuid.UUID,
+) (map[uuid.UUID][]*channel.Member, error) {
 	if len(channelIDs) == 0 {
-		return make(map[fields.ID][]*channel.Member), nil
+		return make(map[uuid.UUID][]*channel.Member), nil
 	}
 
 	found, missing, err := r.cache.GetBatchMembersByChannelIDs(ctx, channelIDs)
 	if err != nil {
 		missing = channelIDs
-		found = make(map[fields.ID][]*channel.Member)
+		found = make(map[uuid.UUID][]*channel.Member)
 	}
 
 	if len(missing) == 0 {
@@ -97,7 +99,7 @@ func (r *CachedMemberRepository) GetBatchByChannelIDs(
 
 func (r *CachedMemberRepository) ListVisibleByUserID(
 	ctx context.Context,
-	userID fields.ID,
+	userID uuid.UUID,
 	limit int,
 ) ([]*channel.Member, error) {
 	members, hit, err := r.userCache.GetVisibleMembersByUserID(ctx, userID, limit)
@@ -114,9 +116,9 @@ func (r *CachedMemberRepository) ListVisibleByUserID(
 		return dbMembers, nil
 	}
 
-	channelIDs := make([]fields.ID, len(dbMembers))
+	channelIDs := make([]uuid.UUID, len(dbMembers))
 	for i, m := range dbMembers {
-		channelIDs[i] = m.ChannelID()
+		channelIDs[i] = m.ChannelID
 	}
 
 	_ = r.userCache.SetChannelIDs(ctx, userID, channelIDs)

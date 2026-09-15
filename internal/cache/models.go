@@ -153,9 +153,9 @@ func (m Message) ToDomain() *channel.Message {
 		m.ForwardMessageID,
 		m.ForwardChannelID,
 		m.PinnedAt,
+		m.EditedAt,
 		m.CreatedAt,
 		m.UpdatedAt,
-		m.EditedAt,
 	)
 }
 
