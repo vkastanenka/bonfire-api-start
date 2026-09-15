@@ -35,11 +35,22 @@ func New(code Code, msg string) *Error {
 		Message: msg,
 	}
 
-	if info, err := NewErrorInfo(code.String(), getDomain(), nil); err == nil {
-		e.Detail(info)
+	info, err := NewErrorInfo(code.Name(), getDomain(), nil)
+	if err == nil {
+		e.AddDetail(info)
 	}
 	return e
 }
+
+func IsCode(err error, code Code) bool {
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr.Code == code
+	}
+	return false
+}
+
+func IsNotFound(err error) bool { return IsCode(err, CodeNotFound) }
 
 func Cancelled(msg string) *Error          { return New(CodeCancelled, msg) }
 func InvalidArgument(msg string) *Error    { return New(CodeInvalidArgument, msg) }
@@ -57,16 +68,6 @@ func Unavailable(msg string) *Error        { return New(CodeUnavailable, msg) }
 func DataLoss(msg string) *Error           { return New(CodeDataLoss, msg) }
 func Unauthenticated(msg string) *Error    { return New(CodeUnauthenticated, msg) }
 
-func IsCode(err error, code Code) bool {
-	var appErr *Error
-	if errors.As(err, &appErr) {
-		return appErr.Code == code
-	}
-	return false
-}
-
-func IsNotFound(err error) bool { return IsCode(err, CodeNotFound) }
-
 func (e *Error) Is(target error) bool {
 	var t *Error
 	if errors.As(target, &t) {
@@ -80,9 +81,27 @@ func (e *Error) Error() string {
 		return "<nil apperr.Error>"
 	}
 	if e.Err != nil {
-		return fmt.Sprintf("[%s] %s: %v", e.Code.String(), e.Message, e.Err)
+		return fmt.Sprintf("[%s] %s: %v", e.Code.Name(), e.Message, e.Err)
 	}
-	return fmt.Sprintf("[%s] %s", e.Code.String(), e.Message)
+	return fmt.Sprintf("[%s] %s", e.Code.Name(), e.Message)
+}
+
+func (e *Error) GetDetail(typeURL string) Detail {
+	if e == nil {
+		return nil
+	}
+
+	targetClean := cleanDetailTypeURL(typeURL)
+
+	for _, d := range e.Details {
+		if d == nil {
+			continue
+		}
+		if d.TypeURL() == typeURL || cleanDetailTypeURL(d.TypeURL()) == targetClean {
+			return d
+		}
+	}
+	return nil
 }
 
 func (e *Error) Unwrap() error {
@@ -92,18 +111,6 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-func (e *Error) GetDetail(typeURL string) Detail {
-	if e == nil {
-		return nil
-	}
-	for _, d := range e.Details {
-		if d != nil && d.TypeURL() == typeURL {
-			return d
-		}
-	}
-	return nil
-}
-
 func (e *Error) Wrap(err error) *Error {
 	if e != nil {
 		e.Err = err
@@ -111,14 +118,14 @@ func (e *Error) Wrap(err error) *Error {
 	return e
 }
 
-func (e *Error) Detail(d Detail) *Error {
+func (e *Error) AddDetail(d Detail) *Error {
 	if e == nil || d == nil {
 		return e
 	}
-	typeURL := d.TypeURL()
+	targetClean := cleanDetailTypeURL(d.TypeURL())
 
 	for i, existing := range e.Details {
-		if existing != nil && existing.TypeURL() == typeURL {
+		if existing != nil && cleanDetailTypeURL(existing.TypeURL()) == targetClean {
 			if e.mergeDetail(existing, d) {
 				return e
 			}
@@ -130,24 +137,28 @@ func (e *Error) Detail(d Detail) *Error {
 	return e
 }
 
-func (e *Error) Reason(reason string) *Error {
-	if e == nil {
+func (e *Error) ErrorInfoReason(reason string) *Error {
+	if e == nil || !isValidErrorInfoReason(reason) {
 		return e
 	}
-	if !IsValidReason(reason) {
-		return e
+	info, ok := e.GetDetail(DetailErrorInfo).(*ErrorInfo)
+	if !ok || info == nil {
+		var err error
+		info, err = NewErrorInfo(reason, getDomain(), nil)
+		if err != nil {
+			return e
+		}
+		return e.AddDetail(info)
 	}
-	if info, ok := e.GetDetail(DetailErrorInfo).(*ErrorInfo); ok && info != nil {
-		info.Reason = reason
-	}
+	info.Reason = reason
 	return e
 }
 
-func (e *Error) Meta(key, value string) *Error {
+func (e *Error) ErrorInfoMeta(key, value string) *Error {
 	if e == nil {
 		return e
 	}
-	if !IsValidMetaKey(key) {
+	if !isValidErrorInfoMetaKey(key) {
 		return e
 	}
 	if info, ok := e.GetDetail(DetailErrorInfo).(*ErrorInfo); ok && info != nil {
@@ -159,26 +170,26 @@ func (e *Error) Meta(key, value string) *Error {
 	return e
 }
 
-func (e *Error) Retry(delay time.Duration) *Error {
+func (e *Error) RetryInfo(delay time.Duration) *Error {
 	if e == nil {
-		return nil
+		return e
 	}
-	return e.Detail(NewRetryInfo(delay))
+	return e.AddDetail(NewRetryInfo(delay))
 }
 
-func (e *Error) Debug(detail string, stack ...string) *Error {
+func (e *Error) DebugInfo(detail string, stack ...string) *Error {
 	if e == nil {
-		return nil
+		return e
 	}
 	if info, err := NewDebugInfo(detail, stack...); err == nil {
-		e.Detail(info)
+		e.AddDetail(info)
 	}
 	return e
 }
 
 func (e *Error) FieldViolation(field, description, reason string) *Error {
 	if e == nil {
-		return nil
+		return e
 	}
 
 	fv, err := NewFieldViolation(field, description, reason)
@@ -192,42 +203,106 @@ func (e *Error) FieldViolation(field, description, reason string) *Error {
 	}
 
 	if br, err := NewBadRequest(*fv); err == nil {
-		e.Detail(br)
+		e.AddDetail(br)
 	}
 
 	return e
 }
 
-func (e *Error) Request(requestID, servingData string) *Error {
+func (e *Error) RequestInfo(requestID, servingData string) *Error {
 	if e == nil {
-		return nil
+		return e
 	}
 	if info, err := NewRequestInfo(requestID, servingData); err == nil {
-		e.Detail(info)
+		e.AddDetail(info)
 	}
 	return e
 }
 
-func (e *Error) Resource(rType, name, owner, description string) *Error {
+func (e *Error) ResourceInfo(rType, name, owner, description string) *Error {
 	if e == nil {
-		return nil
+		return e
 	}
 	if info, err := NewResourceInfo(rType, name, owner, description); err == nil {
-		e.Detail(info)
+		e.AddDetail(info)
 	}
 	return e
 }
-func (e *Error) mergeDetail(existing, incoming Detail) bool {
-	switch inc := incoming.(type) {
 
+type errorJSON struct {
+	Code    Code     `json:"code"`
+	Message string   `json:"message"`
+	Details []Detail `json:"details,omitempty"`
+}
+
+func (e *Error) MarshalJSON() ([]byte, error) {
+	return json.Marshal(errorJSON{
+		Code:    e.Code,
+		Message: e.Message,
+		Details: e.Details,
+	})
+}
+
+func (e *Error) UnmarshalJSON(data []byte) error {
+	var env struct {
+		Code    Code              `json:"code"`
+		Message string            `json:"message"`
+		Details []json.RawMessage `json:"details,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &env); err != nil {
+		return fmt.Errorf("unmarshal error envelope: %w", err)
+	}
+
+	e.Code = env.Code
+	e.Message = env.Message
+	if len(env.Details) == 0 {
+		e.Details = nil
+		return nil
+	}
+
+	e.Details = make([]Detail, 0, len(env.Details))
+
+	for _, raw := range env.Details {
+		var typeExtract struct {
+			Type string `json:"@type"`
+		}
+		if err := json.Unmarshal(raw, &typeExtract); err != nil || typeExtract.Type == "" {
+			e.Details = append(e.Details, &RawDetail{RawData: raw})
+			continue
+		}
+
+		factory, ok := detailRegistry[typeExtract.Type]
+		if !ok {
+			factory, ok = detailRegistry[cleanDetailTypeURL(typeExtract.Type)]
+		}
+
+		if !ok {
+			e.Details = append(e.Details, &RawDetail{Type: typeExtract.Type, RawData: raw})
+			continue
+		}
+
+		d := factory()
+		if err := json.Unmarshal(raw, d); err != nil {
+			e.Details = append(e.Details, &RawDetail{Type: typeExtract.Type, RawData: raw})
+			continue
+		}
+
+		e.Details = append(e.Details, d)
+	}
+
+	return nil
+}
+
+func (e *Error) mergeDetail(existing, incoming Detail) bool {
+	switch cur := existing.(type) {
 	case *BadRequest:
-		if cur, ok := existing.(*BadRequest); ok && cur != nil {
+		if inc, ok := incoming.(*BadRequest); ok && inc != nil {
 			cur.FieldViolations = append(cur.FieldViolations, inc.FieldViolations...)
 			return true
 		}
-
 	case *ErrorInfo:
-		if cur, ok := existing.(*ErrorInfo); ok && cur != nil {
+		if inc, ok := incoming.(*ErrorInfo); ok && inc != nil {
 			if cur.Metadata == nil {
 				cur.Metadata = make(map[string]string)
 			}
@@ -239,33 +314,29 @@ func (e *Error) mergeDetail(existing, incoming Detail) bool {
 			}
 			return true
 		}
-
 	case *DebugInfo:
-		if cur, ok := existing.(*DebugInfo); ok && cur != nil {
+		if inc, ok := incoming.(*DebugInfo); ok && inc != nil {
 			if inc.Detail != "" {
 				cur.Detail = inc.Detail
 			}
 			cur.StackEntries = append(cur.StackEntries, inc.StackEntries...)
 			return true
 		}
-
 	case *RetryInfo:
-		if cur, ok := existing.(*RetryInfo); ok && cur != nil {
+		if inc, ok := incoming.(*RetryInfo); ok && inc != nil {
 			cur.RetryDelay = inc.RetryDelay
 			return true
 		}
-
 	case *RequestInfo:
-		if cur, ok := existing.(*RequestInfo); ok && cur != nil {
+		if inc, ok := incoming.(*RequestInfo); ok && inc != nil {
 			cur.RequestId = inc.RequestId
 			if inc.ServingData != "" {
 				cur.ServingData = inc.ServingData
 			}
 			return true
 		}
-
 	case *ResourceInfo:
-		if cur, ok := existing.(*ResourceInfo); ok && cur != nil {
+		if inc, ok := incoming.(*ResourceInfo); ok && inc != nil {
 			cur.ResourceType = inc.ResourceType
 			cur.ResourceName = inc.ResourceName
 			if inc.Owner != "" {
@@ -279,62 +350,4 @@ func (e *Error) mergeDetail(existing, incoming Detail) bool {
 	}
 
 	return false
-}
-
-func (e *Error) UnmarshalJSON(data []byte) error {
-	var env struct {
-		Code    Code              `json:"code"`
-		Message string            `json:"message"`
-		Details []json.RawMessage `json:"details,omitempty"`
-	}
-
-	if err := json.Unmarshal(data, &env); err != nil {
-		return err
-	}
-
-	e.Code = env.Code
-	e.Message = env.Message
-
-	if len(env.Details) == 0 {
-		e.Details = nil
-		return nil
-	}
-
-	e.Details = make([]Detail, 0, len(env.Details))
-
-	for _, raw := range env.Details {
-		var typeExtract struct {
-			Type string `json:"@type"`
-		}
-		if err := json.Unmarshal(raw, &typeExtract); err != nil {
-			continue
-		}
-
-		var d Detail
-		switch typeExtract.Type {
-		case DetailErrorInfo:
-			d = &ErrorInfo{}
-		case DetailRetryInfo:
-			d = &RetryInfo{}
-		case DetailDebugInfo:
-			d = &DebugInfo{}
-		case DetailBadRequest:
-			d = &BadRequest{}
-		case DetailRequestInfo:
-			d = &RequestInfo{}
-		case DetailResourceInfo:
-			d = &ResourceInfo{}
-		default:
-			e.Details = append(e.Details, &RawDetail{Type: typeExtract.Type, RawData: raw})
-			continue
-		}
-
-		if err := json.Unmarshal(raw, d); err == nil {
-			e.Details = append(e.Details, d)
-		} else {
-			e.Details = append(e.Details, &RawDetail{Type: typeExtract.Type, RawData: raw})
-		}
-	}
-
-	return nil
 }

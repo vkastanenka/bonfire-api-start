@@ -5,19 +5,37 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
 // https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto
 
 const (
-	DetailErrorInfo    = "ErrorInfo"
-	DetailRetryInfo    = "RetryInfo"
-	DetailDebugInfo    = "DebugInfo"
-	DetailBadRequest   = "BadRequest"
-	DetailRequestInfo  = "RequestInfo"
-	DetailResourceInfo = "ResourceInfo"
+	detailTypeURLPrefix = "type.googleapis.com/google.rpc."
+
+	DetailErrorInfo    = detailTypeURLPrefix + "ErrorInfo"
+	DetailRetryInfo    = detailTypeURLPrefix + "RetryInfo"
+	DetailDebugInfo    = detailTypeURLPrefix + "DebugInfo"
+	DetailBadRequest   = detailTypeURLPrefix + "BadRequest"
+	DetailRequestInfo  = detailTypeURLPrefix + "RequestInfo"
+	DetailResourceInfo = detailTypeURLPrefix + "ResourceInfo"
 )
+
+var detailRegistry = map[string]func() Detail{
+	DetailErrorInfo:                        func() Detail { return &ErrorInfo{} },
+	cleanDetailTypeURL(DetailErrorInfo):    func() Detail { return &ErrorInfo{} },
+	DetailRetryInfo:                        func() Detail { return &RetryInfo{} },
+	cleanDetailTypeURL(DetailRetryInfo):    func() Detail { return &RetryInfo{} },
+	DetailDebugInfo:                        func() Detail { return &DebugInfo{} },
+	cleanDetailTypeURL(DetailDebugInfo):    func() Detail { return &DebugInfo{} },
+	DetailBadRequest:                       func() Detail { return &BadRequest{} },
+	cleanDetailTypeURL(DetailBadRequest):   func() Detail { return &BadRequest{} },
+	DetailRequestInfo:                      func() Detail { return &RequestInfo{} },
+	cleanDetailTypeURL(DetailRequestInfo):  func() Detail { return &RequestInfo{} },
+	DetailResourceInfo:                     func() Detail { return &ResourceInfo{} },
+	cleanDetailTypeURL(DetailResourceInfo): func() Detail { return &ResourceInfo{} },
+}
 
 type Detail interface {
 	TypeURL() string
@@ -30,6 +48,29 @@ type RawDetail struct {
 
 func (r *RawDetail) TypeURL() string { return r.Type }
 
+func (r *RawDetail) MarshalJSON() ([]byte, error) {
+	if len(r.RawData) > 0 {
+		return r.RawData, nil
+	}
+	return json.Marshal(struct {
+		Type string `json:"@type"`
+	}{Type: r.Type})
+}
+
+func (r *RawDetail) UnmarshalJSON(data []byte) error {
+	r.RawData = append(r.RawData[:0], data...)
+
+	var typeExtract struct {
+		Type string `json:"@type"`
+	}
+	if err := json.Unmarshal(data, &typeExtract); err != nil {
+		return err
+	}
+
+	r.Type = typeExtract.Type
+	return nil
+}
+
 type ErrorInfo struct {
 	Type     string            `json:"@type"`
 	Reason   string            `json:"reason"`
@@ -37,35 +78,25 @@ type ErrorInfo struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-var reasonRegex = regexp.MustCompile(`^[A-Z][A-Z0-9_]+[A-Z0-9]$`)
-
-func IsValidReason(reason string) bool {
-	if len(reason) == 0 || len(reason) > 63 {
-		return false
-	}
-	return reasonRegex.MatchString(reason)
-}
-
-var metaKeyRegex = regexp.MustCompile(`^[a-z][a-zA-Z0-9-_]+$`)
-
-func IsValidMetaKey(key string) bool {
-	if len(key) == 0 || len(key) > 64 {
-		return false
-	}
-	return metaKeyRegex.MatchString(key)
-}
+var (
+	errorInfoReasonMaxLength  = 63
+	errorInfoMetaKeyMaxLength = 64
+	errorInfoReasonRegex      = regexp.MustCompile(`^[A-Z][A-Z0-9_]+[A-Z0-9]$`)
+	errorInfoMetaKeyRegex     = regexp.MustCompile(`^[a-z][a-zA-Z0-9-_]+$`)
+)
 
 func NewErrorInfo(reason, domain string, metadata map[string]string) (*ErrorInfo, error) {
 	if domain == "" {
-		return nil, errors.New("apperr: ErrorInfo domain is required")
+		return nil, errors.New("error info domain is required")
 	}
-	if reason != "" && !IsValidReason(reason) {
-		return nil, fmt.Errorf("apperr: invalid ErrorInfo reason %q (must be UPPER_SNAKE_CASE, <=63 chars)", reason)
+
+	if reason != "" && !isValidErrorInfoReason(reason) {
+		return nil, fmt.Errorf("invalid ErrorInfo reason %q (must be UPPER_SNAKE_CASE, <=63 chars)", reason)
 	}
 
 	for key := range metadata {
-		if !IsValidMetaKey(key) {
-			return nil, fmt.Errorf("apperr: invalid ErrorInfo metadata key %q (must match [a-z][a-zA-Z0-9-_]+ and be <=64 chars)", key)
+		if !isValidErrorInfoMetaKey(key) {
+			return nil, fmt.Errorf("invalid ErrorInfo metadata key %q (must match [a-z][a-zA-Z0-9-_]+ and be <=64 chars)", key)
 		}
 	}
 
@@ -77,51 +108,66 @@ func NewErrorInfo(reason, domain string, metadata map[string]string) (*ErrorInfo
 	}, nil
 }
 
-func (e *ErrorInfo) TypeURL() string { return DetailErrorInfo }
+func (e *ErrorInfo) TypeURL() string { return e.Type }
+
+func isValidErrorInfoReason(reason string) bool {
+	if len(reason) == 0 || len(reason) > errorInfoReasonMaxLength {
+		return false
+	}
+	return errorInfoReasonRegex.MatchString(reason)
+}
+
+func isValidErrorInfoMetaKey(key string) bool {
+	if len(key) == 0 || len(key) > errorInfoMetaKeyMaxLength {
+		return false
+	}
+	return errorInfoMetaKeyRegex.MatchString(key)
+}
 
 type RetryInfo struct {
 	Type       string        `json:"@type"`
 	RetryDelay time.Duration `json:"-"`
 }
 
+type retryInfoJSON struct {
+	Type       string `json:"@type"`
+	RetryDelay string `json:"retryDelay,omitempty"`
+}
+
 func NewRetryInfo(delay time.Duration) *RetryInfo {
 	return &RetryInfo{Type: DetailRetryInfo, RetryDelay: delay}
 }
 
-func (r *RetryInfo) TypeURL() string { return DetailRetryInfo }
+func (r *RetryInfo) TypeURL() string { return r.Type }
 
 func (r *RetryInfo) MarshalJSON() ([]byte, error) {
-	if r == nil {
-		return json.Marshal(nil)
+	var delayStr string
+	if r.RetryDelay > 0 {
+		delayStr = fmt.Sprintf("%.9fs", r.RetryDelay.Seconds())
 	}
-	return json.Marshal(&struct {
-		Type       string `json:"@type"`
-		RetryDelay string `json:"retryDelay"`
-	}{
-		Type:       DetailRetryInfo,
-		RetryDelay: fmt.Sprintf("%.9fs", r.RetryDelay.Seconds()),
+
+	return json.Marshal(retryInfoJSON{
+		Type:       r.Type,
+		RetryDelay: delayStr,
 	})
 }
 
 func (r *RetryInfo) UnmarshalJSON(b []byte) error {
-	if r == nil {
-		return errors.New("apperr: UnmarshalJSON on nil RetryInfo pointer")
-	}
-
-	var raw struct {
-		Type     string `json:"@type"`
-		DelayRaw string `json:"retryDelay"`
-	}
-
-	if err := json.Unmarshal(b, &raw); err != nil {
+	var aux retryInfoJSON
+	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
 	}
 
-	r.Type = DetailRetryInfo
-	if raw.DelayRaw != "" {
-		d, err := time.ParseDuration(raw.DelayRaw)
+	if aux.Type != "" {
+		r.Type = aux.Type
+	} else {
+		r.Type = DetailRetryInfo
+	}
+
+	if aux.RetryDelay != "" {
+		d, err := time.ParseDuration(aux.RetryDelay)
 		if err != nil {
-			return fmt.Errorf("apperr: invalid retryDelay duration %q: %w", raw.DelayRaw, err)
+			return fmt.Errorf("invalid retryDelay duration %q: %w", aux.RetryDelay, err)
 		}
 		r.RetryDelay = d
 	}
@@ -137,7 +183,7 @@ type DebugInfo struct {
 
 func NewDebugInfo(detail string, stackEntries ...string) (*DebugInfo, error) {
 	if detail == "" {
-		return nil, errors.New("apperr: DebugInfo detail is required")
+		return nil, errors.New("debug info detail is required")
 	}
 	return &DebugInfo{
 		Type:         DetailDebugInfo,
@@ -146,17 +192,17 @@ func NewDebugInfo(detail string, stackEntries ...string) (*DebugInfo, error) {
 	}, nil
 }
 
-func (d *DebugInfo) TypeURL() string { return DetailDebugInfo }
+func (d *DebugInfo) TypeURL() string { return d.Type }
 
 type FieldViolation struct {
 	Field       string `json:"field"`
 	Description string `json:"description"`
-	Reason      string `json:"reason"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 func NewFieldViolation(field, description, reason string) (*FieldViolation, error) {
-	if field == "" || description == "" || reason == "" {
-		return nil, errors.New("apperr: FieldViolation field, description, and reason are required")
+	if field == "" || description == "" {
+		return nil, errors.New("field violation field and description are required")
 	}
 	return &FieldViolation{Field: field, Description: description, Reason: reason}, nil
 }
@@ -168,12 +214,12 @@ type BadRequest struct {
 
 func NewBadRequest(violations ...FieldViolation) (*BadRequest, error) {
 	if len(violations) == 0 {
-		return nil, errors.New("apperr: BadRequest requires at least one field violation")
+		return nil, errors.New("bad request requires at least one field violation")
 	}
 	return &BadRequest{Type: DetailBadRequest, FieldViolations: violations}, nil
 }
 
-func (b *BadRequest) TypeURL() string { return DetailBadRequest }
+func (b *BadRequest) TypeURL() string { return b.Type }
 
 type RequestInfo struct {
 	Type        string `json:"@type"`
@@ -183,12 +229,12 @@ type RequestInfo struct {
 
 func NewRequestInfo(requestID, servingData string) (*RequestInfo, error) {
 	if requestID == "" {
-		return nil, errors.New("apperr: RequestInfo requestID is required")
+		return nil, errors.New("request info requestID is required")
 	}
 	return &RequestInfo{Type: DetailRequestInfo, RequestId: requestID, ServingData: servingData}, nil
 }
 
-func (r *RequestInfo) TypeURL() string { return DetailRequestInfo }
+func (r *RequestInfo) TypeURL() string { return r.Type }
 
 type ResourceInfo struct {
 	Type         string `json:"@type"`
@@ -200,9 +246,16 @@ type ResourceInfo struct {
 
 func NewResourceInfo(rType, rName, owner, desc string) (*ResourceInfo, error) {
 	if rType == "" || rName == "" {
-		return nil, errors.New("apperr: ResourceInfo resourceType and resourceName are required")
+		return nil, errors.New("resource info resourceType and resourceName are required")
 	}
 	return &ResourceInfo{Type: DetailResourceInfo, ResourceType: rType, ResourceName: rName, Owner: owner, Description: desc}, nil
 }
 
-func (r *ResourceInfo) TypeURL() string { return DetailResourceInfo }
+func (r *ResourceInfo) TypeURL() string { return r.Type }
+
+func cleanDetailTypeURL(rawType string) string {
+	if idx := strings.LastIndex(rawType, "/"); idx != -1 {
+		rawType = rawType[idx+1:]
+	}
+	return strings.TrimPrefix(rawType, "google.rpc.")
+}
