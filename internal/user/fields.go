@@ -40,12 +40,8 @@ func ParsePreferredPresenceDuration(raw int) (PreferredPresenceDuration, error) 
 }
 
 func ParsePreferredPresenceDurationString(s string) (PreferredPresenceDuration, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return PreferredPresenceDurationUnknown, nil
-	}
 	for i, name := range durationNames {
-		if name == str {
+		if name == s {
 			return PreferredPresenceDuration(i), nil
 		}
 	}

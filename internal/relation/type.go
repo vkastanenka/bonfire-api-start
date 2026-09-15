@@ -34,12 +34,8 @@ func Parse(raw int) (Type, error) {
 }
 
 func ParseString(s string) (Type, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return TypeUnknown, nil
-	}
 	for i, name := range typeNames {
-		if name == str {
+		if name == s {
 			return Type(i), nil
 		}
 	}

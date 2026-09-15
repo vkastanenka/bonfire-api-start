@@ -40,12 +40,8 @@ func Parse(raw int) (Presence, error) {
 }
 
 func ParseString(s string) (Presence, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return PresenceUnknown, nil
-	}
 	for i, name := range presenceNames {
-		if name == str {
+		if name == s {
 			return Presence(i), nil
 		}
 	}

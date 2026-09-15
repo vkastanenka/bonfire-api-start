@@ -37,12 +37,8 @@ func ParseChannelType(raw int) (ChannelType, error) {
 }
 
 func ParseChannelTypeString(s string) (ChannelType, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return ChannelTypeUnknown, nil
-	}
 	for i, name := range channelTypeNames {
-		if name == str {
+		if name == s {
 			return ChannelType(i), nil
 		}
 	}
@@ -143,12 +139,8 @@ func ParseMessageType(raw int) (MessageType, error) {
 }
 
 func ParseMessageTypeString(s string) (MessageType, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return MessageTypeUnknown, nil
-	}
 	for i, name := range messageTypeNames {
-		if name == str {
+		if name == s {
 			return MessageType(i), nil
 		}
 	}
@@ -251,12 +243,8 @@ func ParseMuteDuration(raw int) (MuteDuration, error) {
 }
 
 func ParseMuteDurationString(s string) (MuteDuration, error) {
-	str := sanitize.EnumValue(s)
-	if str == "" {
-		return MuteDurationUnknown, nil
-	}
 	for i, name := range muteDurationNames {
-		if name == str {
+		if name == s {
 			return MuteDuration(i), nil
 		}
 	}
