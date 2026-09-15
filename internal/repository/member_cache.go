@@ -5,7 +5,7 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
+	"bonfire-api/internal/helpers"
 
 	"github.com/google/uuid"
 )
@@ -79,7 +79,7 @@ func (r *CachedMemberRepository) GetBatchByChannelIDs(
 		return found, nil
 	}
 
-	missing = fields.DedupeIDs(missing)
+	missing = helpers.DedupeIDs(missing)
 
 	dbMembersMap, err := r.repo.GetBatchByChannelIDs(ctx, missing)
 	if err != nil {

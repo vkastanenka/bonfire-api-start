@@ -1,8 +1,6 @@
-package fields
+package helpers
 
 import (
-	"bytes"
-
 	"github.com/google/uuid"
 )
 
@@ -35,11 +33,4 @@ func RemoveID(target uuid.UUID, ids []uuid.UUID) []uuid.UUID {
 		}
 	}
 	return result
-}
-
-func SortIDPair(id1, id2 uuid.UUID) (uuid.UUID, uuid.UUID) {
-	if bytes.Compare(id1[:], id2[:]) < 0 {
-		return id1, id2
-	}
-	return id2, id1
 }

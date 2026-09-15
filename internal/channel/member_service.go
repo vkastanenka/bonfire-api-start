@@ -1,7 +1,7 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
+	"bonfire-api/internal/helpers"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
@@ -66,7 +66,7 @@ func (s *MemberService) GetBatchByChannelIDs(
 		return make(map[uuid.UUID][]*Member), nil
 	}
 
-	channelIDs = fields.DedupeIDs(channelIDs)
+	channelIDs = helpers.DedupeIDs(channelIDs)
 
 	// 1. Attempt cache lookup
 	found, missing, err := s.channelCache.GetBatchMembersByChannelIDs(ctx, channelIDs)
@@ -176,7 +176,7 @@ func (s *MemberService) AddMembers(
 	}
 
 	existingMemberIDs := getMemberIDs(existingMembers)
-	allMemberIDs := fields.DedupeIDs(append(existingMemberIDs, newMemberIDs...))
+	allMemberIDs := helpers.DedupeIDs(append(existingMemberIDs, newMemberIDs...))
 
 	var (
 		allUsers     map[uuid.UUID]*user.User

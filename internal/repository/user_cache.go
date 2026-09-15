@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"bonfire-api/internal/fields"
+	"bonfire-api/internal/helpers"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -64,7 +64,7 @@ func (r *CachedUserRepository) GetBatch(
 		return usersMap, nil
 	}
 
-	missing = fields.DedupeIDs(missing)
+	missing = helpers.DedupeIDs(missing)
 
 	dbUsersMap, err := r.repo.GetBatch(ctx, missing)
 	if err != nil {

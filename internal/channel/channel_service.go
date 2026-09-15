@@ -1,7 +1,7 @@
 package channel
 
 import (
-	"bonfire-api/internal/fields"
+	"bonfire-api/internal/helpers"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
@@ -63,8 +63,8 @@ func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uui
 		return nil, err
 	}
 
-	dedupedMemberIDs := fields.DedupeIDs(append(rawPeerIDs, actorID))
-	peerIDs := fields.RemoveID(actorID, dedupedMemberIDs)
+	dedupedMemberIDs := helpers.DedupeIDs(append(rawPeerIDs, actorID))
+	peerIDs := helpers.RemoveID(actorID, dedupedMemberIDs)
 
 	if len(peerIDs) > 0 {
 		if err := s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs); err != nil {
