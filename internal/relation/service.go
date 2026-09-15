@@ -148,7 +148,7 @@ func (s *Service) TransitionFriends(ctx context.Context, actorID, peerID uuid.UU
 		}
 		createdChannel = newCh
 
-		newMembers := channel.NewMembers(newCh.ID(), actorID, rel.PeerIDs(actorID), now)
+		newMembers := channel.NewMembers(newCh.ID, actorID, rel.PeerIDs(actorID), now)
 		createdMembers, err := s.memberRepo.CreateBatch(txCtx, newMembers)
 		if err != nil {
 			return err
@@ -156,14 +156,14 @@ func (s *Service) TransitionFriends(ctx context.Context, actorID, peerID uuid.UU
 
 		var peerMember *channel.Member
 		for _, m := range createdMembers {
-			if m.UserID().Equals(actorID) {
+			if m.UserID == actorID {
 				actorMember = m
-			} else if m.UserID().Equals(peerID) {
+			} else if m.UserID == peerID {
 				peerMember = m
 			}
 		}
 
-		rel.Accept(actorID, newCh.ID(), now)
+		rel.Accept(actorID, newCh.ID, now)
 
 		if _, err := s.repo.Save(txCtx, rel); err != nil {
 			return err
@@ -193,7 +193,7 @@ func (s *Service) TransitionFriends(ctx context.Context, actorID, peerID uuid.UU
 		return nil, err
 	}
 
-	if err := s.userCache.AddFriendPair(ctx, actorID, peerID, createdChannel.ID()); err != nil {
+	if err := s.userCache.AddFriendPair(ctx, actorID, peerID, createdChannel.ID); err != nil {
 		slog.WarnContext(ctx, "failed to update friend pair cache", "actor_id", actorID, "peer_id", peerID, "err", err)
 	}
 

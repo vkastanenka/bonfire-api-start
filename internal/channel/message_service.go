@@ -2,7 +2,6 @@ package channel
 
 import (
 	"bonfire-api/internal/errs"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/user"
 	"context"
@@ -59,48 +58,23 @@ func NewMessageService(
 // Create generates a new message and related channel + member side effects.
 func (s *MessageService) Create(
 	ctx context.Context,
-	rawAuthorID,
-	rawSessionID,
-	rawChannelID uuid.UUID,
-	rawContent *string,
-	rawReplyToMsgID *uuid.UUID,
-	rawFwdMsgID *uuid.UUID,
-	rawFwdChannelID *uuid.UUID,
+	authorID,
+	sessionID,
+	channelID uuid.UUID,
+	content *string,
+	replyToMsgID *uuid.UUID,
+	fwdMsgID *uuid.UUID,
+	fwdChannelID *uuid.UUID,
 ) (*Message, error) {
-	hasReply := rawReplyToMsgID != nil
-	hasFwdMsg := rawFwdMsgID != nil
-	hasFwdChan := rawFwdChannelID != nil
+	hasReply := replyToMsgID != nil
+	hasFwdMsg := fwdMsgID != nil
+	hasFwdChan := fwdChannelID != nil
 
 	if err := validateReply(hasReply, hasFwdMsg, hasFwdChan); err != nil {
 		return nil, err
 	}
 
 	if err := validateForward(hasFwdMsg, hasFwdChan); err != nil {
-		return nil, err
-	}
-
-	authorID, sessionID, channelID, err := validateIDs(rawAuthorID, rawSessionID, rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := ParseMessageContent(ptr.From(rawContent))
-	if err != nil {
-		return nil, err
-	}
-
-	replyToID, err := fields.ParseID(ptr.From(rawReplyToMsgID))
-	if err != nil {
-		return nil, err
-	}
-
-	fwdMsgID, err := fields.ParseID(ptr.From(rawFwdMsgID))
-	if err != nil {
-		return nil, err
-	}
-
-	fwdChannelID, err := fields.ParseID(ptr.From(rawFwdChannelID))
-	if err != nil {
 		return nil, err
 	}
 
@@ -119,11 +93,11 @@ func (s *MessageService) Create(
 
 	if hasReply {
 		g.Go(func() error {
-			parentMsg, err := s.cachedRepo.Get(ctxGrp, replyToID)
+			parentMsg, err := s.cachedRepo.Get(ctxGrp, *replyToMsgID)
 			if err != nil {
 				return err
 			}
-			if !parentMsg.ChannelID().Equals(channelID) {
+			if parentMsg.ChannelID != channelID {
 				return ErrMessageReplyDifferentChannel()
 			}
 			return nil
@@ -141,13 +115,13 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	now := fields.Now()
+	now := time.Now()
 
 	msg, err := NewMessage(
 		channelID,
 		authorID,
-		content,
-		replyToID,
+		*content,
+		replyToMsgID,
 		fwdMsgID,
 		fwdChannelID,
 		now,
@@ -169,7 +143,7 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		_, err = s.channelRepo.UpdateLastMessage(txCtx, ch.ID(), savedMsg.ID(), now, now)
+		_, err = s.channelRepo.UpdateLastMessage(txCtx, ch.ID, &savedMsg.ID, &savedMsg.CreatedAt, now)
 		if err != nil {
 			return err
 		}
@@ -178,7 +152,7 @@ func (s *MessageService) Create(
 			txCtx,
 			channelID,
 			authorID,
-			msg.ID(),
+			&msg.ID,
 			now,
 			now,
 			ptr.To(0),
@@ -217,13 +191,12 @@ func (s *MessageService) Create(
 	return savedMsg, nil
 }
 
-// ListAround fetches messages directly before and after rawMsgCursorID.
+// ListAround fetches messages directly before and after msgCursorID.
 func (s *MessageService) ListAround(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
+	actorID, channelID, msgCursorID uuid.UUID,
 ) (*GetMessageViewsResult, bool, bool, error) {
-	actorID, channelID, msgCursorID, err := s.validateParams(ctx, rawActorID, rawChannelID, rawMsgCursorID)
-	if err != nil {
+	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
 		return nil, false, false, err
 	}
 
@@ -246,13 +219,12 @@ func (s *MessageService) ListAround(
 	return views, hasMoreBefore, hasMoreAfter, err
 }
 
-// ListBefore fetches messages directly before rawMsgCursorID using the cached repository.
+// ListBefore fetches messages directly before msgCursorID using the cached repository.
 func (s *MessageService) ListBefore(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
+	actorID, channelID, msgCursorID uuid.UUID,
 ) (*GetMessageViewsResult, bool, error) {
-	actorID, channelID, msgCursorID, err := s.validateParams(ctx, rawActorID, rawChannelID, rawMsgCursorID)
-	if err != nil {
+	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
 		return nil, false, err
 	}
 
@@ -274,13 +246,12 @@ func (s *MessageService) ListBefore(
 	return views, hasMoreBefore, nil
 }
 
-// ListAfter fetches messages directly after rawMsgCursorID using the cached repository.
+// ListAfter fetches messages directly after msgCursorID using the cached repository.
 func (s *MessageService) ListAfter(
 	ctx context.Context,
-	rawActorID, rawChannelID, rawMsgCursorID uuid.UUID,
+	actorID, channelID, msgCursorID uuid.UUID,
 ) (*GetMessageViewsResult, bool, error) {
-	actorID, channelID, msgCursorID, err := s.validateParams(ctx, rawActorID, rawChannelID, rawMsgCursorID)
-	if err != nil {
+	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
 		return nil, false, err
 	}
 
@@ -305,16 +276,13 @@ func (s *MessageService) ListAfter(
 // ListPinned fetches pinned messages for a channel
 func (s *MessageService) ListPinned(
 	ctx context.Context,
-	rawActorID, rawChannelID uuid.UUID,
-	rawMsgCursorID *uuid.UUID,
-	rawCursorPinnedAt *time.Time,
-) ([]*Message, map[fields.ID]*user.User, bool, error) {
-	_, channelID, msgCursorID, err := s.validateParams(ctx, rawActorID, rawChannelID, ptr.From(rawMsgCursorID))
-	if err != nil {
+	actorID, channelID uuid.UUID,
+	msgCursorID *uuid.UUID,
+	cursorPinnedAt *time.Time,
+) ([]*Message, map[uuid.UUID]*user.User, bool, error) {
+	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
 		return nil, nil, false, err
 	}
-
-	cursorPinnedAt := fields.NewTimestamp(ptr.From(rawCursorPinnedAt))
 
 	messages, hasMoreBefore, err := s.repo.ListPinnedByChannelID(
 		ctx,
@@ -346,20 +314,10 @@ func (s *MessageService) ListPinned(
 // UpdateContent updates an author's message content.
 func (s *MessageService) UpdateContent(
 	ctx context.Context,
-	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
-	rawContent string,
+	actorID, sessionID, channelID, messageID uuid.UUID,
+	content string,
 ) (*Message, error) {
-	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := ParseMessageContent(rawContent)
-	if err != nil {
-		return nil, err
-	}
-
-	if content.Len() == 0 {
+	if len(content) == 0 {
 		return nil, ErrMessageContentMinLength()
 	}
 
@@ -368,12 +326,12 @@ func (s *MessageService) UpdateContent(
 		return nil, err
 	}
 
-	if !msg.AuthorID().Equals(actorID) {
+	if msg.AuthorID != &actorID {
 		return nil, ErrMessageNotAuthor()
 	}
 
 	var updatedMsg *Message
-	now := fields.Now()
+	now := time.Now()
 	memIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -384,8 +342,8 @@ func (s *MessageService) UpdateContent(
 
 		payload := EventMessageUpdatedPayload{
 			ExcludeSessionID: sessionID,
-			MessageID:        updatedMsg.id,
-			MessageContent:   &updatedMsg.content,
+			MessageID:        updatedMsg.ID,
+			MessageContent:   updatedMsg.Content,
 			MemberIDs:        memIDs,
 		}
 
@@ -408,23 +366,18 @@ func (s *MessageService) UpdateContent(
 // UpdatePinnedAt pins or unpins a message in a channel.
 func (s *MessageService) UpdatePinnedAt(
 	ctx context.Context,
-	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
+	actorID, sessionID, channelID, messageID uuid.UUID,
 	isPinned bool,
 ) (*Message, error) {
-	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
-	if err != nil {
-		return nil, err
-	}
-
 	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
 
-	now := fields.Now()
+	now := time.Now()
 	memIDs := getMemberIDs(mems)
 
-	var pinnedAt *fields.Timestamp
+	var pinnedAt *time.Time
 	if isPinned {
 		pinnedAt = &now
 	}
@@ -433,7 +386,7 @@ func (s *MessageService) UpdatePinnedAt(
 	var savedSysMsg *Message
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedMsg, err = s.repo.UpdatePinnedAt(txCtx, messageID, ptr.From(pinnedAt), now)
+		updatedMsg, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
 		if err != nil {
 			return err
 		}
@@ -441,8 +394,8 @@ func (s *MessageService) UpdatePinnedAt(
 		if isPinned {
 			sysMsg, err := NewMessagePin(
 				channelID,
-				actorID,
-				updatedMsg.ID(),
+				&actorID,
+				updatedMsg.ID,
 				now,
 			)
 			if err != nil {
@@ -454,7 +407,7 @@ func (s *MessageService) UpdatePinnedAt(
 				return err
 			}
 
-			_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, savedSysMsg.ID(), now, now)
+			_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, &savedSysMsg.ID, &now, now)
 			if err != nil {
 				return err
 			}
@@ -465,7 +418,7 @@ func (s *MessageService) UpdatePinnedAt(
 			ExcludeSessionID: sessionID,
 			MessageID:        messageID,
 			MessagePinnedAt:  pinnedAt,
-			MessageUpdatedAt: updatedMsg.UpdatedAt(),
+			MessageUpdatedAt: updatedMsg.UpdatedAt,
 			SystemMessage:    savedSysMsg,
 		}
 
@@ -488,23 +441,18 @@ func (s *MessageService) UpdatePinnedAt(
 // Delete deletes a message belonging to the actor and triggers side effects.
 func (s *MessageService) Delete(
 	ctx context.Context,
-	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
+	actorID, sessionID, channelID, messageID uuid.UUID,
 ) error {
-	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
-	if err != nil {
-		return err
-	}
-
 	msg, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return err
 	}
 
-	if !msg.AuthorID().Equals(actorID) {
-		return ErrMessageNotAuthorizedToDelete()
+	if msg.AuthorID != &actorID {
+		return ErrMessageNotAuthor()
 	}
 
-	now := fields.Now()
+	now := time.Now()
 	memIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -533,19 +481,9 @@ func (s *MessageService) Delete(
 // ToggleReaction adds or removes a user's reaction on a message.
 func (s *MessageService) ToggleReaction(
 	ctx context.Context,
-	rawActorID, rawSessionID, rawChannelID, rawMessageID uuid.UUID,
-	rawEmoji string,
+	actorID, sessionID, channelID, messageID uuid.UUID,
+	emoji string,
 ) (*EmojiCount, error) {
-	actorID, sessionID, channelID, messageID, err := validateMessageIDs(rawActorID, rawSessionID, rawChannelID, rawMessageID)
-	if err != nil {
-		return nil, err
-	}
-
-	emoji, err := ParseReactionEmoji(rawEmoji)
-	if err != nil {
-		return nil, err
-	}
-
 	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
@@ -556,7 +494,7 @@ func (s *MessageService) ToggleReaction(
 		updatedCount  int
 	)
 
-	now := fields.Now()
+	now := time.Now()
 	memberIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -586,7 +524,7 @@ func (s *MessageService) ToggleReaction(
 
 		// Broadcast neutral Reacted: false so clients don't overwrite user-specific state
 		broadcastEmojiCount := EmojiCount{
-			Emoji:   emoji.String(),
+			Emoji:   emoji,
 			Count:   updatedCount,
 			Reacted: false,
 		}
@@ -607,13 +545,13 @@ func (s *MessageService) ToggleReaction(
 	}
 
 	return &EmojiCount{
-		Emoji:   emoji.String(),
+		Emoji:   emoji,
 		Count:   updatedCount,
 		Reacted: willBeReacted,
 	}, nil
 }
 
-func (s *MessageService) validateMembership(ctx context.Context, channelID, userID fields.ID) error {
+func (s *MessageService) validateMembership(ctx context.Context, channelID, userID uuid.UUID) error {
 	_, err := s.cachedMemberRepo.Get(ctx, channelID, userID)
 	if err != nil {
 		if errs.IsNotFound(err) {
@@ -624,7 +562,7 @@ func (s *MessageService) validateMembership(ctx context.Context, channelID, user
 	return nil
 }
 
-func (s *MessageService) getValidMemberships(ctx context.Context, channelID, authorID fields.ID) ([]*Member, error) {
+func (s *MessageService) getValidMemberships(ctx context.Context, channelID, authorID uuid.UUID) ([]*Member, error) {
 	mems, err := s.cachedMemberRepo.GetBatchByChannelID(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -640,11 +578,11 @@ func (s *MessageService) getValidMemberships(ctx context.Context, channelID, aut
 
 type GetMessageViewsResult struct {
 	messages          []*Message
-	users             map[fields.ID]*user.User
-	reactionSummaries map[fields.ID]*ReactionSummary
+	users             map[uuid.UUID]*user.User
+	reactionSummaries map[uuid.UUID]*ReactionSummary
 }
 
-func (s *MessageService) getMessageViews(ctx context.Context, actorID fields.ID, messages []*Message) (*GetMessageViewsResult, error) {
+func (s *MessageService) getMessageViews(ctx context.Context, actorID uuid.UUID, messages []*Message) (*GetMessageViewsResult, error) {
 	if len(messages) == 0 {
 		return nil, nil
 	}
@@ -652,8 +590,8 @@ func (s *MessageService) getMessageViews(ctx context.Context, actorID fields.ID,
 	msgIDs, authorIDs := getMessageIDs(messages)
 
 	var (
-		reactionSummaryMap map[fields.ID]*ReactionSummary
-		userMap            map[fields.ID]*user.User
+		reactionSummaryMap map[uuid.UUID]*ReactionSummary
+		userMap            map[uuid.UUID]*user.User
 	)
 
 	g, ctxGrp := errgroup.WithContext(ctx)
@@ -679,7 +617,7 @@ func (s *MessageService) getMessageViews(ctx context.Context, actorID fields.ID,
 	return &GetMessageViewsResult{messages, userMap, reactionSummaryMap}, nil
 }
 
-func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, msgID fields.ID) (*Message, []*Member, error) {
+func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, msgID uuid.UUID) (*Message, []*Member, error) {
 	var msg *Message
 	var mems []*Member
 
@@ -701,25 +639,9 @@ func (s *MessageService) prepareUpdate(ctx context.Context, actorID, channelID, 
 		return nil, nil, err
 	}
 
-	if !msg.ChannelID().Equals(channelID) {
+	if msg.ChannelID != channelID {
 		return nil, nil, ErrMessageNotFoundInChannel()
 	}
 
 	return msg, mems, nil
-}
-
-func (s *MessageService) validateParams(
-	ctx context.Context,
-	rawActorID, rawChannelID, rawMsgID uuid.UUID,
-) (fields.ID, fields.ID, fields.ID, error) {
-	actorID, _, channelID, msgID, err := validateMessageIDs(rawActorID, uuid.Nil, rawChannelID, rawMsgID)
-	if err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-
-	if err := s.validateMembership(ctx, channelID, actorID); err != nil {
-		return fields.ID{}, fields.ID{}, fields.ID{}, err
-	}
-
-	return actorID, channelID, msgID, nil
 }

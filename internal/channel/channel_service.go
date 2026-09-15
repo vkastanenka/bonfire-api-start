@@ -52,55 +52,40 @@ func NewChannelService(
 type CreateGroupResult struct {
 	Channel     *Channel
 	ActorMember *Member
-	Users       map[fields.ID]*user.User
-	Presences   map[fields.ID]presence.Presence
-	MemberIDs   []fields.ID
+	Users       map[uuid.UUID]*user.User
+	Presences   map[uuid.UUID]presence.Presence
+	MemberIDs   []uuid.UUID
 }
 
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
 		return nil, err
 	}
 
-	actorID, err := fields.ParseRequiredID("actor_id", rawActorID)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionID, err := fields.ParseRequiredID("session_id", rawSessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	peerMemberIDs, err := fields.ParseIDs(rawPeerIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	dedupedMemberIDs := fields.DedupeIDs(append(peerMemberIDs, actorID))
-	peerIDs := fields.RemoveID(dedupedMemberIDs, actorID)
+	dedupedMemberIDs := fields.DedupeIDs(append(rawPeerIDs, actorID))
+	peerIDs := fields.RemoveID(actorID, dedupedMemberIDs)
 
 	if len(peerIDs) > 0 {
-		if err = s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs); err != nil {
+		if err := s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs); err != nil {
 			return nil, err
 		}
 	}
 
-	now := fields.Now()
+	now := time.Now()
 
 	ch, err := NewGroupChannel(now)
 	if err != nil {
 		return nil, err
 	}
 
-	membs := NewMembers(ch.ID(), actorID, peerIDs, now)
+	membs := NewMembers(ch.ID, actorID, peerIDs, now)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
 	var (
-		users     map[fields.ID]*user.User
-		presences map[fields.ID]presence.Presence
+		users     map[uuid.UUID]*user.User
+		presences map[uuid.UUID]presence.Presence
 	)
 
 	g.Go(func() error {
@@ -131,9 +116,9 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 			return repoErr
 		}
 
-		membersMap := make(map[fields.ID]*Member, len(membs))
+		membersMap := make(map[uuid.UUID]*Member, len(membs))
 		for _, m := range membs {
-			membersMap[m.UserID()] = m
+			membersMap[m.UserID] = m
 		}
 
 		payload := EventChannelCreatedPayload{
@@ -162,22 +147,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawActorID, rawSession
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
-func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSessionID, rawChannelID uuid.UUID, rawName, rawIconURL *string) (*Channel, error) {
-	actorID, sessionID, channelID, err := validateIDs(rawActorID, rawSessionID, rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	name, err := ParseChannelName(ptr.From(rawName))
-	if err != nil {
-		return nil, err
-	}
-
-	iconURL, err := fields.ParseURL("icon_url", ptr.From(rawIconURL))
-	if err != nil {
-		return nil, err
-	}
-
+func (s *ChannelService) UpdateGroup(ctx context.Context, actorID, sessionID, channelID uuid.UUID, name, iconURL *string) (*Channel, error) {
 	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -189,7 +159,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSession
 	}
 
 	var channel *Channel
-	now := fields.Now()
+	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		channel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
@@ -197,7 +167,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSession
 			return err
 		}
 
-		systemMessages, err := buildUpdateGroupSystemMessages(channel.ID(), actorID, name, iconURL, now)
+		systemMessages, err := buildUpdateGroupSystemMessages(channel.ID, ptr.To(actorID), name, iconURL, now)
 		if err != nil {
 			return err
 		}
@@ -206,7 +176,7 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSession
 			if _, err := s.messageRepo.CreateBatchAndMention(
 				txCtx,
 				systemMessages,
-				channel.ID(),
+				channel.ID,
 				actorID,
 				now,
 			); err != nil {
@@ -226,20 +196,21 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, rawActorID, rawSession
 		return nil, err
 	}
 
-	_ = s.cache.Delete(ctx, channel.ID())
+	_ = s.cache.Delete(ctx, channel.ID)
 
 	return channel, nil
 }
 
 func buildUpdateGroupSystemMessages(
-	channelID, actorID fields.ID,
-	name ChannelName,
-	iconURL fields.URL,
-	now fields.Timestamp,
+	channelID uuid.UUID,
+	actorID *uuid.UUID,
+	name *string,
+	iconURL *string,
+	now time.Time,
 ) ([]*Message, error) {
 	var systemMessages []*Message
 
-	if name.IsValid() {
+	if name != nil {
 		msg, err := NewMessageNameChange(channelID, actorID, name, now)
 		if err != nil {
 			return nil, err
@@ -247,7 +218,7 @@ func buildUpdateGroupSystemMessages(
 		systemMessages = append(systemMessages, msg)
 	}
 
-	if iconURL.IsValid() {
+	if iconURL != nil {
 		iconTime := now
 		if len(systemMessages) > 0 {
 			iconTime = now.Add(time.Microsecond)

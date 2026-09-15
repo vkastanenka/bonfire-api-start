@@ -36,8 +36,8 @@ type ChannelRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error)
 	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*channel.Channel, error)
 	GetForUpdate(ctx context.Context, id uuid.UUID) (*channel.Channel, error)
-	UpdateGroup(ctx context.Context, id uuid.UUID, name channel.ChannelName, iconURL string, updatedAt time.Time) (*channel.Channel, error)
-	UpdateLastMessage(ctx context.Context, id uuid.UUID, lastMessageID uuid.UUID, lastMessageAt time.Time, updatedAt time.Time) (*channel.Channel, error)
+	UpdateGroup(ctx context.Context, id uuid.UUID, name *string, iconURL *string, updatedAt time.Time) (*channel.Channel, error)
+	UpdateLastMessage(ctx context.Context, id uuid.UUID, lastMessageID *uuid.UUID, lastMessageAt *time.Time, updatedAt time.Time) (*channel.Channel, error)
 }
 
 type CachedChannelRepository interface {
@@ -55,9 +55,9 @@ type MemberRepository interface {
 	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, incrementAmount int, updatedAt time.Time) error
 	ListVisibleByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*channel.Member, error)
 	UpdateIsVisible(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, isVisible bool, updatedAt time.Time) (*channel.Member, error)
-	UpdateLastReadMessage(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, lastReadMessageID uuid.UUID, lastReadMessageAt time.Time, updatedAt time.Time, mentionCount *int) (*channel.Member, error)
-	UpdateMutedUntil(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, mutedUntil time.Time, updatedAt time.Time) (*channel.Member, error)
-	UpdatePinnedAt(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, pinnedAt time.Time, updatedAt time.Time) (*channel.Member, error)
+	UpdateLastReadMessage(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, lastReadMessageID *uuid.UUID, lastReadMessageAt time.Time, updatedAt time.Time, mentionCount *int) (*channel.Member, error)
+	UpdateMutedUntil(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, mutedUntil *time.Time, updatedAt time.Time) (*channel.Member, error)
+	UpdatePinnedAt(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, pinnedAt *time.Time, updatedAt time.Time) (*channel.Member, error)
 }
 
 type CachedMemberRepository interface {

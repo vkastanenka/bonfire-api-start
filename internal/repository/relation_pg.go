@@ -148,14 +148,9 @@ func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID uuid.
 		return nil
 	}
 
-	uuids := make([]uuid.UUID, len(peerIDs))
-	for i, id := range peerIDs {
-		uuids[i] = id
-	}
-
 	hasBlock, err := r.store.RelationHasIncomingBlock(ctx, db.RelationHasIncomingBlockParams{
 		ActorID: db.ToUUID(actorID),
-		PeerIds: db.ToUUIDs(uuids),
+		PeerIds: db.ToUUIDs(peerIDs),
 	})
 	if err != nil {
 		return r.store.Err(err)

@@ -175,7 +175,7 @@ func NewMessageMemberLeave(
 func NewMessageNameChange(
 	channelID uuid.UUID,
 	authorID *uuid.UUID,
-	newName string,
+	newName *string,
 	now time.Time,
 ) (*Message, error) {
 	metadata, err := json.Marshal(map[string]any{"name": newName})

@@ -72,12 +72,7 @@ func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uui
 		return make(map[uuid.UUID]*user.User), nil
 	}
 
-	uuids := make([]uuid.UUID, len(ids))
-	for i, id := range ids {
-		uuids[i] = id
-	}
-
-	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(uuids))
+	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
 		return nil, r.store.Err(err)
 	}

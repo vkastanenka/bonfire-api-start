@@ -64,12 +64,7 @@ func (r *ChannelRepository) GetBatch(
 		return make(map[uuid.UUID]*channel.Channel), nil
 	}
 
-	uuidSlice := make([]uuid.UUID, len(ids))
-	for i, id := range ids {
-		uuidSlice[i] = id
-	}
-
-	rows, err := r.store.ChannelGetBatch(ctx, db.ToUUIDs(uuidSlice))
+	rows, err := r.store.ChannelGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
 		return nil, r.store.Err(err)
 	}
