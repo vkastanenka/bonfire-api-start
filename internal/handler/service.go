@@ -3,7 +3,6 @@ package handler
 import (
 	"bonfire-api/internal/auth"
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/session"
@@ -28,31 +27,31 @@ type AuthService interface {
 }
 
 type ChannelService interface {
-	CreateGroup(ctx context.Context, rawActorID uuid.UUID, rawPeerIDs []uuid.UUID) error
-	Get(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID) (*channel.Channel, []channel.MemberView, []channel.MessageView, error)
-	GetSidebar(ctx context.Context, rawActorID uuid.UUID) (channelMap map[fields.ID]*channel.Channel, memberMap map[fields.ID]*channel.Member, peerIDsMap map[fields.ID][]fields.ID, channelIDs []fields.ID, peerIDs []fields.ID, directPeerIDs []fields.ID, err error)
-	UpdateGroup(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawName *string, rawIconURL *string) (*channel.Channel, error)
+	CreateGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*channel.CreateGroupResult, error)
+	UpdateGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, name *string, iconURL *string) (*channel.Channel, error)
 }
 
 type MemberService interface {
-	AddMembers(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMemberIDs []uuid.UUID) error
-	CloseDirect(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID) error
-	LeaveGroup(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID) error
-	UpdateLastReadMessage(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawLastReadMessageID uuid.UUID) (*channel.Member, error)
-	UpdateMutedUntil(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawDuration *int) (*channel.Member, error)
-	UpdatePinnedAt(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, isPinned bool) (*channel.Member, error)
+	AddMembers(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, memberIDs []uuid.UUID) (*channel.AddMembersResult, error)
+	CloseDirect(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID) error
+	GetBatchByChannelID(ctx context.Context, channelID uuid.UUID) ([]*channel.Member, error)
+	GetBatchByChannelIDs(ctx context.Context, channelIDs []uuid.UUID) (map[uuid.UUID][]*channel.Member, error)
+	LeaveGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID) error
+	UpdateLastReadMessage(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, lastReadMessageID uuid.UUID) (*channel.Member, error)
+	UpdateMutedUntil(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, rawDuration *int) (*channel.Member, error)
+	UpdatePinnedAt(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, isPinned bool) (*channel.Member, error)
 }
 
 type MessageService interface {
-	Create(ctx context.Context, rawAuthorID uuid.UUID, rawChannelID uuid.UUID, rawContent *string, rawReplyToMsgID *uuid.UUID, rawFwdMsgID *uuid.UUID, rawFwdChannelID *uuid.UUID) (*channel.MessageView, error)
-	Delete(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID) error
-	ListAfter(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMsgCursorID uuid.UUID) ([]channel.MessageView, error)
-	ListAround(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMsgCursorID uuid.UUID) ([]channel.MessageView, error)
-	ListBefore(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMsgCursorID uuid.UUID) ([]channel.MessageView, error)
-	ListPinned(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMsgCursorID *uuid.UUID, rawCursorPinnedAt *time.Time) ([]channel.MessagePinnedView, error)
-	ToggleReaction(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID, rawEmoji string) (*channel.EmojiCount, error)
-	UpdateContent(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID, rawContent string) (*channel.Message, error)
-	UpdatePinnedAt(ctx context.Context, rawActorID uuid.UUID, rawChannelID uuid.UUID, rawMessageID uuid.UUID, isPinned bool) (*channel.Message, error)
+	Create(ctx context.Context, authorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, content *string, replyToMsgID *uuid.UUID, fwdMsgID *uuid.UUID, fwdChannelID *uuid.UUID) (*channel.Message, error)
+	Delete(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, messageID uuid.UUID) error
+	ListAfter(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID uuid.UUID) (*channel.GetMessageViewsResult, bool, error)
+	ListAround(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID uuid.UUID) (*channel.GetMessageViewsResult, bool, bool, error)
+	ListBefore(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID uuid.UUID) (*channel.GetMessageViewsResult, bool, error)
+	ListPinned(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID *uuid.UUID, cursorPinnedAt *time.Time) ([]*channel.Message, map[uuid.UUID]*user.User, bool, error)
+	ToggleReaction(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, messageID uuid.UUID, emoji string) (*channel.EmojiCount, error)
+	UpdateContent(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, messageID uuid.UUID, content string) (*channel.Message, error)
+	UpdatePinnedAt(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, messageID uuid.UUID, isPinned bool) (*channel.Message, error)
 }
 
 type RelationService interface {

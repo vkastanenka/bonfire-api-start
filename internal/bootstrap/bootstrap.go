@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/fields"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
@@ -17,16 +17,16 @@ import (
 
 type Result struct {
 	User                  *user.User                      `json:"user"`
-	Friends               map[fields.ID]fields.ID         `json:"friends"`
-	UserMembers           map[fields.ID]*channel.Member   `json:"userMembers"`
-	Channels              map[fields.ID]*channel.Channel  `json:"channels"`
-	ChannelPeerIDs        map[fields.ID][]fields.ID       `json:"channelPeerIDs"`
-	ChannelMemberIDs      map[fields.ID][]fields.ID       `json:"channelMemberIDs"`
-	FriendIDs             []fields.ID                     `json:"friendIDs"`
-	PendingIDs            []fields.ID                     `json:"pendingIDs"`
-	SidebarIDs            []fields.ID                     `json:"sidebarIDs"`
-	Peers                 map[fields.ID]*user.User        `json:"peers"`
-	PeerPresences         map[fields.ID]presence.Presence `json:"peerPresences"`
+	Friends               map[uuid.UUID]uuid.UUID         `json:"friends"`
+	UserMembers           map[uuid.UUID]*channel.Member   `json:"userMembers"`
+	Channels              map[uuid.UUID]*channel.Channel  `json:"channels"`
+	ChannelPeerIDs        map[uuid.UUID][]uuid.UUID       `json:"channelPeerIDs"`
+	ChannelMemberIDs      map[uuid.UUID][]uuid.UUID       `json:"channelMemberIDs"`
+	FriendIDs             []uuid.UUID                     `json:"friendIDs"`
+	PendingIDs            []uuid.UUID                     `json:"pendingIDs"`
+	SidebarIDs            []uuid.UUID                     `json:"sidebarIDs"`
+	Peers                 map[uuid.UUID]*user.User        `json:"peers"`
+	PeerPresences         map[uuid.UUID]presence.Presence `json:"peerPresences"`
 	Messages              []*channel.Message              `json:"messages"`
 	HasMoreMessagesBefore bool                            `json:"hasMoreMessagesBefore"`
 	HasMoreMessagesAfter  bool                            `json:"hasMoreMessagesAfter"`
@@ -84,22 +84,7 @@ func NewService(
 }
 
 // Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMessageID uuid.UUID) (*Result, error) {
-	userID, err := fields.ParseRequiredID("", rawUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	channelID, err := fields.ParseID(rawChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	messageID, err := fields.ParseID(rawMessageID)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *Service) Bootstrap(ctx context.Context, userID uuid.UUID, channelID, messageID *uuid.UUID) (*Result, error) {
 	user, err := s.cachedUserRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -110,8 +95,8 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 		return nil, err
 	}
 
-	friendIDs := make([]fields.ID, 0, len(friends))
-	seenPeers := make(map[fields.ID]struct{}, len(friends))
+	friendIDs := make([]uuid.UUID, 0, len(friends))
+	seenPeers := make(map[uuid.UUID]struct{}, len(friends))
 
 	for friendID := range friends {
 		friendIDs = append(friendIDs, friendID)
@@ -119,15 +104,13 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 	}
 
 	var (
-		pendingIDs []fields.ID
+		pendingIDs []uuid.UUID
 		pendingErr error
 	)
 
-	if channelID.IsZero() {
-		pendingIDs, pendingErr = s.cachedRelationRepo.GetPendingIDs(ctx, userID)
-		if pendingErr != nil {
-			return nil, fmt.Errorf("failed to fetch pending IDs: %w", pendingErr)
-		}
+	pendingIDs, pendingErr = s.cachedRelationRepo.GetPendingIDs(ctx, userID)
+	if pendingErr != nil {
+		return nil, fmt.Errorf("failed to fetch pending IDs: %w", pendingErr)
 	}
 
 	userMembers, err := s.cachedMemberRepo.ListVisibleByUserID(ctx, userID, 100)
@@ -146,18 +129,18 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 		return nil, err
 	}
 
-	channelPeerIDsMap := make(map[fields.ID][]fields.ID, len(channelMembersMap))
-	channelMemberIDsMap := make(map[fields.ID][]fields.ID, len(channelMembersMap))
+	channelPeerIDsMap := make(map[uuid.UUID][]uuid.UUID, len(channelMembersMap))
+	channelMemberIDsMap := make(map[uuid.UUID][]uuid.UUID, len(channelMembersMap))
 
 	for channelID, members := range channelMembersMap {
-		peerIDs := make([]fields.ID, 0, len(members))
-		memberIDs := make([]fields.ID, 0, len(members))
+		peerIDs := make([]uuid.UUID, 0, len(members))
+		memberIDs := make([]uuid.UUID, 0, len(members))
 
 		for _, member := range members {
-			mID := member.UserID()
+			mID := member.UserID
 			memberIDs = append(memberIDs, mID)
 
-			if mID.Equals(userID) {
+			if mID == userID {
 				continue
 			}
 
@@ -165,8 +148,8 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 			seenPeers[mID] = struct{}{}
 		}
 
-		slices.SortFunc(peerIDs, func(a, b fields.ID) int {
-			return bytes.Compare(a.Bytes(), b.Bytes())
+		slices.SortFunc(peerIDs, func(a, b uuid.UUID) int {
+			return bytes.Compare(a[:], b[:])
 		})
 
 		channelPeerIDsMap[channelID] = peerIDs
@@ -174,7 +157,7 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 	}
 
 	// Extract all unique peer IDs (friends + channel peers)
-	dedupedPeerIDs := make([]fields.ID, 0, len(seenPeers))
+	dedupedPeerIDs := make([]uuid.UUID, 0, len(seenPeers))
 	for peerID := range seenPeers {
 		dedupedPeerIDs = append(dedupedPeerIDs, peerID)
 	}
@@ -189,18 +172,18 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 		return nil, err
 	}
 
-	getDisplayName := func(id fields.ID) string {
-		if id.Equals(userID) && user != nil {
-			return user.DisplayName().String()
+	getDisplayName := func(id uuid.UUID) string {
+		if id == userID && user != nil {
+			return user.DisplayName
 		}
 		if u, ok := peers[id]; ok {
-			return u.DisplayName().String()
+			return u.DisplayName
 		}
 		return ""
 	}
 
 	for _, memberIDs := range channelMemberIDsMap {
-		slices.SortFunc(memberIDs, func(a, b fields.ID) int {
+		slices.SortFunc(memberIDs, func(a, b uuid.UUID) int {
 			nameA := strings.ToLower(getDisplayName(a))
 			nameB := strings.ToLower(getDisplayName(b))
 
@@ -208,12 +191,12 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 				return strings.Compare(nameA, nameB)
 			}
 			// Fallback tie-breaker by UUIDv7 ascending
-			return bytes.Compare(a.Bytes(), b.Bytes())
+			return bytes.Compare(a[:], b[:])
 		})
 	}
 
 	// 1. Sort friendIDs by display name ascending (case-insensitive)
-	slices.SortFunc(friendIDs, func(a, b fields.ID) int {
+	slices.SortFunc(friendIDs, func(a, b uuid.UUID) int {
 		nameA := strings.ToLower(getDisplayName(a))
 		nameB := strings.ToLower(getDisplayName(b))
 
@@ -221,18 +204,18 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 			return strings.Compare(nameA, nameB)
 		}
 		// Fallback tie-breaker by UUIDv7 ascending
-		return bytes.Compare(a.Bytes(), b.Bytes())
+		return bytes.Compare(a[:], b[:])
 	})
 
 	// 2. Sort pendingIDs by UUIDv7 descending (newest first)
-	slices.SortFunc(pendingIDs, func(a, b fields.ID) int {
-		return bytes.Compare(b.Bytes(), a.Bytes())
+	slices.SortFunc(pendingIDs, func(a, b uuid.UUID) int {
+		return bytes.Compare(b[:], a[:])
 	})
 
 	// 3. Map userMembers by ChannelID for O(1) lookup in sortSidebar
-	userMembersMap := make(map[fields.ID]*channel.Member, len(userMembers))
+	userMembersMap := make(map[uuid.UUID]*channel.Member, len(userMembers))
 	for _, m := range userMembers {
-		userMembersMap[m.ChannelID()] = m
+		userMembersMap[m.ChannelID] = m
 	}
 
 	// 4. Convert channels map to a slice for sorting
@@ -245,9 +228,9 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 	sortSidebar(sidebarChannels, userMembersMap)
 
 	// 6. Extract sorted channel IDs
-	sidebarIDs := make([]fields.ID, len(sidebarChannels))
+	sidebarIDs := make([]uuid.UUID, len(sidebarChannels))
 	for i, c := range sidebarChannels {
-		sidebarIDs[i] = c.ID()
+		sidebarIDs[i] = c.ID
 	}
 
 	var (
@@ -257,21 +240,21 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 		messagesErr   error
 	)
 
-	if channelID.IsValid() {
-		userMember := userMembersMap[channelID]
-		var actorLastReadID fields.ID
+	if channelID != nil {
+		userMember := userMembersMap[*channelID]
+		var actorLastReadID uuid.UUID
 		if userMember != nil {
-			actorLastReadID = userMember.LastReadMessageID()
+			actorLastReadID = *userMember.LastReadMessageID
 		}
 
-		msgCursor := getMessagesCursor(actorLastReadID, messageID)
+		msgCursor, beforeLimit, afterLimit := getMessagesCursor(&actorLastReadID, messageID)
 
 		messages, hasMoreBefore, hasMoreAfter, messagesErr = s.cachedMessageRepo.ListAroundByChannelID(
 			ctx,
-			channelID,
-			msgCursor.ID(),
-			msgCursor.BeforeLimit(),
-			msgCursor.AfterLimit(),
+			*channelID,
+			*msgCursor,
+			beforeLimit,
+			afterLimit,
 		)
 		if messagesErr != nil {
 			return nil, fmt.Errorf("failed to fetch messages: %w", messagesErr)
@@ -296,58 +279,93 @@ func (s *Service) Bootstrap(ctx context.Context, rawUserID, rawChannelID, rawMes
 	}, nil
 }
 
-func sortSidebar(channels []*channel.Channel, userMembersMap map[fields.ID]*channel.Member) {
-	pinnedAt := func(c *channel.Channel) fields.Timestamp {
-		if m := userMembersMap[c.ID()]; m != nil && m.PinnedAt().IsValid() {
-			return m.PinnedAt()
+func sortSidebar(channels []*channel.Channel, userMembersMap map[uuid.UUID]*channel.Member) {
+	pinnedAt := func(c *channel.Channel) time.Time {
+		if c == nil {
+			return time.Time{}
 		}
-		return fields.Timestamp{}
+		if m := userMembersMap[c.ID]; m != nil && m.PinnedAt != nil {
+			return *m.PinnedAt
+		}
+		return time.Time{}
 	}
 
 	slices.SortFunc(channels, func(a, b *channel.Channel) int {
 		pinA, pinB := pinnedAt(a), pinnedAt(b)
+		isPinnedA, isPinnedB := !pinA.IsZero(), !pinB.IsZero()
 
-		if pinA.IsValid() || pinB.IsValid() {
+		// Pinned channels come first
+		if isPinnedA != isPinnedB {
+			if isPinnedA {
+				return -1
+			}
+			return 1
+		}
+		if isPinnedA && isPinnedB {
 			if cmp := pinB.Compare(pinA); cmp != 0 {
 				return cmp
 			}
 		}
 
-		if cmp := b.LastMessageAt().Compare(a.LastMessageAt()); cmp != 0 {
+		// Fallback for LastMessageAt if it's a *time.Time pointer
+		var tA, tB time.Time
+		if a != nil && a.LastMessageAt != nil {
+			tA = *a.LastMessageAt
+		}
+		if b != nil && b.LastMessageAt != nil {
+			tB = *b.LastMessageAt
+		}
+		if cmp := tB.Compare(tA); cmp != 0 {
 			return cmp
 		}
 
-		if cmp := b.CreatedAt().Compare(a.CreatedAt()); cmp != 0 {
+		// CreatedAt comparison
+		var cA, cB time.Time
+		if a != nil {
+			cA = a.CreatedAt
+		}
+		if b != nil {
+			cB = b.CreatedAt
+		}
+		if cmp := cB.Compare(cA); cmp != 0 {
 			return cmp
 		}
 
-		return a.ID().Compare(b.ID())
+		// UUID comparison using byte slices
+		var idA, idB uuid.UUID
+		if a != nil {
+			idA = a.ID
+		}
+		if b != nil {
+			idB = b.ID
+		}
+		return bytes.Compare(idA[:], idB[:])
 	})
 }
 
 func getMessagesCursor(
-	actorLastReadID fields.ID,
-	fallbackMessageID fields.ID,
-) fields.Cursor {
-	if fallbackMessageID.IsValid() {
-		return fields.NewCursor(fallbackMessageID, channel.MessageListBeforeLimit, channel.MessageListAfterLimit)
+	actorLastReadID *uuid.UUID,
+	fallbackMessageID *uuid.UUID,
+) (*uuid.UUID, int, int) {
+	if fallbackMessageID != nil {
+		return fallbackMessageID, channel.MessageListBeforeLimit, channel.MessageListAfterLimit
 	}
 
-	if actorLastReadID.IsValid() {
-		return fields.NewCursor(actorLastReadID, channel.MessageListBeforeLimit, channel.MessageListAfterLimit)
+	if actorLastReadID != nil {
+		return actorLastReadID, channel.MessageListBeforeLimit, channel.MessageListAfterLimit
 	}
 
-	return fields.NewCursor(fallbackMessageID, channel.MessageListLimit, 0)
+	return fallbackMessageID, channel.MessageListLimit, 0
 }
 
-func getMemberChannelIDs(members []*channel.Member) []fields.ID {
-	channelIDs := make([]fields.ID, 0, len(members))
+func getMemberChannelIDs(members []*channel.Member) []uuid.UUID {
+	channelIDs := make([]uuid.UUID, 0, len(members))
 
 	for _, m := range members {
 		if m == nil {
 			continue
 		}
-		channelIDs = append(channelIDs, m.ChannelID())
+		channelIDs = append(channelIDs, m.ChannelID)
 	}
 
 	return channelIDs
