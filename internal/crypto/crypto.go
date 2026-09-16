@@ -1,59 +1,68 @@
 package crypto
 
 import (
+	"bonfire-api/internal/errs"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Ensure cost matches bcrypt.DefaultCost used in HashPassword.
-const dummyHash = "$2a$10$784.8J6lZ.tYQvH4y.44Z.L33Wby0b9lD8nE1m5f6X2xWby0b9"
+// Valid 60-character bcrypt hash (cost 10) matching bcrypt.DefaultCost for timing mitigation.
+const dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
-func ComparePassword(hashedPassword string, password string) error {
-	sum := sha256.Sum256([]byte(password))
-	preHash := hex.EncodeToString(sum[:])
-
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(preHash))
-}
-
+// HashPassword hashes a raw password using SHA-256 pre-hashing and bcrypt.
 func HashPassword(password string) (string, error) {
 	if len(password) == 0 {
-		return "", errors.New("password cannot be empty")
+		return "", errs.InvalidArgument("password cannot be empty")
 	}
 
 	sum := sha256.Sum256([]byte(password))
 	preHash := hex.EncodeToString(sum[:])
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(preHash), bcrypt.DefaultCost)
-	return string(hash), err
+	if err != nil {
+		return "", errs.Internal("failed to hash password").Wrap(err)
+	}
+
+	return string(hash), nil
 }
 
-// CompareDummyPassword runs bcrypt against a fixed hash to ensure uniform execution timing
-// when a targeted user or entity is not found.
+// ComparePasswords validates a plain candidate password against a stored bcrypt hash.
+func ComparePasswords(hashedPassword, candidatePassword string) error {
+	sum := sha256.Sum256([]byte(candidatePassword))
+	preHash := hex.EncodeToString(sum[:])
+
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(preHash))
+	if err != nil {
+		return errs.Unauthenticated("invalid credentials").Wrap(err)
+	}
+
+	return nil
+}
+
+// CompareDummyPassword runs bcrypt against a dummy hash to maintain constant CPU timing when a user is not found.
 func CompareDummyPassword(password string) error {
 	sum := sha256.Sum256([]byte(password))
 	preHash := hex.EncodeToString(sum[:])
 
 	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(preHash))
-	return errors.New("invalid credentials")
+	return errs.Unauthenticated("invalid credentials")
 }
 
-func HashToken(tokenStr string) []byte {
-	hash := sha256.Sum256([]byte(tokenStr))
-	return hash[:]
+// HashToken computes a fixed 32-byte SHA-256 hash of an API or authorization token string.
+func HashToken(tokenStr string) [32]byte {
+	return sha256.Sum256([]byte(tokenStr))
 }
 
-// ConstantWindow delays completion until target duration has passed.
+// ConstantWindow returns a deferrable function that delays execution until the target duration has elapsed.
 func ConstantWindow(ctx context.Context, target time.Duration) func() {
 	start := time.Now()
 
 	return func() {
-		elapsed := time.Since(start)
-		remaining := target - elapsed
+		remaining := target - time.Since(start)
 		if remaining <= 0 {
 			return
 		}
