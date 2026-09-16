@@ -17,7 +17,7 @@ import (
 	"github.com/go-playground/form"
 )
 
-const maxJSONBodyBytes = 1 * 1024 * 1024 // 1MB
+const maxJSONBodyBytes = 1 * 1024 * 1024
 
 var (
 	queryDecoder = func() *form.Decoder {
@@ -32,30 +32,33 @@ var (
 		return d
 	}()
 
-	// Cache tag locations per struct type to avoid repeated reflect.Type field iterations.
-	pathTagCache sync.Map // map[reflect.Type][]string
+	pathTagCache sync.Map
 )
 
+// validateDestination checks that dst is a non-nil pointer to a struct.
 func validateDestination(dst any, funcName string) error {
 	val := reflect.ValueOf(dst)
 	if val.Kind() != reflect.Ptr || val.IsNil() || val.Elem().Kind() != reflect.Struct {
-		return errs.Internal(fmt.Sprintf("%s destination must be a non-nil pointer to a struct.", funcName)).
-			ErrorInfoReason("INVALID_CODE_CALL")
+		return errs.Internal("Destination must be a non-nil pointer to a struct.").
+			ErrorInfoReason("INVALID_CODE_CALL").
+			ErrorInfoMeta("function_name", funcName)
 	}
 	return nil
 }
 
+// decodeJSON reads and decodes a JSON request body into dst, enforcing payload limits,
+// standard content types, single-value restrictions, and AIP-compliant error metadata.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := validateDestination(dst, "DecodeJSON"); err != nil {
 		return err
 	}
 
 	ct := r.Header.Get("Content-Type")
-	// Fast-path MIME check: avoid heavy mime.ParseMediaType allocations for standard headers.
 	mediaType, _, _ := strings.Cut(ct, ";")
 	if strings.TrimSpace(strings.ToLower(mediaType)) != "application/json" {
 		return errs.InvalidArgument("Missing or invalid Content-Type header; must be application/json.").
-			ErrorInfoReason("INVALID_CONTENT_TYPE")
+			ErrorInfoReason("INVALID_CONTENT_TYPE").
+			ErrorInfoMeta("expected_content_type", "application/json")
 	}
 
 	limitedBody := http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
@@ -82,8 +85,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 
 		switch {
 		case errors.As(err, &maxBytesErr):
-			return errs.ResourceExhausted("Request body exceeds 1MB limit.").
+			return errs.ResourceExhausted("Request body exceeds size limit.").
 				ErrorInfoReason("BODY_TOO_LARGE").
+				ErrorInfoMeta("max_bytes", fmt.Sprintf("%d", maxJSONBodyBytes)).
 				Wrap(err)
 
 		case errors.Is(err, io.EOF):
@@ -107,20 +111,27 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			if fieldName == "" {
 				fieldName = "body"
 			}
-			msg := fmt.Sprintf("Invalid data type provided for field '%s'. Expected %s.", fieldName, unmarshalTypeErr.Type)
-			return errs.InvalidArgument(msg).
+
+			expectedType := "unknown"
+			if unmarshalTypeErr.Type != nil {
+				expectedType = unmarshalTypeErr.Type.String()
+			}
+
+			return errs.InvalidArgument("Invalid data type provided for field.").
 				ErrorInfoReason("INVALID_FIELD_TYPE").
-				FieldViolation(fieldName, msg, "TYPE_MISMATCH").
+				ErrorInfoMeta("field", fieldName).
+				ErrorInfoMeta("expected_type", expectedType).
+				FieldViolation(fieldName, "Invalid data type provided for field.", "TYPE_MISMATCH").
 				Wrap(err)
 
 		case strings.HasPrefix(err.Error(), "json: unknown field"):
 			rawField := strings.TrimPrefix(err.Error(), "json: unknown field ")
 			fieldName := strings.Trim(rawField, `"`)
 
-			msg := fmt.Sprintf("Unknown field '%s' present in request body.", fieldName)
 			return errs.InvalidArgument("Request payload contains unrecognized fields.").
 				ErrorInfoReason("UNEXPECTED_FIELD").
-				FieldViolation(fieldName, msg, "UNEXPECTED_FIELD").
+				ErrorInfoMeta("field", fieldName).
+				FieldViolation(fieldName, "Unknown field present in request body.", "UNEXPECTED_FIELD").
 				Wrap(err)
 
 		default:
@@ -138,6 +149,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	return nil
 }
 
+// decodeQuery decodes URL query parameters into fields tagged with "query" on dst.
 func decodeQuery(r *http.Request, dst any) error {
 	if err := validateDestination(dst, "DecodeQuery"); err != nil {
 		return err
@@ -155,6 +167,7 @@ func decodeQuery(r *http.Request, dst any) error {
 	return nil
 }
 
+// decodePath extracts standard HTTP path parameters matching "path" tags on dst and decodes them into the struct.
 func decodePath(r *http.Request, dst any) error {
 	if err := validateDestination(dst, "DecodePath"); err != nil {
 		return err
@@ -185,6 +198,7 @@ func decodePath(r *http.Request, dst any) error {
 	return nil
 }
 
+// mapFormDecodeError converts a form decoding error into an InvalidArgument error with itemized field violations.
 func mapFormDecodeError(err error, invalidReason, malformedReason, invalidMsg, malformedMsg string) error {
 	var decodeErrors form.DecodeErrors
 	if errors.As(err, &decodeErrors) {
@@ -203,7 +217,7 @@ func mapFormDecodeError(err error, invalidReason, malformedReason, invalidMsg, m
 		Wrap(err)
 }
 
-// getOrExtractPathTags inspects struct type hierarchy once and caches tag names to avoid reflection per-request.
+// getOrExtractPathTags parses "path" struct tags recursively and caches them by reflection type.
 func getOrExtractPathTags(t reflect.Type) []string {
 	if cached, ok := pathTagCache.Load(t); ok {
 		return cached.([]string)
@@ -228,7 +242,10 @@ func getOrExtractPathTags(t reflect.Type) []string {
 
 			tag := field.Tag.Get("path")
 			if tag != "" && tag != "-" {
-				tags = append(tags, tag)
+				tagName := strings.Split(tag, ",")[0]
+				if tagName != "" {
+					tags = append(tags, tagName)
+				}
 			}
 		}
 	}
