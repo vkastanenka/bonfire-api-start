@@ -50,6 +50,16 @@ func URL(input string) string {
 	return u.String()
 }
 
+// Enum converts input text to a normalized, uppercase format suitable for constant lookups.
+func Enum(input string) string {
+	return strings.ToUpper(Text(input))
+}
+
+// EnumBytes applies Enum normalization guarantees directly to byte slices.
+func EnumBytes(raw []byte) string {
+	return string(bytes.ToUpper(Bytes(raw)))
+}
+
 // cleanRunes strips control characters and collapses consecutive whitespace runs.
 func cleanRunes(s string) string {
 	var needsAlloc, lastWasSpace bool

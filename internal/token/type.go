@@ -2,10 +2,9 @@ package token
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/pkg/sanitize"
 )
 
 type Type int
@@ -28,28 +27,15 @@ var typeNames = [...]string{
 }
 
 func ParseType(raw int) (Type, error) {
-	t := Type(raw)
-	if !t.IsValid() {
-		return TypeUnknown, fmt.Errorf("invalid token type value: %d", raw)
-	}
-	return t, nil
+	return sanitize.ParseEnumInt(raw, typeMax, "token type")
 }
 
 func ParseTypeString(s string) (Type, error) {
-	for i, name := range typeNames {
-		if name == s {
-			return Type(i), nil
-		}
-	}
-	return TypeUnknown, fmt.Errorf("invalid token type string: %q", s)
+	return sanitize.ParseEnumString[Type](s, typeNames[:], "token type")
 }
 
-func ParseTypeBytes(raw []byte) (Type, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return TypeUnknown, nil
-	}
-	return ParseTypeString(string(cleaned))
+func ParseTypeBytes(b []byte) (Type, error) {
+	return sanitize.ParseEnumBytes[Type](b, typeNames[:], "token type")
 }
 
 func (t Type) IsValid() bool {
@@ -73,7 +59,7 @@ func (t Type) MarshalText() ([]byte, error) {
 }
 
 func (t *Type) UnmarshalText(text []byte) error {
-	parsed, err := ParseTypeString(string(text))
+	parsed, err := ParseTypeBytes(text)
 	if err != nil {
 		return err
 	}
