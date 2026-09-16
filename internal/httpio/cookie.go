@@ -7,6 +7,7 @@ import (
 
 const CookieRefreshToken = "refresh-token"
 
+// CookieGetRefreshToken extracts the refresh token string from the request cookies.
 func CookieGetRefreshToken(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(CookieRefreshToken)
 	if err != nil {
@@ -15,6 +16,7 @@ func CookieGetRefreshToken(r *http.Request) (string, error) {
 	return cookie.Value, nil
 }
 
+// CookieSetRefreshToken sets an HttpOnly, Secure, SameSite-Strict refresh token cookie.
 func CookieSetRefreshToken(w http.ResponseWriter, token string, expires time.Time) {
 	maxAge := int(time.Until(expires).Seconds())
 	if maxAge < 0 {
@@ -33,6 +35,7 @@ func CookieSetRefreshToken(w http.ResponseWriter, token string, expires time.Tim
 	})
 }
 
+// CookieClearRefreshToken invalidates the refresh token cookie by setting an expired MaxAge.
 func CookieClearRefreshToken(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieRefreshToken,

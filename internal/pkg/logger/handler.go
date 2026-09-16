@@ -1,14 +1,8 @@
 package logger
 
 import (
-	"bonfire-api/internal/pkg/errs"
 	"context"
 	"log/slog"
-)
-
-const (
-	ctxReqIDKey   = "requestId"
-	ctxTraceIDKey = "traceId"
 )
 
 // Handler wraps an slog.Handler to inject contextual metadata into log records.
@@ -21,30 +15,20 @@ func NewHandler(handler slog.Handler) *Handler {
 	return &Handler{Handler: handler}
 }
 
-// Handle extracts request and trace IDs from ctx and appends them as attributes before logging.
+// Handle extracts attributes stored in ctx and appends them to the record before logging.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	if reqID, ok := ctx.Value(ctxReqIDKey).(string); ok && reqID != "" {
-		r.AddAttrs(slog.String(ctxReqIDKey, reqID))
+	if attrs, ok := ctx.Value(ctxAttrsKey{}).([]slog.Attr); ok && len(attrs) > 0 {
+		r.AddAttrs(attrs...)
 	}
-
-	if traceID, ok := ctx.Value(ctxTraceIDKey).(string); ok && traceID != "" {
-		r.AddAttrs(slog.String(ctxTraceIDKey, traceID))
-	}
-
-	err := h.Handler.Handle(ctx, r)
-	if err != nil {
-		return errs.Internal("failed to process log entry").Wrap(err)
-	}
-
-	return nil
+	return h.Handler.Handle(ctx, r)
 }
 
-// WithAttrs returns a new Handler with pre-populated attributes.
+// WithAttrs returns a new Handler wrapping the underlying handler's WithAttrs output.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &Handler{Handler: h.Handler.WithAttrs(attrs)}
 }
 
-// WithGroup returns a new Handler with the given group name applied.
+// WithGroup returns a new Handler wrapping the underlying handler's WithGroup output.
 func (h *Handler) WithGroup(name string) slog.Handler {
 	return &Handler{Handler: h.Handler.WithGroup(name)}
 }

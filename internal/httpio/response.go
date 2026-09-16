@@ -1,7 +1,6 @@
 package httpio
 
 import (
-	"bonfire-api/internal/errs"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,7 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
-	"time"
+
+	"bonfire-api/internal/pkg/errs"
 )
 
 const (
@@ -22,6 +22,7 @@ var bufferPool = sync.Pool{
 	},
 }
 
+// Error represents an AIP-193 compliant error payload.
 type Error struct {
 	Code    int           `json:"code"`
 	Message string        `json:"message"`
@@ -29,26 +30,27 @@ type Error struct {
 	Details []errs.Detail `json:"details,omitempty"`
 }
 
+// ErrorResponse wraps the Error object according to standard API JSON specifications.
 type ErrorResponse struct {
 	Error Error `json:"error"`
 }
 
+// RespondOK writes a 200 OK JSON response.
 func RespondOK[T any](w http.ResponseWriter, r *http.Request, data T) {
 	respondJSON(w, r, http.StatusOK, data)
 }
 
+// RespondCreated writes a 201 Created JSON response.
 func RespondCreated[T any](w http.ResponseWriter, r *http.Request, data T) {
 	respondJSON(w, r, http.StatusCreated, data)
 }
 
+// RespondNoContent writes a 204 No Content response.
 func RespondNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func respondJSON(w http.ResponseWriter, r *http.Request, status int, data any) {
-	writeJSON(w, r, status, contentTypeJSON, data)
-}
-
+// ToHTTPErr converts an error-returning handler into a standard http.HandlerFunc.
 func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := h(w, r); err != nil {
@@ -57,32 +59,44 @@ func ToHTTPErr(h func(http.ResponseWriter, *http.Request) error) http.HandlerFun
 	}
 }
 
+func respondJSON(w http.ResponseWriter, r *http.Request, status int, data any) {
+	writeJSON(w, r, status, contentTypeJSON, data)
+}
+
 func respondError(w http.ResponseWriter, r *http.Request, err error) {
 	var e *errs.Error
 
 	switch {
 	case errors.As(err, &e):
 	case errors.Is(err, context.DeadlineExceeded):
-		e = errs.DeadlineExceeded("Request timed out processing.").Wrap(err)
+		e = errs.DeadlineExceeded("Request execution timed out.").Wrap(err)
 	case errors.Is(err, context.Canceled):
-		e = errs.Aborted("Client closed connection mid-request.").Wrap(err)
+		slog.WarnContext(r.Context(), "client canceled request mid-flight",
+			"http.method", r.Method,
+			"http.path", r.URL.Path,
+		)
+		return
 	default:
-		e = errs.Internal("An unexpected error occurred.").Wrap(err)
+		e = errs.Internal("An unexpected internal server error occurred.").Wrap(err)
 	}
 
 	httpCode := e.Code.HTTPStatus()
-
 	publicMsg := e.Message
+	var details []errs.Detail
+
 	if httpCode >= 500 {
 		publicMsg = errs.CodeInternal.Message()
+		details = nil
+	} else {
+		details = e.Details
 	}
 
 	respPayload := ErrorResponse{
 		Error: Error{
 			Code:    httpCode,
 			Message: publicMsg,
-			Status:  e.Code.String(),
-			Details: e.Details,
+			Status:  e.Code.Name(),
+			Details: details,
 		},
 	}
 
@@ -106,6 +120,7 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, contentType s
 	if err := json.NewEncoder(buf).Encode(data); err != nil {
 		slog.ErrorContext(ctx, "failed to encode json response payload",
 			"error", err,
+			"http.method", r.Method,
 			"http.path", r.URL.Path,
 		)
 
@@ -132,9 +147,8 @@ func logError(r *http.Request, e *errs.Error, httpCode int) {
 		"http.method", r.Method,
 		"http.path", r.URL.Path,
 		"http.status_code", httpCode,
-		"error.code", e.Code.String(),
+		"error.code", e.Code.Name(),
 		"error.message", e.Message,
-		"time", time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if unwrapped := e.Unwrap(); unwrapped != nil {

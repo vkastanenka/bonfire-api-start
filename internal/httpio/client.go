@@ -31,7 +31,6 @@ func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 				Browser:   browser,
 			}
 
-			// Store metadata in request context using ClientMeta type directly as key
 			ctx := context.WithValue(r.Context(), ClientMeta{}, meta)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
