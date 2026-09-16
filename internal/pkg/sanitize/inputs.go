@@ -7,7 +7,7 @@ import (
 	"unicode"
 )
 
-// Text cleans string inputs by removing control/format characters and collapsing whitespace.
+// Text trims spaces, removes control characters, and collapses whitespace.
 func Text(input string) string {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
@@ -16,7 +16,7 @@ func Text(input string) string {
 	return cleanRunes(trimmed)
 }
 
-// Bytes applies the same cleaning guarantees as Text to byte slices.
+// Bytes applies Text cleaning guarantees to byte slices.
 func Bytes(raw []byte) []byte {
 	trimmed := bytes.TrimSpace(bytes.Trim(bytes.TrimSpace(raw), `"`))
 	if len(trimmed) == 0 {
@@ -27,12 +27,12 @@ func Bytes(raw []byte) []byte {
 	return []byte(cleaned)
 }
 
-// Email normalizes email inputs by stripping control characters, collapsing spaces, and lowercasing.
+// Email normalizes email inputs by cleaning text and lowercasing.
 func Email(input string) string {
 	return strings.ToLower(Text(input))
 }
 
-// URL normalizes scheme and hostname casing without corrupting paths or query strings.
+// URL lowercases the scheme and hostname without altering paths or queries.
 func URL(input string) string {
 	s := strings.TrimSpace(input)
 	if s == "" {
@@ -50,8 +50,7 @@ func URL(input string) string {
 	return u.String()
 }
 
-// cleanRunes performs two-pass sanitization: pre-scans for allocation necessity,
-// then builds a sanitized string if control chars or whitespace runs exist.
+// cleanRunes strips control characters and collapses consecutive whitespace runs.
 func cleanRunes(s string) string {
 	var needsAlloc, lastWasSpace bool
 

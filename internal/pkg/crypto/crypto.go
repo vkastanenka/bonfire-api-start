@@ -1,7 +1,7 @@
 package crypto
 
 import (
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"

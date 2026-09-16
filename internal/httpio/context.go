@@ -11,13 +11,11 @@ import (
 	"github.com/google/uuid"
 )
 
-type CtxKey string
-
 const (
-	CtxClaimsKey  CtxKey = "claims"
-	CtxMetaKey    CtxKey = "meta"
-	CtxReqIDKey   CtxKey = "requestId"
-	CtxTraceIDKey CtxKey = "traceId"
+	CtxClaimsKey  = "claims"
+	CtxMetaKey    = "meta"
+	CtxReqIDKey   = "requestId"
+	CtxTraceIDKey = "traceId"
 )
 
 func CtxGetMeta(ctx context.Context) (ClientMeta, error) {

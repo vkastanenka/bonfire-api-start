@@ -20,7 +20,7 @@ type structPlan struct {
 
 var planCache sync.Map // map[reflect.Type]*structPlan
 
-// Normalize recursively applies string sanitization rules using cached type metadata.
+// Normalize recursively sanitizes struct string fields based on `mod` tags using cached metadata.
 func Normalize(s any) {
 	val := reflect.ValueOf(s)
 	if val.Kind() != reflect.Ptr || val.IsNil() {
@@ -36,6 +36,7 @@ func Normalize(s any) {
 	executePlan(elem, plan)
 }
 
+// getOrBuildPlan retrieves a cached struct layout plan or builds and caches a new one.
 func getOrBuildPlan(typ reflect.Type) *structPlan {
 	if cached, ok := planCache.Load(typ); ok {
 		return cached.(*structPlan)
@@ -48,6 +49,7 @@ func getOrBuildPlan(typ reflect.Type) *structPlan {
 	return actual.(*structPlan)
 }
 
+// buildPlan recursively inspects a struct type to map string fields and their sanitization tags.
 func buildPlan(typ reflect.Type, indexPrefix []int, plan *structPlan) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
@@ -56,20 +58,17 @@ func buildPlan(typ reflect.Type, indexPrefix []int, plan *structPlan) {
 		copy(indexPath, indexPrefix)
 		indexPath[len(indexPrefix)] = i
 
-		// Skip unexported fields
-		if field.PkgPath != "" {
+		if field.PkgPath != "" { // Skip unexported fields
 			continue
 		}
 
 		kind := field.Type.Kind()
 
-		// Recurse into nested structs
 		if kind == reflect.Struct {
 			buildPlan(field.Type, indexPath, plan)
 			continue
 		}
 
-		// Recurse into nested struct pointers (*MyStruct)
 		if kind == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
 			buildPlan(field.Type.Elem(), indexPath, plan)
 			continue
@@ -98,6 +97,7 @@ func buildPlan(typ reflect.Type, indexPrefix []int, plan *structPlan) {
 	}
 }
 
+// parseTagTransforms converts a comma-separated mod tag into an ordered chain of transform functions.
 func parseTagTransforms(tag string) []transformFunc {
 	var fnChain []transformFunc
 
@@ -122,12 +122,12 @@ func parseTagTransforms(tag string) []transformFunc {
 	return fnChain
 }
 
+// executePlan traverses a struct instance using a pre-calculated plan and applies sanitization functions to target fields.
 func executePlan(val reflect.Value, plan *structPlan) {
 	for _, f := range plan.fields {
 		curr := val
 		var nilEncountered bool
 
-		// Walk through parent struct hierarchy indices
 		for i, idx := range f.index {
 			if curr.Kind() == reflect.Ptr {
 				if curr.IsNil() {
@@ -139,7 +139,6 @@ func executePlan(val reflect.Value, plan *structPlan) {
 
 			curr = curr.Field(idx)
 
-			// Dereference intermediate struct pointers along the path (not the leaf field itself)
 			if i < len(f.index)-1 && curr.Kind() == reflect.Ptr {
 				if curr.IsNil() {
 					nilEncountered = true
@@ -153,7 +152,6 @@ func executePlan(val reflect.Value, plan *structPlan) {
 			continue
 		}
 
-		// Handle target leaf field (*string vs string)
 		if f.isPtr {
 			if curr.Kind() != reflect.Ptr || curr.IsNil() {
 				continue
