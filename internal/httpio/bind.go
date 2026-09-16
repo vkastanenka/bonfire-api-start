@@ -3,8 +3,8 @@ package httpio
 import (
 	"net/http"
 
-	"bonfire-api/internal/sanitize"
-	"bonfire-api/internal/validator"
+	"bonfire-api/internal/pkg/sanitize"
+	"bonfire-api/internal/pkg/validator"
 )
 
 type Bind struct {
