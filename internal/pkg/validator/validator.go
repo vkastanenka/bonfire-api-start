@@ -2,9 +2,6 @@ package validator
 
 import (
 	"errors"
-	"fmt"
-	"reflect"
-	"regexp"
 	"strings"
 
 	"bonfire-api/internal/pkg/errs"
@@ -12,15 +9,12 @@ import (
 	goValidator "github.com/go-playground/validator/v10"
 )
 
-var (
-	rgxHexColor = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
-	rgxVerCode  = regexp.MustCompile(`^[2-9A-HJ-NP-Z]{6}$`)
-)
-
+// Validator wraps go-playground/validator and translates errors to appErr instances.
 type Validator struct {
 	validate *goValidator.Validate
 }
 
+// New creates and initializes a new Validator configured with default options and optional overrides.
 func New(opts ...Option) *Validator {
 	val := &Validator{
 		validate: goValidator.New(),
@@ -33,6 +27,38 @@ func New(opts ...Option) *Validator {
 	}
 
 	return val
+}
+
+// Validate validates a struct instance and returns an appErr on constraint violations or execution errors.
+func (v *Validator) Validate(s any) error {
+	err := v.validate.Struct(s)
+	if err == nil {
+		return nil
+	}
+
+	var invalidValidationError *goValidator.InvalidValidationError
+	if errors.As(err, &invalidValidationError) {
+		return errs.Internal("failed to execute struct validation").Wrap(err)
+	}
+
+	var validationErrors goValidator.ValidationErrors
+	if errors.As(err, &validationErrors) {
+		appErr := errs.InvalidArgument("validation failed").
+			ErrorInfoReason("VALIDATION_FAILED").
+			Wrap(err)
+
+		for _, fieldErr := range validationErrors {
+			appErr.FieldViolation(
+				extractFieldPath(fieldErr),
+				msgForFieldError(fieldErr),
+				strings.ToUpper(fieldErr.ActualTag()),
+			)
+		}
+
+		return appErr
+	}
+
+	return errs.Internal("unexpected validation error").Wrap(err)
 }
 
 // applyDefaults registers infrastructure-level tag extractors, aliases, and base validations.
@@ -48,95 +74,20 @@ func (v *Validator) applyDefaults() {
 	}
 }
 
-func (v *Validator) Validate(s any) error {
-	err := v.validate.Struct(s)
-	if err == nil {
-		return nil
-	}
-
-	var invalidValidationError *goValidator.InvalidValidationError
-	if errors.As(err, &invalidValidationError) {
-		return errs.Internal("failed to execute struct validation").Wrap(err)
-	}
-
-	var validationErrors goValidator.ValidationErrors
-	if errors.As(err, &validationErrors) {
-		appErr := errs.InvalidArgument(errValidationFailed).
-			ErrorInfoReason("VALIDATION_FAILED").
-			Wrap(err)
-
-		for _, fieldErr := range validationErrors {
-			appErr.FieldViolation(
-				extractFieldPath(fieldErr),
-				msgForFieldError(fieldErr),
-				strings.ToUpper(fieldErr.ActualTag()),
-			)
-		}
-
-		return appErr
-	}
-
-	return errs.Internal("Unexpected validation error.").Wrap(err)
-}
-
+// extractFieldPath strips the root struct type name from field error namespaces, returning JSON/nested dot paths.
 func extractFieldPath(fieldErr goValidator.FieldError) string {
 	ns := fieldErr.Namespace()
-	if idx := strings.IndexByte(ns, '.'); idx != -1 {
-		return ns[idx+1:]
+
+	if idx := strings.IndexAny(ns, ".["); idx != -1 {
+		if ns[idx] == '.' {
+			return ns[idx+1:]
+		}
+		return ns[idx:]
 	}
-	if fieldErr.Field() != "" {
-		return fieldErr.Field()
+
+	if field := fieldErr.Field(); field != "" {
+		return field
 	}
+
 	return ns
-}
-
-func msgForFieldError(err goValidator.FieldError) string {
-	switch err.ActualTag() {
-	case "required":
-		val := err.Value()
-		if val != nil && reflect.TypeOf(val).Kind() == reflect.Ptr {
-			sv := reflect.ValueOf(val)
-			if !sv.IsNil() {
-				val = sv.Elem().Interface()
-			}
-		}
-		if valStr, ok := val.(string); ok && len(valStr) > 0 && strings.TrimSpace(valStr) == "" {
-			return errWhitespace
-		}
-		return errRequired
-
-	case "email":
-		return errEmail
-	case "alphanum":
-		return errAlphanum
-	case "hexcolor":
-		return errHexColor
-	case "uuid":
-		return errUUID
-	case "url":
-		return errURL
-	case "eqfield":
-		return fmt.Sprintf("Must match field %s.", err.Param())
-	case "oneof":
-		return fmt.Sprintf("Must be one of: %s.", strings.ReplaceAll(err.Param(), " ", ", "))
-	case "ne":
-		return fmt.Sprintf("Value cannot be %s.", err.Param())
-	case "min":
-		return formatRangeMessage(err, errMinString, errMinNumeric, errMinCollection)
-	case "max":
-		return formatRangeMessage(err, errMaxString, errMaxNumeric, errMaxCollection)
-	default:
-		return fmt.Sprintf(errInvalidConstraintValue, err.ActualTag())
-	}
-}
-
-func formatRangeMessage(err goValidator.FieldError, stringTmpl, numericTmpl, collectionTmpl string) string {
-	switch err.Kind() {
-	case reflect.String:
-		return fmt.Sprintf(stringTmpl, err.Param())
-	case reflect.Slice, reflect.Map, reflect.Array:
-		return fmt.Sprintf(collectionTmpl, err.Param())
-	default:
-		return fmt.Sprintf(numericTmpl, err.Param())
-	}
 }

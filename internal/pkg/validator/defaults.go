@@ -2,12 +2,23 @@ package validator
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 
 	goValidator "github.com/go-playground/validator/v10"
 )
 
-// defaultTagNameFunc checks json, form, and path tags in sequence for field naming.
+var (
+	rgxHexColor = regexp.MustCompile(`(?i)^#[0-9a-f]{6}$`)
+)
+
+const (
+	tagToken      = "token"
+	tagTokenRules = "max=1024"
+	tagHexColor   = "hexcolor"
+)
+
+// defaultTagNameFunc extracts key names from "json", "form", or "path" struct tags in priority order.
 func defaultTagNameFunc(fld reflect.StructField) string {
 	for _, tagKey := range []string{"json", "form", "path"} {
 		if tag := fld.Tag.Get(tagKey); tag != "" && tag != "-" {
@@ -20,34 +31,26 @@ func defaultTagNameFunc(fld reflect.StructField) string {
 	return fld.Name
 }
 
-const (
-	TagToken      = "token"
-	TagTokenRules = "max=1024"
-	TagHexColor   = "hexcolor"
-	TagVerCode    = "vercode"
-)
-
-// defaultAliases maps shared infrastructure-level aliases using constants.
+// defaultAliases returns package-level default tag aliases.
 func defaultAliases() map[string]string {
 	return map[string]string{
-		TagToken: TagTokenRules,
+		tagToken: tagTokenRules,
 	}
 }
 
-// defaultValidations maps package-level validation functions using constants.
+// defaultValidations returns package-level default custom validation functions.
 func defaultValidations() map[string]goValidator.Func {
 	return map[string]goValidator.Func{
-		TagHexColor: validateHexColor,
-		TagVerCode:  validateVerCode,
+		tagHexColor: validateHexColor,
 	}
 }
 
+// validateHexColor validates that a field is an optional or non-empty 6-digit hex color code.
 func validateHexColor(fl goValidator.FieldLevel) bool {
-	str := fl.Field().String()
+	field := fl.Field()
+	if field.Kind() != reflect.String {
+		return false
+	}
+	str := field.String()
 	return str == "" || rgxHexColor.MatchString(str)
-}
-
-func validateVerCode(fl goValidator.FieldLevel) bool {
-	str := fl.Field().String()
-	return str == "" || rgxVerCode.MatchString(str)
 }
