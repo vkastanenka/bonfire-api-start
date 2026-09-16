@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bonfire-api/internal/pkg/errs"
 	"context"
 	"log/slog"
 )
@@ -30,7 +31,12 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		r.AddAttrs(slog.String(ctxTraceIDKey, traceID))
 	}
 
-	return h.Handler.Handle(ctx, r)
+	err := h.Handler.Handle(ctx, r)
+	if err != nil {
+		return errs.Internal("failed to process log entry").Wrap(err)
+	}
+
+	return nil
 }
 
 // WithAttrs returns a new Handler with pre-populated attributes.

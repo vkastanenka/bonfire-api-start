@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 
 	goValidator "github.com/go-playground/validator/v10"
 )
@@ -21,35 +21,30 @@ type Validator struct {
 	validate *goValidator.Validate
 }
 
-func New() *Validator {
-	v := goValidator.New()
+func New(opts ...Option) *Validator {
+	val := &Validator{
+		validate: goValidator.New(),
+	}
 
-	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		for _, tagKey := range []string{"json", "form", "path"} {
-			if tag := fld.Tag.Get(tagKey); tag != "" && tag != "-" {
-				if idx := strings.IndexByte(tag, ','); idx != -1 {
-					return tag[:idx]
-				}
-				return tag
-			}
-		}
-		return fld.Name
-	})
+	val.applyDefaults()
 
-	v.RegisterAlias("token", "max=1024")
+	for _, opt := range opts {
+		opt(val)
+	}
 
-	_ = v.RegisterValidation("hexcolor", func(fl goValidator.FieldLevel) bool {
-		str := fl.Field().String()
-		return str == "" || rgxHexColor.MatchString(str)
-	})
+	return val
+}
 
-	_ = v.RegisterValidation("vercode", func(fl goValidator.FieldLevel) bool {
-		str := fl.Field().String()
-		return str == "" || rgxVerCode.MatchString(str)
-	})
+// applyDefaults registers infrastructure-level tag extractors, aliases, and base validations.
+func (v *Validator) applyDefaults() {
+	v.validate.RegisterTagNameFunc(defaultTagNameFunc)
 
-	return &Validator{
-		validate: v,
+	for alias, tags := range defaultAliases() {
+		v.validate.RegisterAlias(alias, tags)
+	}
+
+	for tag, fn := range defaultValidations() {
+		_ = v.validate.RegisterValidation(tag, fn)
 	}
 }
 
@@ -61,13 +56,13 @@ func (v *Validator) Validate(s any) error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return errs.Internal("Failed to execute struct validation.").Wrap(err)
+		return errs.Internal("failed to execute struct validation").Wrap(err)
 	}
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
 		appErr := errs.InvalidArgument(errValidationFailed).
-			Reason("VALIDATION_FAILED").
+			ErrorInfoReason("VALIDATION_FAILED").
 			Wrap(err)
 
 		for _, fieldErr := range validationErrors {
@@ -116,8 +111,6 @@ func msgForFieldError(err goValidator.FieldError) string {
 		return errAlphanum
 	case "hexcolor":
 		return errHexColor
-	case "vercode":
-		return errVerCode
 	case "uuid":
 		return errUUID
 	case "url":

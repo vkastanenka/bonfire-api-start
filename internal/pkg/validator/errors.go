@@ -8,7 +8,6 @@ const (
 	errEmail                  = "Must be a valid email address."
 	errAlphanum               = "Must contain only letters and numbers."
 	errHexColor               = "Must be a valid hex code (e.g., #FF5733)."
-	errVerCode                = "Must be 6 uppercase alphanumeric characters."
 	errUUID                   = "Must be a valid UUID."
 	errURL                    = "Must be a valid URL."
 	errMinString              = "Must be at least %s characters."

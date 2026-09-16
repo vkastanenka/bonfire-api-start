@@ -6,18 +6,22 @@ import (
 	"sync"
 )
 
+// transformFunc defines a function signature for string sanitization operations.
 type transformFunc func(string) string
 
+// fieldPlan stores metadata and transformation steps for a specific struct field.
 type fieldPlan struct {
 	index      []int
 	isPtr      bool
 	transforms []transformFunc
 }
 
+// structPlan holds the compiled collection of field plans for a given struct type.
 type structPlan struct {
 	fields []fieldPlan
 }
 
+// planCache caches compiled struct plans mapped by their reflect.Type to optimize performance.
 var planCache sync.Map // map[reflect.Type]*structPlan
 
 // Normalize recursively sanitizes struct string fields based on `mod` tags using cached metadata.
