@@ -12,48 +12,57 @@ import (
 )
 
 type Config struct {
-	AppEnv               string        `env:"APP_ENV" envDefault:"development"`
-	Port                 string        `env:"PORT" envDefault:":8080"`
-	TrustProxy           bool          `env:"TRUST_PROXY" envDefault:"false"`
-	TokenIssuer          string        `env:"TOKEN_ISSUER" envDefault:"bonfire-api"`
-	AccessSecret         string        `env:"JWT_ACCESS_SECRET,required"`
-	RefreshSecret        string        `env:"JWT_REFRESH_SECRET,required"`
-	EmailVerifySecret    string        `env:"JWT_EMAIL_VERIFY_SECRET,required"`
-	PasswordResetSecret  string        `env:"JWT_PASSWORD_RESET_SECRET,required"`
-	PasswordMFASecret    string        `env:"JWT_PASSWORD_MFA_SECRET,required"`
-	JWTAccessTTL         time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
-	JWTRefreshTTL        time.Duration `env:"JWT_REFRESH_TTL" envDefault:"168h"`
-	JWTEmailVerifyTTL    time.Duration `env:"JWT_EMAIL_VERIFY_TTL" envDefault:"24h"`
-	JWTPasswordResetTTL  time.Duration `env:"JWT_PASSWORD_RESET_TTL" envDefault:"15m"`
-	ResendApiKey         string        `env:"RESEND_API_KEY"`
-	EmailFromAddress     string        `env:"EMAIL_FROM_ADDRESS"`
-	FrontendURL          string        `env:"FRONTEND_URL"`
-	EmailOverrideTo      string        `env:"EMAIL_OVERRIDE_TO"`
-	RequestTimeout       time.Duration `env:"HTTP_REQUEST_TIMEOUT" envDefault:"10s"`
-	ServerWriteTimeout   time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"20s"`
-	ServerReadTimeout    time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"5s"`
-	ShutdownTimeout      time.Duration `env:"HTTP_SHUTDOWN_TIMEOUT" envDefault:"5s"`
-	AuthRateLimit        int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
-	AuthRateWindow       time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
-	CORSAllowedOrigins   []string      `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173"`
-	CORSAllowCredentials bool          `env:"CORS_ALLOW_CREDENTIALS" envDefault:"true"`
-	DatabaseURL          string        `env:"DATABASE_URL,required"`
-	DBMaxConns           int32         `env:"DB_MAX_CONNS" envDefault:"25"`
-	DBMinConns           int32         `env:"DB_MIN_CONNS" envDefault:"2"`
-	DBMaxConnLifetime    time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"1h"`
-	DBMaxConnIdleTime    time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"30m"`
-	DBHealthCheck        time.Duration `env:"DB_HEALTH_CHECK" envDefault:"1m"`
+	// Server & Environment
+	AppEnv             string        `env:"APP_ENV" envDefault:"development"`
+	Port               string        `env:"PORT" envDefault:"8080"`
+	FrontendURL        string        `env:"FRONTEND_URL,required"`
+	TrustProxy         bool          `env:"TRUST_PROXY" envDefault:"false"`
+	RequestTimeout     time.Duration `env:"HTTP_REQUEST_TIMEOUT" envDefault:"10s"`
+	ServerReadTimeout  time.Duration `env:"HTTP_READ_TIMEOUT" envDefault:"5s"`
+	ServerWriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT" envDefault:"20s"`
+	ShutdownTimeout    time.Duration `env:"HTTP_SHUTDOWN_TIMEOUT" envDefault:"10s"`
+
+	// Database (PostgreSQL / Pgx)
+	DatabaseURL       string        `env:"DATABASE_URL,required"`
+	DBHealthCheck     time.Duration `env:"DB_HEALTH_CHECK" envDefault:"1m"`
+	DBMaxConnIdleTime time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"30m"`
+	DBMaxConnLifetime time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"1h"`
+	DBMaxConns        int           `env:"DB_MAX_CONNS" envDefault:"25"`
+	DBMinConns        int           `env:"DB_MIN_CONNS" envDefault:"5"`
+
+	// Cache & State (Redis)
 	RedisURL             string        `env:"REDIS_URL,required"`
-	RedisPoolSize        int           `env:"REDIS_POOL_SIZE" envDefault:"20"`
-	RedisMinIdleConns    int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"2"`
+	RedisPoolSize        int           `env:"REDIS_POOL_SIZE" envDefault:"50"`
+	RedisMinIdleConns    int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"10"`
 	RedisConnMaxIdleTime time.Duration `env:"REDIS_CONN_MAX_IDLE_TIME" envDefault:"30m"`
 	RedisConnMaxLifetime time.Duration `env:"REDIS_CONN_MAX_LIFETIME" envDefault:"1h"`
-	TicketTTL            time.Duration `env:"TICKET_TTL" envDefault:"30s"`
-	UserTTL              time.Duration `env:"USER_TTL" envDefault:"30s"`
-	OutboxPollInterval   time.Duration `env:"OUTBOX_POLL_INTERVAL" envDefault:"1s"`
-	OutboxLeaseDuration  int           `env:"OUTBOX_LEASE_DURATION" envDefault:"30"`
-	OutboxBatchSize      int           `env:"OUTBOX_BATCH_SIZE" envDefault:"50"`
-	OutboxMaxWorkers     int           `env:"OUTBOX_MAX_WORKERS" envDefault:"10"`
+
+	// Security & Auth
+	JWTAccessSecret        string `env:"JWT_ACCESS_SECRET,required"`
+	JWTRefreshSecret       string `env:"JWT_REFRESH_SECRET,required"`
+	JWTEmailVerifySecret   string `env:"JWT_EMAIL_VERIFY_SECRET,required"`
+	JWTPasswordResetSecret string `env:"JWT_PASSWORD_RESET_SECRET,required"`
+
+	JWTAccessTTL        time.Duration `env:"JWT_ACCESS_TTL" envDefault:"15m"`
+	JWTRefreshTTL       time.Duration `env:"JWT_REFRESH_TTL" envDefault:"168h"`
+	JWTEmailVerifyTTL   time.Duration `env:"JWT_EMAIL_VERIFY_TTL" envDefault:"24h"`
+	JWTPasswordResetTTL time.Duration `env:"JWT_PASSWORD_RESET_TTL" envDefault:"15m"`
+
+	AuthRateLimit  int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	AuthRateWindow time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
+
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173" envSeparator:","`
+
+	// Transactional Outbox Pattern
+	OutboxBatchSize     int           `env:"OUTBOX_BATCH_SIZE" envDefault:"100"`
+	OutboxLeaseDuration time.Duration `env:"OUTBOX_LEASE_DURATION" envDefault:"30s"`
+	OutboxMaxWorkers    int           `env:"OUTBOX_MAX_WORKERS" envDefault:"10"`
+	OutboxPollInterval  time.Duration `env:"OUTBOX_POLL_INTERVAL" envDefault:"500ms"`
+
+	// Email Service
+	ResendApiKey     string `env:"RESEND_API_KEY"`
+	EmailFromAddress string `env:"EMAIL_FROM_ADDRESS"`
+	EmailOverrideTo  string `env:"EMAIL_OVERRIDE_TO"`
 }
 
 func (c *Config) IsDevelopment() bool {

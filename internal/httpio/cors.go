@@ -28,7 +28,7 @@ func CORS(cfg *config.Config) func(http.Handler) http.Handler {
 			"X-Request-ID",
 			"X-Trace-ID",
 		},
-		AllowCredentials: cfg.CORSAllowCredentials,
+		AllowCredentials: true,
 		MaxAge:           300,
 	})
 
