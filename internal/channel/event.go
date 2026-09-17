@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
@@ -42,22 +43,17 @@ type EventChannelCreatedPayload struct {
 	MemberIDs        []uuid.UUID                     `json:"member_ids"`
 }
 
-// func NewChannelCreatedEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventChannelCreatedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventChannelCreated,
-// 			payload,
-// 		)
-// 	}
-// }
+func NewChannelCreatedEventHandler(gw Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, p EventChannelCreatedPayload) error {
+		return gw.BroadcastToUsers(
+			ctx,
+			p.MemberIDs,
+			[]uuid.UUID{p.ExcludeSessionID},
+			EventChannelCreated,
+			p,
+		)
+	})
+}
 
 type EventChannelUpdatedPayload struct {
 	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`

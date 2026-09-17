@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,11 +15,10 @@ import (
 )
 
 var (
-	ErrFatal     = errors.New("outbox: fatal event execution error")
-	errLeaseLost = errors.New("outbox: lease renewal failed")
+	errFatal          = errors.New("outbox: fatal event execution error")
+	errLeaseLost      = errors.New("outbox: lease renewal failed")
+	errInvalidPayload = errors.New("outbox: invalid event payload schema")
 )
-
-type Handler func(ctx context.Context, payload json.RawMessage) error
 
 type Worker struct {
 	id            uuid.UUID
@@ -266,7 +264,8 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 			return
 		}
 
-		isFatal := errors.Is(executionErr, ErrFatal)
+		// Mark as fatal if the handler returned errFatal OR an invalid payload error
+		isFatal := errors.Is(executionErr, errFatal) || errors.Is(executionErr, errInvalidPayload)
 		w.handleFailure(ctx, event, executionErr, isFatal)
 		return
 	}
