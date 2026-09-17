@@ -1,11 +1,13 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -24,6 +26,7 @@ const (
 	EntityUser            Entity = "user"
 )
 
+// String returns the string representation of the database Entity.
 func (e Entity) String() string { return string(e) }
 
 const (
@@ -74,10 +77,12 @@ func NewError(err error, entity Entity) error {
 	return handleDbError(err, entity)
 }
 
+// handleDbError classifies general database failures into domain errors, prioritizing record misses and Postgres-specific errors.
 func handleDbError(err error, entity Entity) error {
 	if IsNotFoundError(err) {
-		msg := fmt.Sprintf("The requested %s could not be found.", entity)
-		return attachContext(errs.NotFound(msg), entity).Wrap(err)
+		return attachContext(errs.NotFound("The requested resource could not be found."), entity, "record missing or deleted").
+			Reason("RESOURCE_NOT_FOUND").
+			Wrap(err)
 	}
 
 	var pgErr *pgconn.PgError
@@ -85,77 +90,116 @@ func handleDbError(err error, entity Entity) error {
 		return handlePgError(err, pgErr, entity)
 	}
 
-	msg := fmt.Sprintf("An error occurred operating on %s.", entity)
-	return attachContext(errs.Internal(msg), entity).Wrap(err)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return attachContext(errs.DeadlineExceeded("Database operation timed out."), entity, "query execution deadline exceeded").
+			Reason("DB_TIMEOUT").
+			Wrap(err)
+
+	case errors.Is(err, context.Canceled):
+		return attachContext(errs.Aborted("Database operation was canceled."), entity, "operation canceled by client").
+			Reason("DB_CANCELED").
+			Wrap(err)
+
+	case isNetworkError(err):
+		return attachContext(errs.Unavailable("Database service is temporarily unavailable."), entity, "connection failed").
+			Reason("DB_UNAVAILABLE").
+			Wrap(err)
+
+	default:
+		return attachContext(errs.Internal("An internal database error occurred."), entity, "unhandled database failure").
+			Reason("DB_INTERNAL_ERROR").
+			Wrap(err)
+	}
 }
 
+// handlePgError maps specific PostgreSQL error codes to structured domain error types.
 func handlePgError(origErr error, pgErr *pgconn.PgError, entity Entity) error {
 	switch pgErr.Code {
 	case pgCodeUniqueViolation:
 		return handleConstraint(origErr, pgErr, entity, errs.CodeAlreadyExists,
-			"This %s is already taken.",
-			fmt.Sprintf("A record for %s with those details already exists.", entity))
+			"ALREADY_EXISTS",
+			"A resource with these details already exists.")
 
 	case pgCodeNotNullViolation:
 		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
-			"This field is required.",
-			fmt.Sprintf("A required field is missing for %s.", entity))
+			"REQUIRED_FIELD_MISSING",
+			"A required field is missing.")
 
 	case pgCodeForeignKeyViolation:
-		msg := fmt.Sprintf("Referenced target for %s does not exist or was deleted.", entity)
-		return attachContext(errs.InvalidArgument(msg), entity).Wrap(origErr)
+		e := attachContext(errs.InvalidArgument("Referenced entity does not exist or was deleted."), entity, "foreign key target missing").
+			Reason("FOREIGN_KEY_VIOLATION")
+		if pgErr.ConstraintName != "" {
+			e = e.Meta("constraint", pgErr.ConstraintName)
+		}
+		return e.Wrap(origErr)
 
 	case pgCodeCheckViolation:
 		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
-			"Invalid value.",
-			fmt.Sprintf("An operation on %s was rejected due to a constraint violation.", entity))
+			"CONSTRAINT_VIOLATION",
+			"The provided value violates a domain constraint.")
 
 	case pgCodeStringDataTruncated:
 		return handleConstraint(origErr, pgErr, entity, errs.CodeInvalidArgument,
-			"Exceeds maximum allowed length.",
-			fmt.Sprintf("A provided field for %s exceeds maximum length.", entity))
+			"STRING_TOO_LONG",
+			"A provided field exceeds the maximum allowed length.")
 
 	case pgCodeNumericOutOfRange:
-		msg := fmt.Sprintf("A numeric value for %s was out of range.", entity)
-		return attachContext(errs.OutOfRange(msg), entity).Wrap(origErr)
+		return attachContext(errs.OutOfRange("A numeric value was out of allowed range."), entity, "numeric field overflow").
+			Reason("NUMERIC_OUT_OF_RANGE").
+			Wrap(origErr)
 
 	case pgCodeInvalidTextRepr:
-		msg := fmt.Sprintf("Invalid data format provided for %s.", entity)
-		return attachContext(errs.InvalidArgument(msg), entity).Wrap(origErr)
+		return attachContext(errs.InvalidArgument("Invalid data format provided."), entity, "malformed column value").
+			Reason("INVALID_DATA_FORMAT").
+			Wrap(origErr)
 
 	case pgCodeSerializationFail, pgCodeDeadlockDetected:
-		msg := fmt.Sprintf("Concurrent conflict while operating on %s. Please retry.", entity)
-		return attachContext(errs.Aborted(msg), entity).Wrap(origErr)
+		return attachContext(errs.Aborted("Concurrent modification conflict. Please retry."), entity, "serialization failure or deadlock").
+			Reason("CONCURRENCY_CONFLICT").
+			Wrap(origErr)
 
 	case pgCodeQueryCanceled:
-		msg := fmt.Sprintf("Database operation on %s timed out.", entity)
-		return attachContext(errs.DeadlineExceeded(msg), entity).Wrap(origErr)
+		return attachContext(errs.DeadlineExceeded("Database operation timed out."), entity, "statement execution canceled").
+			Reason("QUERY_CANCELED").
+			Wrap(origErr)
 
 	default:
-		msg := fmt.Sprintf("An internal database error occurred while processing %s.", entity)
-		return attachContext(errs.Internal(msg), entity).Wrap(origErr)
+		return attachContext(errs.Internal("An internal database error occurred."), entity, "postgres engine error").
+			Reason("DB_INTERNAL_ERROR").
+			Wrap(origErr)
 	}
 }
 
+// handleConstraint constructs a domain error for database constraint violations, embedding field and table metadata.
 func handleConstraint(
 	origErr error,
 	pgErr *pgconn.PgError,
 	entity Entity,
 	code errs.Code,
-	fieldMsgTemplate string,
-	fallbackMsg string,
+	reason string,
+	staticMsg string,
 ) error {
-	field, ok := getFieldName(pgErr, entity)
-	if ok {
-		formattedMsg := formatMessage(fieldMsgTemplate, field)
-		return attachContext(errs.New(code, formattedMsg), entity).
-			FieldViolation(field, formattedMsg, pgErr.Code).
-			Wrap(origErr)
+	e := attachContext(errs.New(code, staticMsg), entity, "constraint violation").
+		Reason(reason)
+
+	if pgErr.ConstraintName != "" {
+		e = e.Meta("constraint", pgErr.ConstraintName)
+	}
+	if pgErr.TableName != "" {
+		e = e.Meta("table", pgErr.TableName)
 	}
 
-	return attachContext(errs.New(code, fallbackMsg), entity).Wrap(origErr)
+	field, ok := getFieldName(pgErr, entity)
+	if ok {
+		e = e.Meta("field", field).
+			FieldViolation(field, staticMsg, pgErr.Code)
+	}
+
+	return e.Wrap(origErr)
 }
 
+// getFieldName extracts and cleans the target column or constraint field name from a Postgres error.
 func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
 	if pgErr == nil {
 		return "", false
@@ -172,15 +216,8 @@ func getFieldName(pgErr *pgconn.PgError, entity Entity) (string, bool) {
 	return sanitizeFieldName(raw, entity), true
 }
 
+// sanitizeFieldName strips entity prefixes and database suffixes to isolate the raw property name.
 func sanitizeFieldName(raw string, entity Entity) string {
-	suffixes := []string{"_key", "_fkey", "_check", "_pkey", "_idx", "_seq", "_unique"}
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(raw, suffix) {
-			raw = strings.TrimSuffix(raw, suffix)
-			break
-		}
-	}
-
 	e := entity.String()
 	if e != "" {
 		prefixes := []string{
@@ -197,20 +234,24 @@ func sanitizeFieldName(raw string, entity Entity) string {
 		}
 	}
 
+	suffixes := []string{"_key", "_fkey", "_check", "_pkey", "_idx", "_seq", "_unique"}
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(raw, suffix) {
+			raw = strings.TrimSuffix(raw, suffix)
+			break
+		}
+	}
+
 	return raw
 }
 
-func formatMessage(template string, field string) string {
-	if strings.Contains(template, "%s") {
-		return fmt.Sprintf(template, humanize(field))
-	}
-	return template
+// isNetworkError determines whether an error stems from underlying network or I/O failure.
+func isNetworkError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
-func humanize(s string) string {
-	return strings.TrimSpace(strings.ReplaceAll(s, "_", " "))
-}
-
-func attachContext(e *errs.Error, entity Entity) *errs.Error {
-	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", "")
+// attachContext enriches a domain error with entity metadata and standardized database resource context.
+func attachContext(e *errs.Error, entity Entity, desc string) *errs.Error {
+	return e.Meta("entity", entity.String()).Resource("db", entity.String(), "", desc)
 }
