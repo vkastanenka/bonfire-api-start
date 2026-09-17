@@ -17,7 +17,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 			if authHeader == "" {
 				respondError(w, r,
 					errs.Unauthenticated("Missing authorization header.").
-						ErrorInfoReason("AUTH_HEADER_MISSING"),
+						Reason("AUTH_HEADER_MISSING"),
 				)
 				return
 			}
@@ -26,7 +26,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 			if len(authHeader) < len(bearerPrefix) || !strings.EqualFold(authHeader[:len(bearerPrefix)], bearerPrefix) {
 				respondError(w, r,
 					errs.Unauthenticated("Invalid authorization header format.").
-						ErrorInfoReason("AUTH_HEADER_INVALID"),
+						Reason("AUTH_HEADER_INVALID"),
 				)
 				return
 			}
@@ -35,7 +35,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 			if tokenStr == "" {
 				respondError(w, r,
 					errs.Unauthenticated("Invalid authorization header format.").
-						ErrorInfoReason("AUTH_HEADER_INVALID"),
+						Reason("AUTH_HEADER_INVALID"),
 				)
 				return
 			}

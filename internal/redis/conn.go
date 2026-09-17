@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"bonfire-api/internal/pkg/errs"
+
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -15,20 +17,27 @@ type ConnConfig struct {
 	MinIdleConns    int
 	ConnMaxIdleTime time.Duration
 	ConnMaxLifetime time.Duration
+	DialTimeout     time.Duration
 }
 
+// NewConn initializes a go-redis client, configures pool settings, and verifies connectivity with a PING.
 func NewConn(ctx context.Context, cfg ConnConfig) (*goredis.Client, error) {
 	if cfg.ConnString == "" {
-		return nil, fmt.Errorf("redis connection string cannot be empty")
+		return nil, errs.InvalidArgument("redis connection string cannot be empty").
+			Reason("REDIS_CONFIG_INVALID").
+			FieldViolation("conn_string", "connection string is required", "REQUIRED")
 	}
-
-	start := time.Now()
-	slog.Info("initializing redis client pool")
 
 	opt, err := goredis.ParseURL(cfg.ConnString)
 	if err != nil {
-		return nil, fmt.Errorf("invalid redis url: %w", err)
+		return nil, errs.InvalidArgument("invalid redis url").
+			Reason("REDIS_URL_INVALID").
+			FieldViolation("conn_string", "failed to parse redis connection URL", "INVALID_FORMAT").
+			Wrap(err)
 	}
+
+	start := time.Now()
+	slog.InfoContext(ctx, "initializing redis client pool", slog.String("addr", opt.Addr))
 
 	if cfg.PoolSize > 0 {
 		opt.PoolSize = cfg.PoolSize
@@ -42,17 +51,27 @@ func NewConn(ctx context.Context, cfg ConnConfig) (*goredis.Client, error) {
 	if cfg.ConnMaxLifetime > 0 {
 		opt.ConnMaxLifetime = cfg.ConnMaxLifetime
 	}
+	if cfg.DialTimeout > 0 {
+		opt.DialTimeout = cfg.DialTimeout
+	}
 
 	rdb := goredis.NewClient(opt)
 
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pingCtx, cancel := context.WithTimeoutCause(ctx, 5*time.Second, fmt.Errorf("redis ping timeout after 5s"))
 	defer cancel()
 
 	if err := rdb.Ping(pingCtx).Err(); err != nil {
-		rdb.Close()
-		return nil, fmt.Errorf("redis connection verification failed: %w", err)
+		_ = rdb.Close()
+		return nil, errs.Unavailable("redis connection verification failed").
+			Reason("REDIS_PING_FAILED").
+			Meta("address", opt.Addr).
+			Wrap(err)
 	}
 
-	slog.Info("redis connection established", slog.Duration("duration", time.Since(start)))
+	slog.InfoContext(ctx, "redis connection established",
+		slog.Duration("duration", time.Since(start)),
+		slog.String("addr", opt.Addr),
+	)
+
 	return rdb, nil
 }

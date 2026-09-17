@@ -62,9 +62,9 @@ func NewProvider(cfg Config) (*Provider, error) {
 	for val, spec := range specs {
 		if spec.Secret == "" {
 			return nil, errs.InvalidArgument("invalid token configuration").
-				ErrorInfoReason("INVALID_TOKEN_CONFIG").
-				ErrorInfoMeta("token_type", val.String()).
-				ErrorInfoMeta("provided_secret", "").
+				Reason("INVALID_TOKEN_CONFIG").
+				Meta("token_type", val.String()).
+				Meta("provided_secret", "").
 				FieldViolation(
 					"variants."+val.String()+".secret",
 					"secret key cannot be empty",
@@ -74,9 +74,9 @@ func NewProvider(cfg Config) (*Provider, error) {
 
 		if spec.TTL <= 0 {
 			return nil, errs.InvalidArgument("invalid token configuration").
-				ErrorInfoReason("INVALID_TOKEN_CONFIG").
-				ErrorInfoMeta("token_type", val.String()).
-				ErrorInfoMeta("provided_ttl", spec.TTL.String()).
+				Reason("INVALID_TOKEN_CONFIG").
+				Meta("token_type", val.String()).
+				Meta("provided_ttl", spec.TTL.String()).
 				FieldViolation(
 					"variants."+val.String()+".ttl",
 					"TTL must be a positive duration",
@@ -100,8 +100,8 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 	spec, exists := p.variants[tokenType]
 	if !exists || len(spec.secret) == 0 {
 		return "", time.Time{}, errs.Internal("missing signing configuration for token type").
-			ErrorInfoReason("UNCONFIGURED_TOKEN_TYPE").
-			ErrorInfoMeta("token_type", tokenType.String())
+			Reason("UNCONFIGURED_TOKEN_TYPE").
+			Meta("token_type", tokenType.String())
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -110,7 +110,7 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 	id, err := uuid.NewV7()
 	if err != nil {
 		return "", time.Time{}, errs.Internal("failed to generate token uuid").
-			ErrorInfoReason("UUID_GENERATION_FAILED").
+			Reason("UUID_GENERATION_FAILED").
 			Wrap(err)
 	}
 
@@ -127,8 +127,8 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 	signedToken, err := token.SignedString(spec.secret)
 	if err != nil {
 		return "", time.Time{}, errs.Internal("failed to sign token").
-			ErrorInfoReason("TOKEN_SIGNING_FAILED").
-			ErrorInfoMeta("token_type", tokenType.String()).
+			Reason("TOKEN_SIGNING_FAILED").
+			Meta("token_type", tokenType.String()).
 			Wrap(err)
 	}
 
@@ -139,8 +139,8 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 	spec, exists := p.variants[tokenType]
 	if !exists || len(spec.secret) == 0 {
 		return nil, errs.Internal("missing verification configuration for token type").
-			ErrorInfoReason("UNCONFIGURED_TOKEN_TYPE").
-			ErrorInfoMeta("token_type", tokenType.String())
+			Reason("UNCONFIGURED_TOKEN_TYPE").
+			Meta("token_type", tokenType.String())
 	}
 
 	token, err := jwt.ParseWithClaims(
@@ -164,26 +164,26 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 		switch {
 		case errors.Is(err, jwt.ErrTokenExpired):
 			return nil, errs.Unauthenticated("token has expired").
-				ErrorInfoReason("TOKEN_EXPIRED").
+				Reason("TOKEN_EXPIRED").
 				Wrap(err)
 		case errors.Is(err, jwt.ErrTokenInvalidIssuer):
 			return nil, errs.Unauthenticated("token issuer mismatch").
-				ErrorInfoReason("TOKEN_ISSUER_MISMATCH").
-				ErrorInfoMeta("expected_issuer", p.issuer).
+				Reason("TOKEN_ISSUER_MISMATCH").
+				Meta("expected_issuer", p.issuer).
 				Wrap(err)
 		case errors.Is(err, jwt.ErrTokenMalformed):
 			return nil, errs.InvalidArgument("malformed token format").
-				ErrorInfoReason("TOKEN_MALFORMED").
-				ErrorInfoMeta("provided_token", tokenStr).
+				Reason("TOKEN_MALFORMED").
+				Meta("provided_token", tokenStr).
 				FieldViolation("token", "provided JWT string is malformed or unparseable", "INVALID_FORMAT").
 				Wrap(err)
 		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
 			return nil, errs.Unauthenticated("invalid token signature").
-				ErrorInfoReason("TOKEN_SIGNATURE_INVALID").
+				Reason("TOKEN_SIGNATURE_INVALID").
 				Wrap(err)
 		default:
 			return nil, errs.Unauthenticated("invalid token").
-				ErrorInfoReason("TOKEN_INVALID").
+				Reason("TOKEN_INVALID").
 				Wrap(err)
 		}
 	}
@@ -191,14 +191,14 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, errs.Unauthenticated("invalid or corrupt token claims").
-			ErrorInfoReason("TOKEN_CLAIMS_INVALID")
+			Reason("TOKEN_CLAIMS_INVALID")
 	}
 
 	if claims.TokenType != tokenType {
 		return nil, errs.Unauthenticated("token variant mismatch").
-			ErrorInfoReason("TOKEN_VARIANT_MISMATCH").
-			ErrorInfoMeta("expected_type", tokenType.String()).
-			ErrorInfoMeta("actual_type", claims.TokenType.String())
+			Reason("TOKEN_VARIANT_MISMATCH").
+			Meta("expected_type", tokenType.String()).
+			Meta("actual_type", claims.TokenType.String())
 	}
 
 	return claims, nil

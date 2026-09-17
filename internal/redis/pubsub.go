@@ -3,10 +3,11 @@ package redis
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
+
+	"bonfire-api/internal/pkg/errs"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -42,7 +43,9 @@ func (s *Subscription) Unsubscribe() error {
 	})
 
 	if err != nil {
-		return NewError(err, ScopeOutboxEvent)
+		return errs.Internal("Failed to unsubscribe from Redis Pub/Sub channel.").
+			Reason("PUBSUB_UNSUBSCRIBE_FAILED").
+			Wrap(err)
 	}
 	return nil
 }
@@ -51,8 +54,6 @@ func (s *Subscription) Unsubscribe() error {
 func (s *Subscription) Close() error {
 	return s.Unsubscribe()
 }
-
-// --- Pub/Sub Operations ---
 
 // Publish transmits a payload to the specified Redis channel.
 func Publish(ctx context.Context, client goredis.Cmdable, channel string, message any) error {
@@ -67,36 +68,43 @@ func Publish(ctx context.Context, client goredis.Cmdable, channel string, messag
 	default:
 		payload, err = json.Marshal(v)
 		if err != nil {
-			return NewError(err, ScopeOutboxEvent)
+			return errs.InvalidArgument("Failed to marshal Pub/Sub message payload.").
+				Reason("PUBSUB_MARSHAL_FAILED").
+				FieldViolation("message", "payload must be JSON serializable", "INVALID_FORMAT").
+				Wrap(err)
 		}
 	}
 
 	if err := client.Publish(ctx, channel, payload).Err(); err != nil {
-		return NewError(err, ScopeOutboxEvent)
+		return errs.Unavailable("Failed to publish message to channel.").
+			Reason("PUBSUB_PUBLISH_FAILED").
+			Meta("channel", channel).
+			Wrap(err)
 	}
 	return nil
 }
 
 // Subscribe opens a subscription to one or more explicit Redis channels.
-func Subscribe(ctx context.Context, client *goredis.Client, scope Scope, channels ...string) (*Subscription, error) {
+func Subscribe(ctx context.Context, client *goredis.Client, channels ...string) (*Subscription, error) {
 	pb := client.Subscribe(ctx, channels...)
-	return newSubscription(ctx, pb, scope)
+	return newSubscription(ctx, pb)
 }
 
 // PSubscribe opens a pattern-based subscription matching one or more Redis channel patterns.
-func PSubscribe(ctx context.Context, client *goredis.Client, scope Scope, patterns ...string) (*Subscription, error) {
+func PSubscribe(ctx context.Context, client *goredis.Client, patterns ...string) (*Subscription, error) {
 	pb := client.PSubscribe(ctx, patterns...)
-	return newSubscription(ctx, pb, scope)
+	return newSubscription(ctx, pb)
 }
 
-// --- Internal Helpers ---
-
-func newSubscription(ctx context.Context, pb *goredis.PubSub, scope Scope) (*Subscription, error) {
+func newSubscription(ctx context.Context, pb *goredis.PubSub) (*Subscription, error) {
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if _, err := pb.Receive(subCtx); err != nil {
-		return nil, errors.Join(NewError(err, scope), pb.Close())
+		_ = pb.Close()
+		return nil, errs.Unavailable("Failed to establish Redis Pub/Sub subscription.").
+			Reason("PUBSUB_SUBSCRIBE_FAILED").
+			Wrap(err)
 	}
 
 	sub := &Subscription{
@@ -120,6 +128,12 @@ func (s *Subscription) listen() {
 				return
 			}
 
+			select {
+			case <-s.done:
+				return
+			default:
+			}
+
 			event := Event{Channel: msg.Channel, Payload: msg.Payload}
 
 			select {
@@ -128,7 +142,7 @@ func (s *Subscription) listen() {
 				return
 			default:
 				slog.Warn("pubsub channel buffer full, dropping message",
-					"channel", msg.Channel,
+					slog.String("channel", msg.Channel),
 				)
 			}
 

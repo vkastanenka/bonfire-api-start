@@ -11,8 +11,8 @@ func ParseEnumInt[T ~int](raw int, max T, fieldName string) (T, error) {
 	val := T(raw)
 	if raw <= 0 || val >= max {
 		return 0, errs.InvalidArgument("invalid "+fieldName).
-			ErrorInfoReason("INVALID_"+Enum(fieldName)).
-			ErrorInfoMeta("value", strconv.Itoa(raw)).
+			Reason("INVALID_"+Enum(fieldName)).
+			Meta("value", strconv.Itoa(raw)).
 			FieldViolation(fieldName, "provided integer value is out of valid enum bounds", "INVALID_ENUM_VALUE")
 	}
 	return val, nil
@@ -32,8 +32,8 @@ func ParseEnumBytes[T ~int](b []byte, names []string, fieldName string) (T, erro
 func parseEnumNormalized[T ~int](cleaned string, original string, names []string, fieldName string) (T, error) {
 	if cleaned == "" {
 		return 0, errs.InvalidArgument(fieldName+" is required").
-			ErrorInfoReason("EMPTY_"+Enum(fieldName)).
-			ErrorInfoMeta("value", original).
+			Reason("EMPTY_"+Enum(fieldName)).
+			Meta("value", original).
 			FieldViolation(fieldName, "value cannot be empty", "REQUIRED_FIELD")
 	}
 
@@ -44,7 +44,7 @@ func parseEnumNormalized[T ~int](cleaned string, original string, names []string
 	}
 
 	return 0, errs.InvalidArgument("invalid "+fieldName).
-		ErrorInfoReason("INVALID_"+Enum(fieldName)).
-		ErrorInfoMeta("value", original).
+		Reason("INVALID_"+Enum(fieldName)).
+		Meta("value", original).
 		FieldViolation(fieldName, "provided value is not supported", "INVALID_ENUM_VALUE")
 }

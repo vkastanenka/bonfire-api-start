@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -33,9 +33,9 @@ const (
 func (e Scope) String() string { return string(e) }
 
 // ErrCacheMiss represents a standard cache miss and wraps redis.Nil for direct comparison.
-var ErrCacheMiss = fmt.Errorf("cache: key not found: %w", redis.Nil)
+var ErrCacheMiss = fmt.Errorf("cache key not found: %w", redis.Nil)
 
-// IsCacheMiss checks if the underlying error is a redis.Nil or our package sentinel ErrCacheMiss.
+// IsCacheMiss checks if the underlying error is a redis.Nil or package sentinel ErrCacheMiss.
 func IsCacheMiss(err error) bool {
 	return errors.Is(err, redis.Nil) || errors.Is(err, ErrCacheMiss)
 }
@@ -54,37 +54,41 @@ func NewError(err error, scope Scope) error {
 }
 
 func handleCacheError(err error, scope Scope) error {
-	var (
-		builder func(string) *errs.Error
-		msg     string
-	)
-
 	switch {
 	case IsCacheMiss(err):
-		builder = errs.NotFound
-		msg = fmt.Sprintf("Cache key for %s not found.", scope)
-	case errors.Is(err, context.DeadlineExceeded):
-		builder = errs.DeadlineExceeded
-		msg = fmt.Sprintf("Cache operation for %s timed out.", scope)
-	case errors.Is(err, context.Canceled):
-		builder = errs.Cancelled
-		msg = fmt.Sprintf("Cache operation for %s was canceled by the client.", scope)
-	case isNetworkError(err):
-		builder = errs.Unavailable
-		msg = fmt.Sprintf("Cache service for %s is temporarily unavailable.", scope)
-	default:
-		builder = errs.Internal
-		msg = fmt.Sprintf("An internal caching error occurred while processing %s.", scope)
-	}
+		return errs.NotFound("Cache key not found.").
+			Reason("CACHE_MISS").
+			Meta("scope", scope.String()).
+			Resource(scope.String(), "", "", "cache entry missing or expired").
+			Wrap(err)
 
-	return attachContext(builder(msg), scope).Wrap(err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return errs.DeadlineExceeded("Cache operation timed out.").
+			Reason("CACHE_TIMEOUT").
+			Meta("scope", scope.String()).
+			Wrap(err)
+
+	case errors.Is(err, context.Canceled):
+		return errs.Aborted("Cache operation was canceled.").
+			Reason("CACHE_CANCELED").
+			Meta("scope", scope.String()).
+			Wrap(err)
+
+	case isNetworkError(err):
+		return errs.Unavailable("Cache service is temporarily unavailable.").
+			Reason("CACHE_UNAVAILABLE").
+			Meta("scope", scope.String()).
+			Wrap(err)
+
+	default:
+		return errs.Internal("An internal caching error occurred.").
+			Reason("CACHE_INTERNAL_ERROR").
+			Meta("scope", scope.String()).
+			Wrap(err)
+	}
 }
 
 func isNetworkError(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr)
-}
-
-func attachContext(e *errs.Error, scope Scope) *errs.Error {
-	return e.Meta("scope", scope.String()).Resource("cache", scope.String(), "", "")
 }

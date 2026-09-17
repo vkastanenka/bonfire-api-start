@@ -37,7 +37,7 @@ func New(code Code, msg string) *Error {
 
 	info, err := NewErrorInfo(code.Name(), getDomain(), nil)
 	if err == nil {
-		e.AddDetail(info)
+		e.Detail(info)
 	}
 	return e
 }
@@ -118,7 +118,7 @@ func (e *Error) Wrap(err error) *Error {
 	return e
 }
 
-func (e *Error) AddDetail(d Detail) *Error {
+func (e *Error) Detail(d Detail) *Error {
 	if e == nil || d == nil {
 		return e
 	}
@@ -137,7 +137,7 @@ func (e *Error) AddDetail(d Detail) *Error {
 	return e
 }
 
-func (e *Error) ErrorInfoReason(reason string) *Error {
+func (e *Error) Reason(reason string) *Error {
 	if e == nil || !isValidErrorInfoReason(reason) {
 		return e
 	}
@@ -148,13 +148,13 @@ func (e *Error) ErrorInfoReason(reason string) *Error {
 		if err != nil {
 			return e
 		}
-		return e.AddDetail(info)
+		return e.Detail(info)
 	}
 	info.Reason = reason
 	return e
 }
 
-func (e *Error) ErrorInfoMeta(key, value string) *Error {
+func (e *Error) Meta(key, value string) *Error {
 	if e == nil {
 		return e
 	}
@@ -170,11 +170,11 @@ func (e *Error) ErrorInfoMeta(key, value string) *Error {
 	return e
 }
 
-func (e *Error) RetryInfo(delay time.Duration) *Error {
+func (e *Error) Retry(delay time.Duration) *Error {
 	if e == nil {
 		return e
 	}
-	return e.AddDetail(NewRetryInfo(delay))
+	return e.Detail(NewRetryInfo(delay))
 }
 
 func (e *Error) DebugInfo(detail string, stack ...string) *Error {
@@ -182,7 +182,7 @@ func (e *Error) DebugInfo(detail string, stack ...string) *Error {
 		return e
 	}
 	if info, err := NewDebugInfo(detail, stack...); err == nil {
-		e.AddDetail(info)
+		e.Detail(info)
 	}
 	return e
 }
@@ -203,28 +203,28 @@ func (e *Error) FieldViolation(field, description, reason string) *Error {
 	}
 
 	if br, err := NewBadRequest(*fv); err == nil {
-		e.AddDetail(br)
+		e.Detail(br)
 	}
 
 	return e
 }
 
-func (e *Error) RequestInfo(requestID, servingData string) *Error {
+func (e *Error) Request(requestID, servingData string) *Error {
 	if e == nil {
 		return e
 	}
 	if info, err := NewRequestInfo(requestID, servingData); err == nil {
-		e.AddDetail(info)
+		e.Detail(info)
 	}
 	return e
 }
 
-func (e *Error) ResourceInfo(rType, name, owner, description string) *Error {
+func (e *Error) Resource(rType, name, owner, description string) *Error {
 	if e == nil {
 		return e
 	}
 	if info, err := NewResourceInfo(rType, name, owner, description); err == nil {
-		e.AddDetail(info)
+		e.Detail(info)
 	}
 	return e
 }

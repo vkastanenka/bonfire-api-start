@@ -56,9 +56,7 @@ func Recoverer(next http.Handler) http.Handler {
 			)
 
 			// 5. Construct AIP-193 compliant internal error
-			appErr := errs.Internal("").
-				Wrap(err).
-				ErrorInfoReason("PANIC_RECOVERED")
+			appErr := errs.Internal("").Reason("PANIC_RECOVERED").Wrap(err)
 
 			respondError(w, r, appErr)
 		}()

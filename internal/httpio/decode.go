@@ -40,8 +40,8 @@ func validateDestination(dst any, funcName string) error {
 	val := reflect.ValueOf(dst)
 	if val.Kind() != reflect.Ptr || val.IsNil() || val.Elem().Kind() != reflect.Struct {
 		return errs.Internal("Destination must be a non-nil pointer to a struct.").
-			ErrorInfoReason("INVALID_CODE_CALL").
-			ErrorInfoMeta("function_name", funcName)
+			Reason("INVALID_CODE_CALL").
+			Meta("function_name", funcName)
 	}
 	return nil
 }
@@ -57,8 +57,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	mediaType, _, _ := strings.Cut(ct, ";")
 	if strings.TrimSpace(strings.ToLower(mediaType)) != "application/json" {
 		return errs.InvalidArgument("Missing or invalid Content-Type header; must be application/json.").
-			ErrorInfoReason("INVALID_CONTENT_TYPE").
-			ErrorInfoMeta("expected_content_type", "application/json")
+			Reason("INVALID_CONTENT_TYPE").
+			Meta("expected_content_type", "application/json")
 	}
 
 	limitedBody := http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
@@ -71,11 +71,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		if ctxErr := r.Context().Err(); ctxErr != nil {
 			if errors.Is(ctxErr, context.DeadlineExceeded) {
 				return errs.DeadlineExceeded("Request timed out.").
-					ErrorInfoReason("REQUEST_TIMEOUT").
+					Reason("REQUEST_TIMEOUT").
 					Wrap(ctxErr)
 			}
 			return errs.Cancelled("Client cancelled the request.").
-				ErrorInfoReason("CLIENT_CANCELLED").
+				Reason("CLIENT_CANCELLED").
 				Wrap(ctxErr)
 		}
 
@@ -86,24 +86,24 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		switch {
 		case errors.As(err, &maxBytesErr):
 			return errs.ResourceExhausted("Request body exceeds size limit.").
-				ErrorInfoReason("BODY_TOO_LARGE").
-				ErrorInfoMeta("max_bytes", fmt.Sprintf("%d", maxJSONBodyBytes)).
+				Reason("BODY_TOO_LARGE").
+				Meta("max_bytes", fmt.Sprintf("%d", maxJSONBodyBytes)).
 				Wrap(err)
 
 		case errors.Is(err, io.EOF):
 			return errs.InvalidArgument("Request body cannot be empty.").
-				ErrorInfoReason("EMPTY_REQUEST_BODY").
+				Reason("EMPTY_REQUEST_BODY").
 				FieldViolation("body", "Request body cannot be empty.", "REQUIRED").
 				Wrap(err)
 
 		case errors.As(err, &syntaxErr):
 			return errs.InvalidArgument("Malformed request body JSON syntax.").
-				ErrorInfoReason("MALFORMED_JSON").
+				Reason("MALFORMED_JSON").
 				Wrap(err)
 
 		case errors.Is(err, io.ErrUnexpectedEOF):
 			return errs.InvalidArgument("Truncated or malformed JSON structure received.").
-				ErrorInfoReason("TRUNCATED_JSON").
+				Reason("TRUNCATED_JSON").
 				Wrap(err)
 
 		case errors.As(err, &unmarshalTypeErr):
@@ -118,9 +118,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			}
 
 			return errs.InvalidArgument("Invalid data type provided for field.").
-				ErrorInfoReason("INVALID_FIELD_TYPE").
-				ErrorInfoMeta("field", fieldName).
-				ErrorInfoMeta("expected_type", expectedType).
+				Reason("INVALID_FIELD_TYPE").
+				Meta("field", fieldName).
+				Meta("expected_type", expectedType).
 				FieldViolation(fieldName, "Invalid data type provided for field.", "TYPE_MISMATCH").
 				Wrap(err)
 
@@ -129,21 +129,21 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 			fieldName := strings.Trim(rawField, `"`)
 
 			return errs.InvalidArgument("Request payload contains unrecognized fields.").
-				ErrorInfoReason("UNEXPECTED_FIELD").
-				ErrorInfoMeta("field", fieldName).
+				Reason("UNEXPECTED_FIELD").
+				Meta("field", fieldName).
 				FieldViolation(fieldName, "Unknown field present in request body.", "UNEXPECTED_FIELD").
 				Wrap(err)
 
 		default:
 			return errs.Internal("Failed to decode JSON request body.").
-				ErrorInfoReason("JSON_DECODE_FAILED").
+				Reason("JSON_DECODE_FAILED").
 				Wrap(err)
 		}
 	}
 
 	if dec.More() {
 		return errs.InvalidArgument("Request body must contain only a single JSON value.").
-			ErrorInfoReason("MULTIPLE_JSON_VALUES")
+			Reason("MULTIPLE_JSON_VALUES")
 	}
 
 	return nil
@@ -203,7 +203,7 @@ func mapFormDecodeError(err error, invalidReason, malformedReason, invalidMsg, m
 	var decodeErrors form.DecodeErrors
 	if errors.As(err, &decodeErrors) {
 		e := errs.InvalidArgument(invalidMsg).
-			ErrorInfoReason(invalidReason).
+			Reason(invalidReason).
 			Wrap(err)
 
 		for field, fe := range decodeErrors {
@@ -213,7 +213,7 @@ func mapFormDecodeError(err error, invalidReason, malformedReason, invalidMsg, m
 	}
 
 	return errs.InvalidArgument(malformedMsg).
-		ErrorInfoReason(malformedReason).
+		Reason(malformedReason).
 		Wrap(err)
 }
 

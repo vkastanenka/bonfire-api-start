@@ -24,11 +24,11 @@ func CtxGetMeta(ctx context.Context) (ClientMeta, error) {
 	meta, ok := ctx.Value(ctxKeyMeta).(ClientMeta)
 	if !ok {
 		err := errs.Internal("client metadata missing from request context").
-			ErrorInfoReason("MISSING_CONTEXT_META")
+			Reason("MISSING_CONTEXT_META")
 
 		if reqID := CtxGetReqID(ctx); reqID != "" {
 			if reqInfo, e := errs.NewRequestInfo(reqID, ""); e == nil {
-				err.AddDetail(reqInfo)
+				err.Detail(reqInfo)
 			}
 		}
 		return ClientMeta{}, err
@@ -50,7 +50,7 @@ func CtxGetClaims(ctx context.Context) (*token.Claims, error) {
 	claims, ok := ctx.Value(ctxKeyClaims).(*token.Claims)
 	if !ok || claims == nil {
 		return nil, errs.Unauthenticated("authentication token missing or invalid").
-			ErrorInfoReason("AUTH_TOKEN_MISSING")
+			Reason("AUTH_TOKEN_MISSING")
 	}
 	return claims, nil
 }

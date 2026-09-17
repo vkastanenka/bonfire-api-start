@@ -44,7 +44,7 @@ func (v *Validator) Validate(s any) error {
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
 		appErr := errs.InvalidArgument("validation failed").
-			ErrorInfoReason("VALIDATION_FAILED").
+			Reason("VALIDATION_FAILED").
 			Wrap(err)
 
 		for _, fieldErr := range validationErrors {
