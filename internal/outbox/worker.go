@@ -15,7 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrFatal = errors.New("outbox: fatal event execution error")
+var (
+	ErrFatal     = errors.New("outbox: fatal event execution error")
+	errLeaseLost = errors.New("outbox: lease renewal failed")
+)
 
 type Handler func(ctx context.Context, payload json.RawMessage) error
 
@@ -69,7 +72,7 @@ func NewWorker(
 		leaseDuration: leaseDuration,
 		batchSize:     batchSize,
 		maxWorkers:    maxWorkers,
-		sem:           make(chan struct{}, maxWorkers), // Initialized once with maxWorkers capacity
+		sem:           make(chan struct{}, maxWorkers),
 		handlers:      make(map[string]Handler),
 	}, nil
 }
@@ -106,7 +109,7 @@ func (w *Worker) Start(ctx context.Context) {
 			"max_workers", w.maxWorkers,
 		)
 
-		// Run immediately on startup
+		// Initial poll on startup
 		w.processBatch(workerCtx)
 
 		ticker := time.NewTicker(w.pollInterval)
@@ -144,7 +147,7 @@ func (w *Worker) Stop() {
 	}
 }
 
-// processBatch claims a batch of pending events and dispatches them concurrently across worker routines.
+// processBatch claims pending events and executes them concurrently using worker slots.
 func (w *Worker) processBatch(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -172,25 +175,30 @@ func (w *Worker) processBatch(ctx context.Context) {
 
 	var batchWg sync.WaitGroup
 
-	for _, evt := range events {
-		batchWg.Add(1)
-		w.sem <- struct{}{}
+	for i := range events {
+		evt := events[i]
+		select {
+		case <-ctx.Done():
+			slog.InfoContext(ctx, "batch processing loop canceled; draining active workers",
+				"worker_id", w.id,
+			)
+			goto Drain
+		case w.sem <- struct{}{}:
+			batchWg.Add(1)
+			go func(e *Event) {
+				defer batchWg.Done()
+				defer func() { <-w.sem }()
 
-		go func(e *Event) {
-			defer batchWg.Done()
-			defer func() { <-w.sem }()
-
-			execCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			defer cancel()
-
-			w.executeEvent(execCtx, e)
-		}(evt)
+				w.executeEvent(ctx, e)
+			}(evt)
+		}
 	}
 
+Drain:
 	batchWg.Wait()
 }
 
-// executeEvent processes a single outbox event with timeout safeguards, trace context propagation, and failure handling.
+// executeEvent processes a single outbox event with lease management, context propagation, and error handling.
 func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -216,17 +224,15 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		return
 	}
 
-	// Calculate handler execution timeout boundary
+	// Calculate handler timeout boundary (80% of lease duration)
 	handlerTimeout := time.Duration(float64(w.leaseDuration) * 0.8)
 	if handlerTimeout <= 0 {
 		handlerTimeout = 5 * time.Second
 	}
 
-	// Construct a base timeout context for the handler
-	baseCtx, cancelTimeout := context.WithTimeout(ctx, handlerTimeout)
+	baseCtx, cancelTimeout := context.WithTimeout(context.WithoutCancel(ctx), handlerTimeout)
 	defer cancelTimeout()
 
-	// Wrap with WithCancelCause so startHeartbeat can cancel taskCtx on lease loss
 	taskCtx, cancelTask := context.WithCancelCause(baseCtx)
 	defer cancelTask(nil)
 
@@ -234,27 +240,25 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		taskCtx = context.WithValue(taskCtx, httpio.CtxKeyTraceID, *event.TraceID)
 	}
 
-	// Launch background heartbeat using parent ctx (survives taskCtx cancel) and pass cancelTask cause handle
 	heartbeatDone := make(chan struct{})
 	go w.startHeartbeat(ctx, event, heartbeatDone, cancelTask)
 
 	executionErr := handler(taskCtx, event.Payload)
 
-	// Signal heartbeat goroutine to stop immediately once handler returns
+	// Stop heartbeat loop
 	close(heartbeatDone)
 
 	if executionErr != nil {
-		// Check if cancellation was triggered by lost database lease
-		if leaseErr := context.Cause(taskCtx); leaseErr != nil && !errors.Is(leaseErr, taskCtx.Err()) {
+		// Check if cancellation was explicitly caused by lease renewal failure
+		if leaseErr := context.Cause(taskCtx); leaseErr != nil && errors.Is(leaseErr, errLeaseLost) {
 			slog.ErrorContext(ctx, "handler execution aborted due to lost outbox lease",
 				"event_id", event.ID,
 				"error", leaseErr,
 			)
-			// Return without mutating DB state; another worker has reclaimed or will reclaim the event
 			return
 		}
 
-		// Graceful worker shutdown: leave lease to expire naturally for another worker
+		// Shutdown in progress: abandon lease to expire naturally
 		if errors.Is(executionErr, context.Canceled) && ctx.Err() != nil {
 			slog.InfoContext(ctx, "execution context canceled during shutdown; leaving lease to expire for recovery",
 				"event_id", event.ID,
@@ -267,10 +271,9 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		return
 	}
 
-	// Update domain entity state
+	// Update entity state
 	event.MarkProcessed(time.Now())
 
-	// Finalize status update in DB detached from handler execution cancellation
 	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancelFinalize()
 
@@ -289,18 +292,15 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 	)
 }
 
-// handleFailure transitions an event to either a dead-letter state or schedules a retry with backoff.
+// handleFailure transitions an event to either dead-letter or schedules backoff retries.
 func (w *Worker) handleFailure(ctx context.Context, event *Event, executionErr error, isFatal bool) {
 	now := time.Now()
 
-	// Detached context ensures persistence finishes during SIGTERM / graceful shutdown
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	// Capture initial attempt before state transitions for accurate logging
 	currentAttempt := event.Attempts + 1
 
-	// Fatal error or attempt limit reached: park in dead-letter state
 	if isFatal || currentAttempt >= event.MaxAttempts {
 		event.MarkDeadLetter(executionErr, now)
 
@@ -323,13 +323,12 @@ func (w *Worker) handleFailure(ctx context.Context, event *Event, executionErr e
 		return
 	}
 
-	// Standard retry: domain method handles attempt increment and backoff calculation
 	event.MarkFailure(executionErr, now)
 
 	slog.WarnContext(finalizeCtx, "outbox event execution failed; scheduling retry",
 		"event_id", event.ID,
 		"event_type", event.Type,
-		"attempt", event.Attempts, // Reflects incremented attempt count
+		"attempt", event.Attempts,
 		"max_attempts", event.MaxAttempts,
 		"next_attempt_at", event.NextAttemptAt,
 		"error", executionErr,
@@ -344,14 +343,13 @@ func (w *Worker) handleFailure(ctx context.Context, event *Event, executionErr e
 	}
 }
 
-// startHeartbeat periodically extends the database lease while processing tasks.
+// startHeartbeat extends the outbox database lease while processing tasks.
 func (w *Worker) startHeartbeat(
 	parentCtx context.Context,
 	event *Event,
 	done <-chan struct{},
 	cancelTask context.CancelCauseFunc,
 ) {
-	// Calculate half of the lease duration for the heartbeat interval
 	interval := w.leaseDuration / 2
 	if interval < 2*time.Second {
 		interval = 2 * time.Second
@@ -367,6 +365,12 @@ func (w *Worker) startHeartbeat(
 		case <-parentCtx.Done():
 			return
 		case <-ticker.C:
+			select {
+			case <-done:
+				return
+			default:
+			}
+
 			renewCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 2*time.Second)
 
 			now := time.Now()
@@ -379,7 +383,7 @@ func (w *Worker) startHeartbeat(
 					"error", err,
 				)
 
-				cancelTask(fmt.Errorf("lease renewal failed: %w", err))
+				cancelTask(fmt.Errorf("%w: %w", errLeaseLost, err))
 				cancel()
 				return
 			}
