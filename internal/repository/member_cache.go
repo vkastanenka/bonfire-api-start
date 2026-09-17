@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/helpers"
+	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/pkg/helpers"
 
 	"github.com/google/uuid"
 )

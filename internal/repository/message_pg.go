@@ -9,20 +9,18 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
 )
 
 type MessageRepository struct {
-	store      *db.Store
-	memberRepo *MemberRepository
+	store *db.Store
 }
 
-func NewMessageRepository(store *db.Store, memberRepo *MemberRepository) *MessageRepository {
+func NewMessageRepository(store *db.Store) *MessageRepository {
 	return &MessageRepository{
-		store:      store.WithEntity(db.EntityMessage),
-		memberRepo: memberRepo,
+		store: store,
 	}
 }
 
@@ -43,35 +41,10 @@ func (r *MessageRepository) Create(ctx context.Context, msg *channel.Message) (*
 		Metadata:         msg.Metadata,
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
 	return messageFromRow(row), nil
-}
-
-func (r *MessageRepository) CreateAndMention(
-	ctx context.Context,
-	msg *channel.Message,
-	channelID, userID uuid.UUID,
-	updatedAt time.Time,
-) (*channel.Message, error) {
-	newMsg, err := r.Create(ctx, msg)
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	err = r.memberRepo.IncrementPeersMentionCountByChannelID(
-		ctx,
-		channelID,
-		userID,
-		1,
-		updatedAt,
-	)
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	return newMsg, nil
 }
 
 func (r *MessageRepository) CreateBatch(
@@ -126,7 +99,7 @@ func (r *MessageRepository) CreateBatch(
 
 	rows, err := r.store.MessageCreateBatch(ctx, jsonBytes)
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
 	result := make([]*channel.Message, len(rows))
@@ -138,39 +111,10 @@ func (r *MessageRepository) CreateBatch(
 	return result, nil
 }
 
-func (r *MessageRepository) CreateBatchAndMention(
-	ctx context.Context,
-	messages []*channel.Message,
-	channelID, userID uuid.UUID,
-	updatedAt time.Time,
-) ([]*channel.Message, error) {
-	if len(messages) == 0 {
-		return []*channel.Message{}, nil
-	}
-
-	newMsgs, err := r.CreateBatch(ctx, messages)
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	err = r.memberRepo.IncrementPeersMentionCountByChannelID(
-		ctx,
-		channelID,
-		userID,
-		len(messages),
-		updatedAt,
-	)
-	if err != nil {
-		return nil, r.store.Err(err)
-	}
-
-	return newMsgs, nil
-}
-
 func (r *MessageRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Message, error) {
 	row, err := r.store.MessageGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
 	return messageFromRow(row), nil
@@ -188,7 +132,7 @@ func (r *MessageRepository) ListAroundByChannelID(
 		AfterLimit:        int32(afterLimit),
 	})
 	if err != nil {
-		return nil, false, false, r.store.Err(err)
+		return nil, false, false, db.NewError(err, db.EntityMessage)
 	}
 
 	messages, err := messagesFromRows(rows)
@@ -228,7 +172,7 @@ func (r *MessageRepository) ListBeforeByChannelID(
 		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
-		return nil, false, r.store.Err(err)
+		return nil, false, db.NewError(err, db.EntityMessage)
 	}
 
 	hasMoreBefore := len(rows) > limit
@@ -256,7 +200,7 @@ func (r *MessageRepository) ListAfterByChannelID(
 		LimitVal:  int32(limit + 1),
 	})
 	if err != nil {
-		return nil, false, r.store.Err(err)
+		return nil, false, db.NewError(err, db.EntityMessage)
 	}
 
 	hasMoreAfter := len(rows) > limit
@@ -286,7 +230,7 @@ func (r *MessageRepository) ListPinnedByChannelID(
 		LimitVal:       int32(limit),
 	})
 	if err != nil {
-		return nil, false, r.store.Err(err)
+		return nil, false, db.NewError(err, db.EntityMessage)
 	}
 
 	messages, err := messagesFromRows(rows)
@@ -302,7 +246,7 @@ func (r *MessageRepository) ListPinnedByChannelID(
 func (r *MessageRepository) CountByChannelID(ctx context.Context, channelID uuid.UUID) (int, error) {
 	count, err := r.store.MessageCountByChannelID(ctx, db.ToUUID(channelID))
 	if err != nil {
-		return 0, r.store.Err(err)
+		return 0, db.NewError(err, db.EntityMessage)
 	}
 
 	return int(count), nil
@@ -321,7 +265,7 @@ func (r *MessageRepository) UpdateContent(
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
 	return messageFromRow(row), nil
@@ -339,7 +283,7 @@ func (r *MessageRepository) UpdatePinnedAt(
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessage)
 	}
 
 	return messageFromRow(row), nil
@@ -348,10 +292,28 @@ func (r *MessageRepository) UpdatePinnedAt(
 func (r *MessageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	err := r.store.MessageDelete(ctx, db.ToUUID(id))
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityMessage)
 	}
 
 	return nil
+}
+
+func messageFromRow(row db.Message) *channel.Message {
+	return channel.ReconstituteMessage(
+		db.FromUUID(row.ID),
+		db.FromUUID(row.ChannelID),
+		db.FromUUIDPtr(row.AuthorID),
+		channel.MessageType(int(row.Type)),
+		db.FromTextPtr(row.Content),
+		row.Metadata,
+		db.FromUUIDPtr(row.ReplyToMessageID),
+		db.FromUUIDPtr(row.ForwardMessageID),
+		db.FromUUIDPtr(row.ForwardChannelID),
+		db.FromTimestamptzPtr(row.PinnedAt),
+		db.FromTimestamptzPtr(row.EditedAt),
+		db.FromTimestamptz(row.CreatedAt),
+		db.FromTimestamptz(row.UpdatedAt),
+	)
 }
 
 func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {
@@ -360,22 +322,4 @@ func messagesFromRows(rows []db.Message) ([]*channel.Message, error) {
 		messages = append(messages, messageFromRow(row))
 	}
 	return messages, nil
-}
-
-func messageFromRow(row db.Message) *channel.Message {
-	return channel.ReconstituteMessage(
-		db.FromUUID[uuid.UUID](row.ID),
-		db.FromUUID[uuid.UUID](row.ChannelID),
-		db.FromUUIDPtr[uuid.UUID](row.AuthorID),
-		channel.MessageType(int(row.Type)),
-		db.FromTextPtr[string](row.Content),
-		row.Metadata,
-		db.FromUUIDPtr[uuid.UUID](row.ReplyToMessageID),
-		db.FromUUIDPtr[uuid.UUID](row.ForwardMessageID),
-		db.FromUUIDPtr[uuid.UUID](row.ForwardChannelID),
-		db.FromTimestamptzPtr(row.PinnedAt),
-		db.FromTimestamptzPtr(row.EditedAt),
-		db.FromTimestamptz(row.CreatedAt),
-		db.FromTimestamptz(row.UpdatedAt),
-	)
 }

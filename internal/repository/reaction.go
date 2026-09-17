@@ -15,7 +15,7 @@ type ReactionRepository struct {
 
 func NewReactionRepository(store *db.Store) *ReactionRepository {
 	return &ReactionRepository{
-		store: store.WithEntity(db.EntityMessageReaction),
+		store: store,
 	}
 }
 
@@ -27,7 +27,7 @@ func (r *ReactionRepository) Create(ctx context.Context, rx *channel.Reaction) (
 		CreatedAt: db.ToTimestamptz(rx.CreatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessageReaction)
 	}
 
 	return reactionFromRow(row)
@@ -44,7 +44,7 @@ func (r *ReactionRepository) Get(
 		Emoji:     emoji,
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessageReaction)
 	}
 
 	return reactionFromRow(row)
@@ -71,12 +71,12 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 
 	dbRows, err := r.store.ReactionGetBatchSummaryByMessageIDs(ctx, db.ToUUIDs(uuidMsgs))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityMessageReaction)
 	}
 
 	countsMap := make(map[uuid.UUID]map[string]int, len(messageIDs))
 	for _, row := range dbRows {
-		msgID := db.FromUUID[uuid.UUID](row.MessageID)
+		msgID := db.FromUUID(row.MessageID)
 		if countsMap[msgID] == nil {
 			countsMap[msgID] = make(map[string]int)
 		}
@@ -90,11 +90,11 @@ func (r *ReactionRepository) GetBatchSummaryByMessageIDs(
 			UserID:     db.ToUUID(userID),
 		})
 		if err != nil {
-			return nil, r.store.Err(err)
+			return nil, db.NewError(err, db.EntityMessageReaction)
 		}
 
 		for _, row := range userRows {
-			msgID := db.FromUUID[uuid.UUID](row.MessageID)
+			msgID := db.FromUUID(row.MessageID)
 			if userReactions[msgID] == nil {
 				userReactions[msgID] = make(map[string]bool)
 			}
@@ -133,7 +133,7 @@ func (r *ReactionRepository) CountByEmoji(
 		Emoji:     emoji,
 	})
 	if err != nil {
-		return 0, r.store.Err(err)
+		return 0, db.NewError(err, db.EntityMessageReaction)
 	}
 
 	return int(count), nil
@@ -150,7 +150,7 @@ func (r *ReactionRepository) Delete(
 		Emoji:     emoji,
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityMessageReaction)
 	}
 
 	return nil
@@ -158,8 +158,8 @@ func (r *ReactionRepository) Delete(
 
 func reactionFromRow(row db.MessageReaction) (*channel.Reaction, error) {
 	return channel.ReconstituteReaction(
-		db.FromUUID[uuid.UUID](row.MessageID),
-		db.FromUUID[uuid.UUID](row.UserID),
+		db.FromUUID(row.MessageID),
+		db.FromUUID(row.UserID),
 		row.Emoji,
 		db.FromTimestamptz(row.CreatedAt),
 	), nil

@@ -7,7 +7,7 @@ import (
 
 	"bonfire-api/internal/channel"
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
 )
@@ -18,7 +18,7 @@ type MemberRepository struct {
 
 func NewMemberRepository(store *db.Store) *MemberRepository {
 	return &MemberRepository{
-		store: store.WithEntity(db.EntityChannelMember),
+		store: store,
 	}
 }
 
@@ -65,7 +65,7 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 
 	rows, err := r.store.ChannelMemberCreateBatch(ctx, jsonBytes)
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	result := make([]*channel.Member, len(rows))
@@ -82,7 +82,7 @@ func (r *MemberRepository) Get(ctx context.Context, channelID, userID uuid.UUID)
 		UserID:    db.ToUUID(userID),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return memberFromRow(row), nil
@@ -107,7 +107,7 @@ func (r *MemberRepository) GetBatchByChannelIDs(
 
 	rows, err := r.store.ChannelMemberGetBatchByChannelIDs(ctx, db.ToUUIDs(uuids))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	for _, row := range rows {
@@ -142,7 +142,7 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID uuid.
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	members := make([]*channel.Member, 0, len(rows))
@@ -156,7 +156,7 @@ func (r *MemberRepository) ListVisibleByUserID(ctx context.Context, userID uuid.
 func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID uuid.UUID) (int, error) {
 	count, err := r.store.ChannelMemberCountByChannelID(ctx, db.ToUUID(channelID))
 	if err != nil {
-		return 0, r.store.Err(err)
+		return 0, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return int(count), nil
@@ -175,7 +175,7 @@ func (r *MemberRepository) UpdateIsVisible(
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return memberFromRow(row), nil
@@ -197,7 +197,7 @@ func (r *MemberRepository) UpdateLastReadMessage(
 		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return memberFromRow(row), nil
@@ -216,7 +216,7 @@ func (r *MemberRepository) UpdatePinnedAt(
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return memberFromRow(row), nil
@@ -235,7 +235,7 @@ func (r *MemberRepository) UpdateMutedUntil(
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
 	return memberFromRow(row), nil
@@ -254,7 +254,7 @@ func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 		UpdatedAt:       db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityChannelMember)
 	}
 
 	return nil
@@ -266,7 +266,7 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID uuid.UU
 		UserID:    db.ToUUID(userID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityChannelMember)
 	}
 
 	return nil
@@ -274,9 +274,9 @@ func (r *MemberRepository) Delete(ctx context.Context, channelID, userID uuid.UU
 
 func memberFromRow(row db.ChannelMember) *channel.Member {
 	return channel.ReconstituteMember(
-		db.FromUUID[uuid.UUID](row.ChannelID),
-		db.FromUUID[uuid.UUID](row.UserID),
-		db.FromUUIDPtr[uuid.UUID](row.LastReadMessageID),
+		db.FromUUID(row.ChannelID),
+		db.FromUUID(row.UserID),
+		db.FromUUIDPtr(row.LastReadMessageID),
 		db.FromTimestamptzPtr(row.LastReadMessageAt),
 		db.FromTimestamptzPtr(row.PinnedAt),
 		db.FromTimestamptzPtr(row.MutedUntil),

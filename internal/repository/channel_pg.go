@@ -16,7 +16,7 @@ type ChannelRepository struct {
 
 func NewChannelRepository(store *db.Store) *ChannelRepository {
 	return &ChannelRepository{
-		store: store.WithEntity(db.EntityChannel),
+		store: store,
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 		IconURL:       db.ToTextPtr(ch.IconURL),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return channelFromRow(row), nil
@@ -41,7 +41,7 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 func (r *ChannelRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
 	row, err := r.store.ChannelGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return channelFromRow(row), nil
@@ -50,7 +50,7 @@ func (r *ChannelRepository) Get(ctx context.Context, id uuid.UUID) (*channel.Cha
 func (r *ChannelRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
 	row, err := r.store.ChannelGetForUpdate(ctx, db.ToUUID(id))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return channelFromRow(row), nil
@@ -66,7 +66,7 @@ func (r *ChannelRepository) GetBatch(
 
 	rows, err := r.store.ChannelGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	resultMap := make(map[uuid.UUID]*channel.Channel, len(rows))
@@ -92,7 +92,7 @@ func (r *ChannelRepository) UpdateGroup(
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return channelFromRow(row), nil
@@ -112,7 +112,7 @@ func (r *ChannelRepository) UpdateLastMessage(
 		UpdatedAt:     db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return channelFromRow(row), nil
@@ -121,7 +121,7 @@ func (r *ChannelRepository) UpdateLastMessage(
 func (r *ChannelRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	err := r.store.ChannelDelete(ctx, db.ToUUID(id))
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityChannel)
 	}
 
 	return nil
@@ -129,11 +129,11 @@ func (r *ChannelRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func channelFromRow(row db.Channel) *channel.Channel {
 	return channel.ReconstituteChannel(
-		db.FromUUID[uuid.UUID](row.ID),
+		db.FromUUID(row.ID),
 		channel.ChannelType(row.Type),
-		db.FromTextPtr[string](row.Name),
-		db.FromTextPtr[string](row.IconURL),
-		db.FromUUIDPtr[uuid.UUID](row.LastMessageID),
+		db.FromTextPtr(row.Name),
+		db.FromTextPtr(row.IconURL),
+		db.FromUUIDPtr(row.LastMessageID),
 		db.FromTimestamptzPtr(row.LastMessageAt),
 		db.FromTimestamptz(row.CreatedAt),
 		db.FromTimestamptz(row.UpdatedAt),

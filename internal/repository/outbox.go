@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
 )
@@ -18,7 +18,7 @@ type OutboxRepository struct {
 
 func NewOutboxRepository(store *db.Store) *OutboxRepository {
 	return &OutboxRepository{
-		store: store.WithEntity(db.EntityOutboxEvent),
+		store: store,
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *OutboxRepository) Create(ctx context.Context, e *outbox.Event) error {
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -61,7 +61,7 @@ func (r *OutboxRepository) CreateBatch(ctx context.Context, events []*outbox.Eve
 
 	_, err := r.store.OutboxEventCreateBatch(ctx, params)
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -81,7 +81,7 @@ func (r *OutboxRepository) ClaimPending(
 		LeaseExpiresAt: db.ToTimestamptz(leaseExpiresAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	events := make([]*outbox.Event, 0, len(rows))
@@ -101,7 +101,7 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, e *outbox.Event, w
 		WorkerID:    db.ToUUID(workerID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -116,7 +116,7 @@ func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, wor
 		WorkerID:      db.ToUUID(workerID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -130,7 +130,7 @@ func (r *OutboxRepository) MarkDeadLetter(ctx context.Context, e *outbox.Event, 
 		WorkerID:  db.ToUUID(workerID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -145,7 +145,7 @@ func (r *OutboxRepository) RenewLease(ctx context.Context, e *outbox.Event, work
 		WorkerID:       db.ToUUID(workerID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -159,7 +159,7 @@ func (r *OutboxRepository) ReleaseLease(ctx context.Context, e *outbox.Event, wo
 		WorkerID:  db.ToUUID(workerID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return nil
@@ -172,7 +172,7 @@ func (r *OutboxRepository) DeleteProcessedBatch(ctx context.Context, before time
 		LimitVal: int32(limitVal),
 	})
 	if err != nil {
-		return 0, r.store.Err(err)
+		return 0, db.NewError(err, db.EntityOutboxEvent)
 	}
 
 	return rowsAffected, nil
@@ -199,15 +199,15 @@ func (r *OutboxRepository) Publish(
 
 func outboxFromRow(row db.OutboxEvent) *outbox.Event {
 	return outbox.ReconstituteEvent(
-		db.FromUUID[uuid.UUID](row.ID),
+		db.FromUUID(row.ID),
 		row.Type,
 		row.Payload,
-		db.FromTextPtr[string](row.TraceID),
+		db.FromTextPtr(row.TraceID),
 		db.FromTimestamptzPtr(row.ProcessedAt),
 		int(row.Attempts),
 		int(row.MaxAttempts),
 		db.FromTimestamptz(row.NextAttemptAt),
-		db.FromUUIDPtr[uuid.UUID](row.LockedBy),
+		db.FromUUIDPtr(row.LockedBy),
 		db.FromTimestamptzPtr(row.LeaseExpiresAt),
 		db.FromTimestamptz(row.CreatedAt),
 		db.FromTimestamptz(row.UpdatedAt),

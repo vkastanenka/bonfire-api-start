@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/relation"
 
 	"github.com/google/uuid"
@@ -16,7 +16,7 @@ type RelationRepository struct {
 
 func NewRelationRepository(store *db.Store) *RelationRepository {
 	return &RelationRepository{
-		store: store.WithEntity(db.EntityRelation),
+		store: store,
 	}
 }
 
@@ -31,7 +31,7 @@ func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (
 		UpdatedAt: db.ToTimestamptz(rel.UpdatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationFromRow(row), nil
@@ -43,7 +43,7 @@ func (r *RelationRepository) Get(ctx context.Context, user1ID, user2ID uuid.UUID
 		User2ID: db.ToUUID(user2ID),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationFromRow(row), nil
@@ -55,7 +55,7 @@ func (r *RelationRepository) GetForUpdate(ctx context.Context, user1ID, user2ID 
 		User2ID: db.ToUUID(user2ID),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationFromRow(row), nil
@@ -73,7 +73,7 @@ func (r *RelationRepository) ListTypeByUserID(
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationsFromRows(rows), nil
@@ -89,7 +89,7 @@ func (r *RelationRepository) ListFriendsByUserID(
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationsFromRows(rows), nil
@@ -105,7 +105,7 @@ func (r *RelationRepository) ListIncomingPendingByUserID(
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationsFromRows(rows), nil
@@ -121,7 +121,7 @@ func (r *RelationRepository) ListOutgoingBlocksByUserID(
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationsFromRows(rows), nil
@@ -137,7 +137,7 @@ func (r *RelationRepository) ListIncomingBlocksByUserID(
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityRelation)
 	}
 
 	return relationsFromRows(rows), nil
@@ -153,7 +153,7 @@ func (r *RelationRepository) HasIncomingBlock(ctx context.Context, actorID uuid.
 		PeerIds: db.ToUUIDs(peerIDs),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityRelation)
 	}
 
 	if hasBlock {
@@ -171,7 +171,7 @@ func (r *RelationRepository) DeleteByUserID(ctx context.Context, user1ID, user2I
 		ActorID: db.ToUUID(actorID),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntityRelation)
 	}
 
 	return nil
@@ -179,10 +179,10 @@ func (r *RelationRepository) DeleteByUserID(ctx context.Context, user1ID, user2I
 
 func relationFromRow(row db.Relation) *relation.Relation {
 	return relation.Reconstitute(
-		db.FromUUID[uuid.UUID](row.User1ID),
-		db.FromUUID[uuid.UUID](row.User2ID),
-		db.FromUUID[uuid.UUID](row.ActorID),
-		db.FromUUIDPtr[uuid.UUID](row.ChannelID),
+		db.FromUUID(row.User1ID),
+		db.FromUUID(row.User2ID),
+		db.FromUUID(row.ActorID),
+		db.FromUUIDPtr(row.ChannelID),
 		relation.Type(int(row.Type)),
 		db.FromTimestamptz(row.CreatedAt),
 		db.FromTimestamptz(row.UpdatedAt),

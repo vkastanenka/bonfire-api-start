@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 
@@ -19,7 +19,7 @@ type UserRepository struct {
 
 func NewUserRepository(store *db.Store) *UserRepository {
 	return &UserRepository{
-		store: store.WithEntity(db.EntityUser),
+		store: store,
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, 
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityUser)
 	}
 
 	return userFromRow(row), nil
@@ -52,7 +52,7 @@ func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, 
 func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -61,7 +61,7 @@ func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (*user.User, err
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -74,7 +74,7 @@ func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uui
 
 	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	result := make(map[uuid.UUID]*user.User, len(rows))
@@ -92,7 +92,7 @@ func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime ti
 		LimitVal: int32(limitVal),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	users := make([]*user.User, 0, len(rows))
@@ -118,7 +118,7 @@ func (r *UserRepository) Availability(ctx context.Context, email *string, userna
 		Username: usernameStr,
 	})
 	if err != nil {
-		return false, false, r.store.Err(err)
+		return false, false, db.NewError(err, db.EntityChannel)
 	}
 
 	return row.EmailAvailable.Bool, row.UsernameAvailable.Bool, nil
@@ -143,7 +143,7 @@ func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, 
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -156,7 +156,7 @@ func (r *UserRepository) UpdateEmail(ctx context.Context, id uuid.UUID, email st
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -169,7 +169,7 @@ func (r *UserRepository) UpdateUsername(ctx context.Context, id uuid.UUID, usern
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -182,7 +182,7 @@ func (r *UserRepository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *s
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -195,7 +195,7 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, p
 		UpdatedAt:    db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -219,7 +219,7 @@ func (r *UserRepository) UpdateProfile(
 		UpdatedAt:   db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -239,7 +239,7 @@ func (r *UserRepository) UpdatePresence(
 		UpdatedAt:              db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -252,7 +252,7 @@ func (r *UserRepository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *t
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -265,7 +265,7 @@ func (r *UserRepository) SetDisabled(ctx context.Context, id uuid.UUID, disabled
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -279,7 +279,7 @@ func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, de
 		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -346,7 +346,7 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([
 
 	rows, err := r.store.UserUpdateBatch(ctx, jsonBytes)
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntityChannel)
 	}
 
 	updatedUsers := make([]*user.User, len(rows))
@@ -360,20 +360,20 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([
 
 func userFromRow(row db.User) *user.User {
 	var preferredPresence *presence.Presence
-	if p, err := presence.Parse(db.FromInt2[int](row.PreferredPresence)); err == nil {
+	if p, err := presence.Parse(db.FromInt2(row.PreferredPresence)); err == nil {
 		preferredPresence = &p
 	}
 
 	return user.Reconstitute(
-		db.FromUUID[uuid.UUID](row.ID),
+		db.FromUUID(row.ID),
 		row.Email,
 		row.Username,
 		row.PasswordHash,
-		db.FromTextPtr[string](row.Phone),
+		db.FromTextPtr(row.Phone),
 		row.DisplayName,
-		db.FromTextPtr[string](row.Bio),
-		db.FromTextPtr[string](row.AvatarURL),
-		db.FromTextPtr[string](row.BannerColor),
+		db.FromTextPtr(row.Bio),
+		db.FromTextPtr(row.AvatarURL),
+		db.FromTextPtr(row.BannerColor),
 		preferredPresence,
 		db.FromTimestamptzPtr(row.PreferredPresenceUntil),
 		db.FromTimestamptzPtr(row.VerifiedAt),

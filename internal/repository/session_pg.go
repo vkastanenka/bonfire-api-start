@@ -17,7 +17,7 @@ type SessionRepository struct {
 
 func NewSessionRepository(store *db.Store) *SessionRepository {
 	return &SessionRepository{
-		store: store.WithEntity(db.EntitySession),
+		store: store,
 	}
 }
 
@@ -37,7 +37,7 @@ func (r *SessionRepository) Create(ctx context.Context, s *session.Session) (*se
 		UserAgent:        s.UserAgent,
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 
 	return sessionFromRow(row)
@@ -46,7 +46,7 @@ func (r *SessionRepository) Create(ctx context.Context, s *session.Session) (*se
 func (r *SessionRepository) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
 	row, err := r.store.SessionGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 
 	return sessionFromRow(row)
@@ -59,7 +59,7 @@ func (r *SessionRepository) ListValidByUserID(ctx context.Context, userID uuid.U
 		LimitVal: int32(limit),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 
 	sessions := make([]*session.Session, 0, len(rows))
@@ -93,7 +93,7 @@ func (r *SessionRepository) RotateRefreshTokenHash(
 		Now:                 db.ToTimestamptz(now),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 
 	return sessionFromRow(row)
@@ -106,7 +106,7 @@ func (r *SessionRepository) Revoke(ctx context.Context, id, userID uuid.UUID, no
 		Now:    db.ToTimestamptz(now),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntitySession)
 	}
 
 	return nil
@@ -118,12 +118,12 @@ func (r *SessionRepository) RevokeAll(ctx context.Context, userID uuid.UUID, now
 		Now:    db.ToTimestamptz(now),
 	})
 	if err != nil {
-		return nil, r.store.Err(err)
+		return nil, db.NewError(err, db.EntitySession)
 	}
 
 	ids := make([]uuid.UUID, len(dbIDs))
 	for i, dbID := range dbIDs {
-		ids[i] = uuid.UUID(db.FromUUID[uuid.UUID](dbID))
+		ids[i] = uuid.UUID(db.FromUUID(dbID))
 	}
 
 	return ids, nil
@@ -135,7 +135,7 @@ func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Tim
 		LimitVal: int32(limitVal),
 	})
 	if err != nil {
-		return r.store.Err(err)
+		return db.NewError(err, db.EntitySession)
 	}
 
 	return nil
@@ -143,8 +143,8 @@ func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Tim
 
 func sessionFromRow(row db.Session) (*session.Session, error) {
 	return session.Reconstitute(
-		db.FromUUID[uuid.UUID](row.ID),
-		db.FromUUID[uuid.UUID](row.UserID),
+		db.FromUUID(row.ID),
+		db.FromUUID(row.UserID),
 		string(row.RefreshTokenHash),
 		row.ClientIP,
 		row.UserAgent,

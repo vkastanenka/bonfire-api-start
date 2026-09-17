@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"bonfire-api/internal/helpers"
+	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
