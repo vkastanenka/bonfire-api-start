@@ -146,9 +146,7 @@ WITH targets AS (
     ORDER BY
         processed_at ASC,
         id ASC
-    LIMIT $2::int
-    FOR UPDATE
-        SKIP LOCKED)
+    LIMIT $2::int)
 DELETE FROM outbox_events o USING targets t
 WHERE o.id = t.id
 `
@@ -182,7 +180,7 @@ WHERE
 `
 
 type OutboxEventMarkDeadLetterParams struct {
-	LastError string             `json:"last_error"`
+	LastError pgtype.Text        `json:"last_error"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	ID        pgtype.UUID        `json:"id"`
 	WorkerID  pgtype.UUID        `json:"worker_id"`
@@ -216,7 +214,7 @@ WHERE
 
 type OutboxEventMarkFailureParams struct {
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError     string             `json:"last_error"`
+	LastError     pgtype.Text        `json:"last_error"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	ID            pgtype.UUID        `json:"id"`
 	WorkerID      pgtype.UUID        `json:"worker_id"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
@@ -11,7 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxAttemptsDefault = 5
+const (
+	maxAttemptsDefault = 5
+	maxLastErrorLen    = 4096
+)
 
 type Event struct {
 	ID             uuid.UUID
@@ -61,7 +65,7 @@ func ReconstituteEvent(
 	}
 }
 
-// New constructs a new outbox Event domain entity.
+// New constructs a new outbox Event domain entity using UUIDv7.
 func New(
 	ctx context.Context,
 	eventType string,
@@ -135,7 +139,7 @@ func (e *Event) MarkFailure(execErr error, at time.Time) {
 	e.LockedBy = nil
 	e.LeaseExpiresAt = nil
 
-	// Exponential backoff: 2^attempts seconds (e.g., 2s, 4s, 8s, 16s...)
+	// Exponential backoff: 2^attempts seconds (2s, 4s, 8s, 16s, 32s...)
 	backoffSec := time.Duration(1<<e.Attempts) * time.Second
 	e.NextAttemptAt = at.Add(backoffSec)
 	e.touch(at)
@@ -147,7 +151,6 @@ func (e *Event) MarkDeadLetter(execErr error, at time.Time) {
 	e.LastError = formatLastError(execErr)
 	e.LockedBy = nil
 	e.LeaseExpiresAt = nil
-
 	e.touch(at)
 }
 
@@ -168,13 +171,16 @@ func (e *Event) touch(at time.Time) {
 	e.UpdatedAt = at
 }
 
+// formatLastError safely truncates UTF-8 strings so multi-byte runes aren't split across boundaries.
 func formatLastError(err error) *string {
 	if err == nil {
 		return nil
 	}
 	errStr := err.Error()
-	if len(errStr) > maxLastErrorLen {
-		errStr = errStr[:maxLastErrorLen-1] + "..."
+
+	if utf8.RuneCountInString(errStr) > maxLastErrorLen {
+		runes := []rune(errStr)
+		errStr = string(runes[:maxLastErrorLen-3]) + "..."
 	}
 	return &errStr
 }

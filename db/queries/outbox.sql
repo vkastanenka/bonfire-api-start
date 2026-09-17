@@ -57,7 +57,7 @@ UPDATE
 SET
     attempts = attempts + 1,
     next_attempt_at = @next_attempt_at::timestamptz,
-    last_error = @last_error::text,
+    last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -71,7 +71,7 @@ UPDATE
     outbox_events
 SET
     attempts = max_attempts,
-    last_error = @last_error::text,
+    last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -115,9 +115,7 @@ WITH targets AS (
     ORDER BY
         processed_at ASC,
         id ASC
-    LIMIT @limit_val::int
-    FOR UPDATE
-        SKIP LOCKED)
+    LIMIT @limit_val::int)
 DELETE FROM outbox_events o USING targets t
 WHERE o.id = t.id;
 

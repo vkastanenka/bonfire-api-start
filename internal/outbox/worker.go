@@ -15,8 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxLastErrorLen = 4096
-
 var ErrFatal = errors.New("outbox: fatal event execution error")
 
 type Handler func(ctx context.Context, payload json.RawMessage) error

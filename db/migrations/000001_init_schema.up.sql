@@ -18,7 +18,7 @@ CREATE TABLE outbox_events(
     CONSTRAINT attempts_limit CHECK (attempts <= max_attempts)
 );
 
-CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at, lease_expires_at, id) INCLUDE (locked_by)
+CREATE INDEX idx_outbox_events_claim ON outbox_events(next_attempt_at, lease_expires_at NULLS FIRST, id)
 WHERE
     processed_at IS NULL AND attempts < max_attempts;
 

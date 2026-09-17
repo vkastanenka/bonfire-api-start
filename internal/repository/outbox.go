@@ -7,7 +7,6 @@ import (
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/pkg/helpers"
 
 	"github.com/google/uuid"
 )
@@ -111,7 +110,7 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, e *outbox.Event, w
 func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
 	err := r.store.OutboxEventMarkFailure(ctx, db.OutboxEventMarkFailureParams{
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt),
-		LastError:     helpers.FromPtr(e.LastError),
+		LastError:     db.ToTextPtr(e.LastError),
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt),
 		ID:            db.ToUUID(e.ID),
 		WorkerID:      db.ToUUID(workerID),
@@ -126,7 +125,7 @@ func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, wor
 // MarkDeadLetter transitions an event to max attempts and records the error.
 func (r *OutboxRepository) MarkDeadLetter(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
 	err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
-		LastError: helpers.FromPtr(e.LastError),
+		LastError: db.ToTextPtr(e.LastError),
 		UpdatedAt: db.ToTimestamptz(e.UpdatedAt),
 		ID:        db.ToUUID(e.ID),
 		WorkerID:  db.ToUUID(workerID),
