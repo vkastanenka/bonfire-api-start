@@ -81,6 +81,7 @@ type OutboxEvent struct {
 	MaxAttempts    int32              `json:"max_attempts"`
 	Type           string             `json:"type"`
 	TraceID        pgtype.Text        `json:"trace_id"`
+	LastError      pgtype.Text        `json:"last_error"`
 	Payload        []byte             `json:"payload"`
 }
 

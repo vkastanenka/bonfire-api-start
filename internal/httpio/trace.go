@@ -41,8 +41,8 @@ func Trace(next http.Handler) http.Handler {
 		w.Header().Set("X-Trace-ID", traceID)
 
 		// Inject correlation identifiers into context and structured logger
-		ctx = context.WithValue(ctx, ctxKeyReqID, reqID)
-		ctx = context.WithValue(ctx, ctxKeyTraceID, traceID)
+		ctx = context.WithValue(ctx, CtxKeyReqID, reqID)
+		ctx = context.WithValue(ctx, CtxKeyTraceID, traceID)
 
 		ctx = logger.WithContextAttrs(ctx,
 			slog.String("request_id", reqID),

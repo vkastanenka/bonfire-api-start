@@ -2,12 +2,12 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/pkg/helpers"
 
 	"github.com/google/uuid"
 )
@@ -111,6 +111,7 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, e *outbox.Event, w
 func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
 	err := r.store.OutboxEventMarkFailure(ctx, db.OutboxEventMarkFailureParams{
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt),
+		LastError:     helpers.FromPtr(e.LastError),
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt),
 		ID:            db.ToUUID(e.ID),
 		WorkerID:      db.ToUUID(workerID),
@@ -125,6 +126,7 @@ func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, wor
 // MarkDeadLetter transitions an event to max attempts and records the error.
 func (r *OutboxRepository) MarkDeadLetter(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
 	err := r.store.OutboxEventMarkDeadLetter(ctx, db.OutboxEventMarkDeadLetterParams{
+		LastError: helpers.FromPtr(e.LastError),
 		UpdatedAt: db.ToTimestamptz(e.UpdatedAt),
 		ID:        db.ToUUID(e.ID),
 		WorkerID:  db.ToUUID(workerID),
@@ -137,15 +139,26 @@ func (r *OutboxRepository) MarkDeadLetter(ctx context.Context, e *outbox.Event, 
 }
 
 // RenewLease extends the worker lease reservation time on an in-flight event.
-func (r *OutboxRepository) RenewLease(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
-	err := r.store.OutboxEventRenewLease(ctx, db.OutboxEventRenewLeaseParams{
-		LeaseExpiresAt: db.ToTimestamptzPtr(e.LeaseExpiresAt),
-		UpdatedAt:      db.ToTimestamptz(e.UpdatedAt),
-		ID:             db.ToUUID(e.ID),
+// Returns an error if the update fails or if 0 rows were affected (lock expired or reclaimed).
+func (r *OutboxRepository) RenewLease(
+	ctx context.Context,
+	eventID uuid.UUID,
+	workerID uuid.UUID,
+	leaseExpiresAt time.Time,
+	now time.Time,
+) error {
+	rowsAffected, err := r.store.OutboxEventRenewLease(ctx, db.OutboxEventRenewLeaseParams{
+		LeaseExpiresAt: db.ToTimestamptz(leaseExpiresAt),
+		Now:            db.ToTimestamptz(now),
+		ID:             db.ToUUID(eventID),
 		WorkerID:       db.ToUUID(workerID),
 	})
 	if err != nil {
 		return db.NewError(err, db.EntityOutboxEvent)
+	}
+
+	if rowsAffected == 0 {
+		return errs.NotFound("Outbox event lease renewal failed; lock lost or event reclaimed.")
 	}
 
 	return nil
@@ -178,25 +191,6 @@ func (r *OutboxRepository) DeleteProcessedBatch(ctx context.Context, before time
 	return rowsAffected, nil
 }
 
-func (r *OutboxRepository) Publish(
-	ctx context.Context,
-	eventType string,
-	payload any,
-	now time.Time,
-) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return errs.Internal("failed to marshal outbox event payload").Wrap(err)
-	}
-
-	evt, err := outbox.New(ctx, eventType, data, now)
-	if err != nil {
-		return errs.Internal("failed to generate outbox event").Wrap(err)
-	}
-
-	return r.Create(ctx, evt)
-}
-
 func outboxFromRow(row db.OutboxEvent) *outbox.Event {
 	return outbox.ReconstituteEvent(
 		db.FromUUID(row.ID),
@@ -207,6 +201,7 @@ func outboxFromRow(row db.OutboxEvent) *outbox.Event {
 		int(row.Attempts),
 		int(row.MaxAttempts),
 		db.FromTimestamptz(row.NextAttemptAt),
+		db.FromTextPtr(row.LastError),
 		db.FromUUIDPtr(row.LockedBy),
 		db.FromTimestamptzPtr(row.LeaseExpiresAt),
 		db.FromTimestamptz(row.CreatedAt),

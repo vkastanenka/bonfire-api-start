@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -68,7 +69,7 @@ type CachedMemberRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
+	Create(ctx context.Context, e *outbox.Event) error
 }
 
 type UserRepository interface {

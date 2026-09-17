@@ -15,7 +15,6 @@ type Repository interface {
 	MarkDeadLetter(ctx context.Context, e *Event, workerID uuid.UUID) error
 	MarkFailure(ctx context.Context, e *Event, workerID uuid.UUID) error
 	MarkProcessed(ctx context.Context, e *Event, workerID uuid.UUID) error
-	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
 	ReleaseLease(ctx context.Context, e *Event, workerID uuid.UUID) error
-	RenewLease(ctx context.Context, e *Event, workerID uuid.UUID) error
+	RenewLease(ctx context.Context, eventID uuid.UUID, workerID uuid.UUID, leaseExpiresAt time.Time, now time.Time) error
 }

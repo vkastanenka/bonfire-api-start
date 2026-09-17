@@ -10,18 +10,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type ctxKey int
+type CtxKey int
 
 const (
-	ctxKeyClaims ctxKey = iota
-	ctxKeyMeta
-	ctxKeyReqID
-	ctxKeyTraceID
+	CtxKeyClaims CtxKey = iota
+	CtxKeyMeta
+	CtxKeyReqID
+	CtxKeyTraceID
 )
 
 // CtxGetMeta extracts ClientMeta from the context.
 func CtxGetMeta(ctx context.Context) (ClientMeta, error) {
-	meta, ok := ctx.Value(ctxKeyMeta).(ClientMeta)
+	meta, ok := ctx.Value(CtxKeyMeta).(ClientMeta)
 	if !ok {
 		err := errs.Internal("client metadata missing from request context").
 			Reason("MISSING_CONTEXT_META")
@@ -47,7 +47,7 @@ func CtxGetIP(ctx context.Context) (netip.Addr, error) {
 
 // CtxGetClaims extracts token claims from the context.
 func CtxGetClaims(ctx context.Context) (*token.Claims, error) {
-	claims, ok := ctx.Value(ctxKeyClaims).(*token.Claims)
+	claims, ok := ctx.Value(CtxKeyClaims).(*token.Claims)
 	if !ok || claims == nil {
 		return nil, errs.Unauthenticated("authentication token missing or invalid").
 			Reason("AUTH_TOKEN_MISSING")
@@ -75,7 +75,7 @@ func CtxGetSessionID(ctx context.Context) (uuid.UUID, error) {
 
 // CtxGetReqID extracts the request ID from the context if present.
 func CtxGetReqID(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyReqID).(string); ok {
+	if v, ok := ctx.Value(CtxKeyReqID).(string); ok {
 		return v
 	}
 	return ""
@@ -83,7 +83,7 @@ func CtxGetReqID(ctx context.Context) string {
 
 // CtxGetTraceID extracts the trace ID from the context if present.
 func CtxGetTraceID(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyTraceID).(string); ok {
+	if v, ok := ctx.Value(CtxKeyTraceID).(string); ok {
 		return v
 	}
 	return ""

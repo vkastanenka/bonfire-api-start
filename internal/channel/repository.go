@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -78,7 +79,7 @@ type ReactionRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
+	Create(ctx context.Context, e *outbox.Event) error
 }
 
 type RelationRepository interface {

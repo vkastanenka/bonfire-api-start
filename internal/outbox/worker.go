@@ -10,9 +10,14 @@ import (
 	"time"
 
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
 )
+
+const maxLastErrorLen = 4096
+
+var ErrFatal = errors.New("outbox: fatal event execution error")
 
 type Handler func(ctx context.Context, payload json.RawMessage) error
 
@@ -20,9 +25,10 @@ type Worker struct {
 	id            uuid.UUID
 	repo          Repository
 	pollInterval  time.Duration
-	leaseDuration int
+	leaseDuration time.Duration
 	batchSize     int
 	maxWorkers    int
+	sem           chan struct{}
 	handlers      map[string]Handler
 	handlersMu    sync.RWMutex
 	wg            sync.WaitGroup
@@ -32,20 +38,30 @@ type Worker struct {
 func NewWorker(
 	repo Repository,
 	pollInterval time.Duration,
-	leaseDuration int,
+	leaseDuration time.Duration,
 	batchSize int,
 	maxWorkers int,
 ) (*Worker, error) {
-	if maxWorkers <= 0 {
-		maxWorkers = 10
+	if repo == nil {
+		return nil, errs.Internal("Outbox worker repository cannot be nil.")
+	}
+
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
 	}
 	if leaseDuration <= 0 {
-		leaseDuration = 30
+		leaseDuration = 30 * time.Second
+	}
+	if batchSize <= 0 {
+		batchSize = 50
+	}
+	if maxWorkers <= 0 {
+		maxWorkers = 10
 	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, errs.Internal("Failed to generate outbox worker ID.").Wrap(err)
 	}
 
 	return &Worker{
@@ -55,14 +71,24 @@ func NewWorker(
 		leaseDuration: leaseDuration,
 		batchSize:     batchSize,
 		maxWorkers:    maxWorkers,
+		sem:           make(chan struct{}, maxWorkers), // Initialized once with maxWorkers capacity
 		handlers:      make(map[string]Handler),
 	}, nil
 }
 
 // RegisterHandler registers a callback function for a specific event type.
 func (w *Worker) RegisterHandler(eventType string, handler Handler) {
+	if handler == nil {
+		panic(fmt.Sprintf("outbox worker: handler for event %q cannot be nil", eventType))
+	}
+
 	w.handlersMu.Lock()
 	defer w.handlersMu.Unlock()
+
+	if _, exists := w.handlers[eventType]; exists {
+		panic(fmt.Sprintf("outbox worker: handler for event %q is already registered", eventType))
+	}
+
 	w.handlers[eventType] = handler
 }
 
@@ -74,11 +100,6 @@ func (w *Worker) Start(ctx context.Context) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				slog.ErrorContext(workerCtx, "recovered from panic in outbox worker loop", "panic", r)
-			}
-		}()
 
 		slog.InfoContext(workerCtx, "initializing outbox background processor",
 			"worker_id", w.id,
@@ -98,7 +119,7 @@ func (w *Worker) Start(ctx context.Context) {
 			case <-ticker.C:
 				w.processBatch(workerCtx)
 			case <-workerCtx.Done():
-				slog.InfoContext(workerCtx, "stopping outbox worker loop")
+				slog.InfoContext(workerCtx, "stopping outbox worker loop", "worker_id", w.id)
 				return
 			}
 		}
@@ -109,14 +130,35 @@ func (w *Worker) Start(ctx context.Context) {
 func (w *Worker) Stop() {
 	if w.cancel != nil {
 		w.cancel()
-		w.wg.Wait()
-		slog.Info("outbox background processor gracefully stopped", "worker_id", w.id)
+
+		done := make(chan struct{})
+		go func() {
+			w.wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			slog.Info("outbox background processor gracefully stopped", "worker_id", w.id)
+		case <-time.After(10 * time.Second):
+			slog.Warn("outbox background processor shutdown timed out", "worker_id", w.id)
+		}
 	}
 }
 
+// processBatch claims a batch of pending events and dispatches them concurrently across worker routines.
 func (w *Worker) processBatch(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(ctx, "recovered from panic in outbox batch processing",
+				"worker_id", w.id,
+				"panic", r,
+			)
+		}
+	}()
+
 	now := time.Now()
-	leaseExpiresAt := now.Add(time.Duration(w.leaseDuration) * time.Second)
+	leaseExpiresAt := now.Add(w.leaseDuration)
 
 	events, err := w.repo.ClaimPending(ctx, w.id, leaseExpiresAt, now, w.batchSize)
 	if err != nil {
@@ -130,28 +172,27 @@ func (w *Worker) processBatch(ctx context.Context) {
 		return
 	}
 
-	sem := make(chan struct{}, w.maxWorkers)
 	var batchWg sync.WaitGroup
 
 	for _, evt := range events {
-		if ctx.Err() != nil {
-			break
-		}
-
 		batchWg.Add(1)
-		sem <- struct{}{} // Acquire semaphore slot
+		w.sem <- struct{}{}
 
 		go func(e *Event) {
 			defer batchWg.Done()
-			defer func() { <-sem }() // Release semaphore slot
+			defer func() { <-w.sem }()
 
-			w.executeEvent(ctx, e)
+			execCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+
+			w.executeEvent(execCtx, e)
 		}(evt)
 	}
 
 	batchWg.Wait()
 }
 
+// executeEvent processes a single outbox event with timeout safeguards, trace context propagation, and failure handling.
 func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -177,28 +218,45 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		return
 	}
 
-	// 1. Calculate execution timeout (80% of lease duration)
-	handlerTimeout := time.Duration(float64(w.leaseDuration)*0.8) * time.Second
+	// Calculate handler execution timeout boundary
+	handlerTimeout := time.Duration(float64(w.leaseDuration) * 0.8)
 	if handlerTimeout <= 0 {
 		handlerTimeout = 5 * time.Second
 	}
 
-	handlerCtx, cancelHandler := context.WithTimeout(ctx, handlerTimeout)
-	defer cancelHandler()
+	// Construct a base timeout context for the handler
+	baseCtx, cancelTimeout := context.WithTimeout(ctx, handlerTimeout)
+	defer cancelTimeout()
 
-	// 2. Inject trace metadata using httpio context key
-	if traceID := event.TraceID; traceID != nil {
-		handlerCtx = context.WithValue(handlerCtx, httpio.CtxTraceIDKey, traceID)
+	// Wrap with WithCancelCause so startHeartbeat can cancel taskCtx on lease loss
+	taskCtx, cancelTask := context.WithCancelCause(baseCtx)
+	defer cancelTask(nil)
+
+	if event.TraceID != nil {
+		taskCtx = context.WithValue(taskCtx, httpio.CtxKeyTraceID, *event.TraceID)
 	}
 
-	// 3. Heartbeat goroutine: renews lease for long-running handlers
+	// Launch background heartbeat using parent ctx (survives taskCtx cancel) and pass cancelTask cause handle
 	heartbeatDone := make(chan struct{})
-	defer close(heartbeatDone)
-	go w.startHeartbeat(ctx, event, heartbeatDone)
+	go w.startHeartbeat(ctx, event, heartbeatDone, cancelTask)
 
-	executionErr := handler(handlerCtx, event.Payload)
+	executionErr := handler(taskCtx, event.Payload)
+
+	// Signal heartbeat goroutine to stop immediately once handler returns
+	close(heartbeatDone)
 
 	if executionErr != nil {
+		// Check if cancellation was triggered by lost database lease
+		if leaseErr := context.Cause(taskCtx); leaseErr != nil && !errors.Is(leaseErr, taskCtx.Err()) {
+			slog.ErrorContext(ctx, "handler execution aborted due to lost outbox lease",
+				"event_id", event.ID,
+				"error", leaseErr,
+			)
+			// Return without mutating DB state; another worker has reclaimed or will reclaim the event
+			return
+		}
+
+		// Graceful worker shutdown: leave lease to expire naturally for another worker
 		if errors.Is(executionErr, context.Canceled) && ctx.Err() != nil {
 			slog.InfoContext(ctx, "execution context canceled during shutdown; leaving lease to expire for recovery",
 				"event_id", event.ID,
@@ -211,11 +269,11 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		return
 	}
 
-	// 4. Update entity domain state before DB persistence
-	now := time.Now()
-	event.MarkProcessed(now)
+	// Update domain entity state
+	event.MarkProcessed(time.Now())
 
-	finalizeCtx, cancelFinalize := detachContext(ctx, 3*time.Second)
+	// Finalize status update in DB detached from handler execution cancellation
+	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancelFinalize()
 
 	if err := w.repo.MarkProcessed(finalizeCtx, event, w.id); err != nil {
@@ -233,26 +291,28 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 	)
 }
 
-func (w *Worker) handleFailure(ctx context.Context, event *Event, err error, isFatal bool) {
+// handleFailure transitions an event to either a dead-letter state or schedules a retry with backoff.
+func (w *Worker) handleFailure(ctx context.Context, event *Event, executionErr error, isFatal bool) {
 	now := time.Now()
-	finalizeCtx, cancel := detachContext(ctx, 3*time.Second)
+
+	// Detached context ensures persistence finishes during SIGTERM / graceful shutdown
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	logCtx := ctx
-	if logCtx.Err() != nil {
-		logCtx = finalizeCtx
-	}
+	// Capture initial attempt before state transitions for accurate logging
+	currentAttempt := event.Attempts + 1
 
-	// Fatal error or attempt limit reached: park in dead letter state
-	if isFatal || (event.Attempts+1) >= event.MaxAttempts {
-		event.MarkDeadLetter(now)
+	// Fatal error or attempt limit reached: park in dead-letter state
+	if isFatal || currentAttempt >= event.MaxAttempts {
+		event.MarkDeadLetter(executionErr, now)
 
-		slog.ErrorContext(logCtx, "outbox event execution exhausted or fatal error; moving to dead letter",
+		slog.ErrorContext(finalizeCtx, "outbox event execution exhausted or fatal error; moving to dead letter",
 			"event_id", event.ID,
 			"event_type", event.Type,
-			"attempts", event.Attempts,
+			"attempt", currentAttempt,
 			"max_attempts", event.MaxAttempts,
-			"error", err,
+			"is_fatal", isFatal,
+			"error", executionErr,
 		)
 
 		if dbErr := w.repo.MarkDeadLetter(finalizeCtx, event, w.id); dbErr != nil {
@@ -265,14 +325,16 @@ func (w *Worker) handleFailure(ctx context.Context, event *Event, err error, isF
 		return
 	}
 
-	// Standard retry: domain method handles attempt increment + backoff calculation
-	event.MarkFailure(now)
+	// Standard retry: domain method handles attempt increment and backoff calculation
+	event.MarkFailure(executionErr, now)
 
-	slog.WarnContext(logCtx, "outbox event execution failed; scheduling retry",
+	slog.WarnContext(finalizeCtx, "outbox event execution failed; scheduling retry",
 		"event_id", event.ID,
-		"attempt", event.Attempts,
+		"event_type", event.Type,
+		"attempt", event.Attempts, // Reflects incremented attempt count
+		"max_attempts", event.MaxAttempts,
 		"next_attempt_at", event.NextAttemptAt,
-		"error", err,
+		"error", executionErr,
 	)
 
 	if dbErr := w.repo.MarkFailure(finalizeCtx, event, w.id); dbErr != nil {
@@ -285,8 +347,14 @@ func (w *Worker) handleFailure(ctx context.Context, event *Event, err error, isF
 }
 
 // startHeartbeat periodically extends the database lease while processing tasks.
-func (w *Worker) startHeartbeat(parentCtx context.Context, event *Event, done <-chan struct{}) {
-	interval := time.Duration(w.leaseDuration/2) * time.Second
+func (w *Worker) startHeartbeat(
+	parentCtx context.Context,
+	event *Event,
+	done <-chan struct{},
+	cancelTask context.CancelCauseFunc,
+) {
+	// Calculate half of the lease duration for the heartbeat interval
+	interval := w.leaseDuration / 2
 	if interval < 2*time.Second {
 		interval = 2 * time.Second
 	}
@@ -301,24 +369,23 @@ func (w *Worker) startHeartbeat(parentCtx context.Context, event *Event, done <-
 		case <-parentCtx.Done():
 			return
 		case <-ticker.C:
-			renewCtx, cancel := detachContext(parentCtx, 2*time.Second)
+			renewCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 2*time.Second)
 
 			now := time.Now()
-			newLease := now.Add(time.Duration(w.leaseDuration) * time.Second)
-			event.RenewLease(newLease, now)
+			newLease := now.Add(w.leaseDuration)
 
-			if err := w.repo.RenewLease(renewCtx, event, w.id); err != nil {
-				slog.WarnContext(renewCtx, "failed to renew outbox event lease",
+			if err := w.repo.RenewLease(renewCtx, event.ID, w.id, newLease, now); err != nil {
+				slog.WarnContext(renewCtx, "failed to renew outbox event lease; cancelling task context",
 					"event_id", event.ID,
 					"worker_id", w.id,
 					"error", err,
 				)
+
+				cancelTask(fmt.Errorf("lease renewal failed: %w", err))
+				cancel()
+				return
 			}
 			cancel()
 		}
 	}
-}
-
-func detachContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }

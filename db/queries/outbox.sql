@@ -57,6 +57,7 @@ UPDATE
 SET
     attempts = attempts + 1,
     next_attempt_at = @next_attempt_at::timestamptz,
+    last_error = @last_error::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -70,6 +71,7 @@ UPDATE
     outbox_events
 SET
     attempts = max_attempts,
+    last_error = @last_error::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = @updated_at::timestamptz
@@ -78,16 +80,16 @@ WHERE
     AND locked_by = @worker_id::uuid
     AND processed_at IS NULL;
 
--- name: OutboxEventRenewLease :exec
+-- name: OutboxEventRenewLease :execrows
 UPDATE
     outbox_events
 SET
     lease_expires_at = @lease_expires_at::timestamptz,
-    updated_at = @updated_at::timestamptz
+    updated_at = @now::timestamptz
 WHERE
     id = @id::uuid
     AND locked_by = @worker_id::uuid
-    AND processed_at IS NULL;
+    AND lease_expires_at > @now::timestamptz;
 
 -- name: OutboxEventReleaseLease :exec
 UPDATE

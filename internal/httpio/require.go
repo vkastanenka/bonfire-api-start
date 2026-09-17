@@ -46,7 +46,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), ctxKeyClaims, claims)
+			ctx := context.WithValue(r.Context(), CtxKeyClaims, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

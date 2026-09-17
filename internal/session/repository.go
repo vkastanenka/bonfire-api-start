@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bonfire-api/internal/outbox"
 	"context"
 	"net/netip"
 	"time"
@@ -19,7 +20,7 @@ type Repository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
+	Create(ctx context.Context, e *outbox.Event) error
 }
 
 type TX interface {

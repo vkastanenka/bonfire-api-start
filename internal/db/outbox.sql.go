@@ -41,7 +41,7 @@ FROM
 WHERE
     o.id = t.id
 RETURNING
-    o.id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.type, o.trace_id, o.payload
+    o.id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.type, o.trace_id, o.last_error, o.payload
 `
 
 type OutboxEventClaimPendingParams struct {
@@ -77,6 +77,7 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 			&i.MaxAttempts,
 			&i.Type,
 			&i.TraceID,
+			&i.LastError,
 			&i.Payload,
 		); err != nil {
 			return nil, err
@@ -170,32 +171,7 @@ UPDATE
     outbox_events
 SET
     attempts = max_attempts,
-    locked_by = NULL,
-    lease_expires_at = NULL,
-    updated_at = $1::timestamptz
-WHERE
-    id = $2::uuid
-    AND locked_by = $3::uuid
-    AND processed_at IS NULL
-`
-
-type OutboxEventMarkDeadLetterParams struct {
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	ID        pgtype.UUID        `json:"id"`
-	WorkerID  pgtype.UUID        `json:"worker_id"`
-}
-
-func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter, arg.UpdatedAt, arg.ID, arg.WorkerID)
-	return err
-}
-
-const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
-UPDATE
-    outbox_events
-SET
-    attempts = attempts + 1,
-    next_attempt_at = $1::timestamptz,
+    last_error = $1::text,
     locked_by = NULL,
     lease_expires_at = NULL,
     updated_at = $2::timestamptz
@@ -205,8 +181,42 @@ WHERE
     AND processed_at IS NULL
 `
 
+type OutboxEventMarkDeadLetterParams struct {
+	LastError string             `json:"last_error"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+	WorkerID  pgtype.UUID        `json:"worker_id"`
+}
+
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
+	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
+		arg.LastError,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.WorkerID,
+	)
+	return err
+}
+
+const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
+UPDATE
+    outbox_events
+SET
+    attempts = attempts + 1,
+    next_attempt_at = $1::timestamptz,
+    last_error = $2::text,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = $3::timestamptz
+WHERE
+    id = $4::uuid
+    AND locked_by = $5::uuid
+    AND processed_at IS NULL
+`
+
 type OutboxEventMarkFailureParams struct {
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError     string             `json:"last_error"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	ID            pgtype.UUID        `json:"id"`
 	WorkerID      pgtype.UUID        `json:"worker_id"`
@@ -215,6 +225,7 @@ type OutboxEventMarkFailureParams struct {
 func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error {
 	_, err := q.db.Exec(ctx, outboxEventMarkFailure,
 		arg.NextAttemptAt,
+		arg.LastError,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.WorkerID,
@@ -277,7 +288,7 @@ func (q *Queries) OutboxEventReleaseLease(ctx context.Context, arg OutboxEventRe
 	return err
 }
 
-const outboxEventRenewLease = `-- name: OutboxEventRenewLease :exec
+const outboxEventRenewLease = `-- name: OutboxEventRenewLease :execrows
 UPDATE
     outbox_events
 SET
@@ -286,22 +297,25 @@ SET
 WHERE
     id = $3::uuid
     AND locked_by = $4::uuid
-    AND processed_at IS NULL
+    AND lease_expires_at > $2::timestamptz
 `
 
 type OutboxEventRenewLeaseParams struct {
 	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Now            pgtype.Timestamptz `json:"now"`
 	ID             pgtype.UUID        `json:"id"`
 	WorkerID       pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) error {
-	_, err := q.db.Exec(ctx, outboxEventRenewLease,
+func (q *Queries) OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, outboxEventRenewLease,
 		arg.LeaseExpiresAt,
-		arg.UpdatedAt,
+		arg.Now,
 		arg.ID,
 		arg.WorkerID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

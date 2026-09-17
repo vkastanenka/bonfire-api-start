@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/user"
@@ -81,7 +82,7 @@ type ReactionRepository interface {
 }
 
 type OutboxRepository interface {
-	Publish(ctx context.Context, eventType string, payload any, now time.Time) error
+	Create(ctx context.Context, e *outbox.Event) error
 }
 
 type RelationRepository interface {

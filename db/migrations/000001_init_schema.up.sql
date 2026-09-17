@@ -12,6 +12,7 @@ CREATE TABLE outbox_events(
     max_attempts integer NOT NULL DEFAULT 5 CONSTRAINT max_attempts_positive CHECK (max_attempts > 0),
     type text NOT NULL CONSTRAINT type_length CHECK (char_length(trim(type)) BETWEEN 1 AND 100),
     trace_id text CONSTRAINT trace_id_length CHECK (trace_id IS NULL OR char_length(trim(trace_id)) BETWEEN 1 AND 256),
+    last_error text CONSTRAINT last_error_length CHECK (last_error IS NULL OR char_length(trim(last_error)) BETWEEN 1 AND 4096),
     payload jsonb NOT NULL CONSTRAINT payload_populated CHECK (payload != '{}'::jsonb AND payload != '[]'::jsonb),
     CONSTRAINT payload_size_limit CHECK (octet_length(payload::text) < 102400),
     CONSTRAINT attempts_limit CHECK (attempts <= max_attempts)

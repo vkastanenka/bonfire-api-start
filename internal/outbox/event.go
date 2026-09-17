@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
 )
@@ -21,6 +22,7 @@ type Event struct {
 	Attempts       int
 	MaxAttempts    int
 	NextAttemptAt  time.Time
+	LastError      *string
 	LockedBy       *uuid.UUID
 	LeaseExpiresAt *time.Time
 	CreatedAt      time.Time
@@ -36,6 +38,7 @@ func ReconstituteEvent(
 	attempts int,
 	maxAttempts int,
 	nextAttemptAt time.Time,
+	lastError *string,
 	lockedBy *uuid.UUID,
 	leaseExpiresAt *time.Time,
 	createdAt time.Time,
@@ -50,6 +53,7 @@ func ReconstituteEvent(
 		Attempts:       attempts,
 		MaxAttempts:    maxAttempts,
 		NextAttemptAt:  nextAttemptAt,
+		LastError:      lastError,
 		LockedBy:       lockedBy,
 		LeaseExpiresAt: leaseExpiresAt,
 		CreatedAt:      createdAt,
@@ -57,15 +61,23 @@ func ReconstituteEvent(
 	}
 }
 
+// New constructs a new outbox Event domain entity.
 func New(
 	ctx context.Context,
 	eventType string,
-	payload json.RawMessage,
+	payload any,
 	now time.Time,
 ) (*Event, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal outbox event payload.").
+			Meta("event_type", eventType).
+			Wrap(err)
+	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, errs.Internal("Failed to generate outbox event ID.").Wrap(err)
 	}
 
 	var tracePtr *string
@@ -76,12 +88,13 @@ func New(
 	return ReconstituteEvent(
 		id,
 		eventType,
-		payload,
+		data,
 		tracePtr,
 		nil,
 		0,
 		maxAttemptsDefault,
 		now,
+		nil,
 		nil,
 		nil,
 		now,
@@ -115,9 +128,10 @@ func (e *Event) MarkProcessed(at time.Time) {
 	e.touch(at)
 }
 
-// MarkFailure increments attempts, calculates exponential backoff, and releases worker locks.
-func (e *Event) MarkFailure(at time.Time) {
+// MarkFailure increments attempts, records the error, calculates exponential backoff, and releases worker locks.
+func (e *Event) MarkFailure(execErr error, at time.Time) {
 	e.Attempts++
+	e.LastError = formatLastError(execErr)
 	e.LockedBy = nil
 	e.LeaseExpiresAt = nil
 
@@ -127,9 +141,10 @@ func (e *Event) MarkFailure(at time.Time) {
 	e.touch(at)
 }
 
-// MarkDeadLetter maxes out attempts and parks the event without scheduling future attempts.
-func (e *Event) MarkDeadLetter(at time.Time) {
+// MarkDeadLetter maxes out attempts, records the error, and parks the event without scheduling future attempts.
+func (e *Event) MarkDeadLetter(execErr error, at time.Time) {
 	e.Attempts = e.MaxAttempts
+	e.LastError = formatLastError(execErr)
 	e.LockedBy = nil
 	e.LeaseExpiresAt = nil
 
@@ -151,4 +166,15 @@ func (e *Event) ReleaseLease(at time.Time) {
 
 func (e *Event) touch(at time.Time) {
 	e.UpdatedAt = at
+}
+
+func formatLastError(err error) *string {
+	if err == nil {
+		return nil
+	}
+	errStr := err.Error()
+	if len(errStr) > maxLastErrorLen {
+		errStr = errStr[:maxLastErrorLen-1] + "..."
+	}
+	return &errStr
 }
