@@ -36,15 +36,14 @@ const (
 )
 
 type EventChannelCreatedPayload struct {
-	ExcludeSessionID uuid.UUID                       `json:"exclude_session_id"`
-	Channel          *Channel                        `json:"channel"`
-	Users            map[uuid.UUID]*user.User        `json:"users"`
-	Presences        map[uuid.UUID]presence.Presence `json:"presences"`
-	MemberIDs        []uuid.UUID                     `json:"member_ids"`
+	Channel   *Channel                        `json:"channel"`
+	Users     map[uuid.UUID]*user.User        `json:"users"`
+	Presences map[uuid.UUID]presence.Presence `json:"presences"`
+	MemberIDs []uuid.UUID                     `json:"member_ids"`
 }
 
 func NewChannelCreatedEventHandler(gw Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, p EventChannelCreatedPayload) error {
+	return outbox.BindHandler(func(ctx context.Context, p outbox.Envelope[EventChannelCreatedPayload]) error {
 		return gw.BroadcastToUsers(
 			ctx,
 			p.MemberIDs,

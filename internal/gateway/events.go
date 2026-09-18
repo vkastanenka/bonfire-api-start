@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
 
 type HeartbeatPayload struct {
 	Presence *int `json:"presence,omitempty"`

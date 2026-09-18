@@ -34,7 +34,6 @@ const (
 )
 
 // WSMessage defines the JSON wire format for incoming and outgoing gateway frames.
-// Ex: {"t": "chat.speak", "d": {"text": "Hello world"}}
 type WSMessage struct {
 	Type string          `json:"t"`
 	Data json.RawMessage `json:"d"`
@@ -44,15 +43,16 @@ type WSMessage struct {
 type Client struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
-	Conn      *websocket.Conn // The underlying TCP WebSocket connection handle.
-	Send      chan []byte     // Buffered channel for queuing outbound messages.
+	Conn      *websocket.Conn
+	Send      chan []byte
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 	closeOnce sync.Once
+	wg        sync.WaitGroup
 }
 
-// NewClient initializes a Client instance.
+// NewClient initializes a Client instance with its own isolated cancellation context.
 func NewClient(ctx context.Context, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
@@ -65,23 +65,35 @@ func NewClient(ctx context.Context, userID, sessionID uuid.UUID, conn *websocket
 	}
 }
 
-// Close gracefully terminates the context, and closes the Send channel with the WS connection.
+// Close gracefully cancels the client context and terminates the network connection.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
 		c.cancelCtx()
 		_ = c.Conn.Close()
-		close(c.Send)
 	})
 }
 
-// StartPumps launches the read and write loops for the client instance.
+// StartPumps launches the background read and write loops for the client connection.
 func (c *Client) StartPumps(hub *Hub) {
-	go c.writePump()
-	go c.readPump(hub)
+	c.wg.Add(2)
+
+	go func() {
+		defer c.wg.Done()
+		c.writePump()
+	}()
+
+	go func() {
+		defer c.wg.Done()
+		c.readPump(hub)
+	}()
 }
 
-// writePump handles outbound network operations: sending queued messages from the hub,
-// batch-flushing buffered messages and transmitting periodic ping heartbeats.
+// Wait blocks until both read and write pumps have terminated.
+func (c *Client) Wait() {
+	c.wg.Wait()
+}
+
+// writePump handles outbound network operations, batching, and heartbeats.
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -92,15 +104,13 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			// Parent or connection context canceled; terminate loop.
+			// Send a WS close control frame using a detached context deadline guarantee
+			c.sendCloseFrame()
 			return
 
 		case message, ok := <-c.Send:
-			// Outbound message available on Send channel.
 			if !ok {
-				// The hub closed the channel; gracefully issue a WS close control frame.
-				_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.sendCloseFrame()
 				return
 			}
 			if err := c.flushMessageBatch(message); err != nil {
@@ -108,7 +118,6 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			// Heartbeat ticker fired; send WS ping frame to client.
 			if err := c.writePing(); err != nil {
 				return
 			}
@@ -116,48 +125,55 @@ func (c *Client) writePump() {
 	}
 }
 
-// flushMessageBatch writes the initial message frame and drains any additional messages sitting
-// in the channel buffer into a single combined WebSocket network frame separated by newlines.
+// sendCloseFrame attempts to write a standard WebSocket close control frame before teardown.
+func (c *Client) sendCloseFrame() {
+	_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+}
+
+// flushMessageBatch writes the initial message and drains available queued messages.
 func (c *Client) flushMessageBatch(firstMsg []byte) error {
 	if err := c.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 		return err
 	}
 
-	// Acquire a writer stream for a text frame.
 	w, err := c.Conn.NextWriter(websocket.TextMessage)
 	if err != nil {
 		return err
 	}
 
-	// Write the primary message.
 	if _, err := w.Write(firstMsg); err != nil {
 		_ = w.Close()
 		return err
 	}
 
-	// Drain any remaining messages already queued in c.Send.
 	n := len(c.Send)
+
+DrainLoop:
 	for i := 0; i < n; i++ {
-		msg, ok := <-c.Send
-		if !ok {
-			// Channel closed mid-batch; close current frame writer and signal error.
-			_ = w.Close()
-			return fmt.Errorf("send channel closed during batch drain")
-		}
-		if _, err := w.Write([]byte{'\n'}); err != nil {
-			_ = w.Close()
-			return err
-		}
-		if _, err := w.Write(msg); err != nil {
-			_ = w.Close()
-			return err
+		select {
+		case msg, ok := <-c.Send:
+			if !ok {
+				_ = w.Close()
+				return fmt.Errorf("send channel closed during batch drain")
+			}
+			if _, err := w.Write([]byte{'\n'}); err != nil {
+				_ = w.Close()
+				return err
+			}
+			if _, err := w.Write(msg); err != nil {
+				_ = w.Close()
+				return err
+			}
+		default:
+			break DrainLoop
 		}
 	}
 
 	return w.Close()
 }
 
-// writePing issues a low-level WebSocket Control Ping frame with a write deadline.
+// writePing issues a WebSocket Control Ping frame with a write deadline.
 func (c *Client) writePing() error {
 	if err := c.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 		return err
@@ -165,11 +181,9 @@ func (c *Client) writePing() error {
 	return c.Conn.WriteMessage(websocket.PingMessage, nil)
 }
 
-// readPump receives incoming WebSocket frames from the client connection, manages read deadlines,
-// processes heartbeats, and routes valid frames to registered central hub event handlers.
+// readPump receives incoming frames, refreshes read deadlines, and dispatches handlers.
 func (c *Client) readPump(hub *Hub) {
 	defer func() {
-		// Guarantee unregistration executes regardless of context cancellation.
 		hub.unregister <- c
 		c.Close()
 	}()
@@ -177,7 +191,6 @@ func (c *Client) readPump(hub *Hub) {
 	c.Conn.SetReadLimit(maxMessageSize)
 	_ = c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 
-	// Reset read deadline every time a Pong reply is received from the client.
 	c.Conn.SetPongHandler(func(string) error {
 		return c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
@@ -186,7 +199,11 @@ func (c *Client) readPump(hub *Hub) {
 		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.ErrorContext(c.ctx, "websocket read error", "user_id", c.UserID, "error", err)
+				slog.ErrorContext(c.ctx, "websocket read error",
+					"user_id", c.UserID,
+					"session_id", c.SessionID,
+					"error", err,
+				)
 			}
 			break
 		}
@@ -204,35 +221,40 @@ func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
 
 	handler, exists := hub.GetHandler(wsMsg.Type)
 	if !exists {
-		slog.WarnContext(c.ctx, "unregistered websocket event type", "type", wsMsg.Type, "user_id", c.UserID)
+		slog.WarnContext(c.ctx, "unregistered websocket event type",
+			"type", wsMsg.Type,
+			"user_id", c.UserID,
+			"session_id", c.SessionID,
+		)
 		return
 	}
 
-	// Option A (Default): Synchronous execution prevents runaway goroutine spawn per client
-	c.executeHandler(handler, wsMsg)
+	go c.executeHandler(handler, wsMsg)
 }
 
 // executeHandler executes an event handler with timeout context controls and panic safety guarantees.
 func (c *Client) executeHandler(h MessageHandler, msg WSMessage) {
-	// Protect the application runtime against unhandled runtime panics inside event handlers.
 	defer func() {
 		if r := recover(); r != nil {
 			slog.ErrorContext(c.ctx, "recovered panic in websocket handler",
 				"type", msg.Type,
 				"user_id", c.UserID,
+				"session_id", c.SessionID,
 				"panic", r,
 			)
 		}
 	}()
 
-	// Apply isolation context with enforced execution timeout budget.
-	ctx, cancel := context.WithTimeout(c.ctx, handlerTimeout)
+	// Detach execution context from direct parent cancellation using context.WithoutCancel,
+	// while still applying an isolated execution timeout budget.
+	execCtx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), handlerTimeout)
 	defer cancel()
 
-	if err := h(ctx, c, msg.Data); err != nil {
-		slog.ErrorContext(ctx, "handler execution failed",
+	if err := h(execCtx, c, msg.Data); err != nil {
+		slog.ErrorContext(execCtx, "websocket handler execution failed",
 			"type", msg.Type,
 			"user_id", c.UserID,
+			"session_id", c.SessionID,
 			"error", err,
 		)
 	}

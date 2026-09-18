@@ -1,10 +1,10 @@
 -- name: OutboxEventCreate :exec
-INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES (@id::uuid, @type::text, @payload::jsonb, sqlc.narg('trace_id')::text, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
+INSERT INTO outbox_events(id, type, payload, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES (@id::uuid, @type::text, @payload::jsonb, @created_at::timestamptz, @updated_at::timestamptz, @next_attempt_at::timestamptz, @attempts::int, @max_attempts::int);
 
 -- name: OutboxEventCreateBatch :copyfrom
-INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO outbox_events(id, type, payload, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: OutboxEventClaimPending :many
 WITH target_events AS (
@@ -30,6 +30,7 @@ UPDATE
 SET
     locked_by = @worker_id::uuid,
     lease_expires_at = @lease_expires_at::timestamptz,
+    attempts = o.attempts + 1,
     updated_at = @now::timestamptz
 FROM
     target_events t
@@ -55,7 +56,6 @@ WHERE
 UPDATE
     outbox_events
 SET
-    attempts = attempts + 1,
     next_attempt_at = @next_attempt_at::timestamptz,
     last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,

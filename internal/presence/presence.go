@@ -2,10 +2,9 @@ package presence
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/pkg/sanitize"
 )
 
 type Presence int
@@ -32,28 +31,15 @@ var presenceNames = [...]string{
 }
 
 func Parse(raw int) (Presence, error) {
-	p := Presence(raw)
-	if !p.IsValid() {
-		return PresenceUnknown, fmt.Errorf("invalid presence value: %d", raw)
-	}
-	return p, nil
+	return sanitize.ParseEnumInt(raw, presenceMax, "presence")
 }
 
 func ParseString(s string) (Presence, error) {
-	for i, name := range presenceNames {
-		if name == s {
-			return Presence(i), nil
-		}
-	}
-	return PresenceUnknown, fmt.Errorf("invalid presence string: %q", s)
+	return sanitize.ParseEnumString[Presence](s, presenceNames[:], "presence")
 }
 
-func ParseBytes(raw []byte) (Presence, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return PresenceUnknown, nil
-	}
-	return ParseString(string(cleaned))
+func ParseBytes(b []byte) (Presence, error) {
+	return sanitize.ParseEnumBytes[Presence](b, presenceNames[:], "presence")
 }
 
 func (p Presence) IsValid() bool {

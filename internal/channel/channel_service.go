@@ -1,7 +1,9 @@
 package channel
 
 import (
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/helpers"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/ptr"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
@@ -57,17 +59,36 @@ type CreateGroupResult struct {
 	MemberIDs   []uuid.UUID
 }
 
+// // GetMetadata extracts actor, session, and tracing context for outbox events.
+// func GetMetadata(ctx context.Context) (Metadata, error) {
+// 	claims, err := httpio.CtxGetClaims(ctx)
+// 	if err != nil {
+// 		return Metadata{}, err
+// 	}
+
+// 	return Metadata{
+// 		ActorID:   claims.UserID,
+// 		SessionID: claims.SessionID,
+// 		TraceID:   httpio.CtxGetTraceID(ctx),
+// 	}, nil
+// }
+
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
 		return nil, err
 	}
 
-	dedupedMemberIDs := helpers.DedupeIDs(append(rawPeerIDs, actorID))
-	peerIDs := helpers.RemoveID(actorID, dedupedMemberIDs)
+	dedupedMemberIDs := helpers.DedupeIDs(append(rawPeerIDs, claims.UserID))
+	peerIDs := helpers.RemoveID(claims.UserID, dedupedMemberIDs)
 
 	if len(peerIDs) > 0 {
-		if err := s.relationRepo.HasIncomingBlock(ctx, actorID, peerIDs); err != nil {
+		if err := s.relationRepo.HasIncomingBlock(ctx, claims.UserID, peerIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -79,7 +100,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uui
 		return nil, err
 	}
 
-	membs := NewMembers(ch.ID, actorID, peerIDs, now)
+	membs := NewMembers(ch.ID, claims.UserID, peerIDs, now)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -116,20 +137,25 @@ func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uui
 			return repoErr
 		}
 
-		membersMap := make(map[uuid.UUID]*Member, len(membs))
-		for _, m := range membs {
-			membersMap[m.UserID] = m
-		}
-
 		payload := EventChannelCreatedPayload{
-			ExcludeSessionID: sessionID,
-			Channel:          ch,
-			Users:            users,
-			Presences:        presences,
-			MemberIDs:        dedupedMemberIDs,
+			Channel:   ch,
+			Users:     users,
+			Presences: presences,
+			MemberIDs: dedupedMemberIDs,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventChannelCreated, payload, now)
+		event, err := outbox.New(
+			txCtx,
+			EventChannelCreated,
+			payload,
+			claims,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if txErr != nil {
 		return nil, txErr
@@ -139,7 +165,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, actorID, sessionID uui
 
 	return &CreateGroupResult{
 		Channel:     ch,
-		ActorMember: filterMembership(actorID, membs),
+		ActorMember: filterMembership(claims.UserID, membs),
 		Users:       users,
 		Presences:   presences,
 		MemberIDs:   dedupedMemberIDs,

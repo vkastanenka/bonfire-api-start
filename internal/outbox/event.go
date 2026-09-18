@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/token"
 
 	"github.com/google/uuid"
 )
@@ -37,7 +37,6 @@ func ReconstituteEvent(
 	id uuid.UUID,
 	eventType string,
 	payload json.RawMessage,
-	traceID *string,
 	processedAt *time.Time,
 	attempts int,
 	maxAttempts int,
@@ -52,7 +51,6 @@ func ReconstituteEvent(
 		ID:             id,
 		Type:           eventType,
 		Payload:        payload,
-		TraceID:        traceID,
 		ProcessedAt:    processedAt,
 		Attempts:       attempts,
 		MaxAttempts:    maxAttempts,
@@ -65,14 +63,22 @@ func ReconstituteEvent(
 	}
 }
 
-// New constructs a new outbox Event domain entity using UUIDv7.
-func New(
+// New constructs a new outbox Event domain entity using UUIDv7 with type-safe payload enfolding.
+func New[T any](
 	ctx context.Context,
 	eventType string,
-	payload any,
+	payload T,
+	claims *token.Claims,
 	now time.Time,
 ) (*Event, error) {
-	data, err := json.Marshal(payload)
+	meta := GetMetadata(ctx, claims)
+
+	env := Envelope[T]{
+		Metadata: meta,
+		Payload:  payload,
+	}
+
+	data, err := json.Marshal(env)
 	if err != nil {
 		return nil, errs.Internal("Failed to marshal outbox event payload.").
 			Meta("event_type", eventType).
@@ -84,16 +90,10 @@ func New(
 		return nil, errs.Internal("Failed to generate outbox event ID.").Wrap(err)
 	}
 
-	var tracePtr *string
-	if tid := httpio.CtxGetTraceID(ctx); tid != "" {
-		tracePtr = &tid
-	}
-
-	return ReconstituteEvent(
+	event := ReconstituteEvent(
 		id,
 		eventType,
 		data,
-		tracePtr,
 		nil,
 		0,
 		maxAttemptsDefault,
@@ -103,7 +103,13 @@ func New(
 		nil,
 		now,
 		now,
-	), nil
+	)
+
+	if meta.TraceID != "" {
+		event.TraceID = &meta.TraceID
+	}
+
+	return event, nil
 }
 
 func (e *Event) IsProcessed() bool  { return e.ProcessedAt != nil }

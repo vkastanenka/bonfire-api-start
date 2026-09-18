@@ -32,7 +32,6 @@ func (r iteratorForOutboxEventCreateBatch) Values() ([]interface{}, error) {
 		r.rows[0].ID,
 		r.rows[0].Type,
 		r.rows[0].Payload,
-		r.rows[0].TraceID,
 		r.rows[0].CreatedAt,
 		r.rows[0].UpdatedAt,
 		r.rows[0].NextAttemptAt,
@@ -46,5 +45,5 @@ func (r iteratorForOutboxEventCreateBatch) Err() error {
 }
 
 func (q *Queries) OutboxEventCreateBatch(ctx context.Context, arg []OutboxEventCreateBatchParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"outbox_events"}, []string{"id", "type", "payload", "trace_id", "created_at", "updated_at", "next_attempt_at", "attempts", "max_attempts"}, &iteratorForOutboxEventCreateBatch{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"outbox_events"}, []string{"id", "type", "payload", "created_at", "updated_at", "next_attempt_at", "attempts", "max_attempts"}, &iteratorForOutboxEventCreateBatch{rows: arg})
 }

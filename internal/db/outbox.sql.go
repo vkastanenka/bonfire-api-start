@@ -35,13 +35,14 @@ UPDATE
 SET
     locked_by = $1::uuid,
     lease_expires_at = $2::timestamptz,
+    attempts = o.attempts + 1,
     updated_at = $3::timestamptz
 FROM
     target_events t
 WHERE
     o.id = t.id
 RETURNING
-    o.id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.type, o.trace_id, o.last_error, o.payload
+    o.id, o.locked_by, o.created_at, o.updated_at, o.next_attempt_at, o.lease_expires_at, o.processed_at, o.attempts, o.max_attempts, o.type, o.last_error, o.payload
 `
 
 type OutboxEventClaimPendingParams struct {
@@ -76,7 +77,6 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 			&i.Attempts,
 			&i.MaxAttempts,
 			&i.Type,
-			&i.TraceID,
 			&i.LastError,
 			&i.Payload,
 		); err != nil {
@@ -91,15 +91,14 @@ func (q *Queries) OutboxEventClaimPending(ctx context.Context, arg OutboxEventCl
 }
 
 const outboxEventCreate = `-- name: OutboxEventCreate :exec
-INSERT INTO outbox_events(id, type, payload, trace_id, created_at, updated_at, next_attempt_at, attempts, max_attempts)
-    VALUES ($1::uuid, $2::text, $3::jsonb, $4::text, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8::int, $9::int)
+INSERT INTO outbox_events(id, type, payload, created_at, updated_at, next_attempt_at, attempts, max_attempts)
+    VALUES ($1::uuid, $2::text, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7::int, $8::int)
 `
 
 type OutboxEventCreateParams struct {
 	ID            pgtype.UUID        `json:"id"`
 	Type          string             `json:"type"`
 	Payload       []byte             `json:"payload"`
-	TraceID       pgtype.Text        `json:"trace_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
@@ -112,7 +111,6 @@ func (q *Queries) OutboxEventCreate(ctx context.Context, arg OutboxEventCreatePa
 		arg.ID,
 		arg.Type,
 		arg.Payload,
-		arg.TraceID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.NextAttemptAt,
@@ -126,7 +124,6 @@ type OutboxEventCreateBatchParams struct {
 	ID            pgtype.UUID        `json:"id"`
 	Type          string             `json:"type"`
 	Payload       []byte             `json:"payload"`
-	TraceID       pgtype.Text        `json:"trace_id"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
@@ -200,7 +197,6 @@ const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
 UPDATE
     outbox_events
 SET
-    attempts = attempts + 1,
     next_attempt_at = $1::timestamptz,
     last_error = $2::text,
     locked_by = NULL,
