@@ -36,7 +36,7 @@ const (
 // WSMessage defines the JSON wire format for incoming and outgoing gateway frames.
 type WSMessage struct {
 	Type string          `json:"t"`
-	Data json.RawMessage `json:"d"`
+	Data json.RawMessage `json:"d,omitempty"`
 }
 
 // Client represents a single active, bidirectional WebSocket connection.

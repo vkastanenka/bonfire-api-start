@@ -1,13 +1,14 @@
 package gateway
 
 import (
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
+
+	"bonfire-api/internal/presence"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
@@ -26,8 +27,7 @@ type Event struct {
 	UserIDs           []uuid.UUID     `json:"user_ids,omitempty"`
 	SessionIDs        []uuid.UUID     `json:"session_ids,omitempty"`
 	ExcludeSessionIDs []uuid.UUID     `json:"exclude_session_ids,omitempty"`
-	Type              string          `json:"type"`
-	Data              json.RawMessage `json:"data"`
+	Frame             json.RawMessage `json:"frame"`
 }
 
 type Hub struct {
@@ -39,8 +39,8 @@ type Hub struct {
 	register   chan ClientRegistration
 	unregister chan *Client
 
-	service  *Service
-	handlers map[string]MessageHandler
+	sessionManager *SessionManager
+	handlers       map[string]MessageHandler
 
 	redisClient *goredis.Client
 	sub         *redis.Subscription
@@ -49,16 +49,16 @@ type Hub struct {
 	subMu sync.Mutex
 }
 
-func NewHub(redisClient *goredis.Client, service *Service) *Hub {
+func NewHub(redisClient *goredis.Client, sessionManager *SessionManager) *Hub {
 	return &Hub{
-		id:          uuid.New(),
-		sessionIdx:  make(map[uuid.UUID]*Client),
-		userIdx:     make(map[uuid.UUID]map[uuid.UUID]*Client),
-		register:    make(chan ClientRegistration, clientBufferLength),
-		unregister:  make(chan *Client, clientBufferLength),
-		service:     service,
-		handlers:    make(map[string]MessageHandler),
-		redisClient: redisClient,
+		id:             uuid.New(),
+		sessionIdx:     make(map[uuid.UUID]*Client),
+		userIdx:        make(map[uuid.UUID]map[uuid.UUID]*Client),
+		register:       make(chan ClientRegistration, clientBufferLength),
+		unregister:     make(chan *Client, clientBufferLength),
+		sessionManager: sessionManager,
+		handlers:       make(map[string]MessageHandler),
+		redisClient:    redisClient,
 	}
 }
 
@@ -72,6 +72,7 @@ func (h *Hub) Register(client *Client, presence presence.Presence) {
 		Presence: presence,
 	}
 }
+
 func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
 }
@@ -146,7 +147,7 @@ func (h *Hub) registerNode(ctx context.Context, userID, sessionID uuid.UUID, pre
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RegisterNode(reqCtx, userID, sessionID, h.id, presence); err != nil {
+	if err := h.sessionManager.RegisterNode(reqCtx, userID, sessionID, h.id, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -194,7 +195,7 @@ func (h *Hub) unregisterNode(ctx context.Context, userID, sessionID uuid.UUID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.UnregisterNode(reqCtx, userID, sessionID, h.id); err != nil {
+	if err := h.sessionManager.UnregisterNode(reqCtx, userID, sessionID, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -228,7 +229,7 @@ func (h *Hub) cleanupNodes(ctx context.Context) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RemoveBatchNodes(reqCtx, userIDs, h.id); err != nil {
+	if err := h.sessionManager.RemoveBatchNodes(reqCtx, userIDs, h.id); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }
@@ -245,10 +246,13 @@ func (h *Hub) closeAllClients() {
 }
 
 func (h *Hub) listenEvents(ctx context.Context) {
-	sub, err := SubscribeGatewayEvents(ctx, h.redisClient, h.id)
+	channelKey := gatewayEventsKey(h.id)
+
+	sub, err := redis.Subscribe(ctx, h.redisClient, channelKey)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
 			"id", h.id,
+			"channel", channelKey,
 			"error", err,
 		)
 		return
@@ -279,10 +283,23 @@ func (h *Hub) readEvents(ctx context.Context) {
 				slog.WarnContext(ctx, "Redis node subscription channel closed", "id", h.id)
 				return
 			}
-			h.dispatchEvent(ctx, evt.Payload)
+			h.safelyDispatchEvent(ctx, evt.Payload)
 		}
 	}
 }
+
+func (h *Hub) safelyDispatchEvent(ctx context.Context, payload string) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(ctx, "recovered from panic during event dispatch",
+				"node_id", h.id,
+				"error", r,
+			)
+		}
+	}()
+	h.dispatchEvent(ctx, payload)
+}
+
 func (h *Hub) dispatchEvent(ctx context.Context, payload string) {
 	var event Event
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -293,37 +310,28 @@ func (h *Hub) dispatchEvent(ctx context.Context, payload string) {
 		return
 	}
 
-	outboundPayload, err := json.Marshal(WSMessage{
-		Type: event.Type,
-		Data: event.Data,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to encode outbound WS frame",
-			"type", event.Type,
-			"error", err,
-		)
-		return
-	}
-
 	if len(event.SessionIDs) > 0 {
-		h.sendToSessions(event.SessionIDs, outboundPayload)
+		h.sendToSessions(event.SessionIDs, event.ExcludeSessionIDs, event.Frame)
 	}
 
 	if len(event.UserIDs) > 0 {
-		excludeMap := make(map[uuid.UUID]struct{}, len(event.ExcludeSessionIDs))
-		for _, id := range event.ExcludeSessionIDs {
-			excludeMap[id] = struct{}{}
-		}
-
-		h.sendToUsers(event.UserIDs, excludeMap, outboundPayload)
+		h.sendToUsers(event.UserIDs, event.ExcludeSessionIDs, event.Frame)
 	}
 }
 
-func (h *Hub) sendToSessions(sessionIDs []uuid.UUID, message []byte) {
+func (h *Hub) sendToSessions(
+	sessionIDs []uuid.UUID,
+	excludeSessionIDs []uuid.UUID,
+	message []byte,
+) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	for _, sessionID := range sessionIDs {
+		if isSessionExcluded(sessionID, excludeSessionIDs) {
+			continue
+		}
+
 		client, exists := h.sessionIdx[sessionID]
 		if !exists {
 			continue
@@ -340,11 +348,13 @@ func (h *Hub) sendToSessions(sessionIDs []uuid.UUID, message []byte) {
 	}
 }
 
-func (h *Hub) sendToUsers(userIDs []uuid.UUID, excludeSessions map[uuid.UUID]struct{}, message []byte) {
+func (h *Hub) sendToUsers(
+	userIDs []uuid.UUID,
+	excludeSessionIDs []uuid.UUID,
+	message []byte,
+) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-
-	hasExclusions := len(excludeSessions) > 0
 
 	for _, userID := range userIDs {
 		sessions, exists := h.userIdx[userID]
@@ -353,10 +363,8 @@ func (h *Hub) sendToUsers(userIDs []uuid.UUID, excludeSessions map[uuid.UUID]str
 		}
 
 		for sessionID, client := range sessions {
-			if hasExclusions {
-				if _, excluded := excludeSessions[sessionID]; excluded {
-					continue
-				}
+			if isSessionExcluded(sessionID, excludeSessionIDs) {
+				continue
 			}
 
 			select {
@@ -365,9 +373,18 @@ func (h *Hub) sendToUsers(userIDs []uuid.UUID, excludeSessions map[uuid.UUID]str
 				slog.Warn("Client send buffer full, dropping message",
 					"node_id", h.id,
 					"user_id", userID,
-					"session_id", sessionID,
+					"session_id", client.SessionID,
 				)
 			}
 		}
 	}
+}
+
+func isSessionExcluded(sessionID uuid.UUID, excluded []uuid.UUID) bool {
+	for _, id := range excluded {
+		if id == sessionID {
+			return true
+		}
+	}
+	return false
 }

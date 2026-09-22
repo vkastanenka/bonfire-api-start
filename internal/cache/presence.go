@@ -262,15 +262,20 @@ func (c *PresenceCache) GetBatchNodeUsers(
 				continue
 			}
 
-			nodeSet := make(map[uuid.UUID]struct{})
+			var lastSeenNode uuid.UUID
 			for _, nodeIDStr := range sessionMap {
-				if parsedUUID, parseErr := uuid.Parse(nodeIDStr); parseErr == nil {
-					nodeSet[uuid.UUID(parsedUUID)] = struct{}{}
+				parsedUUID, parseErr := uuid.Parse(nodeIDStr)
+				if parseErr != nil {
+					continue
 				}
-			}
+				nodeID := uuid.UUID(parsedUUID)
 
-			for nID := range nodeSet {
-				nodeToUsers[nID] = append(nodeToUsers[nID], uid)
+				if nodeID == lastSeenNode {
+					continue
+				}
+				lastSeenNode = nodeID
+
+				nodeToUsers[nodeID] = append(nodeToUsers[nodeID], uid)
 			}
 		}
 	}

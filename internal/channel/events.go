@@ -11,8 +11,8 @@ import (
 )
 
 type Broadcaster interface {
-	BroadcastToUser(ctx context.Context, userID uuid.UUID, excludeSessionIDs []uuid.UUID, eventType string, payload interface{}) error
-	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, excludeSessionIDs []uuid.UUID, eventType string, payload interface{}) error
+	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
 }
 
 const (
@@ -39,15 +39,13 @@ type EventChannelCreatedPayload struct {
 	Channel   *Channel                        `json:"channel"`
 	Users     map[uuid.UUID]*user.User        `json:"users"`
 	Presences map[uuid.UUID]presence.Presence `json:"presences"`
-	MemberIDs []uuid.UUID                     `json:"member_ids"`
 }
 
 func NewChannelCreatedEventHandler(gw Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, p outbox.Envelope[EventChannelCreatedPayload]) error {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventChannelCreatedPayload) error {
 		return gw.BroadcastToUsers(
 			ctx,
-			p.MemberIDs,
-			[]uuid.UUID{p.ExcludeSessionID},
+			m.RecipientIDs,
 			EventChannelCreated,
 			p,
 		)

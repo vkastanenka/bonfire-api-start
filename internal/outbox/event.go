@@ -1,13 +1,11 @@
 package outbox
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 	"unicode/utf8"
 
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/token"
 
 	"github.com/google/uuid"
 )
@@ -63,15 +61,26 @@ func ReconstituteEvent(
 	}
 }
 
-// New constructs a new outbox Event domain entity using UUIDv7 with type-safe payload enfolding.
 func New[T any](
-	ctx context.Context,
+	actorID uuid.UUID,
+	sessionID uuid.UUID,
+	traceID string,
+	recipientIDs []uuid.UUID,
 	eventType string,
 	payload T,
-	claims *token.Claims,
 	now time.Time,
 ) (*Event, error) {
-	meta := GetMetadata(ctx, claims)
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, errs.Internal("Failed to generate outbox event ID.").Wrap(err)
+	}
+
+	meta := Metadata{
+		ActorID:      actorID,
+		SessionID:    sessionID,
+		TraceID:      traceID,
+		RecipientIDs: recipientIDs,
+	}
 
 	env := Envelope[T]{
 		Metadata: meta,
@@ -80,14 +89,9 @@ func New[T any](
 
 	data, err := json.Marshal(env)
 	if err != nil {
-		return nil, errs.Internal("Failed to marshal outbox event payload.").
+		return nil, errs.Internal("Failed to marshal outbox event envelope.").
 			Meta("event_type", eventType).
 			Wrap(err)
-	}
-
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, errs.Internal("Failed to generate outbox event ID.").Wrap(err)
 	}
 
 	event := ReconstituteEvent(
@@ -104,10 +108,6 @@ func New[T any](
 		now,
 		now,
 	)
-
-	if meta.TraceID != "" {
-		event.TraceID = &meta.TraceID
-	}
 
 	return event, nil
 }

@@ -74,14 +74,14 @@ type CreateGroupResult struct {
 // }
 
 // CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) error {
 	claims, err := appctx.GetClaims(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
-		return nil, err
+		return err
 	}
 
 	dedupedMemberIDs := helpers.DedupeIDs(append(rawPeerIDs, claims.UserID))
@@ -89,7 +89,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 
 	if len(peerIDs) > 0 {
 		if err := s.relationRepo.HasIncomingBlock(ctx, claims.UserID, peerIDs); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -97,7 +97,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 
 	ch, err := NewGroupChannel(now)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	membs := NewMembers(ch.ID, claims.UserID, peerIDs, now)
@@ -122,7 +122,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 	})
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return err
 	}
 
 	sortMemberIDs(dedupedMemberIDs, users)
@@ -141,14 +141,15 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 			Channel:   ch,
 			Users:     users,
 			Presences: presences,
-			MemberIDs: dedupedMemberIDs,
 		}
 
 		event, err := outbox.New(
-			txCtx,
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(ctx),
+			dedupedMemberIDs,
 			EventChannelCreated,
 			payload,
-			claims,
 			now,
 		)
 		if err != nil {
@@ -158,18 +159,12 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 		return s.outboxRepo.Create(txCtx, event)
 	})
 	if txErr != nil {
-		return nil, txErr
+		return txErr
 	}
 
 	_ = s.cache.CreateGroup(ctx, ch, membs)
 
-	return &CreateGroupResult{
-		Channel:     ch,
-		ActorMember: filterMembership(claims.UserID, membs),
-		Users:       users,
-		Presences:   presences,
-		MemberIDs:   dedupedMemberIDs,
-	}, nil
+	return nil
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.

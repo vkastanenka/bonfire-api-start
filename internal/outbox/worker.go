@@ -8,16 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
 
 	"github.com/google/uuid"
-)
-
-var (
-	errFatal          = errors.New("outbox: fatal event execution error")
-	errLeaseLost      = errors.New("outbox: lease renewal failed")
-	errInvalidPayload = errors.New("outbox: invalid event payload schema")
 )
 
 type Worker struct {
@@ -234,10 +227,6 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 	taskCtx, cancelTask := context.WithCancelCause(baseCtx)
 	defer cancelTask(nil)
 
-	if event.TraceID != nil {
-		taskCtx = context.WithValue(taskCtx, httpio.CtxKeyTraceID, *event.TraceID)
-	}
-
 	heartbeatDone := make(chan struct{})
 	go w.startHeartbeat(ctx, event, heartbeatDone, cancelTask)
 
@@ -248,7 +237,7 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 
 	if executionErr != nil {
 		// Check if cancellation was explicitly caused by lease renewal failure
-		if leaseErr := context.Cause(taskCtx); leaseErr != nil && errors.Is(leaseErr, errLeaseLost) {
+		if leaseErr := context.Cause(taskCtx); leaseErr != nil && errors.Is(leaseErr, ErrLeaseLost) {
 			slog.ErrorContext(ctx, "handler execution aborted due to lost outbox lease",
 				"event_id", event.ID,
 				"error", leaseErr,
@@ -264,8 +253,8 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 			return
 		}
 
-		// Mark as fatal if the handler returned errFatal OR an invalid payload error
-		isFatal := errors.Is(executionErr, errFatal) || errors.Is(executionErr, errInvalidPayload)
+		// Mark as fatal if the handler returned ErrFatal OR ErrInvalidPayload
+		isFatal := errors.Is(executionErr, ErrFatal) || errors.Is(executionErr, ErrInvalidPayload)
 		w.handleFailure(ctx, event, executionErr, isFatal)
 		return
 	}
@@ -382,7 +371,7 @@ func (w *Worker) startHeartbeat(
 					"error", err,
 				)
 
-				cancelTask(fmt.Errorf("%w: %w", errLeaseLost, err))
+				cancelTask(fmt.Errorf("%w: %w", ErrLeaseLost, err))
 				cancel()
 				return
 			}
