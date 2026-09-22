@@ -96,7 +96,9 @@ func (h *Hub) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			h.shutdown(context.WithoutCancel(ctx))
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			h.shutdown(shutdownCtx)
 			return
 
 		case reg := <-h.register:
@@ -109,11 +111,9 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (h *Hub) handleRegister(ctx context.Context, client *Client, presence presence.Presence) {
-	isFirstUserSession := h.registerClient(client)
+	h.registerClient(client)
 
-	if isFirstUserSession {
-		h.registerNode(ctx, client.UserID, client.SessionID, presence)
-	}
+	h.registerNodeSession(ctx, client.UserID, client.SessionID, presence)
 
 	slog.Info("Client connected to gateway",
 		"node_id", h.id,
@@ -122,7 +122,7 @@ func (h *Hub) handleRegister(ctx context.Context, client *Client, presence prese
 	)
 }
 
-func (h *Hub) registerClient(client *Client) bool {
+func (h *Hub) registerClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -133,32 +133,28 @@ func (h *Hub) registerClient(client *Client) bool {
 	h.sessionIdx[client.SessionID] = client
 
 	sessions, exists := h.userIdx[client.UserID]
-	isFirstUserSession := !exists || len(sessions) == 0
 	if !exists {
 		sessions = make(map[uuid.UUID]*Client)
 		h.userIdx[client.UserID] = sessions
 	}
 	sessions[client.SessionID] = client
-
-	return isFirstUserSession
 }
 
-func (h *Hub) registerNode(ctx context.Context, userID, sessionID uuid.UUID, presence presence.Presence) {
+func (h *Hub) registerNodeSession(ctx context.Context, userID, sessionID uuid.UUID, presence presence.Presence) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.sessionManager.RegisterNode(reqCtx, userID, sessionID, h.id, presence); err != nil {
+	if err := h.sessionManager.RegisterNodeSession(reqCtx, userID, h.id, sessionID, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
 
 func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
-	isLastUserSession := h.unregisterClient(client)
-
-	if isLastUserSession {
-		h.unregisterNode(ctx, client.UserID, client.SessionID)
+	if removed := h.unregisterClient(client); !removed {
+		return
 	}
 
+	h.unregisterNodeSession(ctx, client.UserID, client.SessionID)
 	client.Close()
 
 	slog.Info("Client disconnected from gateway",
@@ -179,23 +175,21 @@ func (h *Hub) unregisterClient(client *Client) bool {
 
 	delete(h.sessionIdx, client.SessionID)
 
-	isLastUserSession := false
 	if sessions, ok := h.userIdx[client.UserID]; ok {
 		delete(sessions, client.SessionID)
 		if len(sessions) == 0 {
 			delete(h.userIdx, client.UserID)
-			isLastUserSession = true
 		}
 	}
 
-	return isLastUserSession
+	return true
 }
 
-func (h *Hub) unregisterNode(ctx context.Context, userID, sessionID uuid.UUID) {
+func (h *Hub) unregisterNodeSession(ctx context.Context, userID, sessionID uuid.UUID) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.sessionManager.UnregisterNode(reqCtx, userID, sessionID, h.id); err != nil {
+	if err := h.sessionManager.UnregisterNodeSession(reqCtx, userID, h.id, sessionID); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -218,7 +212,7 @@ func (h *Hub) cleanupNodes(ctx context.Context) {
 	h.mu.Lock()
 	userIDs := make([]uuid.UUID, 0, len(h.userIdx))
 	for rawUserID := range h.userIdx {
-		userIDs = append(userIDs, uuid.UUID(rawUserID))
+		userIDs = append(userIDs, rawUserID)
 	}
 	h.mu.Unlock()
 
@@ -226,10 +220,7 @@ func (h *Hub) cleanupNodes(ctx context.Context) {
 		return
 	}
 
-	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-	defer cancel()
-
-	if err := h.sessionManager.RemoveBatchNodes(reqCtx, userIDs, h.id); err != nil {
+	if err := h.sessionManager.RemoveBatchNodeUsers(ctx, h.id, userIDs); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }
