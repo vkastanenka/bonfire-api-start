@@ -21,8 +21,6 @@ type ClientRegistration struct {
 	Presence presence.Presence
 }
 
-type MessageHandler func(ctx context.Context, client *Client, data json.RawMessage) error
-
 type Event struct {
 	UserIDs           []uuid.UUID     `json:"user_ids,omitempty"`
 	SessionIDs        []uuid.UUID     `json:"session_ids,omitempty"`

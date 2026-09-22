@@ -58,7 +58,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
 	}
 
-	client := NewClient(context.Background(), userID, sessionID, conn)
+	client := NewClient(context.Background(), h.hub.ID(), userID, sessionID, conn)
 	h.hub.Register(client, query.Presence)
 	client.StartPumps(h.hub)
 

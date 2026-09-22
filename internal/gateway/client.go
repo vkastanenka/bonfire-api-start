@@ -41,6 +41,7 @@ type WSMessage struct {
 
 // Client represents a single active, bidirectional WebSocket connection.
 type Client struct {
+	NodeID    uuid.UUID
 	UserID    uuid.UUID
 	SessionID uuid.UUID
 	Conn      *websocket.Conn
@@ -52,12 +53,17 @@ type Client struct {
 	wg        sync.WaitGroup
 }
 
+func (c *Client) GetNodeID() uuid.UUID    { return c.NodeID }
+func (c *Client) GetUserID() uuid.UUID    { return c.UserID }
+func (c *Client) GetSessionID() uuid.UUID { return c.SessionID }
+
 // NewClient initializes a Client instance with its own isolated cancellation context.
-func NewClient(ctx context.Context, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
+func NewClient(ctx context.Context, nodeID, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
 		UserID:    userID,
 		SessionID: sessionID,
+		NodeID:    nodeID,
 		Conn:      conn,
 		Send:      make(chan []byte, sendBufferLength),
 		ctx:       clientCtx,

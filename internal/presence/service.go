@@ -1,37 +1,48 @@
-package gateway
+package presence
 
 import (
 	"context"
 	"log/slog"
 
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
-
 	"github.com/google/uuid"
 )
 
-type SessionManager struct {
+type Broadcaster interface {
+	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+}
+
+const (
+	EventUpdatePresence = "user.update_presence"
+)
+
+type EventUpdatePresencePayload struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Presence Presence  `json:"presence"`
+}
+
+type Service struct {
 	broadcaster   Broadcaster
 	userCache     UserCache
 	presenceCache PresenceCache
 }
 
-func NewSessionManager(
+func NewService(
 	broadcaster Broadcaster,
 	userCache UserCache,
 	presenceCache PresenceCache,
-) *SessionManager {
-	return &SessionManager{
+) *Service {
+	return &Service{
 		broadcaster:   broadcaster,
 		userCache:     userCache,
 		presenceCache: presenceCache,
 	}
 }
 
-func (s *SessionManager) RegisterNodeSession(
+func (s *Service) RegisterNodeSession(
 	ctx context.Context,
 	userID, nodeID, sessionID uuid.UUID,
-	presenceStatus presence.Presence,
+	presenceStatus Presence,
 ) error {
 	wasOffline, effPresence, err := s.presenceCache.RegisterNodeSession(ctx, userID, nodeID, sessionID, presenceStatus)
 	if err != nil {
@@ -48,11 +59,11 @@ func (s *SessionManager) RegisterNodeSession(
 			return nil
 		}
 
-		payload := user.EventUpdatePresencePayload{
+		payload := EventUpdatePresencePayload{
 			UserID:   userID,
 			Presence: effPresence,
 		}
-		if broadcastErr := s.broadcaster.BroadcastToUsers(ctx, peerIDs, user.EventUpdatePresence, payload); broadcastErr != nil {
+		if broadcastErr := s.broadcaster.BroadcastToUsers(ctx, peerIDs, EventUpdatePresence, payload); broadcastErr != nil {
 			slog.ErrorContext(ctx, "failed to broadcast presence update on register", "user_id", userID, "error", broadcastErr)
 		}
 	}
@@ -60,7 +71,7 @@ func (s *SessionManager) RegisterNodeSession(
 	return nil
 }
 
-func (s *SessionManager) UnregisterNodeSession(ctx context.Context, userID, nodeID, sessionID uuid.UUID) error {
+func (s *Service) UnregisterNodeSession(ctx context.Context, userID, nodeID, sessionID uuid.UUID) error {
 	wentOffline, err := s.presenceCache.UnregisterNodeSession(ctx, userID, nodeID, sessionID)
 	if err != nil {
 		return err
@@ -76,11 +87,11 @@ func (s *SessionManager) UnregisterNodeSession(ctx context.Context, userID, node
 			return nil
 		}
 
-		payload := user.EventUpdatePresencePayload{
+		payload := EventUpdatePresencePayload{
 			UserID:   userID,
-			Presence: presence.PresenceOffline,
+			Presence: PresenceOffline,
 		}
-		if broadcastErr := s.broadcaster.BroadcastToUsers(ctx, peerIDs, user.EventUpdatePresence, payload); broadcastErr != nil {
+		if broadcastErr := s.broadcaster.BroadcastToUsers(ctx, peerIDs, EventUpdatePresence, payload); broadcastErr != nil {
 			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
 		}
 	}
@@ -88,26 +99,26 @@ func (s *SessionManager) UnregisterNodeSession(ctx context.Context, userID, node
 	return nil
 }
 
-func (s *SessionManager) RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
+func (s *Service) RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 	return s.presenceCache.RemoveBatchNodeUsers(ctx, nodeID, userIDs)
 }
 
-func (s *SessionManager) HandleHeartbeat(
+func (s *Service) HandleHeartbeat(
 	ctx context.Context,
 	userID, nodeID, sessionID uuid.UUID,
-	newPresence presence.Presence,
+	newPresence Presence,
 ) error {
 	currentPresence, err := s.presenceCache.GetPresence(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	if currentPresence == presence.PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
+	if currentPresence == PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
 		if !newPresence.IsValid() {
-			newPresence = presence.PresenceOnline
+			newPresence = PresenceOnline
 		}
 		return s.RegisterNodeSession(ctx, userID, nodeID, sessionID, newPresence)
 	}
