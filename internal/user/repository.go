@@ -41,6 +41,10 @@ type OutboxRepository interface {
 	Create(ctx context.Context, e *outbox.Event) error
 }
 
+type SessionCache interface {
+	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
+}
+
 type SessionRepository interface {
 	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
 }

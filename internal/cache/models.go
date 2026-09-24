@@ -175,10 +175,6 @@ type Session struct {
 }
 
 func ParseSession(s *session.Session) Session {
-	if s == nil {
-		return Session{}
-	}
-
 	return Session{
 		ID:               s.ID,
 		UserID:           s.UserID,
@@ -210,6 +206,25 @@ func (s Session) ToDomain() *session.Session {
 		s.CreatedAt,
 		s.UpdatedAt,
 	)
+}
+
+func unmarshalSession(data []byte) (*session.Session, error) {
+	var dto Session
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain(), nil
+}
+
+func marshalSession(sess *session.Session) ([]byte, error) {
+	dto := ParseSession(sess)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal session json.").
+			Meta("scope", redis.ScopeSession.String()).
+			Wrap(err)
+	}
+	return bytes, nil
 }
 
 type User struct {
@@ -271,6 +286,14 @@ func (u User) ToDomain() *user.User {
 	)
 }
 
+func unmarshalUser(data []byte) (*user.User, error) {
+	var dto User
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain(), nil
+}
+
 func marshalUser(usr *user.User) ([]byte, error) {
 	dto := ParseUser(usr)
 	bytes, err := json.Marshal(dto)
@@ -280,41 +303,6 @@ func marshalUser(usr *user.User) ([]byte, error) {
 			Wrap(err)
 	}
 	return bytes, nil
-}
-
-func unmarshalUser(data []byte) (*user.User, error) {
-	var dto User
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, err
-	}
-	return dto.ToDomain(), nil
-}
-
-func marshalSession(sess *session.Session) ([]byte, error) {
-	if sess == nil {
-		return nil, nil
-	}
-
-	dto := ParseSession(sess)
-	bytes, err := json.Marshal(dto)
-	if err != nil {
-		return nil, errs.Internal("Failed to marshal session json.").
-			Meta("scope", redis.ScopeSession.String()).
-			Wrap(err)
-	}
-	return bytes, nil
-}
-
-func unmarshalSession(data []byte) (*session.Session, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	var dto Session
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, err
-	}
-	return dto.ToDomain(), nil
 }
 
 func ParsePresence(val string) presence.Presence {

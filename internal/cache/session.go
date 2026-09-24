@@ -38,19 +38,15 @@ func NewSessionCache(client redisdriver.Cmdable) *SessionCache {
 }
 
 func (c *SessionCache) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
-	return getAndUnmarshal(ctx, c.client, sessionKey(id), redis.ScopeSession, unmarshalSession)
+	return getAndUnmarshal(ctx, redis.ScopeSession, c.client, sessionKey(id), unmarshalSession)
 }
 
 func (c *SessionCache) Set(ctx context.Context, sess *session.Session) error {
-	ttl := sessionTTL
-	if !sess.ExpiresAt.IsZero() {
-		if remaining := time.Until(sess.ExpiresAt); remaining > 0 {
-			ttl = remaining
-		} else {
-			return nil
-		}
+	ttl, ok := calcEffSessionTTL(sess)
+	if !ok {
+		return nil
 	}
-	return marshalAndSet(ctx, c.client, sessionKey(sess.ID), sess, ttl, redis.ScopeSession, marshalSession)
+	return marshalAndSet(ctx, redis.ScopeSession, c.client, sessionKey(sess.ID), sess, ttl, marshalSession)
 }
 
 func (c *SessionCache) Delete(ctx context.Context, id uuid.UUID) error {
@@ -61,12 +57,18 @@ func (c *SessionCache) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (c *SessionCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
-	if len(ids) == 0 {
-		return nil
+	return deleteBatch(ctx, redis.ScopeSession, c.client, ids, sessionKey)
+}
+
+func calcEffSessionTTL(sess *session.Session) (time.Duration, bool) {
+	if sess.ExpiresAt.IsZero() {
+		return sessionTTL, true
 	}
-	keys := make([]string, len(ids))
-	for i, id := range ids {
-		keys[i] = sessionKey(id)
+
+	remaining := time.Until(sess.ExpiresAt)
+	if remaining <= 0 {
+		return 0, false
 	}
-	return deleteBatchKeys(ctx, c.client, keys, redis.ScopeSession)
+
+	return remaining, true
 }

@@ -19,6 +19,7 @@ type Service struct {
 	cachedRepo         CachedRepository
 	cachedRelationRepo CachedRelationRepository
 	outboxRepo         OutboxRepository
+	sessionCache       SessionCache
 	sessionRepo        SessionRepository
 	tx                 TX
 }
@@ -29,6 +30,7 @@ func NewService(
 	cachedRepo CachedRepository,
 	cachedRelationRepo CachedRelationRepository,
 	outboxRepo OutboxRepository,
+	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	tx TX,
 ) *Service {
@@ -38,6 +40,7 @@ func NewService(
 		cachedRepo:         cachedRepo,
 		cachedRelationRepo: cachedRelationRepo,
 		outboxRepo:         outboxRepo,
+		sessionCache:       sessionCache,
 		sessionRepo:        sessionRepo,
 		tx:                 tx,
 	}
@@ -76,10 +79,10 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-		updatedUser, txErr = s.repo.UpdateEmail(txCtx, claims.UserID, p.NewEmail, now)
-		if txErr != nil {
-			return txErr
+		var err error
+		updatedUser, err = s.repo.UpdateEmail(txCtx, claims.UserID, p.NewEmail, now)
+		if err != nil {
+			return err
 		}
 
 		payload := EventEmailUpdatedPayload{
@@ -88,7 +91,7 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 			UpdatedAt: now,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -97,8 +100,8 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -107,12 +110,7 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return nil, err
 	}
 
-	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after email update",
-			slog.String("user_id", claims.UserID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, claims.UserID, "email update")
 
 	return updatedUser, nil
 }
@@ -143,10 +141,10 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-		updatedUser, txErr = s.repo.UpdateUsername(txCtx, u.ID, p.NewUsername, now)
-		if txErr != nil {
-			return txErr
+		var err error
+		updatedUser, err = s.repo.UpdateUsername(txCtx, u.ID, p.NewUsername, now)
+		if err != nil {
+			return err
 		}
 
 		payload := EventUsernameUpdatedPayload{
@@ -155,7 +153,7 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 			UpdatedAt: now,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -164,8 +162,8 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -174,12 +172,7 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return nil, err
 	}
 
-	if err := s.cache.Delete(ctx, updatedUser.ID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after username update",
-			slog.String("user_id", updatedUser.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, updatedUser.ID, "username update")
 
 	return updatedUser, nil
 }
@@ -210,17 +203,18 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return ErrPasswordHashFailed().Wrap(err)
 	}
 
+	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-		_, txErr = s.repo.UpdatePasswordHash(txCtx, u.ID, newPasswordHash, now)
-		if txErr != nil {
-			return txErr
+		_, err := s.repo.UpdatePasswordHash(txCtx, u.ID, newPasswordHash, now)
+		if err != nil {
+			return err
 		}
 
-		if _, txErr := s.sessionRepo.RevokeAll(txCtx, claims.UserID, now); txErr != nil {
-			return txErr
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		if err != nil {
+			return err
 		}
 
 		payload := EventPasswordUpdatedPayload{
@@ -228,7 +222,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 			UpdatedAt: now,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -237,8 +231,8 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -247,12 +241,8 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return err
 	}
 
-	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after password update",
-			slog.String("user_id", claims.UserID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, claims.UserID, "password update")
+	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "password update")
 
 	return nil
 }
@@ -290,10 +280,10 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 	dbNow := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-		updatedUser, txErr = s.repo.UpdatePresence(txCtx, u.ID, p.Presence, until, dbNow)
-		if txErr != nil {
-			return txErr
+		var err error
+		updatedUser, err = s.repo.UpdatePresence(txCtx, u.ID, p.Presence, until, dbNow)
+		if err != nil {
+			return err
 		}
 
 		eff := presence.PresenceOnline
@@ -307,7 +297,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 			UpdatedAt: dbNow,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -316,8 +306,8 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 			payload,
 			dbNow,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -326,12 +316,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after preferred_presence update",
-			slog.String("user_id", claims.UserID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, claims.UserID, "preferred presence update")
 
 	return updatedUser, nil
 }
@@ -367,10 +352,10 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-		updatedUser, txErr = s.repo.UpdateProfile(txCtx, claims.UserID, p.DisplayName, p.Bio, p.AvatarURL, p.BannerColor, now)
-		if txErr != nil {
-			return txErr
+		var err error
+		updatedUser, err = s.repo.UpdateProfile(txCtx, claims.UserID, p.DisplayName, p.Bio, p.AvatarURL, p.BannerColor, now)
+		if err != nil {
+			return err
 		}
 
 		payload := EventProfileUpdatedPayload{
@@ -382,7 +367,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 			UpdatedAt:   updatedUser.UpdatedAt,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -391,8 +376,8 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -401,12 +386,7 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return nil, err
 	}
 
-	if err := s.cache.Delete(ctx, updatedUser.ID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after profile update",
-			slog.String("user_id", updatedUser.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, updatedUser.ID, "profile update")
 
 	return updatedUser, nil
 }
@@ -440,6 +420,7 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 	}
 
 	targetIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -448,7 +429,8 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 			return err
 		}
 
-		if _, err := s.sessionRepo.RevokeAll(txCtx, claims.UserID, now); err != nil {
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		if err != nil {
 			return err
 		}
 
@@ -457,7 +439,7 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 			UpdatedAt: now,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -466,8 +448,8 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -476,12 +458,8 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return err
 	}
 
-	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after account disable",
-			slog.String("user_id", claims.UserID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, claims.UserID, "account disable")
+	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "account disable")
 
 	return nil
 }
@@ -506,6 +484,7 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 	}
 
 	targetIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 	scheduledAt := now.Add(ScheduleDeleteGracePeriod)
 
@@ -515,7 +494,8 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			return err
 		}
 
-		if _, err := s.sessionRepo.RevokeAll(txCtx, claims.UserID, now); err != nil {
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		if err != nil {
 			return err
 		}
 
@@ -524,7 +504,7 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			UpdatedAt: now,
 		}
 
-		event, txErr := outbox.New(
+		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
@@ -533,8 +513,8 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			payload,
 			now,
 		)
-		if txErr != nil {
-			return txErr
+		if err != nil {
+			return err
 		}
 
 		return s.outboxRepo.Create(txCtx, event)
@@ -543,12 +523,8 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return err
 	}
 
-	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after delete schedule",
-			slog.String("user_id", claims.UserID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserCache(ctx, claims.UserID, "delete schedule")
+	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "delete schedule")
 
 	return nil
 }
@@ -579,11 +555,7 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		invalidIDs[i] = u.ID
 	}
 
-	if err := s.cache.DeleteBatch(ctx, invalidIDs); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate batch user cache after batch anonymize",
-			slog.Any("error", err),
-		)
-	}
+	s.invalidateUserBatchCache(ctx, invalidIDs, "batch anonymize")
 
 	return nil
 }
@@ -646,4 +618,50 @@ func (s *Service) getBroadcastTargetIDs(ctx context.Context, actorID uuid.UUID) 
 	targetIDs = append(targetIDs, friendIDs...)
 
 	return targetIDs
+}
+
+func (s *Service) invalidateUserCache(ctx context.Context, userID uuid.UUID, action string) {
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := s.cache.Delete(cacheCtx, userID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate user cache after "+action,
+			slog.String("user_id", userID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) invalidateUserBatchCache(ctx context.Context, userIDs []uuid.UUID, action string) {
+	if len(userIDs) == 0 {
+		return
+	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := s.cache.DeleteBatch(cacheCtx, userIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate user batch cache after "+action,
+			slog.Int("user_count", len(userIDs)),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) invalidateSessionCache(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
+	count := len(sessionIDs)
+	if count == 0 {
+		return
+	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := s.sessionCache.DeleteBatch(cacheCtx, sessionIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate session cache after "+action,
+			slog.String("user_id", userID.String()),
+			slog.Int("revoked_session_count", count),
+			slog.Any("error", err),
+		)
+	}
 }
