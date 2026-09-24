@@ -12,7 +12,7 @@ type Summary struct {
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
 	AvatarURL   *string   `json:"avatarUrl,omitempty"`
-	IsDisabled  bool      `json:"isDisabled,omitempty"`
+	IsDisabled  bool      `json:"isDisabled"`
 }
 
 func ParseSummary(u *User) Summary {
@@ -32,7 +32,7 @@ type View struct {
 	AvatarURL   *string   `json:"avatarUrl,omitempty"`
 	Bio         *string   `json:"bio,omitempty"`
 	BannerColor *string   `json:"bannerColor,omitempty"`
-	IsDisabled  bool      `json:"isDisabled,omitempty"`
+	IsDisabled  bool      `json:"isDisabled"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -59,8 +59,6 @@ type Me struct {
 	BannerColor            *string            `json:"bannerColor,omitempty"`
 	IsVerified             bool               `json:"isVerified"`
 	VerifiedAt             *time.Time         `json:"verifiedAt,omitempty"`
-	DisabledAt             *time.Time         `json:"disabledAt,omitempty"`
-	DeleteScheduledAt      *time.Time         `json:"deleteScheduledAt,omitempty"`
 	PreferredPresence      *presence.Presence `json:"preferredPresence,omitempty"`
 	PreferredPresenceUntil *time.Time         `json:"preferredPresenceUntil,omitempty"`
 	CreatedAt              time.Time          `json:"createdAt"`
@@ -78,8 +76,6 @@ func ParseMe(u *User) Me {
 		BannerColor:            u.BannerColor,
 		IsVerified:             u.IsVerified(),
 		VerifiedAt:             u.VerifiedAt,
-		DisabledAt:             u.DisabledAt,
-		DeleteScheduledAt:      u.DeleteScheduledAt,
 		PreferredPresence:      u.PreferredPresence,
 		PreferredPresenceUntil: u.PreferredPresenceUntil,
 		CreatedAt:              u.CreatedAt,
