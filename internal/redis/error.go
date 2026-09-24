@@ -3,7 +3,6 @@ package redis
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 
 	"bonfire-api/internal/pkg/errs"
@@ -32,8 +31,13 @@ const (
 
 func (e Scope) String() string { return string(e) }
 
-// ErrCacheMiss represents a standard cache miss and wraps redis.Nil for direct comparison.
-var ErrCacheMiss = fmt.Errorf("cache key not found: %w", redis.Nil)
+var (
+	// ErrCacheMiss indicates the requested key does not exist in Redis.
+	ErrCacheMiss = errors.New("cache: key not found")
+
+	// ErrCorruptedData indicates raw bytes were found but failed deserialization.
+	ErrCorruptedData = errors.New("cache: data corrupted or schema mismatch")
+)
 
 // IsCacheMiss checks if the underlying error is a redis.Nil or package sentinel ErrCacheMiss.
 func IsCacheMiss(err error) bool {
@@ -55,6 +59,12 @@ func NewError(err error, scope Scope) error {
 
 func handleCacheError(err error, scope Scope) error {
 	switch {
+	case errors.Is(err, ErrCorruptedData):
+		return errs.Internal("Cached data is corrupted.").
+			Reason("CACHE_CORRUPTED").
+			Meta("scope", scope.String()).
+			Wrap(err)
+
 	case IsCacheMiss(err):
 		return errs.NotFound("Cache key not found.").
 			Reason("CACHE_MISS").
