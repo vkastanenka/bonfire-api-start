@@ -1,6 +1,6 @@
 package user
 
-import "bonfire-api/internal/errs"
+import "bonfire-api/internal/pkg/errs"
 
 // func ErrBioTooLong(field string) *errs.Error {
 // 	return errs.InvalidArgument("Bio is too long.").
@@ -140,9 +140,12 @@ func ErrPasswordHashFailed() *errs.Error {
 		Reason("PASSWORD_HASH_FAILED")
 }
 
-var (
-	ErrUserDisabled = errs.PermissionDenied("User account is disabled.").
-			Reason("USER_DISABLED")
-	ErrUserScheduledDeletion = errs.FailedPrecondition("User account is scheduled for deletion.").
-					Reason("USER_SCHEDULED_FOR_DELETION")
-)
+func ErrUserDisabled() *errs.Error {
+	return errs.PermissionDenied("User account is disabled.").
+		Reason("USER_DISABLED")
+}
+
+func ErrUserScheduledDeletion() *errs.Error {
+	return errs.FailedPrecondition("User account is scheduled for deletion.").
+		Reason("USER_SCHEDULED_FOR_DELETION")
+}

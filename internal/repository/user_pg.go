@@ -68,10 +68,6 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.Us
 }
 
 func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, error) {
-	if len(ids) == 0 {
-		return make(map[uuid.UUID]*user.User), nil
-	}
-
 	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
 		return nil, db.NewError(err, db.EntityChannel)

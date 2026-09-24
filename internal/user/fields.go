@@ -1,7 +1,7 @@
 package user
 
 import (
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/pkg/sanitize"
 	"bytes"
 	"fmt"
 	"strconv"
@@ -18,10 +18,10 @@ const (
 	PreferredPresenceDuration24Hours
 	PreferredPresenceDuration3Days
 	PreferredPresenceDurationForever
-	durationMax
+	preferredPresenceDurationMax
 )
 
-var durationNames = [...]string{
+var preferredPresenceDurationNames = [...]string{
 	PreferredPresenceDurationUnknown: "UNKNOWN",
 	PreferredPresenceDuration15Min:   "15_MIN",
 	PreferredPresenceDuration1Hour:   "1_HOUR",
@@ -32,39 +32,26 @@ var durationNames = [...]string{
 }
 
 func ParsePreferredPresenceDuration(raw int) (PreferredPresenceDuration, error) {
-	d := PreferredPresenceDuration(raw)
-	if !d.IsValid() {
-		return PreferredPresenceDurationUnknown, fmt.Errorf("invalid duration value: %d", raw)
-	}
-	return d, nil
+	return sanitize.ParseEnumInt(raw, preferredPresenceDurationMax, "preferredPresenceDuration")
 }
 
 func ParsePreferredPresenceDurationString(s string) (PreferredPresenceDuration, error) {
-	for i, name := range durationNames {
-		if name == s {
-			return PreferredPresenceDuration(i), nil
-		}
-	}
-	return PreferredPresenceDurationUnknown, fmt.Errorf("invalid duration string: %q", s)
+	return sanitize.ParseEnumString[PreferredPresenceDuration](s, preferredPresenceDurationNames[:], "preferredPresenceDuration")
 }
 
-func ParsePreferredPresenceDurationBytes(raw []byte) (PreferredPresenceDuration, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return PreferredPresenceDurationUnknown, nil
-	}
-	return ParsePreferredPresenceDurationString(string(cleaned))
+func ParsePreferredPresenceDurationBytes(b []byte) (PreferredPresenceDuration, error) {
+	return sanitize.ParseEnumBytes[PreferredPresenceDuration](b, preferredPresenceDurationNames[:], "preferredPresenceDuration")
 }
 
 func (d PreferredPresenceDuration) IsValid() bool {
-	return d > PreferredPresenceDurationUnknown && d < durationMax
+	return d > PreferredPresenceDurationUnknown && d < preferredPresenceDurationMax
 }
 
 func (d PreferredPresenceDuration) String() string {
-	if uint(d) < uint(len(durationNames)) {
-		return durationNames[d]
+	if uint(d) < uint(len(preferredPresenceDurationNames)) {
+		return preferredPresenceDurationNames[d]
 	}
-	return durationNames[PreferredPresenceDurationUnknown]
+	return preferredPresenceDurationNames[PreferredPresenceDurationUnknown]
 }
 
 func (d PreferredPresenceDuration) Is15Min() bool   { return d == PreferredPresenceDuration15Min }

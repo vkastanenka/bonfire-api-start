@@ -2,8 +2,8 @@ package repository
 
 import (
 	"context"
+	"log/slog"
 
-	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -27,12 +27,24 @@ func (r *CachedUserRepository) Get(ctx context.Context, id uuid.UUID) (*user.Use
 		return u, nil
 	}
 
+	if err != nil {
+		slog.WarnContext(ctx, "redis user cache read failure, falling back to database",
+			slog.String("user_id", id.String()),
+			slog.Any("error", err),
+		)
+	}
+
 	u, err = r.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = r.cache.Set(ctx, u)
+	if setErr := r.cache.Set(ctx, u); setErr != nil {
+		slog.WarnContext(ctx, "failed to populate user cache after database read",
+			slog.String("user_id", id.String()),
+			slog.Any("error", setErr),
+		)
+	}
 
 	return u, nil
 }
@@ -41,12 +53,12 @@ func (r *CachedUserRepository) GetBatch(
 	ctx context.Context,
 	ids []uuid.UUID,
 ) (map[uuid.UUID]*user.User, error) {
-	if len(ids) == 0 {
-		return make(map[uuid.UUID]*user.User), nil
-	}
-
 	found, missing, err := r.cache.GetBatch(ctx, ids)
 	if err != nil {
+		slog.WarnContext(ctx, "redis user cache batch read failure, falling back to database",
+			slog.Int("requested_count", len(ids)),
+			slog.Any("error", err),
+		)
 		missing = ids
 		found = make(map[uuid.UUID]*user.User)
 	}
@@ -55,8 +67,6 @@ func (r *CachedUserRepository) GetBatch(
 	for id, u := range found {
 		if u != nil {
 			usersMap[id] = u
-		} else {
-			missing = append(missing, id)
 		}
 	}
 
@@ -64,15 +74,19 @@ func (r *CachedUserRepository) GetBatch(
 		return usersMap, nil
 	}
 
-	missing = helpers.DedupeIDs(missing)
-
 	dbUsersMap, err := r.repo.GetBatch(ctx, missing)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(dbUsersMap) > 0 {
-		_ = r.cache.SetBatch(ctx, dbUsersMap)
+		if setErr := r.cache.SetBatch(ctx, dbUsersMap); setErr != nil {
+			slog.WarnContext(ctx, "failed to populate user batch cache after database read",
+				slog.Int("count", len(dbUsersMap)),
+				slog.Any("error", setErr),
+			)
+		}
+
 		for id, u := range dbUsersMap {
 			usersMap[id] = u
 		}

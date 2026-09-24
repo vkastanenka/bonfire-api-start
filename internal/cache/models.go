@@ -217,7 +217,6 @@ type User struct {
 	Email                  string             `json:"email"`
 	Username               string             `json:"username"`
 	DisplayName            string             `json:"display_name"`
-	PasswordHash           string             `json:"password_hash"`
 	Phone                  *string            `json:"phone,omitempty"`
 	Bio                    *string            `json:"bio,omitempty"`
 	AvatarURL              *string            `json:"avatar_url,omitempty"`
@@ -232,16 +231,11 @@ type User struct {
 }
 
 func ParseUser(u *user.User) User {
-	if u == nil {
-		return User{}
-	}
-
 	return User{
 		ID:                     u.ID,
 		Email:                  u.Email,
 		Username:               u.Username,
 		DisplayName:            u.DisplayName,
-		PasswordHash:           u.PasswordHash,
 		Phone:                  u.Phone,
 		Bio:                    u.Bio,
 		AvatarURL:              u.AvatarURL,
@@ -261,7 +255,7 @@ func (u User) ToDomain() *user.User {
 		u.ID,
 		u.Email,
 		u.Username,
-		u.PasswordHash,
+		"",
 		u.Phone,
 		u.DisplayName,
 		u.Bio,
@@ -278,10 +272,6 @@ func (u User) ToDomain() *user.User {
 }
 
 func marshalUser(usr *user.User) ([]byte, error) {
-	if usr == nil {
-		return nil, nil
-	}
-
 	dto := ParseUser(usr)
 	bytes, err := json.Marshal(dto)
 	if err != nil {
@@ -293,10 +283,6 @@ func marshalUser(usr *user.User) ([]byte, error) {
 }
 
 func unmarshalUser(data []byte) (*user.User, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-
 	var dto User
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return nil, err

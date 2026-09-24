@@ -95,10 +95,10 @@ func (u *User) EffectivePresence(now time.Time) *presence.Presence {
 
 func (u *User) EnsureActive() error {
 	if u.IsDisabled() {
-		return ErrUserDisabled
+		return ErrUserDisabled()
 	}
 	if u.IsScheduledForDeletion() {
-		return ErrUserScheduledDeletion
+		return ErrUserScheduledDeletion()
 	}
 	return nil
 }

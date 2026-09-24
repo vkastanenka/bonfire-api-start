@@ -3,7 +3,9 @@ package user
 import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence"
+	"bonfire-api/internal/session"
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,8 +36,22 @@ type CachedRepository interface {
 	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, error)
 }
 
+type CachedRelationRepository interface {
+	GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+}
+
 type OutboxRepository interface {
 	Create(ctx context.Context, e *outbox.Event) error
+}
+
+type SessionRepository interface {
+	Create(ctx context.Context, s *session.Session) (*session.Session, error)
+	DeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error
+	Get(ctx context.Context, id uuid.UUID) (*session.Session, error)
+	ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]*session.Session, error)
+	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID, now time.Time) error
+	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
+	RotateRefreshTokenHash(ctx context.Context, id uuid.UUID, oldHash string, newHash string, clientIP netip.Addr, userAgent string, expiresAt time.Time, now time.Time) (*session.Session, error)
 }
 
 type TX interface {

@@ -46,7 +46,7 @@ func IsCacheMiss(err error) bool {
 
 // NewError transforms raw application/Redis errors into structured domain errors with scope metadata.
 func NewError(err error, scope Scope) error {
-	if err == nil {
+	if err == nil || IsCacheMiss(err) {
 		return nil
 	}
 
@@ -63,13 +63,6 @@ func handleCacheError(err error, scope Scope) error {
 		return errs.Internal("Cached data is corrupted.").
 			Reason("CACHE_CORRUPTED").
 			Meta("scope", scope.String()).
-			Wrap(err)
-
-	case IsCacheMiss(err):
-		return errs.NotFound("Cache key not found.").
-			Reason("CACHE_MISS").
-			Meta("scope", scope.String()).
-			Resource(scope.String(), "", "", "cache entry missing or expired").
 			Wrap(err)
 
 	case errors.Is(err, context.DeadlineExceeded):

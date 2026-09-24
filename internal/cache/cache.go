@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 	"unsafe"
@@ -23,7 +22,7 @@ type CacheItem struct {
 }
 
 // getKey handles standard Redis Get, cache-miss checks, and scope error wrapping.
-func getKey(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]byte, bool, error) {
+func getKey(ctx context.Context, scope redis.Scope, client redisdriver.Cmdable, key string) ([]byte, bool, error) {
 	data, err := client.Get(ctx, key).Bytes()
 	if redis.IsCacheMiss(err) {
 		return nil, false, nil
@@ -35,20 +34,17 @@ func getKey(ctx context.Context, client redisdriver.Cmdable, key string, scope r
 }
 
 // getBatchKeys retrieves raw values for a slice of keys via MGet.
-func getBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string, scope redis.Scope) ([]any, error) {
+func getBatchKeys(ctx context.Context, scope redis.Scope, client redisdriver.Cmdable, keys []string) ([]any, error) {
 	vals, err := client.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, redis.NewError(err, scope)
 	}
+
 	return vals, nil
 }
 
 // deleteBatchKeys handles chunked batch deletion natively without pipeline overhead.
-func deleteBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []string, scope redis.Scope) error {
-	if len(keys) == 0 {
-		return nil
-	}
-
+func deleteBatchKeys(ctx context.Context, scope redis.Scope, client redisdriver.Cmdable, keys []string) error {
 	for i := 0; i < len(keys); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -67,19 +63,14 @@ func deleteBatchKeys(ctx context.Context, client redisdriver.Cmdable, keys []str
 // setBatchPipeline executes chunked pipelined SET commands.
 func setBatchPipeline(
 	ctx context.Context,
+	scope redis.Scope,
 	client redisdriver.Cmdable,
 	items []CacheItem,
 	ttl time.Duration,
-	scope redis.Scope,
-	maxBatchSize int,
 ) error {
-	if len(items) == 0 {
-		return nil
-	}
-
 	for i := 0; i < len(items); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
-			return redis.NewError(err, scope)
+			return err
 		}
 
 		end := min(i+maxBatchSize, len(items))
@@ -99,15 +90,15 @@ func setBatchPipeline(
 }
 
 // getAndUnmarshal fetches raw bytes from Redis and unmarshals them into a domain model.
-// If unmarshaling fails due to corrupted data, it automatically evicts the bad key and returns (nil, nil).
+// If unmarshaling fails due to corrupted data, it evicts the bad key and returns a scoped ErrCorruptedData error.
 func getAndUnmarshal[T any](
 	ctx context.Context,
+	scope redis.Scope,
 	client redisdriver.Cmdable,
 	key string,
-	scope redis.Scope,
 	unmarshalFn func([]byte) (*T, error),
 ) (*T, error) {
-	data, found, err := getKey(ctx, client, key, scope)
+	data, found, err := getKey(ctx, scope, client, key)
 	if err != nil || !found {
 		return nil, err
 	}
@@ -115,8 +106,7 @@ func getAndUnmarshal[T any](
 	entity, err := unmarshalFn(data)
 	if err != nil {
 		_ = client.Del(ctx, key).Err()
-		corruptedErr := fmt.Errorf("%w: failed to unmarshal key %s: %v", redis.ErrCorruptedData, key, err)
-		return nil, redis.NewError(corruptedErr, scope)
+		return nil, redis.NewError(fmt.Errorf("%w: %v", redis.ErrCorruptedData, err), scope)
 	}
 
 	return entity, nil
@@ -125,11 +115,11 @@ func getAndUnmarshal[T any](
 // marshalAndSet marshals a domain entity using the provided marshal function and writes it to Redis.
 func marshalAndSet[T any](
 	ctx context.Context,
+	scope redis.Scope,
 	client redisdriver.Cmdable,
 	key string,
 	entity *T,
 	ttl time.Duration,
-	scope redis.Scope,
 	marshalFn func(*T) ([]byte, error),
 ) error {
 	bytes, err := marshalFn(entity)
@@ -144,45 +134,37 @@ func marshalAndSet[T any](
 	return nil
 }
 
-// BatchResult encapsulates the outcome of a generic MGET operation.
-type BatchResult[K comparable, T any] struct {
-	Found     map[K]*T
-	Missing   []K
-	Corrupted []string
-}
-
 // getAndUnmarshalBatch generic helper that fetches keys using MGET in chunks,
-// handles missing or corrupted entries, and returns typed domain maps.
+// constructs cache keys dynamically, handles missing or corrupted entries,
+// and returns typed domain maps and missing IDs.
 func getAndUnmarshalBatch[K comparable, T any](
 	ctx context.Context,
-	client redisdriver.Cmdable,
-	keys []string,
-	identifiers []K,
 	scope redis.Scope,
-	maxBatchSize int,
+	client redisdriver.Cmdable,
+	identifiers []K,
+	keyFn func(K) string,
 	unmarshalFn func([]byte) (*T, error),
-) (*BatchResult[K, T], error) {
-	if len(keys) != len(identifiers) {
-		return nil, errors.New("keys and identifiers length mismatch")
-	}
+) (map[K]*T, []K, error) {
+	found := make(map[K]*T, len(identifiers))
+	missing := make([]K, 0, len(identifiers))
+	var corrupted []string
 
-	result := &BatchResult[K, T]{
-		Found:   make(map[K]*T, len(identifiers)),
-		Missing: make([]K, 0, len(identifiers)),
-	}
-
-	for i := 0; i < len(keys); i += maxBatchSize {
+	for i := 0; i < len(identifiers); i += maxBatchSize {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		end := min(i+maxBatchSize, len(keys))
-		keyChunk := keys[i:end]
+		end := min(i+maxBatchSize, len(identifiers))
 		idChunk := identifiers[i:end]
 
-		vals, err := getBatchKeys(ctx, client, keyChunk, scope)
+		keyChunk := make([]string, len(idChunk))
+		for k, id := range idChunk {
+			keyChunk[k] = keyFn(id)
+		}
+
+		vals, err := getBatchKeys(ctx, scope, client, keyChunk)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		for j, raw := range vals {
@@ -191,41 +173,37 @@ func getAndUnmarshalBatch[K comparable, T any](
 
 			data, ok := toBytes(raw)
 			if !ok || len(data) == 0 {
-				result.Missing = append(result.Missing, id)
+				missing = append(missing, id)
 				continue
 			}
 
 			entity, err := unmarshalFn(data)
 			if err != nil {
-				result.Corrupted = append(result.Corrupted, key)
-				result.Missing = append(result.Missing, id)
+				corrupted = append(corrupted, key)
+				missing = append(missing, id)
 				continue
 			}
 
-			result.Found[id] = entity
+			found[id] = entity
 		}
 	}
 
-	// Clean up corrupted keys inline without spawning goroutines
-	if len(result.Corrupted) > 0 {
-		cleanCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		_ = deleteBatchKeys(cleanCtx, client, result.Corrupted, scope)
-		cancel()
+	if len(corrupted) > 0 {
+		_ = deleteBatchKeys(ctx, scope, client, corrupted)
 	}
 
-	return result, nil
+	return found, missing, nil
 }
 
 // marshalAndSetBatch accepts a map of entities, marshals non-nil entries,
 // and writes them to Redis using chunked pipelines.
 func marshalAndSetBatch[K comparable, T any](
 	ctx context.Context,
+	scope redis.Scope,
 	client redisdriver.Cmdable,
 	entities map[K]*T,
 	keyFn func(K) string,
 	ttl time.Duration,
-	scope redis.Scope,
-	maxBatchSize int,
 	marshalFn func(*T) ([]byte, error),
 ) error {
 	if len(entities) == 0 {
@@ -240,7 +218,7 @@ func marshalAndSetBatch[K comparable, T any](
 
 		bytes, err := marshalFn(entity)
 		if err != nil {
-			return redis.NewError(fmt.Errorf("failed to marshal batch item: %w", err), scope)
+			return err
 		}
 
 		items = append(items, CacheItem{
@@ -249,7 +227,28 @@ func marshalAndSetBatch[K comparable, T any](
 		})
 	}
 
-	return setBatchPipeline(ctx, client, items, ttl, scope, maxBatchSize)
+	if len(items) == 0 {
+		return nil
+	}
+
+	return setBatchPipeline(ctx, scope, client, items, ttl)
+}
+
+// deleteBatch transforms typed domain identifiers into Redis keys
+// and passes them to deleteBatchKeys.
+func deleteBatch[K comparable](
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	identifiers []K,
+	keyFn func(K) string,
+) error {
+	keys := make([]string, len(identifiers))
+	for i, id := range identifiers {
+		keys[i] = keyFn(id)
+	}
+
+	return deleteBatchKeys(ctx, scope, client, keys)
 }
 
 // toBytes converts an MGet interface result into a byte slice without heap allocation for strings.

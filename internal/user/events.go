@@ -8,36 +8,49 @@ import (
 )
 
 const (
-	EventUpdateUsername = "user.update_username"
-	EventUpdatePresence = "user.update_presence"
-	EventUpdateProfile  = "user.update_profile"
-	EventDisable        = "user.disable"
+	EventEmailUpdated             = "user.email_updated"
+	EventUsernameUpdated          = "user.username_updated"
+	EventPasswordUpdated          = "user.password_updated"
+	EventPreferredPresenceUpdated = "user.preferred_presence_updated"
+	EventProfileUpdated           = "user.profile_updated"
+	EventDisabled                 = "user.disabled"
 )
 
-type EventUpdateUsernamePayload struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Username  string    `json:"new_username"`
-	UpdatedAt time.Time `json:"updated_at"`
+type EventEmailUpdatedPayload struct {
+	UserID    uuid.UUID `json:"userId"`
+	Email     string    `json:"email"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-type EventUpdatePresencePayload struct {
-	UserID    uuid.UUID         `json:"user_id"`
+type EventUsernameUpdatedPayload struct {
+	UserID    uuid.UUID `json:"userId"`
+	Username  string    `json:"username"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type EventPasswordUpdatedPayload struct {
+	UserID    uuid.UUID `json:"userId"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type EventPreferredPresenceUpdatedPayload struct {
+	UserID    uuid.UUID         `json:"userId"`
 	Presence  presence.Presence `json:"presence"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 }
 
-type EventUpdateProfilePayload struct {
-	UserID      uuid.UUID `json:"user_id"`
-	DisplayName string    `json:"display_name"`
+type EventProfileUpdatedPayload struct {
+	UserID      uuid.UUID `json:"userId"`
+	DisplayName string    `json:"displayName"`
 	Bio         *string   `json:"bio,omitempty"`
-	AvatarURL   *string   `json:"avatar_url,omitempty"`
-	BannerColor *string   `json:"banner_color,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	AvatarURL   *string   `json:"avatarUrl,omitempty"`
+	BannerColor *string   `json:"bannerColor,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-type EventDisablePayload struct {
-	UserID    uuid.UUID `json:"user_id"`
-	UpdatedAt time.Time `json:"updated_at"`
+type EventDisabledPayload struct {
+	UserID    uuid.UUID `json:"userId"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // type Broadcaster interface {

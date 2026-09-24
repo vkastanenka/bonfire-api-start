@@ -48,11 +48,11 @@ func NewChannelCache(client redisdriver.Cmdable) *ChannelCache {
 }
 
 func (c *ChannelCache) Get(ctx context.Context, id uuid.UUID) (*channel.Channel, error) {
-	return getAndUnmarshal(ctx, c.client, channelKey(id), redis.ScopeChannel, unmarshalChannel)
+	return getAndUnmarshal(ctx, redis.ScopeChannel, c.client, channelKey(id), unmarshalChannel)
 }
 
 func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
-	return marshalAndSet(ctx, c.client, channelKey(ch.ID), ch, channelTTL, redis.ScopeChannel, marshalChannel)
+	return marshalAndSet(ctx, redis.ScopeChannel, c.client, channelKey(ch.ID), ch, channelTTL, marshalChannel)
 }
 
 func (c *ChannelCache) Delete(ctx context.Context, id uuid.UUID) error {
@@ -67,30 +67,19 @@ func (c *ChannelCache) GetBatch(
 	ctx context.Context,
 	ids []uuid.UUID,
 ) (map[uuid.UUID]*channel.Channel, []uuid.UUID, error) {
-	if len(ids) == 0 {
-		return make(map[uuid.UUID]*channel.Channel), nil, nil
-	}
-
-	// Pre-allocate keys slice once for the entire batch
 	redisKeys := make([]string, len(ids))
 	for i, id := range ids {
 		redisKeys[i] = channelKey(id)
 	}
 
-	res, err := getAndUnmarshalBatch(
+	return getAndUnmarshalBatch(
 		ctx,
+		redis.ScopeChannel,
 		c.client,
 		redisKeys,
 		ids,
-		redis.ScopeChannel,
-		maxBatchSize,
 		unmarshalChannel,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return res.Found, res.Missing, nil
 }
 
 // SetBatch stores multiple channels into Redis using chunked pipeline requests.

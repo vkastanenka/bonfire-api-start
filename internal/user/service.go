@@ -2,35 +2,44 @@ package user
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	cache      Cache
-	repo       Repository
-	cachedRepo CachedRepository
-	outboxRepo OutboxRepository
-	tx         TX
+	cache              Cache
+	repo               Repository
+	cachedRepo         CachedRepository
+	cachedRelationRepo CachedRelationRepository
+	outboxRepo         OutboxRepository
+	sessionRepo        SessionRepository
+	tx                 TX
 }
 
 func NewService(
 	cache Cache,
 	repo Repository,
 	cachedRepo CachedRepository,
+	cachedRelationRepo CachedRelationRepository,
 	outboxRepo OutboxRepository,
+	sessionRepo SessionRepository,
 	tx TX,
 ) *Service {
 	return &Service{
-		cache:      cache,
-		repo:       repo,
-		cachedRepo: cachedRepo,
-		outboxRepo: outboxRepo,
-		tx:         tx,
+		cache:              cache,
+		repo:               repo,
+		cachedRepo:         cachedRepo,
+		cachedRelationRepo: cachedRelationRepo,
+		outboxRepo:         outboxRepo,
+		sessionRepo:        sessionRepo,
+		tx:                 tx,
 	}
 }
 
@@ -40,22 +49,21 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 		return nil, err
 	}
 
-	if err := u.EnsureActive(); err != nil {
-		_ = s.cache.Delete(ctx, userID)
-		return nil, err
-	}
-
 	return u, nil
 }
 
 type UpdateEmailParams struct {
-	UserID   uuid.UUID
-	NewEmail string
 	Password string
+	NewEmail string
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
-	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -64,26 +72,63 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return u, nil
 	}
 
+	var updatedUser *User
 	now := time.Now()
 
-	updatedUser, err := s.repo.UpdateEmail(ctx, p.UserID, p.NewEmail, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var txErr error
+		updatedUser, txErr = s.repo.UpdateEmail(ctx, claims.UserID, p.NewEmail, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		payload := EventEmailUpdatedPayload{
+			UserID:    updatedUser.ID,
+			Email:     updatedUser.Email,
+			UpdatedAt: now,
+		}
+
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(ctx),
+			[]uuid.UUID{claims.UserID},
+			EventEmailUpdated,
+			payload,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.cache.Delete(ctx, updatedUser.ID)
+	if err := s.cache.Delete(ctx, updatedUser.ID); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate user cache after email update",
+			slog.String("user_id", updatedUser.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return updatedUser, nil
 }
 
 type UpdateUsernameParams struct {
-	UserID      uuid.UUID
-	NewUsername string
 	Password    string
+	NewUsername string
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
-	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +136,8 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 	if u.Username == p.NewUsername {
 		return u, nil
 	}
+
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, claims.UserID, EventUsernameUpdated)
 
 	var updatedUser *User
 	now := time.Now()
@@ -102,36 +149,58 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 			return txErr
 		}
 
-		payload := EventUpdateUsernamePayload{
+		payload := EventUsernameUpdatedPayload{
 			UserID:    updatedUser.ID,
 			Username:  updatedUser.Username,
-			UpdatedAt: updatedUser.UpdatedAt,
+			UpdatedAt: now,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventUpdateUsername, payload, now)
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(ctx),
+			broadcastIDs,
+			EventUsernameUpdated,
+			payload,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.cache.Delete(ctx, updatedUser.ID)
+	if err := s.cache.Delete(ctx, updatedUser.ID); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate user cache after username update",
+			slog.String("user_id", updatedUser.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return updatedUser, nil
 }
 
 type UpdatePasswordParams struct {
-	UserID             uuid.UUID
 	CurrentPassword    string
 	NewPassword        string
 	NewPasswordConfirm string
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return err
+	}
+
 	if p.NewPassword != p.NewPasswordConfirm {
 		return ErrPasswordMismatch()
 	}
 
-	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.CurrentPassword)
+	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.CurrentPassword)
 	if err != nil {
 		return err
 	}
@@ -141,14 +210,50 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 		return ErrPasswordHashFailed().Wrap(err)
 	}
 
+	var updatedUser *User
 	now := time.Now()
 
-	_, err = s.repo.UpdatePasswordHash(ctx, u.ID, newPasswordHash, now)
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var txErr error
+		updatedUser, txErr = s.repo.UpdatePasswordHash(txCtx, u.ID, newPasswordHash, now)
+		if txErr != nil {
+			return txErr
+		}
+
+		if _, err := s.sessionRepo.RevokeAll(txCtx, claims.UserID, now); err != nil {
+			return err
+		}
+
+		payload := EventPasswordUpdatedPayload{
+			UserID:    updatedUser.ID,
+			UpdatedAt: now,
+		}
+
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(ctx),
+			[]uuid.UUID{claims.UserID},
+			EventPasswordUpdated,
+			payload,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
+	})
 	if err != nil {
 		return err
 	}
 
-	_ = s.cache.Delete(ctx, u.ID)
+	if err := s.cache.Delete(ctx, claims.UserID); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate user cache after password update",
+			slog.String("user_id", claims.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return nil
 }
@@ -373,7 +478,7 @@ func (s *Service) fetchAndAuthenticate(ctx context.Context, actorID uuid.UUID, p
 		return nil, err
 	}
 
-	if err := crypto.ComparePassword(u.PasswordHash, password); err != nil {
+	if err := crypto.ComparePasswords(u.PasswordHash, password); err != nil {
 		return nil, ErrInvalidPassword().Wrap(err)
 	}
 
@@ -394,10 +499,6 @@ func (s *Service) fetchValid(ctx context.Context, actorID uuid.UUID) (*User, err
 }
 
 func (s *Service) fetchBatchValid(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*User, error) {
-	if len(userIDs) == 0 {
-		return make(map[uuid.UUID]*User), nil
-	}
-
 	usersMap, err := s.repo.GetBatch(ctx, userIDs)
 	if err != nil {
 		return nil, err
@@ -412,4 +513,22 @@ func (s *Service) fetchBatchValid(ctx context.Context, userIDs []uuid.UUID) (map
 	}
 
 	return validUsers, nil
+}
+
+func (s *Service) getBroadcastTargetIDs(ctx context.Context, actorID uuid.UUID, eventName string) []uuid.UUID {
+	friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, actorID)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to fetch friend IDs for event broadcast, falling back to actor only",
+			slog.String("event", eventName),
+			slog.String("user_id", actorID.String()),
+			slog.Any("error", err),
+		)
+		friendIDs = nil
+	}
+
+	targetIDs := make([]uuid.UUID, 0, len(friendIDs)+1)
+	targetIDs = append(targetIDs, actorID)
+	targetIDs = append(targetIDs, friendIDs...)
+
+	return targetIDs
 }

@@ -50,11 +50,11 @@ func NewUserCache(client redisdriver.Cmdable) *UserCache {
 // -----------------------------------------------------------------------------
 
 func (c *UserCache) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
-	return getAndUnmarshal(ctx, c.client, userKey(id), redis.ScopeUser, unmarshalUser)
+	return getAndUnmarshal(ctx, redis.ScopeUser, c.client, userKey(id), unmarshalUser)
 }
 
 func (c *UserCache) Set(ctx context.Context, usr *user.User) error {
-	return marshalAndSet(ctx, c.client, userKey(usr.ID), usr, userTTL, redis.ScopeUser, marshalUser)
+	return marshalAndSet(ctx, redis.ScopeUser, c.client, userKey(usr.ID), usr, userTTL, marshalUser)
 }
 
 func (c *UserCache) Delete(ctx context.Context, id uuid.UUID) error {
@@ -68,91 +68,30 @@ func (c *UserCache) GetBatch(
 	ctx context.Context,
 	ids []uuid.UUID,
 ) (map[uuid.UUID]*user.User, []uuid.UUID, error) {
-	if len(ids) == 0 {
-		return make(map[uuid.UUID]*user.User), nil, nil
-	}
-
-	found := make(map[uuid.UUID]*user.User, len(ids))
-	missing := make([]uuid.UUID, 0, len(ids))
-	var corruptedKeys []string
-
-	for i := 0; i < len(ids); i += maxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-
-		end := min(i+maxBatchSize, len(ids))
-		chunk := ids[i:end]
-
-		redisKeys := make([]string, len(chunk))
-		for j, id := range chunk {
-			redisKeys[j] = userKey(id)
-		}
-
-		vals, err := getBatchKeys(ctx, c.client, redisKeys, redis.ScopeUser)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		for j, raw := range vals {
-			id := chunk[j]
-			rKey := redisKeys[j]
-
-			data, ok := toBytes(raw)
-			if !ok {
-				missing = append(missing, id)
-				continue
-			}
-
-			usr, err := unmarshalUser(data)
-			if err != nil {
-				corruptedKeys = append(corruptedKeys, rKey)
-				missing = append(missing, id)
-				continue
-			}
-
-			found[id] = usr
-		}
-	}
-
-	if len(corruptedKeys) > 0 {
-		deleteBatchKeys(ctx, c.client, corruptedKeys, redis.ScopeUser)
-	}
-
-	return found, missing, nil
+	return getAndUnmarshalBatch(
+		ctx,
+		redis.ScopeUser,
+		c.client,
+		ids,
+		userKey,
+		unmarshalUser,
+	)
 }
 
 func (c *UserCache) SetBatch(ctx context.Context, users map[uuid.UUID]*user.User) error {
-	if len(users) == 0 {
-		return nil
-	}
-
-	items := make([]CacheItem, 0, len(users))
-	for id, usr := range users {
-		if usr == nil || id == uuid.Nil {
-			continue
-		}
-
-		bytes, err := marshalUser(usr)
-		if err != nil {
-			return err
-		}
-
-		items = append(items, CacheItem{
-			Key:   userKey(id),
-			Value: bytes,
-		})
-	}
-
-	return setBatchPipeline(ctx, c.client, items, userTTL, redis.ScopeUser)
+	return marshalAndSetBatch(
+		ctx,
+		redis.ScopeUser,
+		c.client,
+		users,
+		userKey,
+		userTTL,
+		marshalUser,
+	)
 }
 
 func (c *UserCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
-	keys := make([]string, len(ids))
-	for i, id := range ids {
-		keys[i] = userKey(id)
-	}
-	return deleteBatchKeys(ctx, c.client, keys, redis.ScopeUser)
+	return deleteBatch(ctx, redis.ScopeUser, c.client, ids, userKey)
 }
 
 // -----------------------------------------------------------------------------

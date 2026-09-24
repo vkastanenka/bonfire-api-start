@@ -75,6 +75,20 @@ func (r *CachedRelationRepository) GetFriends(ctx context.Context, userID uuid.U
 	return friendsMap, nil
 }
 
+func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	friendsMap, err := r.GetFriends(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	friendIDs := make([]uuid.UUID, 0, len(friendsMap))
+	for friendID := range friendsMap {
+		friendIDs = append(friendIDs, friendID)
+	}
+
+	return friendIDs, nil
+}
+
 func (r *CachedRelationRepository) GetBlocklistIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	cachedIDs, err := r.cache.GetBlocklistIDs(ctx, userID)
 	if err == nil && cachedIDs != nil {
