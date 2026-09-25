@@ -36,6 +36,34 @@ type MessageCache interface {
 	GetBeforeByChannelID(ctx context.Context, channelID uuid.UUID, cursorID uuid.UUID, limit int) ([]*channel.Message, bool, bool, error)
 }
 
+type RelationCache interface {
+	AddBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
+	AddBlockedByID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
+	AddFriendID(ctx context.Context, userID uuid.UUID, friendID uuid.UUID) error
+	AddFriendPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
+	AddPendingID(ctx context.Context, userID uuid.UUID, pendingID uuid.UUID) error
+	BlockUser(ctx context.Context, blockerID uuid.UUID, targetID uuid.UUID) error
+	DeleteBlockedByIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteBlocksIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteFriendsIndex(ctx context.Context, userID uuid.UUID) error
+	DeletePendingsIndex(ctx context.Context, userID uuid.UUID) error
+	GetUserBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetUserBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetUserFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetUserPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	RemoveBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
+	RemoveBlockedByID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
+	RemoveFriendID(ctx context.Context, userID uuid.UUID, friendID uuid.UUID) error
+	RemoveFriendPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
+	RemovePendingID(ctx context.Context, userID uuid.UUID, pendingID uuid.UUID) error
+	RemovePendingPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
+	SetBlockIDs(ctx context.Context, userID uuid.UUID, blockIDs []uuid.UUID) error
+	SetBlockedByIDs(ctx context.Context, userID uuid.UUID, blockedByIDs []uuid.UUID) error
+	SetFriendIDs(ctx context.Context, userID uuid.UUID, friendIDs []uuid.UUID) error
+	SetPendingIDs(ctx context.Context, userID uuid.UUID, pendingIDs []uuid.UUID) error
+	UnblockUser(ctx context.Context, blockerID uuid.UUID, targetID uuid.UUID) error
+}
+
 type SessionCache interface {
 	AddUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error

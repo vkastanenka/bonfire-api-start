@@ -2,10 +2,9 @@ package relation
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/pkg/sanitize"
 )
 
 type Type int
@@ -26,28 +25,15 @@ var typeNames = [...]string{
 }
 
 func Parse(raw int) (Type, error) {
-	t := Type(raw)
-	if !t.IsValid() {
-		return TypeUnknown, fmt.Errorf("invalid relation type value: %d", raw)
-	}
-	return t, nil
+	return sanitize.ParseEnumInt(raw, typeMax, "relationType")
 }
 
 func ParseString(s string) (Type, error) {
-	for i, name := range typeNames {
-		if name == s {
-			return Type(i), nil
-		}
-	}
-	return TypeUnknown, fmt.Errorf("invalid relation type string: %q", s)
+	return sanitize.ParseEnumString[Type](s, typeNames[:], "relationType")
 }
 
-func ParseBytes(raw []byte) (Type, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return TypeUnknown, nil
-	}
-	return ParseString(string(cleaned))
+func ParseBytes(b []byte) (Type, error) {
+	return sanitize.ParseEnumBytes[Type](b, typeNames[:], "relationType")
 }
 
 func (t Type) IsValid() bool {

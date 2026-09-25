@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )

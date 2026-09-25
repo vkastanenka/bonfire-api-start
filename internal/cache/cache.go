@@ -12,9 +12,7 @@ import (
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-var (
-	maxBatchSize = 500
-)
+var maxBatchSize = 500
 
 type CacheItem struct {
 	Key   string
@@ -39,7 +37,6 @@ func getBatchKeys(ctx context.Context, scope redis.Scope, client redisdriver.Cmd
 	if err != nil {
 		return nil, redis.NewError(err, scope)
 	}
-
 	return vals, nil
 }
 
@@ -85,12 +82,10 @@ func setBatchPipeline(
 			return redis.NewError(err, scope)
 		}
 	}
-
 	return nil
 }
 
 // getAndUnmarshal fetches raw bytes from Redis and unmarshals them into a domain model.
-// If unmarshaling fails due to corrupted data, it evicts the bad key and returns a scoped ErrCorruptedData error.
 func getAndUnmarshal[T any](
 	ctx context.Context,
 	scope redis.Scope,
@@ -134,9 +129,7 @@ func marshalAndSet[T any](
 	return nil
 }
 
-// getAndUnmarshalBatch generic helper that fetches keys using MGET in chunks,
-// constructs cache keys dynamically, handles missing or corrupted entries,
-// and returns typed domain maps and missing IDs.
+// getAndUnmarshalBatch generic helper that fetches keys using MGET in chunks.
 func getAndUnmarshalBatch[K comparable, T any](
 	ctx context.Context,
 	scope redis.Scope,
@@ -195,8 +188,7 @@ func getAndUnmarshalBatch[K comparable, T any](
 	return found, missing, nil
 }
 
-// marshalAndSetBatch accepts a map of entities, marshals non-nil entries,
-// and writes them to Redis using chunked pipelines.
+// marshalAndSetBatch accepts a map of entities, marshals non-nil entries, and writes them to Redis using chunked pipelines.
 func marshalAndSetBatch[K comparable, T any](
 	ctx context.Context,
 	scope redis.Scope,
@@ -234,8 +226,7 @@ func marshalAndSetBatch[K comparable, T any](
 	return setBatchPipeline(ctx, scope, client, items, ttl)
 }
 
-// deleteBatch transforms typed domain identifiers into Redis keys
-// and passes them to deleteBatchKeys.
+// deleteBatch transforms typed domain identifiers into Redis keys and passes them to deleteBatchKeys.
 func deleteBatch[K comparable](
 	ctx context.Context,
 	scope redis.Scope,
@@ -273,7 +264,6 @@ func toBytes(raw any) ([]byte, bool) {
 }
 
 // getSetIDs retrieves members from a Redis Set key and parses them into uuid.UUID slices.
-// Returns (nil, nil) on cache miss or when the set is empty.
 func getSetIDs(
 	ctx context.Context,
 	scope redis.Scope,
@@ -295,7 +285,7 @@ func getSetIDs(
 	for _, m := range members {
 		id, err := uuid.Parse(m)
 		if err != nil {
-			continue 
+			continue
 		}
 		ids = append(ids, id)
 	}
@@ -304,7 +294,6 @@ func getSetIDs(
 }
 
 // setSetIDs atomically replaces a Redis Set key in a pipeline.
-// If ids is empty, it deletes the key to avoid leaving stale index sets.
 func setSetIDs(
 	ctx context.Context,
 	scope redis.Scope,
@@ -338,8 +327,7 @@ func setSetIDs(
 	return nil
 }
 
-// addToSetIDs adds one or more UUIDs to a Redis Set.
-// Uses ExpireXX to touch the TTL only if the set already exists in cache.
+// addToSetIDs adds one or more UUIDs to a single Redis Set and sets TTL.
 func addToSetIDs(
 	ctx context.Context,
 	scope redis.Scope,
@@ -359,10 +347,42 @@ func addToSetIDs(
 
 	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.SAdd(ctx, key, members...)
-		pipe.ExpireXX(ctx, key, ttl)
+		pipe.Expire(ctx, key, ttl)
 		return nil
 	})
 	if err != nil {
+		return redis.NewError(err, scope)
+	}
+
+	return nil
+}
+
+// addToSetIDsPipelined adds UUIDs to multiple set keys with a shared TTL in a single pipeline execution.
+func addToSetIDsPipelined(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	additions map[string][]uuid.UUID,
+	ttl time.Duration,
+) error {
+	if len(additions) == 0 {
+		return nil
+	}
+
+	pipe := client.Pipeline()
+	for key, ids := range additions {
+		if len(ids) == 0 {
+			continue
+		}
+		members := make([]any, len(ids))
+		for i, id := range ids {
+			members[i] = id.String()
+		}
+		pipe.SAdd(ctx, key, members...)
+		pipe.Expire(ctx, key, ttl)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
 		return redis.NewError(err, scope)
 	}
 

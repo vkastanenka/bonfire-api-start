@@ -11,10 +11,10 @@ import (
 
 type CachedSessionRepository struct {
 	cache SessionCache
-	repo  SessionRepository
+	repo  *SessionRepository
 }
 
-func NewCachedSessionRepository(cache SessionCache, repo SessionRepository) *CachedSessionRepository {
+func NewCachedSessionRepository(cache SessionCache, repo *SessionRepository) *CachedSessionRepository {
 	return &CachedSessionRepository{cache: cache, repo: repo}
 }
 

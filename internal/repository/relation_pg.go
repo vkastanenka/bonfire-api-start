@@ -15,9 +15,7 @@ type RelationRepository struct {
 }
 
 func NewRelationRepository(store *db.Store) *RelationRepository {
-	return &RelationRepository{
-		store: store,
-	}
+	return &RelationRepository{store: store}
 }
 
 func (r *RelationRepository) Save(ctx context.Context, rel *relation.Relation) (*relation.Relation, error) {

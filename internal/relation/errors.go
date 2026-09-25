@@ -1,6 +1,6 @@
 package relation
 
-import "bonfire-api/internal/errs"
+import "bonfire-api/internal/pkg/errs"
 
 func ErrTypeInvalid() *errs.Error {
 	return errs.InvalidArgument("Invalid relationship type.").
@@ -12,8 +12,6 @@ func ErrPeerIDInvalid() *errs.Error {
 	return errs.InvalidArgument("Relation ids cannot match.").
 		FieldViolation("peer_id", "ID is the same as user ID", "PEER_ID_INVALID")
 }
-
-// Added Errors
 
 func ErrBlockedActor() *errs.Error {
 	return errs.InvalidArgument("Action cannot be performed on a blocked relationship.").

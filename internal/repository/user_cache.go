@@ -12,10 +12,10 @@ import (
 
 type CachedUserRepository struct {
 	cache UserCache
-	repo  UserRepository
+	repo  *UserRepository
 }
 
-func NewCachedUserRepository(cache UserCache, repo UserRepository) *CachedUserRepository {
+func NewCachedUserRepository(cache UserCache, repo *UserRepository) *CachedUserRepository {
 	return &CachedUserRepository{cache: cache, repo: repo}
 }
 
