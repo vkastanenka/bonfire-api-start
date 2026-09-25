@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"bonfire-api/internal/user"
 
@@ -15,10 +16,7 @@ type CachedUserRepository struct {
 }
 
 func NewCachedUserRepository(cache UserCache, repo UserRepository) *CachedUserRepository {
-	return &CachedUserRepository{
-		cache: cache,
-		repo:  repo,
-	}
+	return &CachedUserRepository{cache: cache, repo: repo}
 }
 
 func (r *CachedUserRepository) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
@@ -39,8 +37,11 @@ func (r *CachedUserRepository) Get(ctx context.Context, id uuid.UUID) (*user.Use
 		return nil, err
 	}
 
-	if setErr := r.cache.Set(ctx, u); setErr != nil {
-		slog.WarnContext(ctx, "failed to populate user cache after database read",
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if setErr := r.cache.Set(cacheCtx, u); setErr != nil {
+		slog.WarnContext(cacheCtx, "failed to populate user cache after database read",
 			slog.String("user_id", id.String()),
 			slog.Any("error", setErr),
 		)
@@ -79,9 +80,12 @@ func (r *CachedUserRepository) GetBatch(
 		return nil, err
 	}
 
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
 	if len(dbUsersMap) > 0 {
-		if setErr := r.cache.SetBatch(ctx, dbUsersMap); setErr != nil {
-			slog.WarnContext(ctx, "failed to populate user batch cache after database read",
+		if setErr := r.cache.SetBatch(cacheCtx, dbUsersMap); setErr != nil {
+			slog.WarnContext(cacheCtx, "failed to populate user batch cache after database read",
 				slog.Int("count", len(dbUsersMap)),
 				slog.Any("error", setErr),
 			)

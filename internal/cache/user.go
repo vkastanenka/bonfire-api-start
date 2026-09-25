@@ -64,30 +64,12 @@ func (c *UserCache) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (c *UserCache) GetBatch(
-	ctx context.Context,
-	ids []uuid.UUID,
-) (map[uuid.UUID]*user.User, []uuid.UUID, error) {
-	return getAndUnmarshalBatch(
-		ctx,
-		redis.ScopeUser,
-		c.client,
-		ids,
-		userKey,
-		unmarshalUser,
-	)
+func (c *UserCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error) {
+	return getAndUnmarshalBatch(ctx, redis.ScopeUser, c.client, ids, userKey, unmarshalUser)
 }
 
 func (c *UserCache) SetBatch(ctx context.Context, users map[uuid.UUID]*user.User) error {
-	return marshalAndSetBatch(
-		ctx,
-		redis.ScopeUser,
-		c.client,
-		users,
-		userKey,
-		userTTL,
-		marshalUser,
-	)
+	return marshalAndSetBatch(ctx, redis.ScopeUser, c.client, users, userKey, userTTL, marshalUser)
 }
 
 func (c *UserCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {

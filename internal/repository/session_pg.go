@@ -16,9 +16,7 @@ type SessionRepository struct {
 }
 
 func NewSessionRepository(store *db.Store) *SessionRepository {
-	return &SessionRepository{
-		store: store,
-	}
+	return &SessionRepository{store: store}
 }
 
 func (r *SessionRepository) Create(ctx context.Context, s *session.Session) (*session.Session, error) {

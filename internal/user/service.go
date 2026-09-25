@@ -621,7 +621,7 @@ func (s *Service) getBroadcastTargetIDs(ctx context.Context, actorID uuid.UUID) 
 }
 
 func (s *Service) invalidateUserCache(ctx context.Context, userID uuid.UUID, action string) {
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
 	if err := s.cache.Delete(cacheCtx, userID); err != nil {
@@ -637,7 +637,7 @@ func (s *Service) invalidateUserBatchCache(ctx context.Context, userIDs []uuid.U
 		return
 	}
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
 	if err := s.cache.DeleteBatch(cacheCtx, userIDs); err != nil {
@@ -654,7 +654,7 @@ func (s *Service) invalidateSessionCache(ctx context.Context, userID uuid.UUID, 
 		return
 	}
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
 	if err := s.sessionCache.DeleteBatch(cacheCtx, sessionIDs); err != nil {

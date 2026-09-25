@@ -18,9 +18,7 @@ type UserRepository struct {
 }
 
 func NewUserRepository(store *db.Store) *UserRepository {
-	return &UserRepository{
-		store: store,
-	}
+	return &UserRepository{store: store}
 }
 
 func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, error) {

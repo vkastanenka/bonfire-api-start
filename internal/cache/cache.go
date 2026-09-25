@@ -273,7 +273,13 @@ func toBytes(raw any) ([]byte, bool) {
 }
 
 // getSetIDs retrieves members from a Redis Set key and parses them into uuid.UUID slices.
-func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scope redis.Scope) ([]uuid.UUID, error) {
+// Returns (nil, nil) on cache miss or when the set is empty.
+func getSetIDs(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+) ([]uuid.UUID, error) {
 	members, err := client.SMembers(ctx, key).Result()
 	if redis.IsCacheMiss(err) {
 		return nil, nil
@@ -287,72 +293,144 @@ func getSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, scop
 
 	ids := make([]uuid.UUID, 0, len(members))
 	for _, m := range members {
-		if id, parseErr := uuid.Parse(m); parseErr == nil {
-			ids = append(ids, uuid.UUID(id))
+		id, err := uuid.Parse(m)
+		if err != nil {
+			continue 
 		}
+		ids = append(ids, id)
 	}
 
 	return ids, nil
 }
 
-// setSetIDs replaces a Redis Set key with a new slice of IDs inside an atomic TxPipeline.
-func setSetIDs(ctx context.Context, client redisdriver.Cmdable, key string, ids []uuid.UUID, ttl time.Duration, scope redis.Scope) error {
+// setSetIDs atomically replaces a Redis Set key in a pipeline.
+// If ids is empty, it deletes the key to avoid leaving stale index sets.
+func setSetIDs(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+	ids []uuid.UUID,
+	ttl time.Duration,
+) error {
+	if len(ids) == 0 {
+		if err := client.Del(ctx, key).Err(); err != nil {
+			return redis.NewError(err, scope)
+		}
+		return nil
+	}
+
+	members := make([]any, len(ids))
+	for i, id := range ids {
+		members[i] = id.String()
+	}
+
 	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.Del(ctx, key)
-		if len(ids) > 0 {
-			members := make([]interface{}, len(ids))
-			for i, id := range ids {
-				members[i] = id.String()
-			}
-			pipe.SAdd(ctx, key, members...)
-			pipe.Expire(ctx, key, ttl)
-		}
+		pipe.SAdd(ctx, key, members...)
+		pipe.Expire(ctx, key, ttl)
 		return nil
 	})
 	if err != nil {
 		return redis.NewError(err, scope)
 	}
+
 	return nil
 }
 
-// addToSetID adds a single field ID to a Redis Set and conditionally updates its TTL if the key exists.
-func addToSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID uuid.UUID, ttl time.Duration, scope redis.Scope) error {
+// addToSetIDs adds one or more UUIDs to a Redis Set.
+// Uses ExpireXX to touch the TTL only if the set already exists in cache.
+func addToSetIDs(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+	ttl time.Duration,
+	ids ...uuid.UUID,
+) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	members := make([]any, len(ids))
+	for i, id := range ids {
+		members[i] = id.String()
+	}
+
 	_, err := client.TxPipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		pipe.SAdd(ctx, key, targetID.String())
+		pipe.SAdd(ctx, key, members...)
 		pipe.ExpireXX(ctx, key, ttl)
 		return nil
 	})
 	if err != nil {
 		return redis.NewError(err, scope)
 	}
+
 	return nil
 }
 
-// removeFromSetID removes a single field ID from a Redis Set.
-func removeFromSetID(ctx context.Context, client redisdriver.Cmdable, key string, targetID uuid.UUID, scope redis.Scope) error {
-	if err := client.SRem(ctx, key, targetID.String()).Err(); err != nil {
+// removeFromSetIDs removes one or more UUIDs from a single Redis Set.
+func removeFromSetIDs(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+	ids ...uuid.UUID,
+) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	members := make([]any, len(ids))
+	for i, id := range ids {
+		members[i] = id.String()
+	}
+
+	if err := client.SRem(ctx, key, members...).Err(); err != nil {
 		return redis.NewError(err, scope)
 	}
+
 	return nil
 }
 
-// removeFromSetIDsPipelined removes target IDs from their corresponding set keys in a single pipeline trip.
+// removeFromSetIDsPipelined handles bulk removals across multiple set keys in one pipeline trip.
 func removeFromSetIDsPipelined(
 	ctx context.Context,
-	client redisdriver.Cmdable,
-	removals map[string]uuid.UUID,
 	scope redis.Scope,
+	client redisdriver.Cmdable,
+	removals map[string][]uuid.UUID,
 ) error {
 	if len(removals) == 0 {
 		return nil
 	}
 
 	pipe := client.Pipeline()
-	for key, targetID := range removals {
-		pipe.SRem(ctx, key, targetID.String())
+	for key, ids := range removals {
+		if len(ids) == 0 {
+			continue
+		}
+		members := make([]any, len(ids))
+		for i, id := range ids {
+			members[i] = id.String()
+		}
+		pipe.SRem(ctx, key, members...)
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, scope)
+	}
+
+	return nil
+}
+
+// deleteSet explicitly deletes a set index key.
+func deleteSet(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+) error {
+	if err := client.Del(ctx, key).Err(); err != nil {
 		return redis.NewError(err, scope)
 	}
 	return nil
