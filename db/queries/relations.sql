@@ -65,7 +65,7 @@ ORDER BY
     created_at DESC
 LIMIT @limit_val::int;
 
--- name: RelationListIncomingPendingByUserID :many
+-- name: RelationListIncomingPendingsByUserID :many
 SELECT
     relations.*
 FROM
@@ -74,6 +74,19 @@ WHERE (user1_id = @user_id::uuid
     OR user2_id = @user_id::uuid)
 AND type = 1 -- Pending
 AND actor_id != @user_id::uuid -- Initiated by the peer
+ORDER BY
+    created_at DESC
+LIMIT @limit_val::int;
+
+-- name: RelationListOutgoingPendingsByUserID :many
+SELECT
+    relations.*
+FROM
+    relations
+WHERE (user1_id = @user_id::uuid
+    OR user2_id = @user_id::uuid)
+AND type = 1 -- Pending
+AND actor_id = @user_id::uuid -- Initiated by the user
 ORDER BY
     created_at DESC
 LIMIT @limit_val::int;

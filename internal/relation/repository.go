@@ -18,17 +18,19 @@ type Repository interface {
 	HasIncomingBlock(ctx context.Context, actorID uuid.UUID, peerIDs []uuid.UUID) error
 	ListFriendsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
 	ListIncomingBlocksByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
-	ListIncomingPendingByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
+	ListIncomingPendingsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
 	ListOutgoingBlocksByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
+	ListOutgoingPendingsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*Relation, error)
 	ListTypeByUserID(ctx context.Context, userID uuid.UUID, relType Type, limit int) ([]*Relation, error)
 	Save(ctx context.Context, rel *Relation) (*Relation, error)
 }
 
 type CachedRepository interface {
-	GetBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetIncomingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetIncomingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetOutgoingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetOutgoingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type ChannelRepository interface {

@@ -235,7 +235,7 @@ func (q *Queries) RelationListIncomingBlocksByUserID(ctx context.Context, arg Re
 	return items, nil
 }
 
-const relationListIncomingPendingByUserID = `-- name: RelationListIncomingPendingByUserID :many
+const relationListIncomingPendingsByUserID = `-- name: RelationListIncomingPendingsByUserID :many
 SELECT
     relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
 FROM
@@ -249,13 +249,13 @@ ORDER BY
 LIMIT $2::int
 `
 
-type RelationListIncomingPendingByUserIDParams struct {
+type RelationListIncomingPendingsByUserIDParams struct {
 	UserID   pgtype.UUID `json:"user_id"`
 	LimitVal int32       `json:"limit_val"`
 }
 
-func (q *Queries) RelationListIncomingPendingByUserID(ctx context.Context, arg RelationListIncomingPendingByUserIDParams) ([]Relation, error) {
-	rows, err := q.db.Query(ctx, relationListIncomingPendingByUserID, arg.UserID, arg.LimitVal)
+func (q *Queries) RelationListIncomingPendingsByUserID(ctx context.Context, arg RelationListIncomingPendingsByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListIncomingPendingsByUserID, arg.UserID, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -303,6 +303,53 @@ type RelationListOutgoingBlocksByUserIDParams struct {
 
 func (q *Queries) RelationListOutgoingBlocksByUserID(ctx context.Context, arg RelationListOutgoingBlocksByUserIDParams) ([]Relation, error) {
 	rows, err := q.db.Query(ctx, relationListOutgoingBlocksByUserID, arg.UserID, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Relation
+	for rows.Next() {
+		var i Relation
+		if err := rows.Scan(
+			&i.User1ID,
+			&i.User2ID,
+			&i.ActorID,
+			&i.ChannelID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const relationListOutgoingPendingsByUserID = `-- name: RelationListOutgoingPendingsByUserID :many
+SELECT
+    relations.user1_id, relations.user2_id, relations.actor_id, relations.channel_id, relations.created_at, relations.updated_at, relations.type
+FROM
+    relations
+WHERE (user1_id = $1::uuid
+    OR user2_id = $1::uuid)
+AND type = 1 -- Pending
+AND actor_id = $1::uuid -- Initiated by the user
+ORDER BY
+    created_at DESC
+LIMIT $2::int
+`
+
+type RelationListOutgoingPendingsByUserIDParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	LimitVal int32       `json:"limit_val"`
+}
+
+func (q *Queries) RelationListOutgoingPendingsByUserID(ctx context.Context, arg RelationListOutgoingPendingsByUserIDParams) ([]Relation, error) {
+	rows, err := q.db.Query(ctx, relationListOutgoingPendingsByUserID, arg.UserID, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}

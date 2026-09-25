@@ -455,3 +455,26 @@ func deleteSet(
 	}
 	return nil
 }
+
+// deleteSetPipelined deletes multiple keys in a single Redis pipeline.
+func deleteSetPipelined(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	keys []string,
+) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	pipe := client.Pipeline()
+	for _, key := range keys {
+		pipe.Del(ctx, key)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, scope)
+	}
+
+	return nil
+}

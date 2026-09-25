@@ -45,3 +45,13 @@ func RemoveID(target uuid.UUID, ids []uuid.UUID) []uuid.UUID {
 	}
 	return result
 }
+
+// ContainsID reports whether target UUID exists within the provided slice of UUIDs.
+func ContainsID(ids []uuid.UUID, target uuid.UUID) bool {
+	for _, id := range ids {
+		if id == target {
+			return true
+		}
+	}
+	return false
+}

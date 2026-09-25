@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	EventFriendRequestSent = "relation.friend_request_sent"
-	EventFriendAdded       = "relation.friend_added"
-	EventFriendDeleted     = "relation.friend_deleted"
+	EventFriendRequestSent    = "relation.friend_request_sent"
+	EventFriendRequestDeleted = "relation.friend_request_deleted"
+	EventFriendAdded          = "relation.friend_added"
+	EventFriendDeleted        = "relation.friend_deleted"
 )
 
 type EventFriendRequestSentPayload struct {
@@ -33,7 +34,7 @@ type EventFriendRequestSentPayload struct {
 // }
 
 type EventFriendAddedPayload struct {
-	Friend         *user.User        `json:"friend"`
+	Friend         user.View         `json:"friend"`
 	FriendPresence presence.Presence `json:"friend_presence"`
 	Channel        *channel.Channel  `json:"channel"`
 	Member         *channel.Member   `json:"member"`
@@ -41,6 +42,11 @@ type EventFriendAddedPayload struct {
 }
 
 type EventFriendDeletedPayload struct {
+	ActorID uuid.UUID `json:"actor_id"`
+	PeerID  uuid.UUID `json:"peer_id"`
+}
+
+type EventFriendRequestDeletedPayload struct {
 	ActorID uuid.UUID `json:"actor_id"`
 	PeerID  uuid.UUID `json:"peer_id"`
 }

@@ -21,48 +21,68 @@ func NewCachedRelationRepository(cache RelationCache, repo *RelationRepository) 
 	return &CachedRelationRepository{cache: cache, repo: repo}
 }
 
-func (r *CachedRelationRepository) GetPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	ids, err := r.cache.GetUserPendingIDs(ctx, userID)
+func (r *CachedRelationRepository) GetIncomingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	ids, err := r.cache.GetIncomingPendingIDs(ctx, userID)
 	if err == nil && ids != nil {
 		return ids, nil
 	}
 
 	if err != nil {
-		slog.WarnContext(ctx, "redis user pending IDs cache read failure, falling back to database",
+		slog.WarnContext(ctx, "redis incoming pending IDs cache read failure, falling back to database",
 			slog.String("user_id", userID.String()),
 			slog.Any("error", err),
 		)
 	}
 
-	rels, err := r.repo.ListIncomingPendingByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListIncomingPendingsByUserID(ctx, userID, maxRelationFetchLimit)
 	if err != nil {
 		return nil, err
 	}
 
 	pendingIDs := extractPeerIDs(rels, userID)
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-
-	if setErr := r.cache.SetPendingIDs(cacheCtx, userID, pendingIDs); setErr != nil {
-		slog.WarnContext(cacheCtx, "failed to backfill pending IDs cache after database read",
-			slog.String("user_id", userID.String()),
-			slog.Int("count", len(pendingIDs)),
-			slog.Any("error", setErr),
-		)
-	}
+	r.backfillCache(ctx, "incoming pending IDs", userID, len(pendingIDs), func(cacheCtx context.Context) error {
+		return r.cache.SetIncomingPendingIDs(cacheCtx, userID, pendingIDs)
+	})
 
 	return pendingIDs, nil
 }
 
-func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	ids, err := r.cache.GetUserFriendIDs(ctx, userID)
+func (r *CachedRelationRepository) GetOutgoingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	ids, err := r.cache.GetOutgoingPendingIDs(ctx, userID)
 	if err == nil && ids != nil {
 		return ids, nil
 	}
 
 	if err != nil {
-		slog.WarnContext(ctx, "redis user friend IDs cache read failure, falling back to database",
+		slog.WarnContext(ctx, "redis outgoing pending IDs cache read failure, falling back to database",
+			slog.String("user_id", userID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	rels, err := r.repo.ListOutgoingPendingsByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingIDs := extractPeerIDs(rels, userID)
+
+	r.backfillCache(ctx, "outgoing pending IDs", userID, len(pendingIDs), func(cacheCtx context.Context) error {
+		return r.cache.SetOutgoingPendingIDs(cacheCtx, userID, pendingIDs)
+	})
+
+	return pendingIDs, nil
+}
+
+func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	ids, err := r.cache.GetFriendIDs(ctx, userID)
+	if err == nil && ids != nil {
+		return ids, nil
+	}
+
+	if err != nil {
+		slog.WarnContext(ctx, "redis friend IDs cache read failure, falling back to database",
 			slog.String("user_id", userID.String()),
 			slog.Any("error", err),
 		)
@@ -75,62 +95,21 @@ func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID uuid
 
 	friendIDs := extractPeerIDs(rels, userID)
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-
-	if setErr := r.cache.SetFriendIDs(cacheCtx, userID, friendIDs); setErr != nil {
-		slog.WarnContext(cacheCtx, "failed to backfill friend IDs cache after database read",
-			slog.String("user_id", userID.String()),
-			slog.Int("count", len(friendIDs)),
-			slog.Any("error", setErr),
-		)
-	}
+	r.backfillCache(ctx, "friend IDs", userID, len(friendIDs), func(cacheCtx context.Context) error {
+		return r.cache.SetFriendIDs(cacheCtx, userID, friendIDs)
+	})
 
 	return friendIDs, nil
 }
 
-func (r *CachedRelationRepository) GetBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	ids, err := r.cache.GetUserBlockIDs(ctx, userID)
+func (r *CachedRelationRepository) GetIncomingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	ids, err := r.cache.GetIncomingBlockIDs(ctx, userID)
 	if err == nil && ids != nil {
 		return ids, nil
 	}
 
 	if err != nil {
-		slog.WarnContext(ctx, "redis user block IDs cache read failure, falling back to database",
-			slog.String("user_id", userID.String()),
-			slog.Any("error", err),
-		)
-	}
-
-	rels, err := r.repo.ListOutgoingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	blockIDs := extractPeerIDs(rels, userID)
-
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-
-	if setErr := r.cache.SetBlockIDs(cacheCtx, userID, blockIDs); setErr != nil {
-		slog.WarnContext(cacheCtx, "failed to backfill block IDs cache after database read",
-			slog.String("user_id", userID.String()),
-			slog.Int("count", len(blockIDs)),
-			slog.Any("error", setErr),
-		)
-	}
-
-	return blockIDs, nil
-}
-
-func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	ids, err := r.cache.GetUserBlockedByIDs(ctx, userID)
-	if err == nil && ids != nil {
-		return ids, nil
-	}
-
-	if err != nil {
-		slog.WarnContext(ctx, "redis user blocked_by IDs cache read failure, falling back to database",
+		slog.WarnContext(ctx, "redis incoming block IDs cache read failure, falling back to database",
 			slog.String("user_id", userID.String()),
 			slog.Any("error", err),
 		)
@@ -143,18 +122,58 @@ func (r *CachedRelationRepository) GetBlockedByIDs(ctx context.Context, userID u
 
 	blockedByIDs := extractPeerIDs(rels, userID)
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
+	r.backfillCache(ctx, "incoming block IDs", userID, len(blockedByIDs), func(cacheCtx context.Context) error {
+		return r.cache.SetIncomingBlockIDs(cacheCtx, userID, blockedByIDs)
+	})
 
-	if setErr := r.cache.SetBlockedByIDs(cacheCtx, userID, blockedByIDs); setErr != nil {
-		slog.WarnContext(cacheCtx, "failed to backfill blocked_by IDs cache after database read",
+	return blockedByIDs, nil
+}
+
+func (r *CachedRelationRepository) GetOutgoingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	ids, err := r.cache.GetOutgoingBlockIDs(ctx, userID)
+	if err == nil && ids != nil {
+		return ids, nil
+	}
+
+	if err != nil {
+		slog.WarnContext(ctx, "redis outgoing block IDs cache read failure, falling back to database",
 			slog.String("user_id", userID.String()),
-			slog.Int("count", len(blockedByIDs)),
-			slog.Any("error", setErr),
+			slog.Any("error", err),
 		)
 	}
 
-	return blockedByIDs, nil
+	rels, err := r.repo.ListOutgoingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	blockIDs := extractPeerIDs(rels, userID)
+
+	r.backfillCache(ctx, "outgoing block IDs", userID, len(blockIDs), func(cacheCtx context.Context) error {
+		return r.cache.SetOutgoingBlockIDs(cacheCtx, userID, blockIDs)
+	})
+
+	return blockIDs, nil
+}
+
+func (r *CachedRelationRepository) backfillCache(
+	ctx context.Context,
+	entityName string,
+	userID uuid.UUID,
+	count int,
+	setFn func(cacheCtx context.Context) error,
+) {
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := setFn(cacheCtx); err != nil {
+		slog.WarnContext(cacheCtx, "failed to backfill cache after database read",
+			slog.String("entity", entityName),
+			slog.String("user_id", userID.String()),
+			slog.Int("count", count),
+			slog.Any("error", err),
+		)
+	}
 }
 
 func extractPeerIDs(rels []*relation.Relation, subjectID uuid.UUID) []uuid.UUID {

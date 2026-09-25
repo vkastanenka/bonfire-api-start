@@ -93,12 +93,12 @@ func (r *RelationRepository) ListFriendsByUserID(
 	return relationsFromRows(rows), nil
 }
 
-func (r *RelationRepository) ListIncomingPendingByUserID(
+func (r *RelationRepository) ListIncomingPendingsByUserID(
 	ctx context.Context,
 	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
-	rows, err := r.store.RelationListIncomingPendingByUserID(ctx, db.RelationListIncomingPendingByUserIDParams{
+	rows, err := r.store.RelationListIncomingPendingsByUserID(ctx, db.RelationListIncomingPendingsByUserIDParams{
 		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
@@ -109,12 +109,12 @@ func (r *RelationRepository) ListIncomingPendingByUserID(
 	return relationsFromRows(rows), nil
 }
 
-func (r *RelationRepository) ListOutgoingBlocksByUserID(
+func (r *RelationRepository) ListOutgoingPendingsByUserID(
 	ctx context.Context,
 	userID uuid.UUID,
 	limit int,
 ) ([]*relation.Relation, error) {
-	rows, err := r.store.RelationListOutgoingBlocksByUserID(ctx, db.RelationListOutgoingBlocksByUserIDParams{
+	rows, err := r.store.RelationListOutgoingPendingsByUserID(ctx, db.RelationListOutgoingPendingsByUserIDParams{
 		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})
@@ -131,6 +131,22 @@ func (r *RelationRepository) ListIncomingBlocksByUserID(
 	limit int,
 ) ([]*relation.Relation, error) {
 	rows, err := r.store.RelationListIncomingBlocksByUserID(ctx, db.RelationListIncomingBlocksByUserIDParams{
+		UserID:   db.ToUUID(userID),
+		LimitVal: int32(limit),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityRelation)
+	}
+
+	return relationsFromRows(rows), nil
+}
+
+func (r *RelationRepository) ListOutgoingBlocksByUserID(
+	ctx context.Context,
+	userID uuid.UUID,
+	limit int,
+) ([]*relation.Relation, error) {
+	rows, err := r.store.RelationListOutgoingBlocksByUserID(ctx, db.RelationListOutgoingBlocksByUserIDParams{
 		UserID:   db.ToUUID(userID),
 		LimitVal: int32(limit),
 	})

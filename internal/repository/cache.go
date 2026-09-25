@@ -37,30 +37,39 @@ type MessageCache interface {
 }
 
 type RelationCache interface {
-	AddBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
-	AddBlockedByID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
 	AddFriendID(ctx context.Context, userID uuid.UUID, friendID uuid.UUID) error
 	AddFriendPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
-	AddPendingID(ctx context.Context, userID uuid.UUID, pendingID uuid.UUID) error
+	AddIncomingBlockID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
+	AddIncomingPendingID(ctx context.Context, userID uuid.UUID, senderID uuid.UUID) error
+	AddOutgoingBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
+	AddOutgoingPendingID(ctx context.Context, userID uuid.UUID, targetID uuid.UUID) error
+	AddPendingPair(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
 	BlockUser(ctx context.Context, blockerID uuid.UUID, targetID uuid.UUID) error
-	DeleteBlockedByIndex(ctx context.Context, userID uuid.UUID) error
-	DeleteBlocksIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteBlocksPair(ctx context.Context, blockerID uuid.UUID, targetID uuid.UUID) error
 	DeleteFriendsIndex(ctx context.Context, userID uuid.UUID) error
-	DeletePendingsIndex(ctx context.Context, userID uuid.UUID) error
-	GetUserBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetUserBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetUserFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetUserPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	RemoveBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
-	RemoveBlockedByID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
+	DeleteFriendsPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
+	DeleteIncomingBlocksIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteIncomingPendingsIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteOutgoingBlocksIndex(ctx context.Context, userID uuid.UUID) error
+	DeleteOutgoingPendingsIndex(ctx context.Context, userID uuid.UUID) error
+	DeletePendingPair(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
+	GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetIncomingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetIncomingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetOutgoingBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+	GetOutgoingPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	RemoveFriendID(ctx context.Context, userID uuid.UUID, friendID uuid.UUID) error
 	RemoveFriendPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
-	RemovePendingID(ctx context.Context, userID uuid.UUID, pendingID uuid.UUID) error
-	RemovePendingPair(ctx context.Context, userA uuid.UUID, userB uuid.UUID) error
-	SetBlockIDs(ctx context.Context, userID uuid.UUID, blockIDs []uuid.UUID) error
-	SetBlockedByIDs(ctx context.Context, userID uuid.UUID, blockedByIDs []uuid.UUID) error
+	RemoveIncomingBlockID(ctx context.Context, userID uuid.UUID, blockerUserID uuid.UUID) error
+	RemoveIncomingPendingID(ctx context.Context, userID uuid.UUID, senderID uuid.UUID) error
+	RemoveOutgoingBlockID(ctx context.Context, userID uuid.UUID, blockedUserID uuid.UUID) error
+	RemoveOutgoingPendingID(ctx context.Context, userID uuid.UUID, targetID uuid.UUID) error
+	RemovePendingPair(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
 	SetFriendIDs(ctx context.Context, userID uuid.UUID, friendIDs []uuid.UUID) error
-	SetPendingIDs(ctx context.Context, userID uuid.UUID, pendingIDs []uuid.UUID) error
+	SetIncomingBlockIDs(ctx context.Context, userID uuid.UUID, blockIDs []uuid.UUID) error
+	SetIncomingPendingIDs(ctx context.Context, userID uuid.UUID, pendingIDs []uuid.UUID) error
+	SetOutgoingBlockIDs(ctx context.Context, userID uuid.UUID, blockIDs []uuid.UUID) error
+	SetOutgoingPendingIDs(ctx context.Context, userID uuid.UUID, pendingIDs []uuid.UUID) error
 	UnblockUser(ctx context.Context, blockerID uuid.UUID, targetID uuid.UUID) error
 }
 
