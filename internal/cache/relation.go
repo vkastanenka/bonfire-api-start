@@ -50,14 +50,6 @@ func (c *RelationCache) RemovePendingID(ctx context.Context, userID uuid.UUID, p
 	return removeFromSetIDs(ctx, redis.ScopeRelation, c.client, userPendingsKey(userID), pendingID)
 }
 
-func (c *RelationCache) RemovePendingPair(ctx context.Context, userA, userB uuid.UUID) error {
-	removals := map[string][]uuid.UUID{
-		userPendingsKey(userA): {userB},
-		userPendingsKey(userB): {userA},
-	}
-	return removeFromSetIDsPipelined(ctx, redis.ScopeRelation, c.client, removals)
-}
-
 func (c *RelationCache) DeletePendingsIndex(ctx context.Context, userID uuid.UUID) error {
 	return deleteSet(ctx, redis.ScopeRelation, c.client, userPendingsKey(userID))
 }

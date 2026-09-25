@@ -7,13 +7,16 @@ import (
 
 	"github.com/google/uuid"
 
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 )
 
 type Service struct {
+	cache             Cache
 	repo              Repository
 	channelRepo       ChannelRepository
 	cachedChannelRepo CachedChannelRepository
@@ -28,6 +31,7 @@ type Service struct {
 }
 
 func NewService(
+	cache Cache,
 	repo Repository,
 	channelRepo ChannelRepository,
 	cachedChannelRepo CachedChannelRepository,
@@ -41,6 +45,7 @@ func NewService(
 	tx TX,
 ) *Service {
 	return &Service{
+		cache:             cache,
 		repo:              repo,
 		channelRepo:       channelRepo,
 		cachedChannelRepo: cachedChannelRepo,
@@ -55,17 +60,22 @@ func NewService(
 	}
 }
 
-func (s *Service) TransitionPending(ctx context.Context, actorID, peerID uuid.UUID) error {
-	u1, u2 := sortIDPair(actorID, peerID)
-	now := time.Now()
-	rel := NewPending(u1, u2, actorID, now)
-
-	actor, err := s.cachedUserRepo.Get(ctx, actorID)
+func (s *Service) TransitionPending(ctx context.Context, peerID uuid.UUID) error {
+	claims, err := appctx.GetClaims(ctx)
 	if err != nil {
 		return err
 	}
 
-	return s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	actor, err := s.cachedUserRepo.Get(ctx, claims.UserID)
+	if err != nil {
+		return err
+	}
+
+	u1, u2 := sortIDPair(claims.UserID, peerID)
+	now := time.Now()
+	rel := NewPending(u1, u2, claims.UserID, now)
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		relLock, err := s.repo.GetForUpdate(txCtx, u1, u2)
 		if errs.IsNotFound(err) {
 			if rel, err = s.repo.Save(txCtx, rel); err != nil {
@@ -73,13 +83,26 @@ func (s *Service) TransitionPending(ctx context.Context, actorID, peerID uuid.UU
 			}
 
 			payload := EventFriendRequestSentPayload{
-				ActorID:   actorID,
-				PeerID:    rel.PeerID(actorID),
+				ActorID:   claims.UserID,
+				PeerID:    peerID,
 				Actor:     user.ParseSummary(actor),
 				CreatedAt: now,
 			}
 
-			return s.outboxRepo.Publish(txCtx, EventFriendRequestSent, payload, now)
+			event, err := outbox.New(
+				claims.UserID,
+				claims.SessionID,
+				appctx.GetTraceID(ctx),
+				[]uuid.UUID{peerID},
+				EventFriendRequestSent,
+				payload,
+				now,
+			)
+			if err != nil {
+				return err
+			}
+
+			return s.outboxRepo.Create(txCtx, event)
 		}
 		if err != nil {
 			return err
@@ -95,6 +118,22 @@ func (s *Service) TransitionPending(ctx context.Context, actorID, peerID uuid.UU
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.AddPendingID(cacheCtx, peerID, claims.UserID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to add pending ID to cache after relationship transition",
+			slog.String("user_id", claims.UserID.String()),
+			slog.String("peer_id", peerID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	return nil
 }
 
 type TransitionFriendsResult struct {

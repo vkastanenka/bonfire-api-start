@@ -25,9 +25,9 @@ type Repository interface {
 }
 
 type CachedRepository interface {
+	GetBlockIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	GetBlockedByIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetBlocklistIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	GetFriends(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]uuid.UUID, error)
+	GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	GetPendingIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
