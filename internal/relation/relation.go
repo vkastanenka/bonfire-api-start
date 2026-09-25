@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxPeerTypeLimit int = 1000
+const MaxPeerTypeLimit int = 1000
 
 type Relation struct {
 	User1ID   uuid.UUID

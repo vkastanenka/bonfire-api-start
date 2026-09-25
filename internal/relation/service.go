@@ -84,7 +84,7 @@ func (s *Service) TransitionPending(ctx context.Context, peerID uuid.UUID) error
 		if helpers.ContainsID(outgoingPendings, peerID) {
 			return nil
 		}
-		if len(outgoingPendings) >= maxPeerTypeLimit {
+		if len(outgoingPendings) >= MaxPeerTypeLimit {
 			return ErrMaxPendingRequestsReached()
 		}
 	}
@@ -101,7 +101,7 @@ func (s *Service) TransitionPending(ctx context.Context, peerID uuid.UUID) error
 		)
 	}
 
-	if peerIncomingPendings, err := s.cachedRepo.GetIncomingPendingIDs(ctx, peerID); err == nil && len(peerIncomingPendings) >= maxPeerTypeLimit {
+	if peerIncomingPendings, err := s.cachedRepo.GetIncomingPendingIDs(ctx, peerID); err == nil && len(peerIncomingPendings) >= MaxPeerTypeLimit {
 		return nil
 	}
 
@@ -110,7 +110,7 @@ func (s *Service) TransitionPending(ctx context.Context, peerID uuid.UUID) error
 		if helpers.ContainsID(friends, peerID) {
 			return nil
 		}
-		if len(friends) >= maxPeerTypeLimit {
+		if len(friends) >= MaxPeerTypeLimit {
 			return ErrMaxFriendsReached()
 		}
 	}
@@ -210,13 +210,13 @@ func (s *Service) TransitionFriends(ctx context.Context, peerID uuid.UUID) (*Tra
 		if helpers.ContainsID(actorFriends, peerID) {
 			return nil, ErrAlreadyFriends()
 		}
-		if len(actorFriends) >= maxPeerTypeLimit {
+		if len(actorFriends) >= MaxPeerTypeLimit {
 			return nil, ErrMaxFriendsReached()
 		}
 	}
 
 	peerFriends, err := s.cachedRepo.GetFriendIDs(ctx, peerID)
-	if err == nil && len(peerFriends) >= maxPeerTypeLimit {
+	if err == nil && len(peerFriends) >= MaxPeerTypeLimit {
 		return nil, ErrPendingRequestNotFound()
 	}
 
@@ -300,7 +300,7 @@ func (s *Service) TransitionFriends(ctx context.Context, peerID uuid.UUID) (*Tra
 			actorID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
-			[]uuid.UUID{actorID},
+			[]uuid.UUID{actorID, peerID},
 			EventFriendAdded,
 			actorPayload,
 			now,
@@ -324,7 +324,7 @@ func (s *Service) TransitionFriends(ctx context.Context, peerID uuid.UUID) (*Tra
 			actorID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
-			[]uuid.UUID{peerID},
+			[]uuid.UUID{actorID, peerID},
 			EventFriendAdded,
 			peerPayload,
 			now,
@@ -404,7 +404,7 @@ func (s *Service) TransitionBlocked(ctx context.Context, peerID uuid.UUID) error
 					actorID,
 					claims.SessionID,
 					appctx.GetTraceID(ctx),
-					[]uuid.UUID{peerID},
+					[]uuid.UUID{actorID, peerID},
 					EventFriendDeleted,
 					payload,
 					now,
@@ -499,7 +499,7 @@ func (s *Service) DeleteByUserID(ctx context.Context, peerID uuid.UUID) error {
 				actorID,
 				claims.SessionID,
 				appctx.GetTraceID(ctx),
-				[]uuid.UUID{peerID},
+				[]uuid.UUID{actorID, peerID},
 				EventFriendDeleted,
 				payload,
 				now,

@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxRelationFetchLimit = 1000
-
 type CachedRelationRepository struct {
 	cache RelationCache
 	repo  *RelationRepository
@@ -34,7 +32,7 @@ func (r *CachedRelationRepository) GetIncomingPendingIDs(ctx context.Context, us
 		)
 	}
 
-	rels, err := r.repo.ListIncomingPendingsByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListIncomingPendingsByUserID(ctx, userID, relation.MaxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +59,7 @@ func (r *CachedRelationRepository) GetOutgoingPendingIDs(ctx context.Context, us
 		)
 	}
 
-	rels, err := r.repo.ListOutgoingPendingsByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListOutgoingPendingsByUserID(ctx, userID, relation.MaxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +86,7 @@ func (r *CachedRelationRepository) GetFriendIDs(ctx context.Context, userID uuid
 		)
 	}
 
-	rels, err := r.repo.ListFriendsByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListFriendsByUserID(ctx, userID, relation.MaxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +113,7 @@ func (r *CachedRelationRepository) GetIncomingBlockIDs(ctx context.Context, user
 		)
 	}
 
-	rels, err := r.repo.ListIncomingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListIncomingBlocksByUserID(ctx, userID, relation.MaxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +140,7 @@ func (r *CachedRelationRepository) GetOutgoingBlockIDs(ctx context.Context, user
 		)
 	}
 
-	rels, err := r.repo.ListOutgoingBlocksByUserID(ctx, userID, maxRelationFetchLimit)
+	rels, err := r.repo.ListOutgoingBlocksByUserID(ctx, userID, relation.MaxPeerTypeLimit)
 	if err != nil {
 		return nil, err
 	}
