@@ -1,44 +1,52 @@
 package session
 
 import (
+	"bonfire-api/internal/outbox"
+	"context"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+type Worker interface {
+	RegisterHandler(eventType string, handler outbox.Handler)
+}
+
+type Broadcaster interface {
+	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	BroadcastToUserSession(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID, eventType string, payload any) error
+}
+
 const (
-	EventRevoke    = "session.revoke"
-	EventRevokeAll = "session.revoke-all"
+	EventRevoked    = "session.revoked"
+	EventRevokedAll = "session.revoked_all"
 )
 
-type EventRevokePayload struct {
-	SessionID uuid.UUID `json:"session_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	RevokedAt time.Time `json:"revoked_at"`
+func RegisterEvents(w Worker, b Broadcaster) {
+	w.RegisterHandler(EventRevoked, newRevokedEventHandler(b))
+	w.RegisterHandler(EventRevokedAll, newRevokedAllEventHandler(b))
 }
 
-type EventRevokeAllPayload struct {
-	UserID     uuid.UUID   `json:"user_id"`
-	SessionIDs []uuid.UUID `json:"session_ids"`
-	RevokedAt  time.Time   `json:"revoked_at"`
+type EventRevokedPayload struct {
+	UserID    uuid.UUID `json:"userId"`
+	SessionID uuid.UUID `json:"sessionId"`
+	RevokedAt time.Time `json:"revokedAt"`
 }
 
-// func NewRevokeOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventRevokePayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return outbox.NewSessionHandler(gw, EventRevoke, p.UserID, p.UserID, p.SessionID)(ctx, payload)
-// 	}
-// }
+func newRevokedEventHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventRevokedPayload) error {
+		return b.BroadcastToUserSession(ctx, p.UserID, p.SessionID, EventRevoked, p)
+	})
+}
 
-// func NewRevokeAllOutboxHandler(gw outbox.Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventRevokeAllPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return outbox.NewUserHandler(gw, EventRevokeAll, p.UserID, p.UserID)(ctx, payload)
-// 	}
-// }
+type EventRevokedAllPayload struct {
+	UserID     uuid.UUID   `json:"userId"`
+	SessionIDs []uuid.UUID `json:"sessionIds"`
+	RevokedAt  time.Time   `json:"revokedAt"`
+}
+
+func newRevokedAllEventHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventRevokedAllPayload) error {
+		return b.BroadcastToUser(ctx, p.UserID, EventRevokedAll, p)
+	})
+}

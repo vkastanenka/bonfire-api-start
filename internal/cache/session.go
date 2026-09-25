@@ -14,7 +14,8 @@ var (
 	sessionTTL = 24 * time.Hour
 )
 
-func sessionKey(id uuid.UUID) string { return "{session:" + id.String() + "}" }
+func sessionKey(id uuid.UUID) string      { return "{session:" + id.String() + "}" }
+func userSessionsKey(id uuid.UUID) string { return "{user:" + id.String() + "}:sessions" }
 
 type SessionCache struct {
 	client redisdriver.Cmdable
@@ -49,8 +50,38 @@ func (c *SessionCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.
 	return getAndUnmarshalBatch(ctx, redis.ScopeUser, c.client, ids, sessionKey, unmarshalSession)
 }
 
-func (c *SessionCache) SetBatch(ctx context.Context, users map[uuid.UUID]*session.Session) error {
-	return marshalAndSetBatch(ctx, redis.ScopeUser, c.client, users, sessionKey, sessionTTL, marshalSession)
+func (c *SessionCache) SetBatch(ctx context.Context, sessions map[uuid.UUID]*session.Session) error {
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	pipe := c.client.Pipeline()
+
+	for _, sess := range sessions {
+		if sess == nil {
+			continue
+		}
+
+		ttl, ok := calcEffSessionTTL(sess)
+		if !ok {
+			continue
+		}
+
+		data, err := marshalSession(sess)
+		if err != nil {
+			return redis.NewError(err, redis.ScopeSession)
+		}
+
+		key := sessionKey(sess.ID)
+		pipe.Set(ctx, key, data, ttl)
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return redis.NewError(err, redis.ScopeSession)
+	}
+
+	return nil
 }
 
 func (c *SessionCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {

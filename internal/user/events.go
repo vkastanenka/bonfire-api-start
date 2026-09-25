@@ -44,7 +44,7 @@ type EventEmailUpdatedPayload struct {
 
 func newEmailUpdatedEventHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventEmailUpdatedPayload) error {
-		return b.BroadcastToUser(ctx, m.ActorID, EventEmailUpdated, p)
+		return b.BroadcastToUser(ctx, p.UserID, EventEmailUpdated, p)
 	})
 }
 
@@ -67,7 +67,7 @@ type EventPasswordUpdatedPayload struct {
 
 func newPasswordUpdatedEventHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventPasswordUpdatedPayload) error {
-		return b.BroadcastToUser(ctx, m.ActorID, EventPasswordUpdated, p)
+		return b.BroadcastToUser(ctx, p.UserID, EventPasswordUpdated, p)
 	})
 }
 

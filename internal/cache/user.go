@@ -28,7 +28,6 @@ const (
 
 func userKey(id uuid.UUID) string          { return "{user:" + id.String() + "}" }
 func userPresenceKey(id uuid.UUID) string  { return "{user:" + id.String() + "}:presence" }
-func userSessionsKey(id uuid.UUID) string  { return "{user:" + id.String() + "}:sessions" }
 func userPendingsKey(id uuid.UUID) string  { return "{user:" + id.String() + "}:pendings" }
 func userFriendsKey(id uuid.UUID) string   { return "{user:" + id.String() + "}:friends" }
 func userBlocksKey(id uuid.UUID) string    { return "{user:" + id.String() + "}:blocks" }
