@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 
@@ -14,11 +15,11 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-type PresenceService interface {
+type service interface {
 	HandleHeartbeat(ctx context.Context, userID uuid.UUID, nodeID uuid.UUID, sessionID uuid.UUID, newPresence presence.Presence) error
-	RegisterNodeSession(ctx context.Context, userID uuid.UUID, nodeID uuid.UUID, sessionID uuid.UUID, presenceStatus presence.Presence) error
-	RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
-	UnregisterNodeSession(ctx context.Context, userID uuid.UUID, nodeID uuid.UUID, sessionID uuid.UUID) error
+	RegisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p presence.Presence) error
+	RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
+	UnregisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
 }
 
 var clientBufferLength = 256
@@ -44,7 +45,7 @@ type Hub struct {
 	register   chan ClientRegistration
 	unregister chan *Client
 
-	presence PresenceService
+	service  service
 	handlers map[string]MessageHandler
 
 	redisClient *goredis.Client
@@ -54,14 +55,14 @@ type Hub struct {
 	subMu sync.Mutex
 }
 
-func NewHub(redisClient *goredis.Client, presence PresenceService) *Hub {
+func NewHub(redisClient *goredis.Client, service service) *Hub {
 	return &Hub{
 		id:          uuid.New(),
 		sessionIdx:  make(map[uuid.UUID]*Client),
 		userIdx:     make(map[uuid.UUID]map[uuid.UUID]*Client),
 		register:    make(chan ClientRegistration, clientBufferLength),
 		unregister:  make(chan *Client, clientBufferLength),
-		presence:    presence,
+		service:     service,
 		handlers:    make(map[string]MessageHandler),
 		redisClient: redisClient,
 	}
@@ -149,7 +150,7 @@ func (h *Hub) registerNodeSession(ctx context.Context, userID, sessionID uuid.UU
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.presence.RegisterNodeSession(reqCtx, userID, h.id, sessionID, presence); err != nil {
+	if err := h.service.RegisterSession(reqCtx, h.id, userID, sessionID, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 }
@@ -194,7 +195,7 @@ func (h *Hub) unregisterNodeSession(ctx context.Context, userID, sessionID uuid.
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.presence.UnregisterNodeSession(reqCtx, userID, h.id, sessionID); err != nil {
+	if err := h.service.UnregisterSession(reqCtx, h.id, userID, sessionID); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 }
@@ -225,7 +226,7 @@ func (h *Hub) cleanupNodes(ctx context.Context) {
 		return
 	}
 
-	if err := h.presence.RemoveBatchNodeUsers(ctx, h.id, userIDs); err != nil {
+	if err := h.service.RemoveBatchUsers(ctx, h.id, userIDs); err != nil {
 		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
 	}
 }
@@ -242,7 +243,7 @@ func (h *Hub) closeAllClients() {
 }
 
 func (h *Hub) listenEvents(ctx context.Context) {
-	channelKey := gatewayEventsKey(h.id)
+	channelKey := cache.GatewayEventsKey(h.id)
 
 	sub, err := redis.Subscribe(ctx, h.redisClient, channelKey)
 	if err != nil {

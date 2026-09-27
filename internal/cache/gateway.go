@@ -15,7 +15,7 @@ var (
 	userSessionsTTL = 90 * time.Second
 )
 
-func gatewayEventsKey(id uuid.UUID) string { return "gateway:" + id.String() + ":events" }
+func GatewayEventsKey(id uuid.UUID) string { return "gateway:" + id.String() + ":events" }
 func userSessionsKey(id uuid.UUID) string  { return "{user:" + id.String() + "}:sessions" }
 
 type GatewayCache struct {
@@ -137,7 +137,7 @@ var unregisterSessionScript = redisdriver.NewScript(`
 		return 0 -- wentOffline = false
 	`)
 
-func (c *GatewayCache) UnregisterNodeSession(ctx context.Context, nodeID, userID, sessionID uuid.UUID) (bool, error) {
+func (c *GatewayCache) UnregisterSession(ctx context.Context, nodeID, userID, sessionID uuid.UUID) (bool, error) {
 	keys := []string{
 		userPresenceKey(userID),
 		userSessionsKey(userID),
@@ -158,7 +158,7 @@ func (c *GatewayCache) UnregisterNodeSession(ctx context.Context, nodeID, userID
 	return wentOffline == 1, nil
 }
 
-func (c *GatewayCache) GetBatchNodeUsers(
+func (c *GatewayCache) GetBatchUsers(
 	ctx context.Context,
 	userIDs []uuid.UUID,
 ) (map[uuid.UUID][]uuid.UUID, error) {
@@ -216,7 +216,7 @@ func (c *GatewayCache) GetBatchNodeUsers(
 	return nodeToUsers, nil
 }
 
-var removeBatchNodeUsersScript = redisdriver.NewScript(`
+var removeBatchUsersScript = redisdriver.NewScript(`
 		local pKey = KEYS[1]
 		local sHashKey = KEYS[2]
 		local targetNodeID = ARGV[1]
@@ -257,7 +257,7 @@ var removeBatchNodeUsersScript = redisdriver.NewScript(`
 		redis.call('EXPIRE', pKey, ttl)
 `)
 
-func (c *GatewayCache) RemoveBatchNodeUsers(
+func (c *GatewayCache) RemoveBatchUsers(
 	ctx context.Context,
 	nodeID uuid.UUID,
 	userIDs []uuid.UUID,
@@ -284,7 +284,7 @@ func (c *GatewayCache) RemoveBatchNodeUsers(
 					userSessionsKey(userID),
 				}
 
-				removeBatchNodeUsersScript.Run(ctx, pipe, keys, nodeIDStr, ttlSeconds)
+				removeBatchUsersScript.Run(ctx, pipe, keys, nodeIDStr, ttlSeconds)
 			}
 			return nil
 		})

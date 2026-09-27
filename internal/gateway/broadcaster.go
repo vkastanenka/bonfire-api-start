@@ -4,28 +4,22 @@ import (
 	"context"
 	"encoding/json"
 
+	"bonfire-api/internal/cache"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 )
 
-const gatewayDomainKey = "gateway:"
-
-func gatewayEventsKey(id uuid.UUID) string {
-	return gatewayDomainKey + id.String() + ":events"
-}
-
 type Broadcaster struct {
-	rdb           goredis.Cmdable
-	presenceCache PresenceCache
+	rdb          goredis.Cmdable
+	gatewayCache GatewayCache
 }
 
-func NewBroadcaster(rdb goredis.Cmdable, presenceCache PresenceCache) *Broadcaster {
+func NewBroadcaster(rdb goredis.Cmdable, gatewayCache GatewayCache) *Broadcaster {
 	return &Broadcaster{
-		rdb:           rdb,
-		presenceCache: presenceCache,
+		rdb:          rdb,
+		gatewayCache: gatewayCache,
 	}
 }
 
@@ -98,7 +92,7 @@ func (b *Broadcaster) dispatch(
 	}
 
 	// 1. Resolve active node topology for target users
-	nodeToUsers, err := b.presenceCache.GetBatchNodeUsers(ctx, userIDs)
+	nodeToUsers, err := b.gatewayCache.GetBatchUsers(ctx, userIDs)
 	if err != nil || len(nodeToUsers) == 0 {
 		return err
 	}
@@ -156,19 +150,21 @@ func (b *Broadcaster) publishToNodes(ctx context.Context, events map[uuid.UUID]E
 		return nil
 	}
 
-	type encodedPublish struct {
+	type pubItem struct {
 		channel string
 		payload []byte
 	}
-	pubItems := make([]encodedPublish, 0, len(events))
+	pubItems := make([]pubItem, 0, len(events))
 
 	for nodeID, event := range events {
 		encoded, err := json.Marshal(event)
 		if err != nil {
-			return redis.NewError(err, redis.ScopeGateway)
+			return errs.Internal("Failed to marshal broadcast event envelope.").
+				Reason("BROADCAST_MARSHAL_FAILED").
+				Wrap(err)
 		}
-		pubItems = append(pubItems, encodedPublish{
-			channel: gatewayEventsKey(nodeID),
+		pubItems = append(pubItems, pubItem{
+			channel: cache.GatewayEventsKey(nodeID),
 			payload: encoded,
 		})
 	}
@@ -180,7 +176,9 @@ func (b *Broadcaster) publishToNodes(ctx context.Context, events map[uuid.UUID]E
 		return nil
 	})
 	if err != nil {
-		return redis.NewError(err, redis.ScopeGateway)
+		return errs.Unavailable("Failed to publish broadcast events to gateway nodes.").
+			Reason("PUBSUB_BATCH_PUBLISH_FAILED").
+			Wrap(err)
 	}
 
 	return nil

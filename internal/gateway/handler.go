@@ -19,12 +19,12 @@ var upgrader = websocket.Upgrader{
 // Handler manages WebSocket connection upgrades, query verification, and client lifecycle registration.
 type Handler struct {
 	hub         *Hub
-	ticketCache TicketCache
+	ticketCache WSTicketCache
 	bind        *httpio.Bind
 }
 
 // NewHandler initializes and returns a new gateway Handler instance.
-func NewHandler(hub *Hub, ticketCache TicketCache, bind *httpio.Bind) *Handler {
+func NewHandler(hub *Hub, ticketCache WSTicketCache, bind *httpio.Bind) *Handler {
 	return &Handler{
 		hub:         hub,
 		ticketCache: ticketCache,

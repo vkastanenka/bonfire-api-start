@@ -230,8 +230,9 @@ func (s *Service) TransitionFriends(ctx context.Context, peerID uuid.UUID) (*Tra
 		return nil, err
 	}
 
-	actorPresence, _ := s.presenceCache.GetPresence(ctx, actorID)
-	peerPresence, _ := s.presenceCache.GetPresence(ctx, peerID)
+	presences, _ := s.presenceCache.GetBatch(ctx, []uuid.UUID{actorID, peerID})
+	actorPresence := presences[actorID]
+	peerPresence := presences[peerID]
 
 	var createdChannel *channel.Channel
 	var actorMember *channel.Member
