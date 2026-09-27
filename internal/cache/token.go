@@ -2,21 +2,15 @@ package cache
 
 import (
 	"context"
-	"errors"
+	"math"
 	"time"
 
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/token"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
-
-func ErrTokenAlreadyUsed() error {
-	return errs.InvalidArgument("Token already used.").
-		FieldViolation("token", "Token already used.", "INVALID").
-		Wrap(errors.New("valid token is required"))
-}
 
 type TokenCache struct {
 	client redisdriver.Cmdable
@@ -26,142 +20,64 @@ func NewTokenCache(client redisdriver.Cmdable) *TokenCache {
 	return &TokenCache{client: client}
 }
 
-func tokenConsumedForgotPasswordKey(jti string) string {
-	return "token:consumed:forgot_password:" + jti
+func (c *TokenCache) ConsumePasswordResetToken(ctx context.Context, claims *token.Claims) error {
+	return c.consumeJTI(ctx, "forgot_password", claims.ID, claims.ExpiresAt.Time)
 }
 
-func tokenConsumedRefreshKey(jti string) string {
-	return "token:consumed:refresh:" + jti
+func (c *TokenCache) ConsumeRefreshToken(ctx context.Context, claims *token.Claims) error {
+	return c.consumeJTI(ctx, "refresh", claims.ID, claims.ExpiresAt.Time)
 }
 
-func tokenConsumedEmailVerifyKey(jti string) string {
-	return "token:consumed:email_verify:" + jti
+func (c *TokenCache) ConsumeEmailVerifyToken(ctx context.Context, claims *token.Claims) error {
+	return c.consumeJTI(ctx, "email_verify", claims.ID, claims.ExpiresAt.Time)
 }
 
-// Lua script to atomically check if a JTI is consumed and mark it in a single network round trip.
+// Lua script to atomically check if a JTI is consumed and mark it in a single round trip.
 var tokenConsumeJTIScript = redisdriver.NewScript(`
 	local key = KEYS[1]
 	local ttl = tonumber(ARGV[1])
 
-	-- If the key exists, it has already been used
 	if redis.call('EXISTS', key) == 1 then
-		return 0 -- already consumed
+		return 0
 	end
 
-	-- Mark as consumed with the remaining token TTL
 	redis.call('SET', key, '1', 'EX', ttl)
-	return 1 -- successfully consumed
+	return 1
 `)
 
-// ConsumeForgotPasswordJTI checks if the JTI was used, and if not, marks it as used atomically.
-// Returns true if the token was successfully consumed, false if it was already used.
-func (c *TokenCache) ConsumeForgotPasswordJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error) {
-	if remainingTTL <= 0 {
-		return false, nil
+// consumeJTI is the single private helper executing the Redis check-and-set logic.
+func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory, jti string, expiresAt time.Time) error {
+	if jti == "" {
+		return errs.InvalidArgument("jti cannot be empty")
 	}
 
-	ttlSeconds := int(remainingTTL.Seconds())
+	// Account for JWT clock leeway (DefaultClockLeeway) so valid tokens near expiration don't miss Redis tracking.
+	remainingTTL := time.Until(expiresAt) + token.DefaultClockLeeway
+	if remainingTTL <= 0 {
+		return ErrTokenAlreadyUsed()
+	}
+
+	ttlSeconds := int64(math.Ceil(remainingTTL.Seconds()))
 	if ttlSeconds < 1 {
 		ttlSeconds = 1
 	}
 
-	res, err := tokenConsumeJTIScript.Run(
-		ctx,
-		c.client,
-		[]string{tokenConsumedForgotPasswordKey(jti)},
-		ttlSeconds,
-	).Int64()
-
-	if err != nil {
-		return false, redis.NewError(err, redis.ScopeToken)
-	}
-
-	return res == 1, nil
-}
-
-func (c *TokenCache) ConsumePasswordResetToken(ctx context.Context, claims *token.Claims) error {
-	remainingTTL := time.Until(claims.ExpiresAt.Time)
-
-	consumed, err := c.ConsumeForgotPasswordJTI(ctx, claims.ID, remainingTTL)
-	if err != nil {
-		return err
-	}
-	if !consumed {
-		return ErrTokenAlreadyUsed()
-	}
-	return nil
-}
-
-func (c *TokenCache) ConsumeRefreshJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error) {
-	if remainingTTL <= 0 {
-		return false, nil
-	}
-
-	ttlSeconds := int(remainingTTL.Seconds())
-	if ttlSeconds < 1 {
-		ttlSeconds = 1
-	}
+	key := "token:consumed:" + keyCategory + ":" + jti
 
 	res, err := tokenConsumeJTIScript.Run(
 		ctx,
 		c.client,
-		[]string{tokenConsumedRefreshKey(jti)},
+		[]string{key},
 		ttlSeconds,
 	).Int64()
 
 	if err != nil {
-		return false, redis.NewError(err, redis.ScopeToken)
+		return redis.NewError(err, redis.ScopeToken)
 	}
 
-	return res == 1, nil
-}
-
-func (c *TokenCache) ConsumeRefreshToken(ctx context.Context, claims *token.Claims) error {
-	remainingTTL := time.Until(claims.ExpiresAt.Time)
-
-	consumed, err := c.ConsumeRefreshJTI(ctx, claims.ID, remainingTTL)
-	if err != nil {
-		return err
-	}
-	if !consumed {
-		return ErrTokenAlreadyUsed()
-	}
-	return nil
-}
-
-func (c *TokenCache) ConsumeEmailVerifyJTI(ctx context.Context, jti string, remainingTTL time.Duration) (bool, error) {
-	if remainingTTL <= 0 {
-		return false, nil
+	if res == 0 {
+		return ErrTokenAlreadyUsed().Meta("type", keyCategory)
 	}
 
-	ttlSeconds := int(remainingTTL.Seconds())
-	if ttlSeconds < 1 {
-		ttlSeconds = 1
-	}
-
-	res, err := tokenConsumeJTIScript.Run(
-		ctx,
-		c.client,
-		[]string{tokenConsumedEmailVerifyKey(jti)},
-		ttlSeconds,
-	).Int64()
-
-	if err != nil {
-		return false, redis.NewError(err, redis.ScopeToken)
-	}
-
-	return res == 1, nil
-}
-
-func (c *TokenCache) ConsumeEmailVerifyToken(ctx context.Context, claims *token.Claims) error {
-	remainingTTL := time.Until(claims.ExpiresAt.Time)
-
-	consumed, err := c.ConsumeEmailVerifyJTI(ctx, claims.ID, remainingTTL)
-	if err != nil {
-		return err
-	}
-	if !consumed {
-		return ErrTokenAlreadyUsed()
-	}
 	return nil
 }

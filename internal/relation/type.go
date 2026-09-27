@@ -32,8 +32,8 @@ func ParseString(s string) (Type, error) {
 	return sanitize.ParseEnumString[Type](s, typeNames[:], "relationType")
 }
 
-func ParseBytes(b []byte) (Type, error) {
-	return sanitize.ParseEnumBytes[Type](b, typeNames[:], "relationType")
+func ParseStringBytes(b []byte) (Type, error) {
+	return sanitize.ParseEnumStringBytes[Type](b, typeNames[:], "relationType")
 }
 
 func (t Type) IsValid() bool {
@@ -74,7 +74,7 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseBytes(data)
+	parsed, err := ParseStringBytes(data)
 	if err != nil {
 		return err
 	}

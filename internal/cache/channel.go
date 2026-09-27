@@ -1,40 +1,27 @@
 package cache
 
 import (
-	"bonfire-api/internal/channel"
-	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/redis"
 	"context"
-	"encoding/json"
-	"errors"
 	"time"
+
+	"bonfire-api/internal/channel"
+	"bonfire-api/internal/redis"
 
 	"github.com/google/uuid"
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
 const (
-	channelTTL = 24 * time.Hour
+	channelTTL      = 24 * time.Hour
+	userChannelsTTL = 24 * time.Hour
 )
 
-// String
 func channelKey(channelID uuid.UUID) string {
 	return "{channel:" + channelID.String() + "}"
 }
 
-// Hash
-func channelMembersKey(id uuid.UUID) string {
-	return "{channel:" + id.String() + "}:members"
-}
-
-// ZSet
-func channelMessagesKey(channelID uuid.UUID) string {
-	return "{channel:" + channelID.String() + "}:messages"
-}
-
-// String
-func messageKey(messageID uuid.UUID) string {
-	return "{message:" + messageID.String() + "}"
+func userChannelsKey(id uuid.UUID) string {
+	return "{user:" + id.String() + "}:channels"
 }
 
 type ChannelCache struct {
@@ -55,85 +42,56 @@ func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
 	return marshalAndSet(ctx, redis.ScopeChannel, c.client, channelKey(ch.ID), ch, channelTTL, marshalChannel)
 }
 
-func (c *ChannelCache) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := c.client.Del(ctx, channelKey(id)).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-	return nil
+func (c *ChannelCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*channel.Channel, []uuid.UUID, error) {
+	return getAndUnmarshalBatch(ctx, redis.ScopeChannel, c.client, ids, channelKey, unmarshalChannel)
 }
 
-// GetBatch retrieves multiple channels by their IDs in chunked MGET calls.
-func (c *ChannelCache) GetBatch(
-	ctx context.Context,
-	ids []uuid.UUID,
-) (map[uuid.UUID]*channel.Channel, []uuid.UUID, error) {
-	redisKeys := make([]string, len(ids))
-	for i, id := range ids {
-		redisKeys[i] = channelKey(id)
-	}
-
-	return getAndUnmarshalBatch(
-		ctx,
-		redis.ScopeChannel,
-		c.client,
-		redisKeys,
-		ids,
-		unmarshalChannel,
-	)
-}
-
-// SetBatch stores multiple channels into Redis using chunked pipeline requests.
 func (c *ChannelCache) SetBatch(ctx context.Context, channels map[uuid.UUID]*channel.Channel) error {
-	return marshalAndSetBatch(
-		ctx,
-		c.client,
-		channels,
-		channelKey,
-		channelTTL,
-		redis.ScopeChannel,
-		maxBatchSize,
-		marshalChannel,
-	)
+	return marshalAndSetBatch(ctx, redis.ScopeChannel, c.client, channels, channelKey, channelTTL, marshalChannel)
 }
 
-// InvalidateMembers evicts the entire members Hash for a channel (used on topology/membership changes).
-func (c *ChannelCache) InvalidateMembers(ctx context.Context, channelID uuid.UUID) error {
-	if err := c.client.Del(ctx, channelMembersKey(channelID)).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
+func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, members []*channel.Member) error {
+	chBytes, err := marshalChannel(ch)
+	if err != nil {
+		return err
 	}
-	return nil
-}
 
-// InvalidateMember removes a single user field from the channel's members Hash.
-func (c *ChannelCache) InvalidateMember(ctx context.Context, channelID, userID uuid.UUID) error {
-	if err := c.client.HDel(ctx, channelMembersKey(channelID), userID.String()).Err(); err != nil {
-		return redis.NewError(err, redis.ScopeChannel)
-	}
-	return nil
-}
-
-func (c *ChannelCache) AddMembers(ctx context.Context, channelID uuid.UUID, members []*channel.Member) error {
-	if len(members) == 0 {
-		return nil
+	memberMap := make(map[string]any, len(members))
+	for _, m := range members {
+		if m == nil || m.UserID == uuid.Nil {
+			continue
+		}
+		mBytes, err := marshalMember(m)
+		if err != nil {
+			return err
+		}
+		memberMap[m.UserID.String()] = mBytes
 	}
 
 	pipe := c.client.Pipeline()
 
-	// 1. Invalidate channel members hash.
-	// Evicting the key ensures we never write a partial member list to a key
-	// that was evicted from Redis between checking Exists and calling Exec.
-	pipe.Del(ctx, channelMembersKey(channelID))
+	pipe.Set(ctx, channelKey(ch.ID), chBytes, channelTTL)
 
-	// 2. Add channel ID to each new member's userChannels ZSet scored by member creation time
+	if len(memberMap) > 0 {
+		pipe.HSet(ctx, channelMembersKey(ch.ID), memberMap)
+	}
+
+	channelIDStr := ch.ID.String()
 	for _, m := range members {
 		if m == nil || m.UserID == uuid.Nil {
 			continue
 		}
 
-		score := float64(m.CreatedAt.Unix())
+		var score float64
+		if m.PinnedAt != nil && !m.PinnedAt.IsZero() {
+			score = 1e12 + float64(m.PinnedAt.Unix())
+		} else {
+			score = float64(ch.CreatedAt.Unix())
+		}
+
 		pipe.ZAdd(ctx, userChannelsKey(m.UserID), redisdriver.Z{
 			Score:  score,
-			Member: channelID.String(),
+			Member: channelIDStr,
 		})
 	}
 
@@ -144,192 +102,93 @@ func (c *ChannelCache) AddMembers(ctx context.Context, channelID uuid.UUID, memb
 	return nil
 }
 
-func (c *ChannelCache) CreateGroup(ctx context.Context, ch *channel.Channel, members []*channel.Member) error {
-	chDTO := ParseChannel(ch)
-	chBytes, err := json.Marshal(chDTO)
-	if err != nil {
-		return err
-	}
-
-	memberMap := make(map[string]any, len(members))
-	for _, m := range members {
-		mDTO := ParseMember(m)
-		mBytes, err := json.Marshal(mDTO)
-		if err != nil {
-			return err
-		}
-		memberMap[m.UserID.String()] = mBytes
-	}
-
+func (c *ChannelCache) DeleteGroup(ctx context.Context, channelID uuid.UUID, memberIDs []uuid.UUID) error {
 	pipe := c.client.Pipeline()
 
-	// 1. Set channel metadata
-	pipe.Set(ctx, channelKey(ch.ID), chBytes, 0)
+	pipe.Del(ctx, channelKey(channelID))
+	pipe.Del(ctx, channelMembersKey(channelID))
+	pipe.Del(ctx, channelMessagesKey(channelID))
 
-	// 2. Set channel members hash (field = userID, value = member JSON)
-	if len(memberMap) > 0 {
-		pipe.HSet(ctx, channelMembersKey(ch.ID), memberMap)
-	}
-
-	// 3. Add channel ID to each member's userChannels ZSet scored by creation time
-	// TODO: Improve to follow actual sidebar sorting score
-	score := float64(ch.CreatedAt.Unix())
-	for _, m := range members {
-		pipe.ZAdd(ctx, userChannelsKey(m.UserID), redisdriver.Z{
-			Score:  score,
-			Member: ch.ID.String(),
-		})
-	}
-
-	_, err = pipe.Exec(ctx)
-	return err
-}
-
-// GetBatchMembersByChannelIDs fetches members for multiple channels from Redis Hash keys.
-// Returns map of found members per channel ID, missing channel IDs, and any execution error.
-func (c *ChannelCache) GetBatchMembersByChannelIDs(
-	ctx context.Context,
-	channelIDs []uuid.UUID,
-) (map[uuid.UUID][]*channel.Member, []uuid.UUID, error) {
-	if len(channelIDs) == 0 {
-		return make(map[uuid.UUID][]*channel.Member), nil, nil
-	}
-
-	pipe := c.client.Pipeline()
-	cmds := make(map[uuid.UUID]*redisdriver.MapStringStringCmd, len(channelIDs))
-
-	for _, id := range channelIDs {
-		cmds[id] = pipe.HGetAll(ctx, channelMembersKey(id))
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redisdriver.Nil) {
-		return nil, nil, redis.NewError(err, redis.ScopeChannel)
-	}
-
-	found := make(map[uuid.UUID][]*channel.Member, len(channelIDs))
-	var missing []uuid.UUID
-
-	for id, cmd := range cmds {
-		rawMap, err := cmd.Result()
-		if err != nil || len(rawMap) == 0 {
-			missing = append(missing, id)
-			continue
-		}
-
-		members := make([]*channel.Member, 0, len(rawMap))
-		for _, rawJSON := range rawMap {
-			var mDTO Member
-			if err := json.Unmarshal([]byte(rawJSON), &mDTO); err != nil {
-				// If serialization fails, mark channel as missing to trigger backfill
-				missing = append(missing, id)
-				delete(found, id)
-				break
-			}
-			members = append(members, mDTO.ToDomain())
-		}
-
-		if _, isMissing := found[id]; !isMissing {
-			found[id] = members
+	channelIDStr := channelID.String()
+	for _, userID := range memberIDs {
+		if userID != uuid.Nil {
+			pipe.ZRem(ctx, userChannelsKey(userID), channelIDStr)
 		}
 	}
 
-	return found, missing, nil
-}
-
-// SetBatchMembers writes a map of channel members into Redis Hashes via a single pipeline.
-func (c *ChannelCache) SetBatchMembers(
-	ctx context.Context,
-	channelMembersMap map[uuid.UUID][]*channel.Member,
-) error {
-	if len(channelMembersMap) == 0 {
-		return nil
-	}
-
-	pipe := c.client.Pipeline()
-
-	for channelID, members := range channelMembersMap {
-		if len(members) == 0 {
-			continue
-		}
-
-		memberMap := make(map[string]any, len(members))
-		for _, m := range members {
-			mDTO := ParseMember(m)
-			mBytes, err := json.Marshal(mDTO)
-			if err != nil {
-				return err
-			}
-			memberMap[m.UserID.String()] = mBytes
-		}
-
-		pipe.HSet(ctx, channelMembersKey(channelID), memberMap)
-	}
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
+	if _, err := pipe.Exec(ctx); err != nil {
 		return redis.NewError(err, redis.ScopeChannel)
 	}
 
 	return nil
 }
 
-func (c *ChannelCache) GetMember(
-	ctx context.Context,
-	channelID, userID uuid.UUID,
-) (*channel.Member, error) {
-	rawJSON, err := c.client.HGet(ctx, channelMembersKey(channelID), userID.String()).Result()
+func (c *UserCache) GetUserChannelIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, bool, error) {
+	if userID == uuid.Nil {
+		return nil, false, nil
+	}
+
+	rawIDs, err := c.client.ZRevRange(ctx, userChannelsKey(userID), 0, -1).Result()
 	if err != nil {
-		if errors.Is(err, redisdriver.Nil) {
-			return nil, nil
+		if redis.IsCacheMiss(err) {
+			return nil, false, nil
 		}
-		return nil, redis.NewError(err, redis.ScopeChannel)
+		return nil, false, redis.NewError(err, redis.ScopeUser)
 	}
 
-	var mDTO Member
-	if err := json.Unmarshal([]byte(rawJSON), &mDTO); err != nil {
-		// On serialization error, invalidate this field so DB backfills valid data
-		_ = c.InvalidateMember(ctx, channelID, userID)
-		return nil, nil
+	if len(rawIDs) == 0 {
+		return nil, false, nil
 	}
 
-	return mDTO.ToDomain(), nil
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := uuid.Parse(raw)
+		if err == nil {
+			ids = append(ids, id)
+		}
+	}
+
+	return ids, true, nil
 }
 
-func unmarshalChannel(data []byte) (*channel.Channel, error) {
-	if len(data) == 0 {
-		return nil, nil
+func (c *UserCache) SetUserChannelIDs(ctx context.Context, userID uuid.UUID, members []*channel.Member) error {
+	if userID == uuid.Nil || len(members) == 0 {
+		return nil
 	}
 
-	var dto Channel
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, err
+	pipe := c.client.Pipeline()
+	zKey := userChannelsKey(userID)
+
+	pipe.Del(ctx, zKey)
+
+	for _, m := range members {
+		if m == nil || m.ChannelID == uuid.Nil {
+			continue
+		}
+
+		var score float64
+		if m.PinnedAt != nil && !m.PinnedAt.IsZero() {
+			score = 1e12 + float64(m.PinnedAt.Unix())
+		} else {
+			score = float64(m.CreatedAt.Unix())
+		}
+
+		pipe.ZAdd(ctx, zKey, redisdriver.Z{
+			Score:  score,
+			Member: m.ChannelID.String(),
+		})
 	}
-	return dto.ToDomain(), nil
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
+	}
+	return nil
 }
 
-func marshalChannel(ch *channel.Channel) ([]byte, error) {
-	if ch == nil {
-		return nil, nil
+func (c *UserCache) RemoveUserChannelID(ctx context.Context, userID, channelID uuid.UUID) error {
+	if err := c.client.ZRem(ctx, userChannelsKey(userID), channelID.String()).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeUser)
 	}
 
-	dto := ParseChannel(ch)
-	bytes, err := json.Marshal(dto)
-	if err != nil {
-		return nil, errs.Internal("Failed to marshal channel json.").
-			Meta("scope", redis.ScopeChannel.String()).
-			Wrap(err)
-	}
-	return bytes, nil
-}
-
-func unmarshalMessage(data []byte) (*channel.Message, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	var dto Message
-	if err := json.Unmarshal(data, &dto); err != nil {
-		return nil, err
-	}
-	return dto.ToDomain(), nil
+	return nil
 }

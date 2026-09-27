@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 	"unsafe"
@@ -477,4 +478,129 @@ func deleteSetPipelined(
 	}
 
 	return nil
+}
+
+func getHashMapKeyVals[T any](
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+	parseVal func(string) (T, error),
+) ([]uuid.UUID, []T, map[uuid.UUID]T, error) {
+	rawMap, err := client.HGetAll(ctx, key).Result()
+	if redis.IsCacheMiss(err) {
+		return nil, nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, nil, redis.NewError(err, scope)
+	}
+	if len(rawMap) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	keyIDs := make([]uuid.UUID, 0, len(rawMap))
+	valMap := make(map[uuid.UUID]T, len(rawMap))
+
+	seenVals := make(map[string]bool)
+	valueList := make([]T, 0)
+
+	for k, v := range rawMap {
+		sessID, err := uuid.Parse(k)
+		if err != nil {
+			continue
+		}
+
+		if v == "" {
+			continue
+		}
+
+		parsedVal, err := parseVal(v)
+		if err != nil {
+			continue
+		}
+
+		keyIDs = append(keyIDs, sessID)
+		valMap[sessID] = parsedVal
+
+		if !seenVals[v] {
+			seenVals[v] = true
+			valueList = append(valueList, parsedVal)
+		}
+	}
+
+	if len(keyIDs) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	return keyIDs, valueList, valMap, nil
+}
+
+func setHashMapKeyVals[T any](
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	key string,
+	data map[uuid.UUID]T,
+	ttl time.Duration,
+	formatVal func(T) string,
+) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	args := make([]interface{}, 0, len(data)*2)
+	for keyID, val := range data {
+		args = append(args, keyID.String(), formatVal(val))
+	}
+
+	if ttl > 0 {
+		pipe := client.Pipeline()
+		pipe.HSet(ctx, key, args...)
+		pipe.Expire(ctx, key, ttl)
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return redis.NewError(err, scope)
+		}
+		return nil
+	}
+
+	if err := client.HSet(ctx, key, args...).Err(); err != nil {
+		return redis.NewError(err, scope)
+	}
+
+	return nil
+}
+
+// getBatchHashMaps fetches HGETALL for multiple keys in a single pipeline pass.
+func getBatchHashMaps(
+	ctx context.Context,
+	scope redis.Scope,
+	client redisdriver.Cmdable,
+	keys []string,
+) ([]map[string]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	cmds := make([]*redisdriver.MapStringStringCmd, len(keys))
+	_, err := client.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		for i, key := range keys {
+			cmds[i] = pipe.HGetAll(ctx, key)
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, redisdriver.Nil) {
+		return nil, redis.NewError(err, scope)
+	}
+
+	results := make([]map[string]string, len(keys))
+	for i, cmd := range cmds {
+		res, cmdErr := cmd.Result()
+		if cmdErr != nil || len(res) == 0 {
+			continue
+		}
+		results[i] = res
+	}
+
+	return results, nil
 }

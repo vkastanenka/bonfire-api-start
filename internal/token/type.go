@@ -34,8 +34,8 @@ func ParseTypeString(s string) (Type, error) {
 	return sanitize.ParseEnumString[Type](s, typeNames[:], "token type")
 }
 
-func ParseTypeBytes(b []byte) (Type, error) {
-	return sanitize.ParseEnumBytes[Type](b, typeNames[:], "token type")
+func ParseTypeStringBytes(b []byte) (Type, error) {
+	return sanitize.ParseEnumStringBytes[Type](b, typeNames[:], "token type")
 }
 
 func (t Type) IsValid() bool {
@@ -59,7 +59,7 @@ func (t Type) MarshalText() ([]byte, error) {
 }
 
 func (t *Type) UnmarshalText(text []byte) error {
-	parsed, err := ParseTypeBytes(text)
+	parsed, err := ParseTypeStringBytes(text)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseTypeBytes(data)
+	parsed, err := ParseTypeStringBytes(data)
 	if err != nil {
 		return err
 	}

@@ -30,20 +30,31 @@ var presenceNames = [...]string{
 	PresenceInvisible: "INVISIBLE",
 }
 
-func Parse(raw int) (Presence, error) {
+func ParseInt(raw int) (Presence, error) {
 	return sanitize.ParseEnumInt(raw, presenceMax, "presence")
+}
+
+func ParseIntBytes(b []byte) (Presence, error) {
+	return sanitize.ParseEnumIntBytes(b, presenceMax, "presence")
 }
 
 func ParseString(s string) (Presence, error) {
 	return sanitize.ParseEnumString[Presence](s, presenceNames[:], "presence")
 }
 
-func ParseBytes(b []byte) (Presence, error) {
-	return sanitize.ParseEnumBytes[Presence](b, presenceNames[:], "presence")
+func ParseStringBytes(b []byte) (Presence, error) {
+	return sanitize.ParseEnumStringBytes[Presence](b, presenceNames[:], "presence")
 }
 
 func (p Presence) IsValid() bool {
 	return p > PresenceUnknown && p < presenceMax
+}
+
+func (p Presence) Int() int {
+	if p.IsValid() {
+		return int(p)
+	}
+	return int(PresenceUnknown)
 }
 
 func (p Presence) String() string {
@@ -87,7 +98,7 @@ func (p *Presence) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseBytes(data)
+	parsed, err := ParseStringBytes(data)
 	if err != nil {
 		return err
 	}

@@ -55,3 +55,19 @@ func ContainsID(ids []uuid.UUID, target uuid.UUID) bool {
 	}
 	return false
 }
+
+// UUIDToString converts a uuid.UUID to string, encoding uuid.Nil as an empty string.
+func UUIDToString(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+// StringToUUID parses a string into a uuid.UUID, treating empty strings as uuid.Nil.
+func StringToUUID(s string) (uuid.UUID, error) {
+	if s == "" {
+		return uuid.Nil, nil
+	}
+	return uuid.Parse(s)
+}

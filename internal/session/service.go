@@ -163,14 +163,6 @@ func (s *Service) invalidateSingleSessionCache(ctx context.Context, userID, sess
 			slog.Any("error", err),
 		)
 	}
-
-	if err := s.cache.RemoveUserSessionID(cacheCtx, userID, sessionID); err != nil {
-		slog.WarnContext(cacheCtx, "failed to remove session ID from user session index after "+action,
-			slog.String("user_id", userID.String()),
-			slog.String("session_id", sessionID.String()),
-			slog.Any("error", err),
-		)
-	}
 }
 
 func (s *Service) invalidateAllSessionsCache(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
@@ -185,12 +177,5 @@ func (s *Service) invalidateAllSessionsCache(ctx context.Context, userID uuid.UU
 				slog.Any("error", err),
 			)
 		}
-	}
-
-	if err := s.cache.DeleteUserSessionsIndex(cacheCtx, userID); err != nil {
-		slog.WarnContext(cacheCtx, "failed to delete user session index cache after "+action,
-			slog.String("user_id", userID.String()),
-			slog.Any("error", err),
-		)
 	}
 }

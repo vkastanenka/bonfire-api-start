@@ -39,8 +39,8 @@ func ParsePreferredPresenceDurationString(s string) (PreferredPresenceDuration, 
 	return sanitize.ParseEnumString[PreferredPresenceDuration](s, preferredPresenceDurationNames[:], "preferredPresenceDuration")
 }
 
-func ParsePreferredPresenceDurationBytes(b []byte) (PreferredPresenceDuration, error) {
-	return sanitize.ParseEnumBytes[PreferredPresenceDuration](b, preferredPresenceDurationNames[:], "preferredPresenceDuration")
+func ParsePreferredPresenceDurationStringBytes(b []byte) (PreferredPresenceDuration, error) {
+	return sanitize.ParseEnumStringBytes[PreferredPresenceDuration](b, preferredPresenceDurationNames[:], "preferredPresenceDuration")
 }
 
 func (d PreferredPresenceDuration) IsValid() bool {
@@ -116,7 +116,7 @@ func (d *PreferredPresenceDuration) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParsePreferredPresenceDurationBytes(data)
+	parsed, err := ParsePreferredPresenceDurationStringBytes(data)
 	if err != nil {
 		return err
 	}

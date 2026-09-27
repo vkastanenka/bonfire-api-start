@@ -2,14 +2,13 @@ package cache
 
 import (
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 	"encoding/json"
 	"net/netip"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +53,33 @@ func (c Channel) ToDomain() *channel.Channel {
 		c.CreatedAt,
 		c.UpdatedAt,
 	)
+}
+
+func unmarshalChannel(data []byte) (*channel.Channel, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto Channel
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain(), nil
+}
+
+func marshalChannel(ch *channel.Channel) ([]byte, error) {
+	if ch == nil {
+		return nil, nil
+	}
+
+	dto := ParseChannel(ch)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal channel json.").
+			Meta("scope", redis.ScopeChannel.String()).
+			Wrap(err)
+	}
+	return bytes, nil
 }
 
 type Member struct {
@@ -101,6 +127,33 @@ func (m Member) ToDomain() *channel.Member {
 		m.CreatedAt,
 		m.UpdatedAt,
 	)
+}
+
+func unmarshalMember(data []byte) (*channel.Member, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto Member
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain(), nil
+}
+
+func marshalMember(m *channel.Member) ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+
+	dto := ParseMember(m)
+	bytes, err := json.Marshal(dto)
+	if err != nil {
+		return nil, errs.Internal("Failed to marshal member json.").
+			Meta("scope", redis.ScopeMember.String()).
+			Wrap(err)
+	}
+	return bytes, nil
 }
 
 type Message struct {
@@ -157,6 +210,26 @@ func (m Message) ToDomain() *channel.Message {
 		m.CreatedAt,
 		m.UpdatedAt,
 	)
+}
+
+func unmarshalMessage(data []byte) (*channel.Message, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var dto Message
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return nil, err
+	}
+	return dto.ToDomain(), nil
+}
+
+func marshalMessage(msg *channel.Message) ([]byte, error) {
+	if msg == nil {
+		return nil, nil
+	}
+	dto := ParseMessage(msg)
+	return json.Marshal(dto)
 }
 
 type Session struct {
@@ -303,18 +376,4 @@ func marshalUser(usr *user.User) ([]byte, error) {
 			Wrap(err)
 	}
 	return bytes, nil
-}
-
-func ParsePresence(val string) presence.Presence {
-	parsed, err := strconv.Atoi(val)
-	if err != nil {
-		return presence.PresenceOffline
-	}
-
-	p, err := presence.Parse(parsed)
-	if err != nil {
-		return presence.PresenceOffline
-	}
-
-	return p
 }

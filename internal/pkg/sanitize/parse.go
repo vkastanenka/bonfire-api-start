@@ -18,13 +18,28 @@ func ParseEnumInt[T ~int](raw int, max T, fieldName string) (T, error) {
 	return val, nil
 }
 
+// ParseEnumIntBytes converts a byte slice containing integer digits ("1")
+// into an enum value bounded by max (0 < val < max).
+func ParseEnumIntBytes[T ~int](b []byte, max T, fieldName string) (T, error) {
+	s := string(b)
+	raw, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, errs.InvalidArgument("invalid "+fieldName).
+			Reason("INVALID_"+Enum(fieldName)).
+			Meta("value", s).
+			FieldViolation(fieldName, "provided byte value is not a valid integer", "INVALID_ENUM_VALUE")
+	}
+
+	return ParseEnumInt(raw, max, fieldName)
+}
+
 // ParseEnumString sanitizes a string input and parses it into an enum value.
 func ParseEnumString[T ~int](input string, names []string, fieldName string) (T, error) {
 	return parseEnumNormalized[T](Enum(input), input, names, fieldName)
 }
 
-// ParseEnumBytes sanitizes a byte slice (including JSON strings) and parses it into an enum value.
-func ParseEnumBytes[T ~int](b []byte, names []string, fieldName string) (T, error) {
+// ParseEnumStringBytes sanitizes a byte slice (including JSON strings) and parses it into an enum value.
+func ParseEnumStringBytes[T ~int](b []byte, names []string, fieldName string) (T, error) {
 	return parseEnumNormalized[T](EnumBytes(b), string(b), names, fieldName)
 }
 

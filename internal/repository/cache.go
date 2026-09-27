@@ -74,14 +74,11 @@ type RelationCache interface {
 }
 
 type SessionCache interface {
-	AddUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
-	DeleteUserSessionsIndex(ctx context.Context, userID uuid.UUID) error
 	Get(ctx context.Context, id uuid.UUID) (*session.Session, error)
 	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*session.Session, []uuid.UUID, error)
 	GetUserSessionIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-	RemoveUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error
 	Set(ctx context.Context, sess *session.Session) error
 	SetBatch(ctx context.Context, users map[uuid.UUID]*session.Session) error
 	SetUserSessionIDs(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID) error

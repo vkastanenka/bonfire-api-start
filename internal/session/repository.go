@@ -11,8 +11,6 @@ import (
 type Cache interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
-	DeleteUserSessionsIndex(ctx context.Context, userID uuid.UUID) error
-	RemoveUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error
 }
 
 type Repository interface {

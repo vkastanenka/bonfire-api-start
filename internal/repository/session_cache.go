@@ -94,17 +94,14 @@ func (r *CachedSessionRepository) ListValidByUserID(
 		return nil, err
 	}
 
-	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
-
 	// Backfill Redis Cache (both payloads and set index)
 	if len(dbSessions) > 0 {
-		sessionMap := make(map[uuid.UUID]*session.Session, len(dbSessions))
-		fetchedIDs := make([]uuid.UUID, 0, len(dbSessions))
+		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
 
+		sessionMap := make(map[uuid.UUID]*session.Session, len(dbSessions))
 		for _, s := range dbSessions {
 			sessionMap[s.ID] = s
-			fetchedIDs = append(fetchedIDs, s.ID)
 		}
 
 		if setErr := r.cache.SetBatch(cacheCtx, sessionMap); setErr != nil {
@@ -112,22 +109,6 @@ func (r *CachedSessionRepository) ListValidByUserID(
 				slog.String("user_id", userID.String()),
 				slog.Int("count", len(sessionMap)),
 				slog.Any("error", setErr),
-			)
-		}
-
-		if setErr := r.cache.SetUserSessionIDs(cacheCtx, userID, fetchedIDs); setErr != nil {
-			slog.WarnContext(cacheCtx, "failed to backfill user session index cache after database read",
-				slog.String("user_id", userID.String()),
-				slog.Int("count", len(fetchedIDs)),
-				slog.Any("error", setErr),
-			)
-		}
-	} else {
-		// User has zero active sessions in DB, clear any leftover index key in Redis
-		if delErr := r.cache.DeleteUserSessionsIndex(cacheCtx, userID); delErr != nil {
-			slog.WarnContext(cacheCtx, "failed to clear empty user session index cache",
-				slog.String("user_id", userID.String()),
-				slog.Any("error", delErr),
 			)
 		}
 	}

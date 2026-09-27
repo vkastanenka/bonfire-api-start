@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	sessionTTL = 24 * time.Hour
+	defaultSessionTTL = 24 * time.Hour
+	minEffectiveTTL   = 1 * time.Second
 )
 
-func sessionKey(id uuid.UUID) string      { return "{session:" + id.String() + "}" }
-func userSessionsKey(id uuid.UUID) string { return "{user:" + id.String() + "}:sessions" }
+func sessionKey(id uuid.UUID) string { return "{session:" + id.String() + "}" }
 
 type SessionCache struct {
 	client redisdriver.Cmdable
@@ -32,10 +32,15 @@ func (c *SessionCache) Get(ctx context.Context, id uuid.UUID) (*session.Session,
 }
 
 func (c *SessionCache) Set(ctx context.Context, sess *session.Session) error {
-	ttl, ok := calcEffSessionTTL(sess)
-	if !ok {
+	if sess == nil {
 		return nil
 	}
+
+	ttl, ok := calcEffSessionTTL(sess)
+	if !ok {
+		return c.Delete(ctx, sess.ID)
+	}
+
 	return marshalAndSet(ctx, redis.ScopeSession, c.client, sessionKey(sess.ID), sess, ttl, marshalSession)
 }
 
@@ -47,7 +52,7 @@ func (c *SessionCache) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (c *SessionCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*session.Session, []uuid.UUID, error) {
-	return getAndUnmarshalBatch(ctx, redis.ScopeUser, c.client, ids, sessionKey, unmarshalSession)
+	return getAndUnmarshalBatch(ctx, redis.ScopeSession, c.client, ids, sessionKey, unmarshalSession)
 }
 
 func (c *SessionCache) SetBatch(ctx context.Context, sessions map[uuid.UUID]*session.Session) error {
@@ -55,30 +60,48 @@ func (c *SessionCache) SetBatch(ctx context.Context, sessions map[uuid.UUID]*ses
 		return nil
 	}
 
-	pipe := c.client.Pipeline()
-
+	sessionList := make([]*session.Session, 0, len(sessions))
 	for _, sess := range sessions {
-		if sess == nil {
-			continue
+		if sess != nil {
+			sessionList = append(sessionList, sess)
 		}
-
-		ttl, ok := calcEffSessionTTL(sess)
-		if !ok {
-			continue
-		}
-
-		data, err := marshalSession(sess)
-		if err != nil {
-			return redis.NewError(err, redis.ScopeSession)
-		}
-
-		key := sessionKey(sess.ID)
-		pipe.Set(ctx, key, data, ttl)
 	}
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return redis.NewError(err, redis.ScopeSession)
+	for i := 0; i < len(sessionList); i += maxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+maxBatchSize, len(sessionList))
+		chunk := sessionList[i:end]
+
+		pipe := c.client.Pipeline()
+		var queued int
+
+		for _, sess := range chunk {
+			ttl, ok := calcEffSessionTTL(sess)
+			key := sessionKey(sess.ID)
+
+			if !ok {
+				pipe.Del(ctx, key)
+				queued++
+				continue
+			}
+
+			data, err := marshalSession(sess)
+			if err != nil {
+				return redis.NewError(err, redis.ScopeSession)
+			}
+
+			pipe.Set(ctx, key, data, ttl)
+			queued++
+		}
+
+		if queued > 0 {
+			if _, err := pipe.Exec(ctx); err != nil {
+				return redis.NewError(err, redis.ScopeSession)
+			}
+		}
 	}
 
 	return nil
@@ -88,33 +111,13 @@ func (c *SessionCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
 	return deleteBatch(ctx, redis.ScopeSession, c.client, ids, sessionKey)
 }
 
-func (c *SessionCache) GetUserSessionIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	return getSetIDs(ctx, redis.ScopeSession, c.client, userSessionsKey(userID))
-}
-
-func (c *SessionCache) SetUserSessionIDs(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID) error {
-	return setSetIDs(ctx, redis.ScopeSession, c.client, userSessionsKey(userID), sessionIDs, sessionTTL)
-}
-
-func (c *SessionCache) AddUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
-	return addToSetIDs(ctx, redis.ScopeSession, c.client, userSessionsKey(userID), sessionTTL, sessionID)
-}
-
-func (c *SessionCache) RemoveUserSessionID(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) error {
-	return removeFromSetIDs(ctx, redis.ScopeSession, c.client, userSessionsKey(userID), sessionID)
-}
-
-func (c *SessionCache) DeleteUserSessionsIndex(ctx context.Context, userID uuid.UUID) error {
-	return deleteSet(ctx, redis.ScopeSession, c.client, userSessionsKey(userID))
-}
-
 func calcEffSessionTTL(sess *session.Session) (time.Duration, bool) {
 	if sess.ExpiresAt.IsZero() {
-		return sessionTTL, true
+		return defaultSessionTTL, true
 	}
 
 	remaining := time.Until(sess.ExpiresAt)
-	if remaining <= 0 {
+	if remaining < minEffectiveTTL {
 		return 0, false
 	}
 
