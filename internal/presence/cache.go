@@ -2,26 +2,28 @@ package presence
 
 import (
 	"context"
+	"os/user"
 
 	"github.com/google/uuid"
 )
 
-type UserCache interface {
-	GetPeerIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-}
-
 type PresenceCache interface {
-	GetBatchNodeUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
-	GetBatchPresence(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
-	GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error)
-	Heartbeat(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
-	RegisterNodeSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p Presence) (bool, Presence, error)
-	RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
-	SetPresence(ctx context.Context, userID uuid.UUID, p Presence) error
-	UnregisterNodeSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) (bool, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	Get(ctx context.Context, userID uuid.UUID) (Presence, error)
+	GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Presence, error)
+	Set(ctx context.Context, userID uuid.UUID, p Presence) error
 }
 
-type TicketCache interface {
+type UserCache interface {
+	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
+	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
+	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error)
+	Set(ctx context.Context, usr *user.User) error
+	SetBatch(ctx context.Context, users map[uuid.UUID]*user.User) error
+}
+
+type WSTicketCache interface {
 	Print(ctx context.Context, ticketID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
 	Punch(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, uuid.UUID, error)
 }

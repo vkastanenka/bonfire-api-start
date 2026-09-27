@@ -123,7 +123,7 @@ func (c *ChannelCache) DeleteGroup(ctx context.Context, channelID uuid.UUID, mem
 	return nil
 }
 
-func (c *UserCache) GetUserChannelIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, bool, error) {
+func (c *ChannelCache) GetUserChannelIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, bool, error) {
 	if userID == uuid.Nil {
 		return nil, false, nil
 	}
@@ -151,7 +151,7 @@ func (c *UserCache) GetUserChannelIDs(ctx context.Context, userID uuid.UUID) ([]
 	return ids, true, nil
 }
 
-func (c *UserCache) SetUserChannelIDs(ctx context.Context, userID uuid.UUID, members []*channel.Member) error {
+func (c *ChannelCache) SetUserChannelIDs(ctx context.Context, userID uuid.UUID, members []*channel.Member) error {
 	if userID == uuid.Nil || len(members) == 0 {
 		return nil
 	}
@@ -185,7 +185,7 @@ func (c *UserCache) SetUserChannelIDs(ctx context.Context, userID uuid.UUID, mem
 	return nil
 }
 
-func (c *UserCache) RemoveUserChannelID(ctx context.Context, userID, channelID uuid.UUID) error {
+func (c *ChannelCache) RemoveUserChannelID(ctx context.Context, userID, channelID uuid.UUID) error {
 	if err := c.client.ZRem(ctx, userChannelsKey(userID), channelID.String()).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeUser)
 	}

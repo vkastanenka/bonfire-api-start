@@ -8,12 +8,8 @@ import (
 )
 
 type PresenceCache interface {
-	GetBatchNodeUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
-	GetBatchPresence(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
-	GetPresence(ctx context.Context, userID uuid.UUID) (presence.Presence, error)
-	Heartbeat(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
-	RegisterNodeSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p presence.Presence) (bool, presence.Presence, error)
-	RemoveBatchNodeUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
-	SetPresence(ctx context.Context, userID uuid.UUID, p presence.Presence) error
-	UnregisterNodeSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) (bool, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	Get(ctx context.Context, userID uuid.UUID) (presence.Presence, error)
+	GetBatch(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]presence.Presence, error)
+	Set(ctx context.Context, userID uuid.UUID, p presence.Presence) error
 }

@@ -56,7 +56,7 @@ func (c *PresenceCache) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (c *PresenceCache) GetBatchPresence(
+func (c *PresenceCache) GetBatch(
 	ctx context.Context,
 	userIDs []uuid.UUID,
 ) (map[uuid.UUID]presence.Presence, error) {
