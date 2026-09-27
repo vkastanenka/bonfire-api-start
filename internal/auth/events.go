@@ -1,5 +1,7 @@
 package auth
 
+import "time"
+
 const (
 	EventForgotPassword     = "auth.forgot_password"
 	EventRegister           = "auth.register"
@@ -7,8 +9,9 @@ const (
 )
 
 type EventForgotPasswordPayload struct {
-	Email string `json:"email"`
-	Token string `json:"token"`
+	Email     string    `json:"email"`
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type EventRegisterPayload struct {

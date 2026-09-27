@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bonfire-api/internal/channel"
+	"bonfire-api/internal/presence"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 	"context"
@@ -19,6 +20,28 @@ type ChannelCache interface {
 	Set(ctx context.Context, ch *channel.Channel) error
 	SetBatch(ctx context.Context, channels map[uuid.UUID]*channel.Channel) error
 	SetUserChannelIDs(ctx context.Context, userID uuid.UUID, members []*channel.Member) error
+}
+
+type GatewayCache interface {
+	GetBatchUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
+	GetUserSessions(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, []uuid.UUID, map[uuid.UUID]uuid.UUID, error)
+	Heartbeat(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
+	RegisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p presence.Presence) (bool, error)
+	RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
+	SetUserSessions(ctx context.Context, userID uuid.UUID, sessions map[uuid.UUID]uuid.UUID) error
+	UnregisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) (bool, error)
+}
+
+type MemberCache interface {
+	Add(ctx context.Context, channelID uuid.UUID, members []*channel.Member) error
+	AddBatch(ctx context.Context, members []*channel.Member) error
+	Get(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*channel.Member, error)
+	GetBatchByChannelIDs(ctx context.Context, channelIDs []uuid.UUID) (map[uuid.UUID][]*channel.Member, []uuid.UUID, error)
+	Invalidate(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
+	InvalidateChannel(ctx context.Context, channelID uuid.UUID) error
+	Remove(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error
+	SetBatchByChannelIDs(ctx context.Context, channelMembersMap map[uuid.UUID][]*channel.Member) error
+	SetUserMembers(ctx context.Context, userID uuid.UUID, members []*channel.Member) error
 }
 
 type MessageCache interface {

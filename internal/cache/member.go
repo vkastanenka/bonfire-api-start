@@ -59,6 +59,54 @@ func (c *MemberCache) InvalidateChannel(ctx context.Context, channelID uuid.UUID
 	return nil
 }
 
+func (c *MemberCache) SetUserMembers(ctx context.Context, userID uuid.UUID, members []*channel.Member) error {
+	if userID == uuid.Nil || len(members) == 0 {
+		return nil
+	}
+
+	pipe := c.client.Pipeline()
+
+	zKey := userChannelsKey(userID)
+	pipe.Del(ctx, zKey)
+
+	for _, m := range members {
+		if m == nil || m.ChannelID == uuid.Nil {
+			continue
+		}
+
+		var score float64
+		if m.PinnedAt != nil && !m.PinnedAt.IsZero() {
+			score = 1e12 + float64(m.PinnedAt.Unix())
+		} else {
+			score = float64(m.CreatedAt.Unix())
+		}
+
+		pipe.ZAdd(ctx, zKey, redisdriver.Z{
+			Score:  score,
+			Member: m.ChannelID.String(),
+		})
+	}
+
+	for _, m := range members {
+		if m == nil || m.ChannelID == uuid.Nil || m.UserID == uuid.Nil {
+			continue
+		}
+
+		mBytes, err := marshalMember(m)
+		if err != nil {
+			return err
+		}
+
+		pipe.HSet(ctx, channelMembersKey(m.ChannelID), m.UserID.String(), mBytes)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return redis.NewError(err, redis.ScopeMember)
+	}
+
+	return nil
+}
+
 func (c *MemberCache) Add(ctx context.Context, channelID uuid.UUID, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil
@@ -119,63 +167,6 @@ func (c *MemberCache) Remove(ctx context.Context, channelID, userID uuid.UUID) e
 	if _, err := pipe.Exec(ctx); err != nil {
 		return redis.NewError(err, redis.ScopeMember)
 	}
-	return nil
-}
-
-func (c *MemberCache) AddBatch(ctx context.Context, members []*channel.Member) error {
-	if len(members) == 0 {
-		return nil
-	}
-
-	byChannel := make(map[uuid.UUID]map[string]any)
-	for _, m := range members {
-		if m == nil || m.ChannelID == uuid.Nil || m.UserID == uuid.Nil {
-			continue
-		}
-
-		mBytes, err := marshalMember(m)
-		if err != nil {
-			return err
-		}
-
-		if _, exists := byChannel[m.ChannelID]; !exists {
-			byChannel[m.ChannelID] = make(map[string]any)
-		}
-		byChannel[m.ChannelID][m.UserID.String()] = mBytes
-	}
-
-	if len(byChannel) == 0 {
-		return nil
-	}
-
-	pipe := c.client.Pipeline()
-
-	for channelID, memberMap := range byChannel {
-		pipe.HSet(ctx, channelMembersKey(channelID), memberMap)
-	}
-
-	for _, m := range members {
-		if m == nil || m.ChannelID == uuid.Nil || m.UserID == uuid.Nil {
-			continue
-		}
-
-		var score float64
-		if m.PinnedAt != nil && !m.PinnedAt.IsZero() {
-			score = 1e12 + float64(m.PinnedAt.Unix())
-		} else {
-			score = float64(m.CreatedAt.Unix())
-		}
-
-		pipe.ZAdd(ctx, userChannelsKey(m.UserID), redisdriver.Z{
-			Score:  score,
-			Member: m.ChannelID.String(),
-		})
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return redis.NewError(err, redis.ScopeMember)
-	}
-
 	return nil
 }
 

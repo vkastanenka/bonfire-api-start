@@ -2,11 +2,13 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/crypto"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
 
@@ -40,17 +42,30 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	now := time.Now()
 
 	payload := EventForgotPasswordPayload{
-		Email: userRow.Email,
-		Token: t,
+		Email:     userRow.Email,
+		Token:     t,
+		CreatedAt: now,
 	}
 
-	return s.outboxRepo.Publish(ctx, EventForgotPassword, payload, now)
+	event, err := outbox.New(
+		uuid.Nil,
+		uuid.Nil,
+		appctx.GetTraceID(ctx),
+		nil,
+		EventForgotPassword,
+		payload,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	return s.outboxRepo.Create(ctx, event)
 }
 
 type ResetPasswordParams struct {
-	Token      string
-	Password   string
-	ClientMeta httpio.ClientMeta
+	Token    string
+	Password string
 }
 
 type ResetPasswordResult struct {
@@ -62,17 +77,17 @@ type ResetPasswordResult struct {
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
 	claims, err := s.tokenProvider.VerifyPasswordReset(p.Token)
 	if err != nil {
-		return ResetPasswordResult{}, ErrResetTokenInvalid(err)
+		return ResetPasswordResult{}, ErrResetTokenInvalid().Wrap(err)
 	}
 
-	if err := s.tokenCache.ConsumePasswordResetToken(ctx, claims); err != nil {
+	if err := s.tokenCache.ConsumePasswordReset(ctx, claims); err != nil {
 		return ResetPasswordResult{}, err
 	}
 
 	u, err := s.userRepo.Get(ctx, claims.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
-			return ResetPasswordResult{}, ErrResetTokenUserNotFound(err)
+			return ResetPasswordResult{}, ErrResetTokenUserNotFound().Wrap(err)
 		}
 		return ResetPasswordResult{}, err
 	}
@@ -84,13 +99,14 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	now := time.Now()
 
-	newSession, tokenPair, err := s.generateSession(u, p.ClientMeta, now)
+	newSession, tokenPair, err := s.generateSession(ctx, u, now)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
 
 	var revokedSessionIDs []uuid.UUID
 	var updatedUser *user.User
+	var dbSession *session.Session
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		var err error
@@ -104,23 +120,31 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			return err
 		}
 
-		if _, err := s.sessionRepo.Create(txCtx, newSession); err != nil {
+		if dbSession, err = s.sessionRepo.Create(txCtx, newSession); err != nil {
 			return err
 		}
 
 		if len(revokedSessionIDs) > 0 {
-			revokedSessionIDStrings := make([]string, len(revokedSessionIDs))
-			for i, id := range revokedSessionIDs {
-				revokedSessionIDStrings[i] = id.String()
-			}
-
-			revokePayload := session.EventRevokeAllPayload{
+			payload := session.EventRevokedAllPayload{
 				UserID:     u.ID,
 				SessionIDs: revokedSessionIDs,
 				RevokedAt:  now,
 			}
 
-			if err := s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now); err != nil {
+			event, err := outbox.New(
+				updatedUser.ID,
+				uuid.Nil,
+				appctx.GetTraceID(txCtx),
+				nil,
+				session.EventRevokedAll,
+				payload,
+				now,
+			)
+			if err != nil {
+				return err
+			}
+
+			if err := s.outboxRepo.Create(txCtx, event); err != nil {
 				return err
 			}
 		}
@@ -133,11 +157,29 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	}
 
 	if len(revokedSessionIDs) > 0 {
-		_ = s.sessionCache.DeleteBatch(ctx, revokedSessionIDs)
+		if err := s.sessionCache.DeleteBatch(ctx, revokedSessionIDs); err != nil {
+			slog.WarnContext(ctx, "failed to invalidate revoked sessions in cache after password reset",
+				slog.String("user_id", u.ID.String()),
+				slog.Int("count", len(revokedSessionIDs)),
+				slog.Any("error", err),
+			)
+		}
 	}
 
-	_ = s.sessionCache.Set(ctx, newSession)
-	_ = s.userCache.Set(ctx, updatedUser)
+	if err := s.sessionCache.Set(ctx, dbSession); err != nil {
+		slog.WarnContext(ctx, "failed to seed new session into cache after password reset",
+			slog.String("user_id", u.ID.String()),
+			slog.String("session_id", dbSession.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	if err := s.userCache.Set(ctx, updatedUser); err != nil {
+		slog.WarnContext(ctx, "failed to update user in cache after password reset",
+			slog.String("user_id", u.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return ResetPasswordResult{
 		AccessToken:           tokenPair.Access,

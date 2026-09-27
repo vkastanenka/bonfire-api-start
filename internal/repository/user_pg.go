@@ -354,7 +354,7 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([
 
 func userFromRow(row db.User) *user.User {
 	var preferredPresence *presence.Presence
-	if p, err := presence.Parse(db.FromInt2(row.PreferredPresence)); err == nil {
+	if p, err := presence.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
 		preferredPresence = &p
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/crypto"
 	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
@@ -255,7 +256,12 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) generateSession(u *user.User, clientMeta httpio.ClientMeta, now time.Time) (*session.Session, token.Pair, error) {
+func (s *Service) generateSession(ctx context.Context, u *user.User, now time.Time) (*session.Session, token.Pair, error) {
+	clientMeta, err := appctx.GetMeta(ctx)
+	if err != nil {
+		return nil, token.Pair{}, err
+	}
+
 	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return nil, token.Pair{}, err
