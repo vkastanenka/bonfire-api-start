@@ -10,17 +10,20 @@ import (
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
+var (
+	wsTicketTTL = 30 * time.Second
+)
+
 func wsTicketKey(ticketID uuid.UUID) string {
 	return "{ws_ticket:" + ticketID.String() + "}"
 }
 
 type WSTicketCache struct {
 	client redisdriver.Cmdable
-	ttl    time.Duration
 }
 
-func NewWSTicketCache(client redisdriver.Cmdable, ttl time.Duration) *WSTicketCache {
-	return &WSTicketCache{client: client, ttl: ttl}
+func NewWSTicketCache(client redisdriver.Cmdable) *WSTicketCache {
+	return &WSTicketCache{client: client}
 }
 
 // Print stores the ticket data mapping a ticketID to both userID and sessionID using raw bytes.
@@ -29,7 +32,7 @@ func (c *WSTicketCache) Print(ctx context.Context, ticketID, userID, sessionID u
 	copy(payload[0:16], userID[:])
 	copy(payload[16:32], sessionID[:])
 
-	if err := c.client.Set(ctx, wsTicketKey(ticketID), payload[:], c.ttl).Err(); err != nil {
+	if err := c.client.Set(ctx, wsTicketKey(ticketID), payload[:], wsTicketTTL).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeGateway)
 	}
 	return nil

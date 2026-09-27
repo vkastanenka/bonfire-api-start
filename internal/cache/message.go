@@ -41,7 +41,6 @@ func (c *MessageCache) Get(ctx context.Context, id uuid.UUID) (*channel.Message,
 	return getAndUnmarshal(ctx, redis.ScopeMessage, c.client, messageKey(id), unmarshalMessage)
 }
 
-// Set writes a single message object and updates its channel message ZSet index ring buffer.
 func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 	if msg == nil || msg.ID == uuid.Nil {
 		return nil
@@ -67,7 +66,6 @@ func (c *MessageCache) Set(ctx context.Context, msg *channel.Message) error {
 	return nil
 }
 
-// SetBatch stores a batch of messages for a channel into Redis in a single atomic pipeline.
 func (c *MessageCache) SetBatch(ctx context.Context, channelID uuid.UUID, messages []*channel.Message) error {
 	if channelID == uuid.Nil || len(messages) == 0 {
 		return nil
@@ -105,7 +103,6 @@ func (c *MessageCache) SetBatch(ctx context.Context, channelID uuid.UUID, messag
 	return nil
 }
 
-// Delete evicts a single message key and removes it from its channel message ZSet index.
 func (c *MessageCache) Delete(ctx context.Context, channelID, msgID uuid.UUID) error {
 	if channelID == uuid.Nil || msgID == uuid.Nil {
 		return nil
@@ -121,7 +118,6 @@ func (c *MessageCache) Delete(ctx context.Context, channelID, msgID uuid.UUID) e
 	return nil
 }
 
-// GetRecentByChannelID retrieves the latest `limit` messages for a given channel in descending chronological order.
 func (c *MessageCache) GetRecentByChannelID(
 	ctx context.Context,
 	channelID uuid.UUID,
@@ -150,7 +146,6 @@ func (c *MessageCache) GetRecentByChannelID(
 	return messages, true, nil
 }
 
-// GetBeforeByChannelID fetches messages preceding a cursor message from the channel ZSet index.
 func (c *MessageCache) GetBeforeByChannelID(
 	ctx context.Context,
 	channelID, cursorID uuid.UUID,
@@ -193,7 +188,6 @@ func (c *MessageCache) GetBeforeByChannelID(
 	return messages, hasMoreBefore, true, nil
 }
 
-// GetAfterByChannelID fetches messages following a cursor message from the channel ZSet index.
 func (c *MessageCache) GetAfterByChannelID(
 	ctx context.Context,
 	channelID, cursorID uuid.UUID,
@@ -234,7 +228,6 @@ func (c *MessageCache) GetAfterByChannelID(
 	return messages, hasMoreAfter, true, nil
 }
 
-// GetAroundByChannelID fetches messages surrounding a cursor message from the channel ZSet index.
 func (c *MessageCache) GetAroundByChannelID(
 	ctx context.Context,
 	channelID, cursorID uuid.UUID,
@@ -292,13 +285,11 @@ func (c *MessageCache) GetAroundByChannelID(
 	return messages, hasMoreBefore, hasMoreAfter, true, nil
 }
 
-// Private Helpers
-
 func (c *MessageCache) fetchCursorScore(ctx context.Context, channelID, cursorID uuid.UUID) (float64, bool, error) {
 	score, err := c.client.ZScore(ctx, channelMessagesKey(channelID), cursorID.String()).Result()
 	if err != nil {
 		if errors.Is(err, redisdriver.Nil) {
-			return 0, false, nil // Cache miss
+			return 0, false, nil
 		}
 		return 0, false, redis.NewError(err, redis.ScopeMessage)
 	}
@@ -316,7 +307,7 @@ func (c *MessageCache) fetchAndUnmarshalBatch(ctx context.Context, idStrs []stri
 	for i, idStr := range idStrs {
 		parsedID, err := uuid.Parse(idStr)
 		if err != nil {
-			return nil, nil // Corrupted ID string in ZSet -> cache miss
+			return nil, nil
 		}
 		cmds[i] = pipe.Get(ctx, messageKey(parsedID))
 	}
@@ -330,12 +321,12 @@ func (c *MessageCache) fetchAndUnmarshalBatch(ctx context.Context, idStrs []stri
 	for _, cmd := range cmds {
 		rawBytes, err := cmd.Bytes()
 		if err != nil {
-			return nil, nil // Cache miss on individual payload
+			return nil, nil
 		}
 
 		msg, err := unmarshalMessage(rawBytes)
 		if err != nil || msg == nil {
-			return nil, nil // Corrupted payload -> cache miss
+			return nil, nil
 		}
 
 		messages = append(messages, msg)

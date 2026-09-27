@@ -122,7 +122,6 @@ func (c *MemberCache) Remove(ctx context.Context, channelID, userID uuid.UUID) e
 	return nil
 }
 
-// AddBatch populates member hashes for multiple channels and updates each user's channel ZSet index in a single pipeline.
 func (c *MemberCache) AddBatch(ctx context.Context, members []*channel.Member) error {
 	if len(members) == 0 {
 		return nil

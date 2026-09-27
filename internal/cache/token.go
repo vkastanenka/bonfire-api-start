@@ -5,7 +5,6 @@ import (
 	"math"
 	"time"
 
-	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/token"
 
@@ -20,19 +19,18 @@ func NewTokenCache(client redisdriver.Cmdable) *TokenCache {
 	return &TokenCache{client: client}
 }
 
-func (c *TokenCache) ConsumePasswordResetToken(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumePasswordReset(ctx context.Context, claims *token.Claims) error {
 	return c.consumeJTI(ctx, "forgot_password", claims.ID, claims.ExpiresAt.Time)
 }
 
-func (c *TokenCache) ConsumeRefreshToken(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumeRefresh(ctx context.Context, claims *token.Claims) error {
 	return c.consumeJTI(ctx, "refresh", claims.ID, claims.ExpiresAt.Time)
 }
 
-func (c *TokenCache) ConsumeEmailVerifyToken(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error {
 	return c.consumeJTI(ctx, "email_verify", claims.ID, claims.ExpiresAt.Time)
 }
 
-// Lua script to atomically check if a JTI is consumed and mark it in a single round trip.
 var tokenConsumeJTIScript = redisdriver.NewScript(`
 	local key = KEYS[1]
 	local ttl = tonumber(ARGV[1])
@@ -45,13 +43,7 @@ var tokenConsumeJTIScript = redisdriver.NewScript(`
 	return 1
 `)
 
-// consumeJTI is the single private helper executing the Redis check-and-set logic.
 func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory, jti string, expiresAt time.Time) error {
-	if jti == "" {
-		return errs.InvalidArgument("jti cannot be empty")
-	}
-
-	// Account for JWT clock leeway (DefaultClockLeeway) so valid tokens near expiration don't miss Redis tracking.
 	remainingTTL := time.Until(expiresAt) + token.DefaultClockLeeway
 	if remainingTTL <= 0 {
 		return ErrTokenAlreadyUsed()
