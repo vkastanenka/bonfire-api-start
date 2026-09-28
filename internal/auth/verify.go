@@ -59,11 +59,11 @@ func (s *Service) ResendVerify(ctx context.Context) error {
 
 	now := time.Now()
 
-	payload := EventResendVerifyPayload{
-		Email:    u.Email,
-		Username: u.Username,
-		Token:    verifyToken,
-		At:       now,
+	payload := EventVerificationResentPayload{
+		Email:       u.Email,
+		Username:    u.Username,
+		Token:       verifyToken,
+		RequestedAt: now,
 	}
 
 	event, err := outbox.New(
@@ -71,7 +71,7 @@ func (s *Service) ResendVerify(ctx context.Context) error {
 		ctxClaims.SessionID,
 		appctx.GetTraceID(ctx),
 		nil,
-		EventResendVerification,
+		EventVerificationResent,
 		payload,
 		now,
 	)

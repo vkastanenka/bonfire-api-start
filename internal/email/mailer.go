@@ -1,23 +1,25 @@
 package email
 
 import (
+	"bonfire-api/internal/pkg/errs"
+	"bytes"
 	"context"
+	"embed"
+	"errors"
+	"fmt"
+	"html/template"
 	"log/slog"
+	"time"
+
+	"github.com/resend/resend-go/v3"
 )
 
-type Mailer interface {
-	SendRegisterEmail(ctx context.Context, emailAddress, username, token string) error
-	SendResendVerificationEmail(ctx context.Context, emailAddress, username, token string) error
-	SendPasswordResetEmail(ctx context.Context, emailAddress, resetToken string) error
-}
+//go:embed templates/*.html
+var emailTemplates embed.FS
 
-type NoOpMailer struct{}
-
-func (n *NoOpMailer) SendRegisterEmail(ctx context.Context, e, u, t string) error { return nil }
-func (n *NoOpMailer) SendResendVerificationEmail(ctx context.Context, e, u, t string) error {
-	return nil
+func LoadTemplates() (*template.Template, error) {
+	return template.ParseFS(emailTemplates, "templates/*.html")
 }
-func (n *NoOpMailer) SendPasswordResetEmail(ctx context.Context, e, t string) error { return nil }
 
 type Config struct {
 	ResendAPIKey string
@@ -26,10 +28,16 @@ type Config struct {
 	OverrideTo   string
 }
 
-func NewMailer(cfg Config) Mailer {
-	if cfg.ResendAPIKey == "" {
-		slog.Warn("email engine: API Key missing, defaulting to No-Op mailer")
-		return &NoOpMailer{}
+type Mailer struct {
+	client *resend.Client
+	cfg    Config
+	tmpl   *template.Template
+}
+
+func NewMailer(cfg Config) *Mailer {
+	tmpl, err := LoadTemplates()
+	if err != nil {
+		panic(fmt.Errorf("failed to parse email templates: %w", err))
 	}
 
 	if cfg.OverrideTo != "" {
@@ -37,5 +45,54 @@ func NewMailer(cfg Config) Mailer {
 	} else {
 		slog.Info("email engine: Resend initialized in PRODUCTION mode")
 	}
-	return NewResendMailer(cfg)
+
+	return &Mailer{
+		client: resend.NewClient(cfg.ResendAPIKey),
+		cfg:    cfg,
+		tmpl:   tmpl,
+	}
+}
+
+func (m *Mailer) send(ctx context.Context, templateName, recipient, subject string, data any) error {
+	actualRecipient := recipient
+	if m.cfg.OverrideTo != "" {
+		actualRecipient = m.cfg.OverrideTo
+	}
+
+	var body bytes.Buffer
+	if err := m.tmpl.ExecuteTemplate(&body, templateName, data); err != nil {
+		return errs.Internal("Failed to execute email template.").Wrap(err)
+	}
+
+	if err := ctx.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return errs.Cancelled("Context was cancelled before email dispatch.").Wrap(err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return errs.DeadlineExceeded("Context deadline was exceeded before email dispatch.").Wrap(err)
+		}
+		return errs.Internal("Context was closed before email dispatch.").Wrap(err)
+	}
+
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	params := &resend.SendEmailRequest{
+		From:    m.cfg.FromAddress,
+		To:      []string{actualRecipient},
+		Subject: subject,
+		Html:    body.String(),
+	}
+
+	resp, err := m.client.Emails.Send(params)
+	if err != nil {
+		return errs.Internal("Failed to dispatch email via Resend.").Wrap(err)
+	}
+
+	slog.Info("email dispatched via resend",
+		slog.String("to", actualRecipient),
+		slog.String("subject", subject),
+		slog.String("resend_id", resp.Id),
+	)
+	return nil
 }

@@ -1,65 +1,67 @@
 package auth
 
-import "time"
-
-const (
-	EventForgotPassword     = "auth.forgot_password"
-	EventRegister           = "auth.register"
-	EventResendVerification = "auth.retry_verification"
+import (
+	"bonfire-api/internal/outbox"
+	"context"
+	"time"
 )
 
-type EventForgotPasswordPayload struct {
-	Email string    `json:"email"`
-	Token string    `json:"token"`
-	At    time.Time `json:"at"`
+type Worker interface {
+	RegisterHandler(eventType string, handler outbox.Handler)
 }
 
-type EventRegisterPayload struct {
-	Email    string    `json:"email"`
-	Username string    `json:"username"`
-	Token    string    `json:"token"`
-	At       time.Time `json:"at"`
+type Mailer interface {
+	SendPasswordReset(ctx context.Context, emailAddress string, resetToken string, requestedAt time.Time) error
+	SendRegister(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
+	SendResendVerification(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
 }
 
-type EventResendVerifyPayload struct {
-	Email    string    `json:"email"`
-	Username string    `json:"username"`
-	Token    string    `json:"token"`
-	At       time.Time `json:"at"`
+const (
+	EventPasswordResetRequested = "auth.password_reset_requested"
+	EventRegistered             = "auth.user_registered"
+	EventVerificationResent     = "auth.verification_resent"
+)
+
+func RegisterEvents(w Worker, m Mailer) {
+	w.RegisterHandler(EventPasswordResetRequested, newPasswordResetRequestedHandler(m))
+	w.RegisterHandler(EventRegistered, newRegisteredHandler(m))
+	w.RegisterHandler(EventVerificationResent, newVerificationResentHandler(m))
 }
 
-// func NewForgotPasswordOutboxHandler(mailer email.Mailer) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventForgotPasswordPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return mailer.SendPasswordResetEmail(ctx, p.Email, p.Token)
-// 	}
-// }
+type EventPasswordResetRequestedPayload struct {
+	Email       string    `json:"email"`
+	Token       string    `json:"token"`
+	RequestedAt time.Time `json:"requestedAt"`
+}
 
-// func NewRegisterOutboxHandler(mailer email.Mailer) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventRegisterPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return mailer.SendRegisterEmail(ctx, p.Email, p.Username, p.Token)
-// 	}
-// }
+func newPasswordResetRequestedHandler(mailer Mailer) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventPasswordResetRequestedPayload) error {
+		return mailer.SendPasswordReset(ctx, p.Email, p.Token, p.RequestedAt)
+	})
+}
 
-// func NewResendVerifyOutboxHandler(mailer email.Mailer) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventResendVerifyPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return mailer.SendResendVerificationEmail(ctx, p.Email, p.Username, p.Token)
-// 	}
-// }
+type EventRegisteredPayload struct {
+	Email       string    `json:"email"`
+	Username    string    `json:"username"`
+	Token       string    `json:"token"`
+	RequestedAt time.Time `json:"requestedAt"`
+}
 
-// func RegisterOutboxHandlers(w *outbox.Worker, mailer email.Mailer) {
-// 	w.RegisterHandler(EventRegister, NewRegisterOutboxHandler(mailer))
-// 	w.RegisterHandler(EventResendVerification, NewResendVerifyOutboxHandler(mailer))
-// 	w.RegisterHandler(EventForgotPassword, NewForgotPasswordOutboxHandler(mailer))
-// }
+func newRegisteredHandler(mailer Mailer) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventRegisteredPayload) error {
+		return mailer.SendRegister(ctx, p.Email, p.Username, p.Token, p.RequestedAt)
+	})
+}
+
+type EventVerificationResentPayload struct {
+	Email       string    `json:"email"`
+	Username    string    `json:"username"`
+	Token       string    `json:"token"`
+	RequestedAt time.Time `json:"requestedAt"`
+}
+
+func newVerificationResentHandler(mailer Mailer) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventVerificationResentPayload) error {
+		return mailer.SendPasswordReset(ctx, p.Email, p.Token, p.RequestedAt)
+	})
+}

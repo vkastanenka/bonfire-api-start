@@ -248,10 +248,11 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return err
 		}
 
-		payload := EventRegisterPayload{
-			Email:    newUser.Email,
-			Username: newUser.Username,
-			Token:    evToken,
+		payload := EventRegisteredPayload{
+			Email:       newUser.Email,
+			Username:    newUser.Username,
+			Token:       evToken,
+			RequestedAt: now,
 		}
 
 		event, err := outbox.New(
@@ -259,7 +260,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			createdSession.ID,
 			appctx.GetTraceID(txCtx),
 			nil,
-			EventRegister,
+			EventRegistered,
 			payload,
 			now,
 		)

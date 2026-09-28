@@ -39,8 +39,10 @@
       padding-top: 20px;
     "
   >
-    Welcome to the community! If you are having trouble with the button above,
-    please copy and paste the following URL into your web browser:
+    {{if .RequestedAt}}
+    <strong>Requested at:</strong> {{.RequestedAt}}<br /><br />
+    {{end}} Welcome to the community! If you are having trouble with the button
+    above, please copy and paste the following URL into your web browser:
     <br /><br />
     <a href="{{.ActionLink}}" style="color: #00a8fc; word-break: break-all"
       >{{.ActionLink}}</a

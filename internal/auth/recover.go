@@ -41,10 +41,10 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 
 	now := time.Now()
 
-	payload := EventForgotPasswordPayload{
-		Email: userRow.Email,
-		Token: t,
-		At:    now,
+	payload := EventPasswordResetRequestedPayload{
+		Email:       userRow.Email,
+		Token:       t,
+		RequestedAt: now,
 	}
 
 	event, err := outbox.New(
@@ -52,7 +52,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		uuid.Nil,
 		appctx.GetTraceID(ctx),
 		nil,
-		EventForgotPassword,
+		EventPasswordResetRequested,
 		payload,
 		now,
 	)
