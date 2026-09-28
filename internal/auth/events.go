@@ -9,21 +9,23 @@ const (
 )
 
 type EventForgotPasswordPayload struct {
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
-	CreatedAt time.Time `json:"createdAt"`
+	Email string    `json:"email"`
+	Token string    `json:"token"`
+	At    time.Time `json:"at"`
 }
 
 type EventRegisterPayload struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Token    string `json:"token"`
+	Email    string    `json:"email"`
+	Username string    `json:"username"`
+	Token    string    `json:"token"`
+	At       time.Time `json:"at"`
 }
 
 type EventResendVerifyPayload struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Token    string `json:"token"`
+	Email    string    `json:"email"`
+	Username string    `json:"username"`
+	Token    string    `json:"token"`
+	At       time.Time `json:"at"`
 }
 
 // func NewForgotPasswordOutboxHandler(mailer email.Mailer) outbox.Handler {

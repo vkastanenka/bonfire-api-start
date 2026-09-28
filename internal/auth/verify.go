@@ -2,43 +2,49 @@ package auth
 
 import (
 	"context"
-	"errors"
+	"log/slog"
 	"time"
 
-	"bonfire-api/internal/errs"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/user"
-
-	"github.com/google/uuid"
 )
 
-func (s *Service) VerifyEmail(ctx context.Context, userID uuid.UUID, token string) (*user.User, error) {
+func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, error) {
 	claims, err := s.tokenProvider.VerifyEmailVerify(token)
 	if err != nil {
 		return nil, err
 	}
 
-	if userID != claims.UserID {
-		return nil, errors.New("Token doesn't belong to you.")
-	}
-
-	if err := s.tokenCache.ConsumeEmailVerifyToken(ctx, claims); err != nil {
+	if err := s.tokenCache.ConsumeEmailVerify(ctx, claims); err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
 
-	u, err := s.userRepo.Verify(ctx, userID, now, now)
+	u, err := s.userRepo.Verify(ctx, claims.UserID, now, now)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.userCache.Delete(ctx, userID)
+	if err := s.userCache.Delete(ctx, claims.UserID); err != nil {
+		slog.WarnContext(ctx, "failed to invalidate user cache after email verification",
+			slog.String("user_id", claims.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return u, nil
 }
 
-func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
-	u, err := s.cachedUserRepo.Get(ctx, userID)
+func (s *Service) ResendVerify(ctx context.Context) error {
+	ctxClaims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return err
+	}
+
+	u, err := s.cachedUserRepo.Get(ctx, ctxClaims.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			return nil
@@ -52,11 +58,26 @@ func (s *Service) ResendVerify(ctx context.Context, userID uuid.UUID) error {
 	}
 
 	now := time.Now()
+
 	payload := EventResendVerifyPayload{
 		Email:    u.Email,
 		Username: u.Username,
 		Token:    verifyToken,
+		At:       now,
 	}
 
-	return s.outboxRepo.Publish(ctx, EventResendVerification, payload, now)
+	event, err := outbox.New(
+		ctxClaims.UserID,
+		ctxClaims.SessionID,
+		appctx.GetTraceID(ctx),
+		nil,
+		EventResendVerification,
+		payload,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	return s.outboxRepo.Create(ctx, event)
 }

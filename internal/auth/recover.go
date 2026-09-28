@@ -42,9 +42,9 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	now := time.Now()
 
 	payload := EventForgotPasswordPayload{
-		Email:     userRow.Email,
-		Token:     t,
-		CreatedAt: now,
+		Email: userRow.Email,
+		Token: t,
+		At:    now,
 	}
 
 	event, err := outbox.New(
@@ -75,6 +75,11 @@ type ResetPasswordResult struct {
 }
 
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
+	ctxMeta, err := appctx.GetMeta(ctx)
+	if err != nil {
+		return ResetPasswordResult{}, err
+	}
+
 	claims, err := s.tokenProvider.VerifyPasswordReset(p.Token)
 	if err != nil {
 		return ResetPasswordResult{}, ErrResetTokenInvalid().Wrap(err)
@@ -99,7 +104,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	now := time.Now()
 
-	newSession, tokenPair, err := s.generateSession(ctx, u, now)
+	newSession, tokenPair, err := s.generateSession(ctxMeta, u, now)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
@@ -166,17 +171,17 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		}
 	}
 
-	if err := s.sessionCache.Set(ctx, dbSession); err != nil {
-		slog.WarnContext(ctx, "failed to seed new session into cache after password reset",
+	if err := s.userCache.Set(ctx, updatedUser); err != nil {
+		slog.WarnContext(ctx, "failed to update user in cache after password reset",
 			slog.String("user_id", u.ID.String()),
-			slog.String("session_id", dbSession.ID.String()),
 			slog.Any("error", err),
 		)
 	}
 
-	if err := s.userCache.Set(ctx, updatedUser); err != nil {
-		slog.WarnContext(ctx, "failed to update user in cache after password reset",
+	if err := s.sessionCache.Set(ctx, dbSession); err != nil {
+		slog.WarnContext(ctx, "failed to seed new session into cache after password reset",
 			slog.String("user_id", u.ID.String()),
+			slog.String("session_id", dbSession.ID.String()),
 			slog.Any("error", err),
 		)
 	}

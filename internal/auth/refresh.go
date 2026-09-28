@@ -1,12 +1,13 @@
 package auth
 
 import (
-	"bonfire-api/internal/crypto"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/session"
 	"context"
 	"crypto/subtle"
 	"log/slog"
-	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,8 +15,6 @@ import (
 
 type RefreshParams struct {
 	RefreshToken string
-	ClientIP     netip.Addr
-	UserAgent    string
 }
 
 type RefreshResult struct {
@@ -25,12 +24,17 @@ type RefreshResult struct {
 }
 
 func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, error) {
+	ctxMeta, err := appctx.GetMeta(ctx)
+	if err != nil {
+		return RefreshResult{}, err
+	}
+
 	claims, err := s.tokenProvider.VerifyRefresh(p.RefreshToken)
 	if err != nil {
 		return RefreshResult{}, ErrRefreshTokenInvalid()
 	}
 
-	if err := s.tokenCache.ConsumeRefreshToken(ctx, claims); err != nil {
+	if err := s.tokenCache.ConsumeRefresh(ctx, claims); err != nil {
 		return RefreshResult{}, err
 	}
 
@@ -54,8 +58,8 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 
 	if subtle.ConstantTimeCompare(presentedBytes, currentBytes) != 1 {
 		slog.WarnContext(ctx, "refresh token reuse detected: token hash mismatch",
-			"session_id", sess.ID,
-			"user_id", sess.UserID,
+			slog.String("session_id", sess.ID.String()),
+			slog.String("user_id", sess.UserID.String()),
 		)
 
 		var revokedIDs []uuid.UUID
@@ -68,15 +72,26 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 			}
 
 			if len(revokedIDs) > 0 {
-				revokePayload := session.EventRevokeAllPayload{
+				payload := session.EventRevokedAllPayload{
 					UserID:     sess.UserID,
 					SessionIDs: revokedIDs,
 					RevokedAt:  now,
 				}
 
-				if err := s.outboxRepo.Publish(txCtx, session.EventRevokeAll, revokePayload, now); err != nil {
+				event, err := outbox.New(
+					sess.UserID,
+					sess.ID,
+					appctx.GetTraceID(txCtx),
+					nil,
+					session.EventRevokedAll,
+					payload,
+					now,
+				)
+				if err != nil {
 					return err
 				}
+
+				return s.outboxRepo.Create(txCtx, event)
 			}
 
 			return nil
@@ -87,7 +102,13 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		}
 
 		if len(revokedIDs) > 0 {
-			_ = s.sessionCache.DeleteBatch(ctx, revokedIDs)
+			if err := s.sessionCache.DeleteBatch(ctx, revokedIDs); err != nil {
+				slog.WarnContext(ctx, "failed to invalidate revoked sessions in cache during token reuse detection",
+					slog.String("user_id", sess.UserID.String()),
+					slog.Int("count", len(revokedIDs)),
+					slog.Any("error", err),
+				)
+			}
 		}
 
 		return RefreshResult{}, ErrRefreshTokenInvalidReuse()
@@ -105,8 +126,8 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		sess.ID,
 		sess.RefreshTokenHash,
 		string(newHash),
-		p.ClientIP,
-		p.UserAgent,
+		ctxMeta.IP,
+		ctxMeta.UserAgent,
 		tokenPair.RefreshExpiresAt,
 		now,
 	)
@@ -114,7 +135,13 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	_ = s.sessionCache.Set(ctx, newSess)
+	if err := s.sessionCache.Set(ctx, newSess); err != nil {
+		slog.WarnContext(ctx, "failed to update session cache after token refresh",
+			slog.String("user_id", sess.UserID.String()),
+			slog.String("session_id", sess.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return RefreshResult{
 		AccessToken:           tokenPair.Access,

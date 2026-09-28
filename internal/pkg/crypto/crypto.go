@@ -52,9 +52,10 @@ func CompareDummyPassword(password string) error {
 	return errs.Unauthenticated("invalid credentials")
 }
 
-// HashToken computes a fixed 32-byte SHA-256 hash of an API or authorization token string.
-func HashToken(tokenStr string) [32]byte {
-	return sha256.Sum256([]byte(tokenStr))
+// HashToken computes a SHA-256 hash of an authorization token string.
+func HashToken(tokenStr string) []byte {
+	h := sha256.Sum256([]byte(tokenStr))
+	return h[:]
 }
 
 // ConstantWindow returns a deferrable function that delays execution until the target duration has elapsed.

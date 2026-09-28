@@ -2,13 +2,14 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"bonfire-api/internal/appctx"
-	"bonfire-api/internal/crypto"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/crypto"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
@@ -24,7 +25,7 @@ type Service struct {
 	sessionCache   SessionCache
 	sessionRepo    SessionRepository
 	outboxRepo     OutboxRepository
-	ticketCache    TicketCache
+	ticketCache    WSTicketCache
 	tokenCache     TokenCache
 	tokenProvider  TokenProvider
 	tx             TX
@@ -37,7 +38,7 @@ func NewService(
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	outboxRepo OutboxRepository,
-	ticketCache TicketCache,
+	ticketCache WSTicketCache,
 	tokenCache TokenCache,
 	tokenProvider TokenProvider,
 	tx TX,
@@ -56,14 +57,9 @@ func NewService(
 	}
 }
 
-const (
-	loginTimingWindow = 35 * time.Millisecond
-)
-
 type LoginParams struct {
-	Email      string
-	Password   string
-	ClientMeta httpio.ClientMeta
+	Email    string
+	Password string
 }
 
 type LoginResult struct {
@@ -73,7 +69,10 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
-	defer crypto.ConstantWindow(ctx, loginTimingWindow)()
+	ctxMeta, err := appctx.GetMeta(ctx)
+	if err != nil {
+		return LoginResult{}, err
+	}
 
 	u, err := s.userRepo.GetByEmail(ctx, p.Email)
 	if err != nil {
@@ -84,7 +83,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		return LoginResult{}, err
 	}
 
-	err = crypto.ComparePassword(u.PasswordHash, u.PasswordHash)
+	err = crypto.ComparePasswords(u.PasswordHash, p.Password)
 	if err != nil {
 		return LoginResult{}, ErrCredentialsInvalid()
 	}
@@ -110,7 +109,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 				return err
 			}
 
-			newSession, tokenPair, err = s.generateSession(u, p.ClientMeta, now)
+			newSession, tokenPair, err = s.generateSession(ctxMeta, u, now)
 			if err != nil {
 				return err
 			}
@@ -124,7 +123,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		}
 	} else {
 		var err error
-		newSession, tokenPair, err = s.generateSession(u, p.ClientMeta, now)
+		newSession, tokenPair, err = s.generateSession(ctxMeta, u, now)
 		if err != nil {
 			return LoginResult{}, err
 		}
@@ -135,8 +134,20 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		}
 	}
 
-	_ = s.sessionCache.Set(ctx, createdSession)
-	_ = s.userCache.Set(ctx, u)
+	if err := s.userCache.Set(ctx, u); err != nil {
+		slog.WarnContext(ctx, "failed to seed user into cache after login",
+			slog.String("user_id", u.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	if err := s.sessionCache.Set(ctx, createdSession); err != nil {
+		slog.WarnContext(ctx, "failed to seed new session into cache after login",
+			slog.String("user_id", u.ID.String()),
+			slog.String("session_id", createdSession.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,
@@ -150,7 +161,6 @@ type RegisterParams struct {
 	Username    string
 	DisplayName *string
 	Password    string
-	ClientMeta  httpio.ClientMeta
 }
 
 func (p RegisterParams) ResolveDisplayName() string {
@@ -167,6 +177,11 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
+	ctxMeta, err := appctx.GetMeta(ctx)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
 	var (
 		passwordHash   string
 		emailAvailable bool
@@ -186,7 +201,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	g.Go(func() error {
 		var aErr error
-		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, ptr.To(p.Email), ptr.To(p.Username))
+		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, &p.Email, &p.Username)
 		return aErr
 	})
 
@@ -210,20 +225,20 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 	now := time.Now()
 	newUser := user.New(userID, p.Email, p.Username, username, passwordHash, now)
-	newSession, tokenPair, err := s.generateSession(newUser, p.ClientMeta, now)
+	newSession, tokenPair, err := s.generateSession(ctxMeta, newUser, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
 	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID)
 	if err != nil {
-		return RegisterResult{}, errs.Internal("failed to generate email verification token").Wrap(err)
+		return RegisterResult{}, err
 	}
 
 	var createdSession *session.Session
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if _, err := s.userRepo.Create(txCtx, newUser); err != nil {
+		if newUser, err = s.userRepo.Create(txCtx, newUser); err != nil {
 			return err
 		}
 
@@ -239,15 +254,40 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			Token:    evToken,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventRegister, payload, now)
+		event, err := outbox.New(
+			newUser.ID,
+			createdSession.ID,
+			appctx.GetTraceID(txCtx),
+			nil,
+			EventRegister,
+			payload,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 
 	if txErr != nil {
 		return RegisterResult{}, txErr
 	}
 
-	_ = s.sessionCache.Set(ctx, createdSession)
-	_ = s.userCache.Set(ctx, newUser)
+	if err := s.userCache.Set(ctx, newUser); err != nil {
+		slog.WarnContext(ctx, "failed to seed new user into cache after registration",
+			slog.String("user_id", newUser.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	if err := s.sessionCache.Set(ctx, createdSession); err != nil {
+		slog.WarnContext(ctx, "failed to seed new session into cache after registration",
+			slog.String("user_id", newUser.ID.String()),
+			slog.String("session_id", createdSession.ID.String()),
+			slog.Any("error", err),
+		)
+	}
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,
@@ -256,12 +296,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) generateSession(ctx context.Context, u *user.User, now time.Time) (*session.Session, token.Pair, error) {
-	clientMeta, err := appctx.GetMeta(ctx)
-	if err != nil {
-		return nil, token.Pair{}, err
-	}
-
+func (s *Service) generateSession(meta httpio.ClientMeta, u *user.User, now time.Time) (*session.Session, token.Pair, error) {
 	sessionID, err := uuid.NewV7()
 	if err != nil {
 		return nil, token.Pair{}, err
@@ -278,10 +313,10 @@ func (s *Service) generateSession(ctx context.Context, u *user.User, now time.Ti
 		sessionID,
 		u.ID,
 		string(tokenHash),
-		clientMeta.IP,
-		clientMeta.UserAgent,
-		clientMeta.OS,
-		clientMeta.Browser,
+		meta.IP,
+		meta.UserAgent,
+		meta.OS,
+		meta.Browser,
 		tokenPair.RefreshExpiresAt,
 		now,
 		nil,
