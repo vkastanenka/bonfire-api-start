@@ -3,7 +3,6 @@ package channel
 import (
 	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
@@ -61,24 +60,24 @@ func NewChannelService(
 
 type CreateGroupResult struct {
 	Channel     *Channel
+	MemberIDs   []uuid.UUID
 	ActorMember *Member
 	Users       map[uuid.UUID]*user.User
 	Presences   map[uuid.UUID]presence.Presence
 }
 
 // CreateGroup creates a new group channel with members and returns the initialized result for the actor.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
+func (s *ChannelService) CreateGroup(ctx context.Context, rawMemberIDs []uuid.UUID) (*CreateGroupResult, error) {
 	claims, err := appctx.GetClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateMaxPeers(rawPeerIDs); err != nil {
+	if err := validateMaxPeers(rawMemberIDs); err != nil {
 		return nil, err
 	}
 
-	memberIDs := helpers.DedupeIDs(append(rawPeerIDs, claims.UserID))
-	peerIDs := helpers.RemoveID(memberIDs, claims.UserID)
+	memberIDs, peerIDs := getChMemberIDs(rawMemberIDs, claims.UserID)
 
 	counts, err := s.memberRepo.CountBatchByUserID(ctx, memberIDs)
 	if err != nil {
@@ -191,6 +190,9 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 		return nil, txErr
 	}
 
+	sortMembers(membs, users)
+	memberIDs = getMemberIDs(membs)
+
 	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -203,6 +205,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 
 	return &CreateGroupResult{
 		Channel:     ch,
+		MemberIDs:   memberIDs,
 		ActorMember: actorMember,
 		Users:       users,
 		Presences:   presences,
@@ -260,6 +263,8 @@ func (s *ChannelService) UpdateGroup(ctx context.Context, channelID uuid.UUID, n
 				return err
 			}
 		}
+
+		sortMessages(systemMessages)
 
 		payload := EventChannelUpdatedPayload{
 			Channel:        ParseChannelView(updatedChannel),

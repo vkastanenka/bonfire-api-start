@@ -1,11 +1,13 @@
 package channel
 
 import (
-	"bonfire-api/internal/helpers"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
-	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,25 +15,32 @@ import (
 )
 
 type MemberService struct {
-	repo              MemberRepository
-	channelCache      ChannelCache
-	channelRepo       ChannelRepository
-	cachedChannelRepo CachedChannelRepository
-	messageRepo       MessageRepository
-	userCache         UserCache
-	userRepo          UserRepository
-	cachedUserRepo    CachedUserRepository
-	presenceCache     PresenceCache
-	outboxRepo        OutboxRepository
-	relationRepo      RelationRepository
-	tx                TX
+	cache              MemberCache
+	repo               MemberRepository
+	cachedRepo         CachedMemberRepository
+	channelCache       ChannelCache
+	channelRepo        ChannelRepository
+	cachedChannelRepo  CachedChannelRepository
+	messageCache       MessageCache
+	messageRepo        MessageRepository
+	userCache          UserCache
+	userRepo           UserRepository
+	cachedUserRepo     CachedUserRepository
+	presenceCache      PresenceCache
+	outboxRepo         OutboxRepository
+	relationRepo       RelationRepository
+	cachedRelationRepo CachedRelationRepository
+	tx                 TX
 }
 
 func NewMemberService(
+	cache MemberCache,
 	repo MemberRepository,
+	cachedRepo CachedMemberRepository,
 	channelCache ChannelCache,
 	channelRepo ChannelRepository,
 	cachedChannelRepo CachedChannelRepository,
+	messageCache MessageCache,
 	messageRepo MessageRepository,
 	userCache UserCache,
 	userRepo UserRepository,
@@ -39,103 +48,63 @@ func NewMemberService(
 	presenceCache PresenceCache,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
+	cachedRelationRepo CachedRelationRepository,
 	tx TX,
 ) *MemberService {
 	return &MemberService{
-		repo:              repo,
-		channelCache:      channelCache,
-		channelRepo:       channelRepo,
-		cachedChannelRepo: cachedChannelRepo,
-		messageRepo:       messageRepo,
-		userCache:         userCache,
-		userRepo:          userRepo,
-		cachedUserRepo:    cachedUserRepo,
-		presenceCache:     presenceCache,
-		outboxRepo:        outboxRepo,
-		relationRepo:      relationRepo,
-		tx:                tx,
+		cache:              cache,
+		repo:               repo,
+		cachedRepo:         cachedRepo,
+		channelCache:       channelCache,
+		channelRepo:        channelRepo,
+		cachedChannelRepo:  cachedChannelRepo,
+		messageCache:       messageCache,
+		messageRepo:        messageRepo,
+		userCache:          userCache,
+		userRepo:           userRepo,
+		cachedUserRepo:     cachedUserRepo,
+		presenceCache:      presenceCache,
+		outboxRepo:         outboxRepo,
+		relationRepo:       relationRepo,
+		cachedRelationRepo: cachedRelationRepo,
+		tx:                 tx,
 	}
-}
-
-// GetBatchByChannelIDs retrieves members for multiple channels using a cache-aside strategy.
-func (s *MemberService) GetBatchByChannelIDs(
-	ctx context.Context,
-	channelIDs []uuid.UUID,
-) (map[uuid.UUID][]*Member, error) {
-	if len(channelIDs) == 0 {
-		return make(map[uuid.UUID][]*Member), nil
-	}
-
-	channelIDs = helpers.DedupeIDs(channelIDs)
-
-	// 1. Attempt cache lookup
-	found, missing, err := s.channelCache.GetBatchMembersByChannelIDs(ctx, channelIDs)
-	if err != nil {
-		// Log cache error if needed; proceed or return error depending on degradation strategy
-		return nil, err
-	}
-
-	// 2. Return early if all requested channel memberships were cached
-	if len(missing) == 0 {
-		return found, nil
-	}
-
-	// 3. Fetch missing channel memberships from repository
-	dbMembersMap, err := s.repo.GetBatchByChannelIDs(ctx, missing)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(dbMembersMap) == 0 {
-		return found, nil
-	}
-
-	// 4. Backfill cache asynchronously or inline for missing hits
-	_ = s.channelCache.SetBatchMembers(ctx, dbMembersMap)
-
-	// 5. Merge DB results into result map
-	for cid, members := range dbMembersMap {
-		found[cid] = members
-	}
-
-	return found, nil
-}
-
-// GetBatchByChannelID convenience wrapper for single channel lookups.
-func (s *MemberService) GetBatchByChannelID(
-	ctx context.Context,
-	channelID uuid.UUID,
-) ([]*Member, error) {
-	res, err := s.GetBatchByChannelIDs(ctx, []uuid.UUID{channelID})
-	if err != nil {
-		return nil, err
-	}
-	return res[channelID], nil
 }
 
 type AddMembersResult struct {
+	MemberIDs []uuid.UUID
 	Users     map[uuid.UUID]*user.User
 	Presences map[uuid.UUID]presence.Presence
-	MemberIDs []uuid.UUID
 	Messages  []*Message
 }
 
-// AddMembers adds members to a channel and creates system notification messages.
+// AddMembers adds members to a channel, creates system notification messages, and broadcasts outbox events.
 func (s *MemberService) AddMembers(
 	ctx context.Context,
-	actorID, sessionID, channelID uuid.UUID,
-	memberIDs []uuid.UUID,
+	channelID uuid.UUID,
+	newPeerIDs []uuid.UUID,
 ) (*AddMembersResult, error) {
-	if err := validateMinMembers(memberIDs); err != nil {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
 		return nil, err
 	}
 
-	newPeerIDs, err := filterRequiredPeerIDs(actorID, memberIDs)
+	if err := validateMinMembers(newPeerIDs); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxPeers(newPeerIDs); err != nil {
+		return nil, err
+	}
+
+	parsedPeerIDs, err := filterRequiredPeerIDs(newPeerIDs, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	var (
+		counts          map[uuid.UUID]int
+		friendIDs       []uuid.UUID
 		existingMembers []*Member
 		ch              *Channel
 	)
@@ -143,40 +112,79 @@ func (s *MemberService) AddMembers(
 	g, ctxGrp := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return s.relationRepo.HasIncomingBlock(ctxGrp, actorID, newPeerIDs)
+		var fetchErr error
+		counts, fetchErr = s.repo.CountBatchByUserID(ctxGrp, parsedPeerIDs)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		for _, peerID := range parsedPeerIDs {
+			if counts[peerID] >= MaxUserMemberships {
+				return ErrPeerMaxChannelsReached()
+			}
+		}
+		return nil
 	})
 
 	g.Go(func() error {
 		var fetchErr error
-		existingMembers, fetchErr = s.GetBatchByChannelID(ctxGrp, channelID)
-		return fetchErr
+		friendIDs, fetchErr = s.cachedRelationRepo.GetFriendIDs(ctxGrp, claims.UserID)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		if len(friendIDs) == 0 {
+			return ErrCannotAddNonFriendUserToGroup()
+		}
+
+		friendSet := make(map[uuid.UUID]struct{}, len(friendIDs))
+		for _, id := range friendIDs {
+			friendSet[id] = struct{}{}
+		}
+
+		for _, peerID := range parsedPeerIDs {
+			if _, isFriend := friendSet[peerID]; !isFriend {
+				return ErrCannotAddNonFriendUserToGroup()
+			}
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		var fetchErr error
+		existingMembers, fetchErr = s.cachedRepo.GetBatchByChannelID(ctxGrp, channelID)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		return validateMembership(existingMembers, claims.UserID)
 	})
 
 	g.Go(func() error {
 		var fetchErr error
 		ch, fetchErr = s.cachedChannelRepo.Get(ctxGrp, channelID)
-		return fetchErr
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		if ch.Type.IsDirect() {
+			return ErrCannotAddMembersToDirectChannel()
+		}
+
+		return nil
 	})
 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	if ch.Type.IsDirect() {
-		return nil, errors.New("Cannot add members to direct channel.")
-	}
-
-	if _, err := validateMembership(actorID, existingMembers); err != nil {
-		return nil, err
-	}
-
-	newMemberIDs, err := filterNewMemberIDs(actorID, existingMembers, newPeerIDs)
+	candidateMemberIDs, err := filterNewMemberIDs(existingMembers, newPeerIDs, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	existingMemberIDs := getMemberIDs(existingMembers)
-	allMemberIDs := helpers.DedupeIDs(append(existingMemberIDs, newMemberIDs...))
+	allMemberIDs := helpers.DedupeIDs(append(existingMemberIDs, candidateMemberIDs...))
 
 	var (
 		allUsers     map[uuid.UUID]*user.User
@@ -187,13 +195,13 @@ func (s *MemberService) AddMembers(
 
 	gHydrate.Go(func() error {
 		var fetchErr error
-		allUsers, fetchErr = s.cachedUserRepo.GetBatchValid(ctxHydrate, allMemberIDs)
+		allUsers, fetchErr = s.cachedUserRepo.GetBatch(ctxHydrate, allMemberIDs)
 		return fetchErr
 	})
 
 	gHydrate.Go(func() error {
 		var fetchErr error
-		allPresences, fetchErr = s.presenceCache.GetBatchPresence(ctxHydrate, allMemberIDs)
+		allPresences, fetchErr = s.presenceCache.GetBatch(ctxHydrate, allMemberIDs)
 		return fetchErr
 	})
 
@@ -201,11 +209,159 @@ func (s *MemberService) AddMembers(
 		return nil, err
 	}
 
-	sortMemberIDs(allMemberIDs, allUsers)
+	if allUsers == nil {
+		allUsers = make(map[uuid.UUID]*user.User)
+	}
 
-	addedUsers := make(map[uuid.UUID]*user.User, len(newMemberIDs))
-	addedPresences := make(map[uuid.UUID]presence.Presence, len(newMemberIDs))
-	for _, id := range newMemberIDs {
+	now := time.Now()
+
+	var (
+		chLock             *Channel
+		systemMessages     []*Message
+		allMembers         []*Member
+		sortedAllMemberIDs []uuid.UUID
+		actualAddedIDs     []uuid.UUID
+	)
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		var fetchErr error
+		chLock, fetchErr = s.channelRepo.GetForUpdate(txCtx, channelID)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		if chLock.Type.IsDirect() {
+			return ErrCannotAddMembersToDirectChannel()
+		}
+
+		txMembers, fetchErr := s.repo.GetBatchByChannelID(txCtx, channelID)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		actualAddedIDs, fetchErr = filterNewMemberIDs(txMembers, candidateMemberIDs, claims.UserID)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		if len(actualAddedIDs) == 0 {
+			return nil
+		}
+
+		missingUserIDs := make([]uuid.UUID, 0)
+		for _, m := range txMembers {
+			if _, exists := allUsers[m.UserID]; !exists {
+				missingUserIDs = append(missingUserIDs, m.UserID)
+			}
+		}
+		if len(missingUserIDs) > 0 {
+			fetchedUsers, fetchErr := s.cachedUserRepo.GetBatch(txCtx, missingUserIDs)
+			if fetchErr != nil {
+				return fetchErr
+			}
+			for k, v := range fetchedUsers {
+				allUsers[k] = v
+			}
+		}
+
+		persistedMembers := NewPeers(chLock.ID, actualAddedIDs, now)
+		if persistedMembers, fetchErr = s.repo.CreateBatch(txCtx, persistedMembers); fetchErr != nil {
+			return fetchErr
+		}
+
+		systemMessages, fetchErr = buildAddMembersSystemMessages(chLock.ID, claims.UserID, actualAddedIDs, now)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		systemMessages, fetchErr = s.messageRepo.CreateBatch(txCtx, systemMessages)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		updatedPeers, fetchErr := s.repo.IncrementPeersMentionCountByChannelID(txCtx, chLock.ID, claims.UserID, len(systemMessages), now)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		updatedPeersMap := make(map[uuid.UUID]*Member, len(updatedPeers))
+		for _, p := range updatedPeers {
+			updatedPeersMap[p.UserID] = p
+		}
+
+		combined := append(txMembers, persistedMembers...)
+		allMembers = make([]*Member, 0, len(combined))
+		for _, m := range combined {
+			if updated, exists := updatedPeersMap[m.UserID]; exists {
+				allMembers = append(allMembers, updated)
+			} else {
+				allMembers = append(allMembers, m)
+			}
+		}
+
+		sortMembers(allMembers, allUsers)
+		sortedAllMemberIDs = getMemberIDs(allMembers)
+		sortMessages(systemMessages)
+
+		payload := EventMembersAddedPayload{
+			Channel:        ParseChannelView(chLock),
+			Members:        ParseMemberViewsMap(updatedPeers),
+			MemberIDs:      sortedAllMemberIDs,
+			Users:          user.ParseSummariesMap(allUsers),
+			Presences:      allPresences,
+			SystemMessages: ParseMessageViews(systemMessages),
+			CreatedAt:      now,
+		}
+
+		event, createErr := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			sortedAllMemberIDs,
+			EventMembersAdded,
+			payload,
+			now,
+		)
+		if createErr != nil {
+			return createErr
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(actualAddedIDs) == 0 {
+		return &AddMembersResult{
+			MemberIDs: sortedAllMemberIDs,
+			Users:     map[uuid.UUID]*user.User{},
+			Presences: map[uuid.UUID]presence.Presence{},
+			Messages:  []*Message{},
+		}, nil
+	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.InvalidateChannel(cacheCtx, channelID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate channel members cache",
+			slog.String("channel_id", channelID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	if err := s.messageCache.SetBatch(cacheCtx, chLock.ID, systemMessages); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to seed system messages into cache",
+			slog.String("channel_id", chLock.ID.String()),
+			slog.Int("count", len(systemMessages)),
+			slog.Any("error", err.Error()),
+		)
+	}
+
+	addedUsers := make(map[uuid.UUID]*user.User, len(actualAddedIDs))
+	addedPresences := make(map[uuid.UUID]presence.Presence, len(actualAddedIDs))
+	for _, id := range actualAddedIDs {
 		if u, ok := allUsers[id]; ok {
 			addedUsers[id] = u
 		}
@@ -214,73 +370,17 @@ func (s *MemberService) AddMembers(
 		}
 	}
 
-	now := time.Now()
-	var (
-		createdMessages []*Message
-		membersToInsert []*Member
-	)
-
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		chLock, err := s.channelRepo.GetForUpdate(txCtx, channelID)
-		if err != nil {
-			return err
-		}
-
-		if chLock.Type.IsDirect() {
-			return errors.New("Cannot add members to direct channel.")
-		}
-
-		systemMessages, err := buildAddMembersSystemMessages(chLock.ID, &actorID, newMemberIDs, now)
-		if err != nil {
-			return err
-		}
-
-		createdMessages, err = s.messageRepo.CreateBatchAndMention(
-			txCtx,
-			systemMessages,
-			chLock.ID,
-			actorID,
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		membersToInsert = NewPeers(chLock.ID, newMemberIDs, now)
-		if _, err := s.repo.CreateBatch(txCtx, membersToInsert); err != nil {
-			return err
-		}
-
-		sortMessages(createdMessages)
-
-		payload := EventMembersAddedPayload{
-			ExcludeSessionID: sessionID,
-			Channel:          chLock,
-			Users:            allUsers,
-			Presences:        allPresences,
-			MemberIDs:        allMemberIDs,
-			SystemMessages:   createdMessages,
-		}
-
-		return s.outboxRepo.Publish(txCtx, EventMembersAdded, payload, now)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	_ = s.channelCache.AddMembers(ctx, channelID, membersToInsert)
-
 	return &AddMembersResult{
+		MemberIDs: sortedAllMemberIDs,
 		Users:     addedUsers,
 		Presences: addedPresences,
-		MemberIDs: allMemberIDs,
-		Messages:  createdMessages,
+		Messages:  systemMessages,
 	}, nil
 }
 
 func buildAddMembersSystemMessages(
 	channelID uuid.UUID,
-	actorID *uuid.UUID,
+	actorID uuid.UUID,
 	newMemberIDs []uuid.UUID,
 	now time.Time,
 ) ([]*Message, error) {
@@ -300,13 +400,13 @@ func buildAddMembersSystemMessages(
 }
 
 // CloseDirect updates the visibility of a channel membership to false.
-func (s *MemberService) CloseDirect(
-	ctx context.Context,
-	actorID,
-	sessionID,
-	channelID uuid.UUID,
-) error {
-	ch, err := s.channelRepo.Get(ctx, channelID)
+func (s *MemberService) CloseDirect(ctx context.Context, channelID uuid.UUID) error {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return err
+	}
+
+	ch, err := s.cachedChannelRepo.Get(ctx, channelID)
 	if err != nil {
 		return err
 	}
@@ -318,10 +418,10 @@ func (s *MemberService) CloseDirect(
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		member, err := s.repo.UpdateIsVisible(
+		_, err := s.repo.UpdateIsVisible(
 			txCtx,
 			channelID,
-			actorID,
+			claims.UserID,
 			false,
 			now,
 		)
@@ -330,23 +430,39 @@ func (s *MemberService) CloseDirect(
 		}
 
 		payload := EventMemberClosedDirectPayload{
-			ExcludeSessionID: sessionID,
-			MemberID:         member.UserID,
-			ChannelID:        ch.ID,
+			ChannelID: ch.ID,
+			CreatedAt: now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			nil,
 			EventMemberClosedDirect,
 			payload,
 			now,
 		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return err
 	}
 
-	_ = s.userCache.RemoveChannelID(ctx, actorID, channelID)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.Remove(cacheCtx, channelID, claims.UserID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on close direct",
+			slog.String("channel_id", channelID.String()),
+			slog.String("user_id", claims.UserID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	return nil
 }
@@ -354,18 +470,21 @@ func (s *MemberService) CloseDirect(
 // UpdateLastReadMessage updates a member's last read message id and timestamp.
 func (s *MemberService) UpdateLastReadMessage(
 	ctx context.Context,
-	actorID,
-	sessionID,
-	channelID,
-	lastReadMessageID uuid.UUID,
+	channelID uuid.UUID,
+	lastReadMessageID *uuid.UUID,
 ) (*Member, error) {
-	ch, err := s.channelRepo.Get(ctx, channelID)
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ch, err := s.cachedChannelRepo.Get(ctx, channelID)
 	if err != nil {
 		return nil, err
 	}
 
 	var mentionCount *int
-	if ch.LastMessageID == &lastReadMessageID {
+	if ch.LastMessageID == lastReadMessageID {
 		zero := 0
 		mentionCount = &zero
 	}
@@ -377,8 +496,8 @@ func (s *MemberService) UpdateLastReadMessage(
 		updatedMember, err = s.repo.UpdateLastReadMessage(
 			txCtx,
 			channelID,
-			actorID,
-			&lastReadMessageID,
+			claims.UserID,
+			lastReadMessageID,
 			now,
 			now,
 			mentionCount,
@@ -388,24 +507,40 @@ func (s *MemberService) UpdateLastReadMessage(
 		}
 
 		payload := EventMemberUpdatedPayload{
-			ExcludeSessionID: sessionID,
-			ChannelID:        channelID,
-			MemberID:         actorID,
-			LastReadID:       &lastReadMessageID,
+			ChannelID:  channelID,
+			LastReadID: lastReadMessageID,
+			CreatedAt:  now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			nil,
 			EventMemberUpdated,
 			payload,
 			now,
 		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.Remove(cacheCtx, channelID, claims.UserID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on update last read message",
+			slog.String("channel_id", channelID.String()),
+			slog.String("user_id", claims.UserID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	return updatedMember, nil
 }
@@ -413,26 +548,28 @@ func (s *MemberService) UpdateLastReadMessage(
 // UpdatePinnedAt updates a member's pinned at timestamp.
 func (s *MemberService) UpdatePinnedAt(
 	ctx context.Context,
-	actorID,
-	sessionID,
 	channelID uuid.UUID,
 	isPinned bool,
 ) (*Member, error) {
-	var err error
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var updatedMember *Member
-	pinnedAt := time.Time{}
+	var pinnedAt *time.Time
 	now := time.Now()
 
 	if isPinned {
-		pinnedAt = now
+		pinnedAt = &now
 	}
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedMember, err = s.repo.UpdatePinnedAt(
 			txCtx,
 			channelID,
-			actorID,
-			&pinnedAt,
+			claims.UserID,
+			pinnedAt,
 			now,
 		)
 		if err != nil {
@@ -440,24 +577,40 @@ func (s *MemberService) UpdatePinnedAt(
 		}
 
 		payload := EventMemberUpdatedPayload{
-			ExcludeSessionID: sessionID,
-			ChannelID:        channelID,
-			MemberID:         actorID,
-			PinnedAt:         &pinnedAt,
+			ChannelID: channelID,
+			PinnedAt:  pinnedAt,
+			CreatedAt: now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		event, err := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			nil,
 			EventMemberUpdated,
 			payload,
 			now,
 		)
+		if err != nil {
+			return err
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.Remove(cacheCtx, channelID, claims.UserID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on update pinned at",
+			slog.String("channel_id", channelID.String()),
+			slog.String("user_id", claims.UserID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	return updatedMember, nil
 }
@@ -465,16 +618,19 @@ func (s *MemberService) UpdatePinnedAt(
 // UpdateMutedUntil updates a member's muted until timestamp.
 func (s *MemberService) UpdateMutedUntil(
 	ctx context.Context,
-	actorID,
-	sessionID,
 	channelID uuid.UUID,
-	rawDuration *int,
+	rawDuration *string,
 ) (*Member, error) {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var mutedUntil *time.Time
 	now := time.Now()
 
 	if rawDuration != nil {
-		muteDuration, err := ParseMuteDuration(*rawDuration)
+		muteDuration, err := ParseMuteDurationString(*rawDuration)
 		if err != nil {
 			return nil, err
 		}
@@ -486,14 +642,13 @@ func (s *MemberService) UpdateMutedUntil(
 		mutedUntil = calculated
 	}
 
-	var err error
 	var updatedMember *Member
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedMember, err = s.repo.UpdateMutedUntil(
 			txCtx,
 			channelID,
-			actorID,
+			claims.UserID,
 			mutedUntil,
 			now,
 		)
@@ -502,24 +657,40 @@ func (s *MemberService) UpdateMutedUntil(
 		}
 
 		payload := EventMemberUpdatedPayload{
-			ExcludeSessionID: sessionID,
-			ChannelID:        channelID,
-			MemberID:         actorID,
-			MutedUntil:       mutedUntil,
+			ChannelID:  channelID,
+			MutedUntil: mutedUntil,
+			CreatedAt:  now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		event, createErr := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			nil,
 			EventMemberUpdated,
 			payload,
 			now,
 		)
+		if createErr != nil {
+			return createErr
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.Remove(cacheCtx, channelID, claims.UserID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on update pinned at",
+			slog.String("channel_id", channelID.String()),
+			slog.String("user_id", claims.UserID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	return updatedMember, nil
 }
@@ -527,18 +698,23 @@ func (s *MemberService) UpdateMutedUntil(
 // LeaveGroup deletes a member and a group channel if no remaining members exist.
 func (s *MemberService) LeaveGroup(
 	ctx context.Context,
-	actorID,
-	sessionID,
 	channelID uuid.UUID,
 ) error {
-	now := time.Now()
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return err
+	}
+
 	var (
 		channelDeleted bool
 		sysMsg         *Message
 		memberIDs      []uuid.UUID
+		updatedPeers   []*Member
 	)
 
-	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	now := time.Now()
+
+	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
 		if err != nil {
 			return err
@@ -553,17 +729,17 @@ func (s *MemberService) LeaveGroup(
 			return err
 		}
 
-		memberIDs = make([]uuid.UUID, len(existingMembers))
-		for i, m := range existingMembers {
-			memberIDs[i] = m.UserID
+		if err := validateMembership(existingMembers, claims.UserID); err != nil {
+			return err
 		}
 
-		err = s.repo.Delete(txCtx, channelID, actorID)
+		err = s.repo.Delete(txCtx, channelID, claims.UserID)
 		if err != nil {
 			return err
 		}
 
-		remainingCount := len(existingMembers) - 1
+		memberIDs = getMemberIDs(existingMembers)
+		remainingCount := len(memberIDs) - 1
 
 		if remainingCount <= 0 {
 			channelDeleted = true
@@ -572,62 +748,112 @@ func (s *MemberService) LeaveGroup(
 			}
 
 			payload := EventMemberLeftPayload{
-				ExcludeSessionID: sessionID,
-				ActorID:          actorID,
-				ChannelID:        channelID,
-				MemberIDs:        memberIDs,
-				SystemMessage:    nil,
+				ChannelID: channelID,
+				MemberID:  claims.UserID,
+				CreatedAt: now,
 			}
 
-			return s.outboxRepo.Publish(
-				txCtx,
+			event, createErr := outbox.New(
+				claims.UserID,
+				claims.SessionID,
+				appctx.GetTraceID(txCtx),
+				memberIDs,
 				EventMemberLeft,
 				payload,
 				now,
 			)
+			if createErr != nil {
+				return createErr
+			}
+
+			return s.outboxRepo.Create(txCtx, event)
 		}
 
-		msg, err := NewMessageMemberLeave(ch.ID, &actorID, now)
+		msg, err := NewMessageMemberLeave(ch.ID, claims.UserID, now)
 		if err != nil {
 			return err
 		}
 
-		sysMsg, err = s.messageRepo.CreateAndMention(txCtx, msg, ch.ID, actorID, now)
+		sysMsg, err = s.messageRepo.Create(txCtx, msg)
 		if err != nil {
 			return err
 		}
+
+		updatedPeers, err = s.repo.IncrementPeersMentionCountByChannelID(txCtx, ch.ID, claims.UserID, 1, now)
+		if err != nil {
+			return err
+		}
+
+		// Target only remaining members (exclude the user who left)
+		recipientIDs := make([]uuid.UUID, 0, remainingCount)
+		for _, id := range memberIDs {
+			if id != claims.UserID {
+				recipientIDs = append(recipientIDs, id)
+			}
+		}
+
+		msgView := ParseMessageView(sysMsg)
+		membersMap := ParseMemberViewsMap(updatedPeers)
 
 		payload := EventMemberLeftPayload{
-			ExcludeSessionID: sessionID,
-			ActorID:          actorID,
-			ChannelID:        channelID,
-			MemberIDs:        memberIDs,
-			SystemMessage:    sysMsg,
+			ChannelID:     channelID,
+			MemberID:      claims.UserID,
+			Members:       &membersMap,
+			SystemMessage: &msgView,
+			CreatedAt:     now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		event, createErr := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			recipientIDs,
 			EventMemberLeft,
 			payload,
 			now,
 		)
+		if createErr != nil {
+			return createErr
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return err
 	}
 
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
 	if channelDeleted {
-		_ = s.channelCache.InvalidateMembers(ctx, channelID)
-	} else {
-		_ = s.channelCache.InvalidateMember(ctx, channelID, actorID)
+		if err := s.channelCache.Delete(cacheCtx, channelID); err != nil {
+			slog.ErrorContext(cacheCtx, "failed to invalidate deleted channel cache on leave group",
+				slog.String("channel_id", channelID.String()),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
 
-	_ = s.userCache.RemoveChannelID(ctx, actorID, channelID)
+	if err := s.cache.InvalidateChannel(cacheCtx, channelID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on leave group",
+			slog.String("channel_id", channelID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	if sysMsg != nil {
+		if err := s.messageCache.SetBatch(cacheCtx, channelID, []*Message{sysMsg}); err != nil {
+			slog.ErrorContext(cacheCtx, "failed to seed system leave message into cache",
+				slog.String("channel_id", channelID.String()),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 
 	return nil
 }
 
-func filterNewMemberIDs(actorID uuid.UUID, existingMembers []*Member, newPeerIDs []uuid.UUID) ([]uuid.UUID, error) {
+func filterNewMemberIDs(existingMembers []*Member, newPeerIDs []uuid.UUID, actorID uuid.UUID) ([]uuid.UUID, error) {
 	existingSet := make(map[uuid.UUID]struct{}, len(existingMembers))
 	for _, m := range existingMembers {
 		existingSet[m.UserID] = struct{}{}

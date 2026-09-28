@@ -74,6 +74,8 @@ func newChannelUpdatedHandler(b Broadcaster) outbox.Handler {
 
 type EventMembersAddedPayload struct {
 	Channel        ChannelView                     `json:"channel"`
+	Members        map[uuid.UUID]MemberView        `json:"members"`
+	MemberIDs      []uuid.UUID                     `json:"memberIDs"`
 	Users          map[uuid.UUID]user.Summary      `json:"users"`
 	Presences      map[uuid.UUID]presence.Presence `json:"presences"`
 	SystemMessages []MessageView                   `json:"systemMessages"`
@@ -112,10 +114,11 @@ func newMemberUpdatedHandler(b Broadcaster) outbox.Handler {
 }
 
 type EventMemberLeftPayload struct {
-	MemberID      uuid.UUID   `json:"memberId"`
-	ChannelID     uuid.UUID   `json:"channelId"`
-	SystemMessage MessageView `json:"systemMessage"`
-	CreatedAt     time.Time   `json:"createdAt"`
+	ChannelID     uuid.UUID                 `json:"channelId"`
+	MemberID      uuid.UUID                 `json:"memberId"`
+	Members       *map[uuid.UUID]MemberView `json:"members,omitempty"`
+	SystemMessage *MessageView              `json:"systemMessage,omitempty"`
+	CreatedAt     time.Time                 `json:"createdAt"`
 }
 
 func newMemberLeftHandler(b Broadcaster) outbox.Handler {

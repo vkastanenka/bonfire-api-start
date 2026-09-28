@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -128,7 +129,7 @@ func getChannels(channelMap map[uuid.UUID]*Channel) []*Channel {
 	return channels
 }
 
-func filterMembership(actorID uuid.UUID, membs []*Member) *Member {
+func filterMembership(membs []*Member, actorID uuid.UUID) *Member {
 	for _, m := range membs {
 		if m != nil && m.UserID == actorID {
 			return m
@@ -137,7 +138,7 @@ func filterMembership(actorID uuid.UUID, membs []*Member) *Member {
 	return nil
 }
 
-func filterPeerIDs(actorID uuid.UUID, parsedPeerIDs []uuid.UUID) []uuid.UUID {
+func filterPeerIDs(parsedPeerIDs []uuid.UUID, actorID uuid.UUID) []uuid.UUID {
 	peerIDs := make([]uuid.UUID, 0, len(parsedPeerIDs))
 	seen := make(map[uuid.UUID]struct{}, len(parsedPeerIDs))
 
@@ -154,8 +155,8 @@ func filterPeerIDs(actorID uuid.UUID, parsedPeerIDs []uuid.UUID) []uuid.UUID {
 	return peerIDs
 }
 
-func filterRequiredPeerIDs(actorID uuid.UUID, parsedPeerIDs []uuid.UUID) ([]uuid.UUID, error) {
-	peerIDs := filterPeerIDs(actorID, parsedPeerIDs)
+func filterRequiredPeerIDs(parsedPeerIDs []uuid.UUID, actorID uuid.UUID) ([]uuid.UUID, error) {
+	peerIDs := filterPeerIDs(parsedPeerIDs, actorID)
 	if len(peerIDs) == 0 {
 		return nil, ErrNoNewMembers()
 	}
@@ -247,4 +248,10 @@ func validateMembership(members []*Member, userID uuid.UUID) error {
 		}
 	}
 	return ErrNotChannelMember()
+}
+
+func getChMemberIDs(rawMemberIDs []uuid.UUID, actorID uuid.UUID) (memberIDs []uuid.UUID, peerIDs []uuid.UUID) {
+	memberIDs = helpers.DedupeIDs(append(rawMemberIDs, actorID))
+	peerIDs = helpers.RemoveID(memberIDs, actorID)
+	return memberIDs, peerIDs
 }

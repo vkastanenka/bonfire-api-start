@@ -38,6 +38,10 @@ func ErrCannotLeaveDirectChannel() *errs.Error {
 		Meta("domain", "channels")
 }
 
+func ErrCannotAddMembersToDirectChannel() *errs.Error {
+	return errs.InvalidArgument("Cannot add members to direct channel.")
+}
+
 func ErrChannelNameRequired() *errs.Error {
 	return errs.InvalidArgument("Channel name is required.").
 		Reason("NAME_REQUIRED").
