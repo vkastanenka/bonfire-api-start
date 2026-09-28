@@ -73,6 +73,25 @@ FROM
 WHERE
     channel_id = @channel_id::uuid;
 
+-- name: ChannelMemberCountByUserID :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    channel_members
+WHERE
+    user_id = @user_id::uuid;
+
+-- name: ChannelMemberCountBatchByUserID :many
+SELECT
+    user_id,
+    COUNT(*)::bigint AS channel_count
+FROM
+    channel_members
+WHERE
+    user_id = ANY (@user_ids::uuid[])
+GROUP BY
+    user_id;
+
 -- name: ChannelMemberUpdateIsVisible :one
 UPDATE
     channel_members
