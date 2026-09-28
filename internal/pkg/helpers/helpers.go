@@ -33,7 +33,7 @@ func DedupeIDs(ids []uuid.UUID) []uuid.UUID {
 }
 
 // RemoveID filters out all instances of a target UUID from a slice.
-func RemoveID(target uuid.UUID, ids []uuid.UUID) []uuid.UUID {
+func RemoveID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
 	if len(ids) == 0 {
 		return nil
 	}

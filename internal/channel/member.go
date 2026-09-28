@@ -11,11 +11,15 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	MaxUserMemberships = 200
+)
+
 type Member struct {
 	ChannelID         uuid.UUID
 	UserID            uuid.UUID
 	LastReadMessageID *uuid.UUID
-	LastReadMessageAt *time.Time
+	LastReadMessageAt time.Time
 	PinnedAt          *time.Time
 	MutedUntil        *time.Time
 	MentionCount      int
@@ -28,7 +32,7 @@ func ReconstituteMember(
 	channelID uuid.UUID,
 	userID uuid.UUID,
 	lastReadMessageID *uuid.UUID,
-	lastReadMessageAt *time.Time,
+	lastReadMessageAt time.Time,
 	pinnedAt *time.Time,
 	mutedUntil *time.Time,
 	mentionCount int,
@@ -60,7 +64,7 @@ func NewMember(
 		channelID,
 		userID,
 		nil,
-		nil,
+		now,
 		nil,
 		nil,
 		mentionCount,
@@ -236,11 +240,11 @@ func sortMemberIDs(memberIDs []uuid.UUID, users map[uuid.UUID]*user.User) {
 	})
 }
 
-func validateMembership(userID uuid.UUID, members []*Member) (*Member, error) {
+func validateMembership(members []*Member, userID uuid.UUID) error {
 	for _, m := range members {
 		if m != nil && m.UserID == userID {
-			return m, nil
+			return nil
 		}
 	}
-	return nil, ErrNotChannelMember()
+	return ErrNotChannelMember()
 }

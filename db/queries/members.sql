@@ -147,7 +147,7 @@ WHERE
 RETURNING
     channel_members.*;
 
--- name: ChannelMemberIncrementPeersMentionCountByChannelID :exec
+-- name: ChannelMemberIncrementPeersMentionCountByChannelID :many
 UPDATE
     channel_members
 SET
@@ -158,7 +158,9 @@ WHERE
     channel_id = @channel_id::uuid
     AND user_id != @user_id::uuid
     AND (muted_until IS NULL
-        OR muted_until < @updated_at::timestamptz);
+        OR muted_until < @updated_at::timestamptz)
+RETURNING
+    channel_members.*;
 
 -- name: ChannelMemberDelete :exec
 DELETE FROM channel_members

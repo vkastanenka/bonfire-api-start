@@ -2,12 +2,12 @@ package channel
 
 import (
 	"bonfire-api/internal/appctx"
-	"bonfire-api/internal/helpers"
 	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/pkg/helpers"
 	"bonfire-api/internal/presence"
 	"bonfire-api/internal/user"
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,39 +15,47 @@ import (
 )
 
 type ChannelService struct {
-	cache          ChannelCache
-	repo           ChannelRepository
-	memberRepo     MemberRepository
-	messageRepo    MessageRepository
-	presenceCache  PresenceCache
-	cachedUserRepo CachedUserRepository
-	outboxRepo     OutboxRepository
-	relationRepo   RelationRepository
-	tx             TX
+	cache              ChannelCache
+	repo               ChannelRepository
+	memberCache        MemberCache
+	memberRepo         MemberRepository
+	messageCache       MessageCache
+	messageRepo        MessageRepository
+	presenceCache      PresenceCache
+	cachedUserRepo     CachedUserRepository
+	outboxRepo         OutboxRepository
+	relationRepo       RelationRepository
+	cachedRelationRepo CachedRelationRepository
+	tx                 TX
 }
 
 func NewChannelService(
 	cache ChannelCache,
 	repo ChannelRepository,
+	memberCache MemberCache,
 	memberRepo MemberRepository,
+	messageCache MessageCache,
 	messageRepo MessageRepository,
-	reactionRepo ReactionRepository,
 	presenceCache PresenceCache,
 	cachedUserRepo CachedUserRepository,
 	outboxRepo OutboxRepository,
 	relationRepo RelationRepository,
+	cachedRelationRepo CachedRelationRepository,
 	tx TX,
 ) *ChannelService {
 	return &ChannelService{
-		cache:          cache,
-		repo:           repo,
-		memberRepo:     memberRepo,
-		messageRepo:    messageRepo,
-		presenceCache:  presenceCache,
-		cachedUserRepo: cachedUserRepo,
-		outboxRepo:     outboxRepo,
-		relationRepo:   relationRepo,
-		tx:             tx,
+		cache:              cache,
+		repo:               repo,
+		memberCache:        memberCache,
+		memberRepo:         memberRepo,
+		messageCache:       messageCache,
+		messageRepo:        messageRepo,
+		presenceCache:      presenceCache,
+		cachedUserRepo:     cachedUserRepo,
+		outboxRepo:         outboxRepo,
+		relationRepo:       relationRepo,
+		cachedRelationRepo: cachedRelationRepo,
+		tx:                 tx,
 	}
 }
 
@@ -56,40 +64,52 @@ type CreateGroupResult struct {
 	ActorMember *Member
 	Users       map[uuid.UUID]*user.User
 	Presences   map[uuid.UUID]presence.Presence
-	MemberIDs   []uuid.UUID
 }
 
-// // GetMetadata extracts actor, session, and tracing context for outbox events.
-// func GetMetadata(ctx context.Context) (Metadata, error) {
-// 	claims, err := httpio.CtxGetClaims(ctx)
-// 	if err != nil {
-// 		return Metadata{}, err
-// 	}
-
-// 	return Metadata{
-// 		ActorID:   claims.UserID,
-// 		SessionID: claims.SessionID,
-// 		TraceID:   httpio.CtxGetTraceID(ctx),
-// 	}, nil
-// }
-
-// CreateGroup creates a new group channel with members.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) error {
+// CreateGroup creates a new group channel with members and returns the initialized result for the actor.
+func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID) (*CreateGroupResult, error) {
 	claims, err := appctx.GetClaims(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := validateMaxPeers(rawPeerIDs); err != nil {
-		return err
+		return nil, err
 	}
 
-	dedupedMemberIDs := helpers.DedupeIDs(append(rawPeerIDs, claims.UserID))
-	peerIDs := helpers.RemoveID(claims.UserID, dedupedMemberIDs)
+	memberIDs := helpers.DedupeIDs(append(rawPeerIDs, claims.UserID))
+	peerIDs := helpers.RemoveID(memberIDs, claims.UserID)
+
+	counts, err := s.memberRepo.CountBatchByUserID(ctx, memberIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if counts[claims.UserID] >= MaxUserMemberships {
+		return nil, ErrUserMaxChannelsReached()
+	}
 
 	if len(peerIDs) > 0 {
-		if err := s.relationRepo.HasIncomingBlock(ctx, claims.UserID, peerIDs); err != nil {
-			return err
+		for _, peerID := range peerIDs {
+			if counts[peerID] >= MaxUserMemberships {
+				return nil, ErrPeerMaxChannelsReached()
+			}
+		}
+
+		friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, claims.UserID)
+		if err != nil {
+			return nil, err
+		}
+
+		friendSet := make(map[uuid.UUID]struct{}, len(friendIDs))
+		for _, id := range friendIDs {
+			friendSet[id] = struct{}{}
+		}
+
+		for _, peerID := range peerIDs {
+			if _, isFriend := friendSet[peerID]; !isFriend {
+				return nil, ErrCannotAddNonFriendUserToGroup()
+			}
 		}
 	}
 
@@ -97,7 +117,7 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 
 	ch, err := NewGroupChannel(now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	membs := NewMembers(ch.ID, claims.UserID, peerIDs, now)
@@ -111,21 +131,21 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 
 	g.Go(func() error {
 		var fetchErr error
-		users, fetchErr = s.cachedUserRepo.GetBatchValid(gCtx, dedupedMemberIDs)
+		users, fetchErr = s.cachedUserRepo.GetBatch(gCtx, memberIDs)
 		return fetchErr
 	})
 
 	g.Go(func() error {
 		var fetchErr error
-		presences, fetchErr = s.presenceCache.GetBatchPresence(gCtx, dedupedMemberIDs)
+		presences, fetchErr = s.presenceCache.GetBatch(gCtx, memberIDs)
 		return fetchErr
 	})
 
 	if err := g.Wait(); err != nil {
-		return err
+		return nil, err
 	}
 
-	sortMemberIDs(dedupedMemberIDs, users)
+	var actorMember *Member
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		var repoErr error
@@ -137,17 +157,26 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 			return repoErr
 		}
 
+		for _, m := range membs {
+			if m.UserID == claims.UserID {
+				actorMember = m
+				break
+			}
+		}
+
 		payload := EventChannelCreatedPayload{
-			Channel:   ch,
-			Users:     users,
+			Channel:   ParseChannelView(ch),
+			Members:   ParseMemberViewsMap(membs),
+			Users:     user.ParseSummariesMap(users),
 			Presences: presences,
+			CreatedAt: now,
 		}
 
 		event, err := outbox.New(
 			claims.UserID,
 			claims.SessionID,
 			appctx.GetTraceID(ctx),
-			dedupedMemberIDs,
+			memberIDs,
 			EventChannelCreated,
 			payload,
 			now,
@@ -159,72 +188,146 @@ func (s *ChannelService) CreateGroup(ctx context.Context, rawPeerIDs []uuid.UUID
 		return s.outboxRepo.Create(txCtx, event)
 	})
 	if txErr != nil {
-		return txErr
+		return nil, txErr
 	}
 
-	_ = s.cache.CreateGroup(ctx, ch, membs)
+	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 
-	return nil
+	if err := s.cache.CreateGroup(cacheCtx, ch, membs); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to seed created group in cache",
+			slog.String("channel_id", ch.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	return &CreateGroupResult{
+		Channel:     ch,
+		ActorMember: actorMember,
+		Users:       users,
+		Presences:   presences,
+	}, nil
+}
+
+type UpdateGroupResult struct {
+	Channel        *Channel
+	SystemMessages []*Message
 }
 
 // UpdateGroup updates the group channel properties name and icon_url.
-func (s *ChannelService) UpdateGroup(ctx context.Context, actorID, sessionID, channelID uuid.UUID, name, iconURL *string) (*Channel, error) {
+func (s *ChannelService) UpdateGroup(ctx context.Context, channelID uuid.UUID, name, iconURL *string) (*UpdateGroupResult, error) {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = validateMembership(actorID, members)
+	err = validateMembership(members, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	var channel *Channel
+	memberIDs := getMemberIDs(members)
+	var updatedChannel *Channel
+	var systemMessages []*Message
+	var updatedPeers []*Member
 	now := time.Now()
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		channel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
+		updatedChannel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
 		if err != nil {
 			return err
 		}
 
-		systemMessages, err := buildUpdateGroupSystemMessages(channel.ID, ptr.To(actorID), name, iconURL, now)
+		systemMessages, err = buildUpdateGroupSystemMessages(updatedChannel.ID, claims.UserID, name, iconURL, now)
 		if err != nil {
 			return err
 		}
 
-		if len(systemMessages) > 0 {
-			if _, err := s.messageRepo.CreateBatchAndMention(
-				txCtx,
-				systemMessages,
-				channel.ID,
-				actorID,
-				now,
-			); err != nil {
+		systemMessagesLength := len(systemMessages)
+
+		if systemMessagesLength > 0 {
+			if systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
+				return err
+			}
+
+			updatedPeers, err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, updatedChannel.ID, claims.UserID, systemMessagesLength, now)
+			if err != nil {
 				return err
 			}
 		}
 
 		payload := EventChannelUpdatedPayload{
-			ExcludeSessionID: sessionID,
-			Channel:          channel,
-			MemberIDs:        getMemberIDs(members),
+			Channel:        ParseChannelView(updatedChannel),
+			Members:        ParseMemberViewsMap(updatedPeers),
+			SystemMessages: ParseMessageViews(systemMessages),
+			CreatedAt:      now,
 		}
 
-		return s.outboxRepo.Publish(txCtx, EventChannelUpdated, payload, now)
+		event, repoErr := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(ctx),
+			memberIDs,
+			EventChannelUpdated,
+			payload,
+			now,
+		)
+		if repoErr != nil {
+			return repoErr
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.cache.Delete(ctx, channel.ID)
+	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 
-	return channel, nil
+	if err := s.cache.Delete(cacheCtx, updatedChannel.ID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to delete channel cache",
+			slog.String("channel_id", updatedChannel.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+
+	if len(systemMessages) > 0 {
+		if err := s.messageCache.SetBatch(cacheCtx, updatedChannel.ID, systemMessages); err != nil {
+			slog.ErrorContext(cacheCtx, "failed to seed system messages into cache",
+				slog.String("channel_id", updatedChannel.ID.String()),
+				slog.Int("count", len(systemMessages)),
+				slog.Any("error", err),
+			)
+		}
+	}
+
+	if len(updatedPeers) > 0 {
+		peerIDs := getMemberIDs(updatedPeers)
+
+		if err := s.memberCache.InvalidateBatch(cacheCtx, updatedChannel.ID, peerIDs); err != nil {
+			slog.ErrorContext(cacheCtx, "failed to invalidate updated peer members in cache",
+				slog.String("channel_id", updatedChannel.ID.String()),
+				slog.Int("count", len(peerIDs)),
+				slog.Any("error", err),
+			)
+		}
+	}
+
+	return &UpdateGroupResult{
+		Channel:        updatedChannel,
+		SystemMessages: systemMessages,
+	}, nil
 }
 
 func buildUpdateGroupSystemMessages(
 	channelID uuid.UUID,
-	actorID *uuid.UUID,
+	actorID uuid.UUID,
 	name *string,
 	iconURL *string,
 	now time.Time,

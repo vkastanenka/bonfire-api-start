@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const channelMemberCountBatchByUserID = `-- name: ChannelMemberCountBatchByUserID :many
+SELECT
+    user_id,
+    COUNT(*)::bigint AS channel_count
+FROM
+    channel_members
+WHERE
+    user_id = ANY ($1::uuid[])
+GROUP BY
+    user_id
+`
+
+type ChannelMemberCountBatchByUserIDRow struct {
+	UserID       pgtype.UUID `json:"user_id"`
+	ChannelCount int64       `json:"channel_count"`
+}
+
+func (q *Queries) ChannelMemberCountBatchByUserID(ctx context.Context, userIds []pgtype.UUID) ([]ChannelMemberCountBatchByUserIDRow, error) {
+	rows, err := q.db.Query(ctx, channelMemberCountBatchByUserID, userIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMemberCountBatchByUserIDRow
+	for rows.Next() {
+		var i ChannelMemberCountBatchByUserIDRow
+		if err := rows.Scan(&i.UserID, &i.ChannelCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelMemberCountByChannelID = `-- name: ChannelMemberCountByChannelID :one
 SELECT
     COUNT(*)::bigint
@@ -22,6 +59,22 @@ WHERE
 
 func (q *Queries) ChannelMemberCountByChannelID(ctx context.Context, channelID pgtype.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, channelMemberCountByChannelID, channelID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const channelMemberCountByUserID = `-- name: ChannelMemberCountByUserID :one
+SELECT
+    COUNT(*)::bigint
+FROM
+    channel_members
+WHERE
+    user_id = $1::uuid
+`
+
+func (q *Queries) ChannelMemberCountByUserID(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, channelMemberCountByUserID, userID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -185,7 +238,7 @@ func (q *Queries) ChannelMemberGetBatchByChannelIDs(ctx context.Context, channel
 	return items, nil
 }
 
-const channelMemberIncrementPeersMentionCountByChannelID = `-- name: ChannelMemberIncrementPeersMentionCountByChannelID :exec
+const channelMemberIncrementPeersMentionCountByChannelID = `-- name: ChannelMemberIncrementPeersMentionCountByChannelID :many
 UPDATE
     channel_members
 SET
@@ -197,6 +250,8 @@ WHERE
     AND user_id != $4::uuid
     AND (muted_until IS NULL
         OR muted_until < $2::timestamptz)
+RETURNING
+    channel_members.channel_id, channel_members.user_id, channel_members.last_read_message_id, channel_members.created_at, channel_members.updated_at, channel_members.last_read_message_at, channel_members.muted_until, channel_members.pinned_at, channel_members.mention_count, channel_members.is_visible
 `
 
 type ChannelMemberIncrementPeersMentionCountByChannelIDParams struct {
@@ -206,14 +261,40 @@ type ChannelMemberIncrementPeersMentionCountByChannelIDParams struct {
 	UserID          pgtype.UUID        `json:"user_id"`
 }
 
-func (q *Queries) ChannelMemberIncrementPeersMentionCountByChannelID(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountByChannelIDParams) error {
-	_, err := q.db.Exec(ctx, channelMemberIncrementPeersMentionCountByChannelID,
+func (q *Queries) ChannelMemberIncrementPeersMentionCountByChannelID(ctx context.Context, arg ChannelMemberIncrementPeersMentionCountByChannelIDParams) ([]ChannelMember, error) {
+	rows, err := q.db.Query(ctx, channelMemberIncrementPeersMentionCountByChannelID,
 		arg.IncrementAmount,
 		arg.UpdatedAt,
 		arg.ChannelID,
 		arg.UserID,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelMember
+	for rows.Next() {
+		var i ChannelMember
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.UserID,
+			&i.LastReadMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastReadMessageAt,
+			&i.MutedUntil,
+			&i.PinnedAt,
+			&i.MentionCount,
+			&i.IsVisible,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const channelMemberListVisibleByUserID = `-- name: ChannelMemberListVisibleByUserID :many

@@ -42,6 +42,13 @@ func (c *ChannelCache) Set(ctx context.Context, ch *channel.Channel) error {
 	return marshalAndSet(ctx, redis.ScopeChannel, c.client, channelKey(ch.ID), ch, channelTTL, marshalChannel)
 }
 
+func (c *ChannelCache) Delete(ctx context.Context, id uuid.UUID) error {
+	if err := c.client.Del(ctx, channelKey(id)).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeChannel)
+	}
+	return nil
+}
+
 func (c *ChannelCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*channel.Channel, []uuid.UUID, error) {
 	return getAndUnmarshalBatch(ctx, redis.ScopeChannel, c.client, ids, channelKey, unmarshalChannel)
 }

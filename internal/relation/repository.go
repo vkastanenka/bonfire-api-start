@@ -55,7 +55,6 @@ type MemberRepository interface {
 	Get(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*channel.Member, error)
 	GetBatchByChannelID(ctx context.Context, channelID uuid.UUID) ([]*channel.Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []uuid.UUID) (map[uuid.UUID][]*channel.Member, error)
-	IncrementPeersMentionCountByChannelID(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, incrementAmount int, updatedAt time.Time) error
 	ListVisibleByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*channel.Member, error)
 	UpdateIsVisible(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, isVisible bool, updatedAt time.Time) (*channel.Member, error)
 	UpdateLastReadMessage(ctx context.Context, channelID uuid.UUID, userID uuid.UUID, lastReadMessageID *uuid.UUID, lastReadMessageAt time.Time, updatedAt time.Time, mentionCount *int) (*channel.Member, error)

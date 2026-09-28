@@ -26,7 +26,7 @@ func (r *ChannelRepository) Create(ctx context.Context, ch *channel.Channel) (*c
 		LastMessageID: db.ToUUIDPtr(ch.LastMessageID),
 		CreatedAt:     db.ToTimestamptz(ch.CreatedAt),
 		UpdatedAt:     db.ToTimestamptz(ch.UpdatedAt),
-		LastMessageAt: db.ToTimestamptzPtr(ch.LastMessageAt),
+		LastMessageAt: db.ToTimestamptz(ch.LastMessageAt),
 		Type:          int16(ch.Type),
 		Name:          db.ToTextPtr(ch.Name),
 		IconURL:       db.ToTextPtr(ch.IconURL),
@@ -134,7 +134,7 @@ func channelFromRow(row db.Channel) *channel.Channel {
 		db.FromTextPtr(row.Name),
 		db.FromTextPtr(row.IconURL),
 		db.FromUUIDPtr(row.LastMessageID),
-		db.FromTimestamptzPtr(row.LastMessageAt),
+		db.FromTimestamptz(row.LastMessageAt),
 		db.FromTimestamptz(row.CreatedAt),
 		db.FromTimestamptz(row.UpdatedAt),
 	)

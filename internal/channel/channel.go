@@ -19,7 +19,7 @@ type Channel struct {
 	Name          *string
 	IconURL       *string
 	LastMessageID *uuid.UUID
-	LastMessageAt *time.Time
+	LastMessageAt time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -30,7 +30,7 @@ func ReconstituteChannel(
 	name *string,
 	iconURL *string,
 	lastMessageID *uuid.UUID,
-	lastMessageAt *time.Time,
+	lastMessageAt time.Time,
 	createdAt time.Time,
 	updatedAt time.Time,
 ) *Channel {
@@ -58,7 +58,7 @@ func NewChannel(chType ChannelType, now time.Time) (*Channel, error) {
 		nil,
 		nil,
 		nil,
-		nil,
+		now,
 		now,
 		now,
 	), nil

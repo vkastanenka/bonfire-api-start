@@ -10,281 +10,166 @@ import (
 	"github.com/google/uuid"
 )
 
+type Worker interface {
+	RegisterHandler(eventType string, handler outbox.Handler)
+}
+
 type Broadcaster interface {
 	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
 	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
 }
 
 const (
-	// Channel Lifecycle
-	EventChannelCreated = "channel.created"
-	EventChannelUpdated = "channel.updated"
-
-	// Membership Events
+	EventChannelCreated     = "channel.created"
+	EventChannelUpdated     = "channel.updated"
 	EventMembersAdded       = "members.added"
 	EventMemberClosedDirect = "member.closed_direct"
 	EventMemberUpdated      = "member.updated"
 	EventMemberLeft         = "member.left"
-
-	// Message Events
-	EventMessageCreated = "message.created"
-	EventMessageUpdated = "message.updated"
-	EventMessageDeleted = "message.deleted"
-
-	// Reaction Events
-	EventReactionToggled = "reaction.toggled"
+	EventMessageCreated     = "message.created"
+	EventMessageUpdated     = "message.updated"
+	EventMessageDeleted     = "message.deleted"
+	EventReactionToggled    = "reaction.toggled"
 )
 
-type EventChannelCreatedPayload struct {
-	Channel   *Channel                        `json:"channel"`
-	Users     map[uuid.UUID]*user.User        `json:"users"`
-	Presences map[uuid.UUID]presence.Presence `json:"presences"`
+func RegisterEvents(w Worker, b Broadcaster) {
+	w.RegisterHandler(EventChannelCreated, newChannelCreatedHandler(b))
+	w.RegisterHandler(EventChannelUpdated, newChannelUpdatedHandler(b))
+	w.RegisterHandler(EventMembersAdded, newMembersAddedHandler(b))
+	w.RegisterHandler(EventMemberClosedDirect, newMemberClosedDirectHandler(b))
+	w.RegisterHandler(EventMemberUpdated, newMemberUpdatedHandler(b))
+	w.RegisterHandler(EventMemberLeft, newMemberLeftHandler(b))
+	w.RegisterHandler(EventMessageCreated, newMessageCreatedHandler(b))
+	w.RegisterHandler(EventMessageUpdated, newMessageUpdatedHandler(b))
+	w.RegisterHandler(EventMessageDeleted, newMessageDeletedHandler(b))
+	w.RegisterHandler(EventReactionToggled, newReactionTogggledHandler(b))
 }
 
-func NewChannelCreatedEventHandler(gw Broadcaster) outbox.Handler {
+type EventChannelCreatedPayload struct {
+	Channel   ChannelView                     `json:"channel"`
+	Members   map[uuid.UUID]MemberView        `json:"members"`
+	Users     map[uuid.UUID]user.Summary      `json:"users"`
+	Presences map[uuid.UUID]presence.Presence `json:"presences"`
+	CreatedAt time.Time                       `json:"createdAt"`
+}
+
+func newChannelCreatedHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventChannelCreatedPayload) error {
-		return gw.BroadcastToUsers(
-			ctx,
-			m.RecipientIDs,
-			EventChannelCreated,
-			p,
-		)
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventChannelCreated, p)
 	})
 }
 
 type EventChannelUpdatedPayload struct {
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	Channel          *Channel    `json:"channel"`
-	MemberIDs        []uuid.UUID `json:"member_ids"`
+	Channel        ChannelView              `json:"channel"`
+	Members        map[uuid.UUID]MemberView `json:"members,omitempty"`
+	SystemMessages []MessageView            `json:"systemMessages,omitempty"`
+	CreatedAt      time.Time                `json:"createdAt"`
 }
 
-type EventChannelUpdatedClientPayload struct {
-	Channel *Channel `json:"channel"`
+func newChannelUpdatedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventChannelUpdatedPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventChannelUpdated, p)
+	})
 }
-
-// func NewChannelUpdatedEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventChannelUpdatedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		clientPayload := EventChannelUpdatedClientPayload{
-// 			Channel: p.Channel,
-// 		}
-
-// 		clientPayloadBytes, err := json.Marshal(clientPayload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventChannelUpdated,
-// 			clientPayloadBytes,
-// 		)
-// 	}
-// }
 
 type EventMembersAddedPayload struct {
-	ExcludeSessionID uuid.UUID                       `json:"exclude_session_id"`
-	Channel          *Channel                        `json:"channel"`
-	Users            map[uuid.UUID]*user.User        `json:"users"`
-	Presences        map[uuid.UUID]presence.Presence `json:"presences"`
-	MemberIDs        []uuid.UUID                     `json:"member_ids"`
-	SystemMessages   []*Message                      `json:"system_messages"`
+	Channel        ChannelView                     `json:"channel"`
+	Users          map[uuid.UUID]user.Summary      `json:"users"`
+	Presences      map[uuid.UUID]presence.Presence `json:"presences"`
+	SystemMessages []MessageView                   `json:"systemMessages"`
+	CreatedAt      time.Time                       `json:"createdAt"`
 }
 
-// func NewChannelMembersAddedEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMembersAddedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMembersAdded,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMembersAddedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMembersAddedPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventMembersAdded, p)
+	})
+}
 
 type EventMemberClosedDirectPayload struct {
-	ExcludeSessionID uuid.UUID `json:"exclude_session_id"`
-	MemberID         uuid.UUID `json:"member_id"`
-	ChannelID        uuid.UUID `json:"channel_id"`
+	ChannelID uuid.UUID `json:"channelId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-// func NewMemberClosedDirectEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMemberClosedDirectPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUser(
-// 			ctx,
-// 			p.MemberID,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMemberClosedDirect,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMemberClosedDirectHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMemberClosedDirectPayload) error {
+		return b.BroadcastToUser(ctx, m.ActorID, EventMemberClosedDirect, p)
+	})
+}
 
 type EventMemberUpdatedPayload struct {
-	ExcludeSessionID uuid.UUID  `json:"exclude_session_id,omitempty"`
-	ChannelID        uuid.UUID  `json:"channel_id"`
-	MemberID         uuid.UUID  `json:"member_id"`
-	LastReadID       *uuid.UUID `json:"last_read_message_id,omitempty"`
-	PinnedAt         *time.Time `json:"pinned_at,omitempty"`
-	MutedUntil       *time.Time `json:"muted_until,omitempty"`
+	ChannelID  uuid.UUID  `json:"channelId"`
+	LastReadID *uuid.UUID `json:"last_read_message_id,omitempty"`
+	PinnedAt   *time.Time `json:"pinned_at,omitempty"`
+	MutedUntil *time.Time `json:"muted_until,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
 }
 
-// func NewMemberUpdatedEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMemberUpdatedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUser(
-// 			ctx,
-// 			p.MemberID,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMemberUpdated,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMemberUpdatedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMemberUpdatedPayload) error {
+		return b.BroadcastToUser(ctx, m.ActorID, EventMemberUpdated, p)
+	})
+}
 
 type EventMemberLeftPayload struct {
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	ActorID          uuid.UUID   `json:"actor_id"`
-	ChannelID        uuid.UUID   `json:"channel_id"`
-	MemberIDs        []uuid.UUID `json:"member_ids"`
-	SystemMessage    *Message    `json:"system_message"`
+	MemberID      uuid.UUID   `json:"memberId"`
+	ChannelID     uuid.UUID   `json:"channelId"`
+	SystemMessage MessageView `json:"systemMessage"`
+	CreatedAt     time.Time   `json:"createdAt"`
 }
 
-// func NewMemberLeftEventHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMemberLeftPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMemberLeft,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMemberLeftHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMemberLeftPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventMemberLeft, p)
+	})
+}
 
 type EventMessageCreatedPayload struct {
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	Message          *Message    `json:"message"`
-	Author           *user.User  `json:"author"`
-	MemberIDs        []uuid.UUID `json:"member_ids"`
+	Message   MessageView  `json:"message"`
+	Author    user.Summary `json:"author"`
+	CreatedAt time.Time    `json:"createdAt"`
 }
 
-// func NewMessageCreated(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMessageCreatedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMessageCreated,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMessageCreatedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMemberLeftPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventMemberLeft, p)
+	})
+}
 
 type EventMessageUpdatedPayload struct {
-	MemberIDs        []uuid.UUID `json:"member_ids"`
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	MessageID        uuid.UUID   `json:"message_id"`
-	MessageContent   *string     `json:"message_content,omitempty"`
-	MessagePinnedAt  *time.Time  `json:"message_pinned_at,omitempty"`
-	MessageUpdatedAt time.Time   `json:"message_updated_at"`
-	SystemMessage    *Message    `json:"system_message"`
+	MessageID       uuid.UUID    `json:"messageId"`
+	MessageContent  *string      `json:"content,omitempty"`
+	MessagePinnedAt *time.Time   `json:"pinnedAt,omitempty"`
+	SystemMessage   *MessageView `json:"systemMessage,omitempty"`
+	CreatedAt       time.Time    `json:"createdAt"`
 }
 
-// func NewMessageUpdatedHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMessageUpdatedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMessageUpdated,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMessageUpdatedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMessageUpdatedPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventMessageUpdated, p)
+	})
+}
 
 type EventMessageDeletedPayload struct {
-	MemberIDs        []uuid.UUID `json:"member_ids"`
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	MessageID        uuid.UUID   `json:"message_id"`
-	MessageDeletedAt time.Time   `json:"message_deleted_at"`
+	MessageID uuid.UUID `json:"messageId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-// func NewMessageDeletedHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventMessageDeletedPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventMessageDeleted,
-// 			payload,
-// 		)
-// 	}
-// }
+func newMessageDeletedHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventMessageDeletedPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventMessageDeleted, p)
+	})
+}
 
 type EventReactionToggledPayload struct {
-	MemberIDs        []uuid.UUID `json:"member_ids"`
-	ExcludeSessionID uuid.UUID   `json:"exclude_session_id"`
-	ActorID          uuid.UUID   `json:"actor_id"`
-	MessageID        uuid.UUID   `json:"message_id"`
-	EmojiCount       EmojiCount  `json:"emoji_count"`
-	ToggledAt        time.Time   `json:"toggled_at"`
+	ActorID    uuid.UUID  `json:"actorId"`
+	MessageID  uuid.UUID  `json:"messageId"`
+	EmojiCount EmojiCount `json:"emojiCount"`
+	CreatedAt  time.Time  `json:"createdAt"`
 }
 
-// func NewReactionToggledHandler(gw Broadcaster) outbox.Handler {
-// 	return func(ctx context.Context, payload json.RawMessage) error {
-// 		p, err := fields.ParseRawJSON[EventReactionToggledPayload](payload)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return gw.BroadcastToUsers(
-// 			ctx,
-// 			p.MemberIDs,
-// 			[]uuid.UUID{p.ExcludeSessionID},
-// 			EventReactionToggled,
-// 			payload,
-// 		)
-// 	}
-// }
+func newReactionTogggledHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventReactionToggledPayload) error {
+		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventReactionToggled, p)
+	})
+}

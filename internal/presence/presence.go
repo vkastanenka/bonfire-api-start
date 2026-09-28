@@ -58,7 +58,7 @@ func (p Presence) Int() int {
 }
 
 func (p Presence) String() string {
-	if uint(p) < uint(len(presenceNames)) {
+	if p.IsValid() {
 		return presenceNames[p]
 	}
 	return presenceNames[PresenceUnknown]

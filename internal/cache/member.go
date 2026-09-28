@@ -52,6 +52,22 @@ func (c *MemberCache) Invalidate(ctx context.Context, channelID, userID uuid.UUI
 	return nil
 }
 
+func (c *MemberCache) InvalidateBatch(ctx context.Context, channelID uuid.UUID, userIDs []uuid.UUID) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	fields := make([]string, len(userIDs))
+	for i, id := range userIDs {
+		fields[i] = id.String()
+	}
+
+	if err := c.client.HDel(ctx, channelMembersKey(channelID), fields...).Err(); err != nil {
+		return redis.NewError(err, redis.ScopeMember)
+	}
+	return nil
+}
+
 func (c *MemberCache) InvalidateChannel(ctx context.Context, channelID uuid.UUID) error {
 	if err := c.client.Del(ctx, channelMembersKey(channelID)).Err(); err != nil {
 		return redis.NewError(err, redis.ScopeMember)

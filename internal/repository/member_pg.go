@@ -33,7 +33,7 @@ func (r *MemberRepository) CreateBatch(ctx context.Context, members []*channel.M
 		LastReadMessageID *uuid.UUID `json:"last_read_message_id,omitempty"`
 		CreatedAt         time.Time  `json:"created_at"`
 		UpdatedAt         time.Time  `json:"updated_at"`
-		LastReadMessageAt *time.Time `json:"last_read_message_at,omitempty"`
+		LastReadMessageAt time.Time  `json:"last_read_message_at"`
 		PinnedAt          *time.Time `json:"pinned_at,omitempty"`
 		MutedUntil        *time.Time `json:"muted_until,omitempty"`
 		MentionCount      int32      `json:"mention_count"`
@@ -162,6 +162,36 @@ func (r *MemberRepository) CountByChannelID(ctx context.Context, channelID uuid.
 	return int(count), nil
 }
 
+func (r *MemberRepository) CountByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	count, err := r.store.ChannelMemberCountByUserID(ctx, db.ToUUID(userID))
+	if err != nil {
+		return 0, db.NewError(err, db.EntityChannelMember)
+	}
+
+	return int(count), nil
+}
+
+func (r *MemberRepository) CountBatchByUserID(
+	ctx context.Context,
+	userIDs []uuid.UUID,
+) (map[uuid.UUID]int, error) {
+	if len(userIDs) == 0 {
+		return make(map[uuid.UUID]int), nil
+	}
+
+	rows, err := r.store.ChannelMemberCountBatchByUserID(ctx, db.ToUUIDs(userIDs))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityChannelMember)
+	}
+
+	counts := make(map[uuid.UUID]int, len(rows))
+	for _, row := range rows {
+		counts[db.FromUUID(row.UserID)] = int(row.ChannelCount)
+	}
+
+	return counts, nil
+}
+
 func (r *MemberRepository) UpdateIsVisible(
 	ctx context.Context,
 	channelID, userID uuid.UUID,
@@ -246,18 +276,23 @@ func (r *MemberRepository) IncrementPeersMentionCountByChannelID(
 	channelID, userID uuid.UUID,
 	incrementAmount int,
 	updatedAt time.Time,
-) error {
-	err := r.store.ChannelMemberIncrementPeersMentionCountByChannelID(ctx, db.ChannelMemberIncrementPeersMentionCountByChannelIDParams{
+) ([]*channel.Member, error) {
+	rows, err := r.store.ChannelMemberIncrementPeersMentionCountByChannelID(ctx, db.ChannelMemberIncrementPeersMentionCountByChannelIDParams{
 		IncrementAmount: int32(incrementAmount),
 		ChannelID:       db.ToUUID(channelID),
 		UserID:          db.ToUUID(userID),
 		UpdatedAt:       db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return db.NewError(err, db.EntityChannelMember)
+		return nil, db.NewError(err, db.EntityChannelMember)
 	}
 
-	return nil
+	members := make([]*channel.Member, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, memberFromRow(row))
+	}
+
+	return members, nil
 }
 
 func (r *MemberRepository) Delete(ctx context.Context, channelID, userID uuid.UUID) error {
@@ -277,7 +312,7 @@ func memberFromRow(row db.ChannelMember) *channel.Member {
 		db.FromUUID(row.ChannelID),
 		db.FromUUID(row.UserID),
 		db.FromUUIDPtr(row.LastReadMessageID),
-		db.FromTimestamptzPtr(row.LastReadMessageAt),
+		db.FromTimestamptz(row.LastReadMessageAt),
 		db.FromTimestamptzPtr(row.PinnedAt),
 		db.FromTimestamptzPtr(row.MutedUntil),
 		int(row.MentionCount),

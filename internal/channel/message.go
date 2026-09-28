@@ -120,14 +120,14 @@ func NewMessage(
 
 func NewSystemMessage(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	msgType MessageType,
 	metadata json.RawMessage,
 	now time.Time,
 ) (*Message, error) {
 	return NewRawMessage(
 		channelID,
-		authorID,
+		&authorID,
 		msgType,
 		nil,
 		metadata,
@@ -140,11 +140,11 @@ func NewSystemMessage(
 
 func NewMessageMemberAdd(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	memberID uuid.UUID,
 	now time.Time,
 ) (*Message, error) {
-	metadata, err := json.Marshal(map[string]any{"user_id": memberID.String()})
+	metadata, err := json.Marshal(map[string]any{"memberId": memberID.String()})
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func NewMessageMemberAdd(
 
 func NewMessageMemberLeave(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	now time.Time,
 ) (*Message, error) {
 	return NewSystemMessage(
@@ -174,7 +174,7 @@ func NewMessageMemberLeave(
 
 func NewMessageNameChange(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	newName *string,
 	now time.Time,
 ) (*Message, error) {
@@ -194,7 +194,7 @@ func NewMessageNameChange(
 
 func NewMessageIconChange(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	now time.Time,
 ) (*Message, error) {
 	return NewSystemMessage(
@@ -208,11 +208,11 @@ func NewMessageIconChange(
 
 func NewMessagePin(
 	channelID uuid.UUID,
-	authorID *uuid.UUID,
+	authorID uuid.UUID,
 	pinnedMessageID uuid.UUID,
 	now time.Time,
 ) (*Message, error) {
-	metadata, err := json.Marshal(map[string]any{"message_id": pinnedMessageID.String()})
+	metadata, err := json.Marshal(map[string]any{"messageId": pinnedMessageID.String()})
 	if err != nil {
 		return nil, err
 	}

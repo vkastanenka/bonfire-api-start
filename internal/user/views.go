@@ -25,6 +25,22 @@ func ParseSummary(u *User) Summary {
 	}
 }
 
+func ParseSummariesMap(users map[uuid.UUID]*User) map[uuid.UUID]Summary {
+	if len(users) == 0 {
+		return make(map[uuid.UUID]Summary)
+	}
+
+	summaries := make(map[uuid.UUID]Summary, len(users))
+	for id, u := range users {
+		if u == nil {
+			continue
+		}
+		summaries[id] = ParseSummary(u)
+	}
+
+	return summaries
+}
+
 type View struct {
 	ID          uuid.UUID `json:"id"`
 	Username    string    `json:"username"`
@@ -47,6 +63,22 @@ func ParseView(u *User) View {
 		IsDisabled:  u.IsDisabled(),
 		CreatedAt:   u.CreatedAt,
 	}
+}
+
+func ParseViewsMap(users map[uuid.UUID]*User) map[uuid.UUID]View {
+	if len(users) == 0 {
+		return make(map[uuid.UUID]View)
+	}
+
+	views := make(map[uuid.UUID]View, len(users))
+	for id, u := range users {
+		if u == nil {
+			continue
+		}
+		views[id] = ParseView(u)
+	}
+
+	return views
 }
 
 type Me struct {

@@ -2,16 +2,12 @@ package channel
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 	"time"
 
-	"bonfire-api/internal/sanitize"
+	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/pkg/sanitize"
 )
-
-// -----------------------------------------------------------------------------
-// Channel Type
-// -----------------------------------------------------------------------------
 
 type ChannelType int
 
@@ -28,37 +24,35 @@ var channelTypeNames = [...]string{
 	ChannelTypeGroup:   "GROUP",
 }
 
-func ParseChannelType(raw int) (ChannelType, error) {
-	ct := ChannelType(raw)
-	if !ct.IsValid() {
-		return ChannelTypeUnknown, fmt.Errorf("invalid channel type value: %d", raw)
-	}
-	return ct, nil
+func ParseChTypeInt(raw int) (ChannelType, error) {
+	return sanitize.ParseEnumInt(raw, channelTypeMax, "channel type")
 }
 
-func ParseChannelTypeString(s string) (ChannelType, error) {
-	for i, name := range channelTypeNames {
-		if name == s {
-			return ChannelType(i), nil
-		}
-	}
-	return ChannelTypeUnknown, fmt.Errorf("invalid channel type string: %q", s)
+func ParseChTypeIntBytes(b []byte) (ChannelType, error) {
+	return sanitize.ParseEnumIntBytes(b, channelTypeMax, "channel type")
 }
 
-func ParseChannelTypeBytes(raw []byte) (ChannelType, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return ChannelTypeUnknown, nil
-	}
-	return ParseChannelTypeString(string(cleaned))
+func ParseChTypeString(s string) (ChannelType, error) {
+	return sanitize.ParseEnumString[ChannelType](s, channelTypeNames[:], "channel type")
+}
+
+func ParseChTypeStringBytes(b []byte) (ChannelType, error) {
+	return sanitize.ParseEnumStringBytes[ChannelType](b, channelTypeNames[:], "channel type")
 }
 
 func (ct ChannelType) IsValid() bool {
 	return ct > ChannelTypeUnknown && ct < channelTypeMax
 }
 
+func (ct ChannelType) Int() int {
+	if ct.IsValid() {
+		return int(ct)
+	}
+	return int(ChannelTypeUnknown)
+}
+
 func (ct ChannelType) String() string {
-	if uint(ct) < uint(len(channelTypeNames)) {
+	if ct.IsValid() {
 		return channelTypeNames[ct]
 	}
 	return channelTypeNames[ChannelTypeUnknown]
@@ -72,7 +66,7 @@ func (ct ChannelType) MarshalText() ([]byte, error) {
 }
 
 func (ct *ChannelType) UnmarshalText(text []byte) error {
-	parsed, err := ParseChannelTypeString(string(text))
+	parsed, err := ParseChTypeString(string(text))
 	if err != nil {
 		return err
 	}
@@ -90,7 +84,7 @@ func (ct *ChannelType) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseChannelTypeBytes(data)
+	parsed, err := ParseChTypeStringBytes(data)
 	if err != nil {
 		return err
 	}
@@ -98,10 +92,6 @@ func (ct *ChannelType) UnmarshalJSON(data []byte) error {
 	*ct = parsed
 	return nil
 }
-
-// -----------------------------------------------------------------------------
-// Message Type
-// -----------------------------------------------------------------------------
 
 type MessageType int
 
@@ -130,37 +120,35 @@ var messageTypeNames = [...]string{
 	MessageTypePin:          "PIN",
 }
 
-func ParseMessageType(raw int) (MessageType, error) {
-	mt := MessageType(raw)
-	if !mt.IsValid() {
-		return MessageTypeUnknown, fmt.Errorf("invalid message type value: %d", raw)
-	}
-	return mt, nil
+func ParseMsgTypeInt(raw int) (MessageType, error) {
+	return sanitize.ParseEnumInt(raw, messageTypeMax, "message type")
 }
 
-func ParseMessageTypeString(s string) (MessageType, error) {
-	for i, name := range messageTypeNames {
-		if name == s {
-			return MessageType(i), nil
-		}
-	}
-	return MessageTypeUnknown, fmt.Errorf("invalid message type string: %q", s)
+func ParseMsgTypeIntBytes(b []byte) (MessageType, error) {
+	return sanitize.ParseEnumIntBytes(b, messageTypeMax, "message type")
 }
 
-func ParseMessageTypeBytes(raw []byte) (MessageType, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return MessageTypeUnknown, nil
-	}
-	return ParseMessageTypeString(string(cleaned))
+func ParseMsgTypeString(s string) (MessageType, error) {
+	return sanitize.ParseEnumString[MessageType](s, messageTypeNames[:], "message type")
+}
+
+func ParseMsgTypeStringBytes(b []byte) (MessageType, error) {
+	return sanitize.ParseEnumStringBytes[MessageType](b, messageTypeNames[:], "message type")
 }
 
 func (mt MessageType) IsValid() bool {
 	return mt > MessageTypeUnknown && mt < messageTypeMax
 }
 
+func (mt MessageType) Int() int {
+	if mt.IsValid() {
+		return int(mt)
+	}
+	return int(MessageTypeUnknown)
+}
+
 func (mt MessageType) String() string {
-	if uint(mt) < uint(len(messageTypeNames)) {
+	if mt.IsValid() {
 		return messageTypeNames[mt]
 	}
 	return messageTypeNames[MessageTypeUnknown]
@@ -180,7 +168,7 @@ func (mt MessageType) MarshalText() ([]byte, error) {
 }
 
 func (mt *MessageType) UnmarshalText(text []byte) error {
-	parsed, err := ParseMessageTypeString(string(text))
+	parsed, err := ParseMsgTypeString(string(text))
 	if err != nil {
 		return err
 	}
@@ -198,7 +186,7 @@ func (mt *MessageType) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseMessageTypeBytes(data)
+	parsed, err := ParseMsgTypeStringBytes(data)
 	if err != nil {
 		return err
 	}
@@ -206,10 +194,6 @@ func (mt *MessageType) UnmarshalJSON(data []byte) error {
 	*mt = parsed
 	return nil
 }
-
-// -----------------------------------------------------------------------------
-// Mute Duration
-// -----------------------------------------------------------------------------
 
 type MuteDuration int
 
@@ -234,37 +218,35 @@ var muteDurationNames = [...]string{
 	MuteDurationForever: "FOREVER",
 }
 
-func ParseMuteDuration(raw int) (MuteDuration, error) {
-	m := MuteDuration(raw)
-	if !m.IsValid() {
-		return MuteDurationUnknown, fmt.Errorf("invalid mute duration value: %d", raw)
-	}
-	return m, nil
+func ParseMuteDurationInt(raw int) (MuteDuration, error) {
+	return sanitize.ParseEnumInt(raw, muteDurationMax, "mute duration")
+}
+
+func ParseMuteDurationIntBytes(b []byte) (MuteDuration, error) {
+	return sanitize.ParseEnumIntBytes(b, muteDurationMax, "mute duration")
 }
 
 func ParseMuteDurationString(s string) (MuteDuration, error) {
-	for i, name := range muteDurationNames {
-		if name == s {
-			return MuteDuration(i), nil
-		}
-	}
-	return MuteDurationUnknown, fmt.Errorf("invalid mute duration string: %q", s)
+	return sanitize.ParseEnumString[MuteDuration](s, muteDurationNames[:], "mute duration")
 }
 
-func ParseMuteDurationBytes(raw []byte) (MuteDuration, error) {
-	cleaned := sanitize.Bytes(raw)
-	if len(cleaned) == 0 {
-		return MuteDurationUnknown, nil
-	}
-	return ParseMuteDurationString(string(cleaned))
+func ParseMuteDurationStringBytes(b []byte) (MuteDuration, error) {
+	return sanitize.ParseEnumStringBytes[MuteDuration](b, muteDurationNames[:], "mute duration")
 }
 
 func (m MuteDuration) IsValid() bool {
 	return m > MuteDurationUnknown && m < muteDurationMax
 }
 
+func (m MuteDuration) Int() int {
+	if m.IsValid() {
+		return int(m)
+	}
+	return int(MuteDurationUnknown)
+}
+
 func (m MuteDuration) String() string {
-	if uint(m) < uint(len(muteDurationNames)) {
+	if m.IsValid() {
 		return muteDurationNames[m]
 	}
 	return muteDurationNames[MuteDurationUnknown]
@@ -298,7 +280,8 @@ func (m MuteDuration) ToDuration() (time.Duration, bool) {
 
 func (m MuteDuration) CalculateUntil(now time.Time) (*time.Time, error) {
 	if !m.IsValid() {
-		return nil, fmt.Errorf("cannot calculate expiry for invalid duration: %s", m)
+		return nil, errs.Internal("Cannot calculate expiry for invalid duration.").
+			Meta("enum", "channel mute duration")
 	}
 	if m.IsForever() {
 		return nil, nil
@@ -332,7 +315,7 @@ func (m *MuteDuration) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	parsed, err := ParseMuteDurationBytes(data)
+	parsed, err := ParseMuteDurationStringBytes(data)
 	if err != nil {
 		return err
 	}

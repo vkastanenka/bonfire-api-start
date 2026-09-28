@@ -1,9 +1,9 @@
 package user
 
 import (
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/pkg/sanitize"
 	"bytes"
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -82,7 +82,8 @@ func (d PreferredPresenceDuration) ToPreferredPresenceDuration() (time.Duration,
 
 func (d PreferredPresenceDuration) CalculateUntil(now time.Time) (*time.Time, error) {
 	if !d.IsValid() {
-		return nil, fmt.Errorf("cannot calculate expiry for invalid duration: %s", d)
+		return nil, errs.Internal("Cannot calculate expiry for invalid duration.").
+			Meta("enum", "preferred presence duration")
 	}
 	if d.IsForever() {
 		return nil, nil
