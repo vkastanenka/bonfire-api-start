@@ -1,10 +1,12 @@
 package channel
 
 import (
-	"bonfire-api/internal/errs"
-	"bonfire-api/internal/pkg/ptr"
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/user"
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,7 @@ type MessageService struct {
 	channelCache      ChannelCache
 	channelRepo       ChannelRepository
 	cachedChannelRepo CachedChannelRepository
+	memberCache       MemberCache
 	memberRepo        MemberRepository
 	cachedMemberRepo  CachedMemberRepository
 	reactionRepo      ReactionRepository
@@ -32,6 +35,7 @@ func NewMessageService(
 	cachedRepo CachedMessageRepository,
 	channelRepo ChannelRepository,
 	cachedChannelRepo CachedChannelRepository,
+	memberCache MemberCache,
 	memberRepo MemberRepository,
 	cachedMemberRepo CachedMemberRepository,
 	reactionRepo ReactionRepository,
@@ -45,6 +49,7 @@ func NewMessageService(
 		cachedRepo:        cachedRepo,
 		channelRepo:       channelRepo,
 		cachedChannelRepo: cachedChannelRepo,
+		memberCache:       memberCache,
 		memberRepo:        memberRepo,
 		cachedMemberRepo:  cachedMemberRepo,
 		reactionRepo:      reactionRepo,
@@ -55,17 +60,26 @@ func NewMessageService(
 	}
 }
 
+type CreateMessageResult struct {
+	Message *Message
+	Channel *Channel
+	Member  *Member
+}
+
 // Create generates a new message and related channel + member side effects.
 func (s *MessageService) Create(
 	ctx context.Context,
-	authorID,
-	sessionID,
 	channelID uuid.UUID,
 	content *string,
 	replyToMsgID *uuid.UUID,
 	fwdMsgID *uuid.UUID,
 	fwdChannelID *uuid.UUID,
-) (*Message, error) {
+) (*CreateMessageResult, error) {
+	claims, err := appctx.GetClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	hasReply := replyToMsgID != nil
 	hasFwdMsg := fwdMsgID != nil
 	hasFwdChan := fwdChannelID != nil
@@ -84,7 +98,7 @@ func (s *MessageService) Create(
 
 	g.Go(func() error {
 		var gErr error
-		mems, gErr = s.getValidMemberships(ctxGrp, channelID, authorID)
+		mems, gErr = s.getValidMemberships(ctxGrp, channelID, claims.UserID)
 		if gErr != nil {
 			return gErr
 		}
@@ -108,18 +122,22 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	memberIDs := getMemberIDs(mems)
+	var author *user.User
+	memsLength := len(mems)
 
-	author, err := s.cachedUserRepo.Get(ctx, authorID)
-	if err != nil {
-		return nil, err
+	if memsLength > 1 {
+		author, err = s.cachedUserRepo.Get(ctx, claims.UserID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	memberIDs := getMemberIDs(mems)
 	now := time.Now()
 
 	msg, err := NewMessage(
 		channelID,
-		authorID,
+		claims.UserID,
 		*content,
 		replyToMsgID,
 		fwdMsgID,
@@ -130,7 +148,11 @@ func (s *MessageService) Create(
 		return nil, err
 	}
 
-	var savedMsg *Message
+	var (
+		ch    *Channel
+		mem   *Member
+		peers []*Member
+	)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		ch, err := s.channelRepo.GetForUpdate(txCtx, channelID)
@@ -138,57 +160,106 @@ func (s *MessageService) Create(
 			return err
 		}
 
-		savedMsg, err = s.repo.Create(txCtx, msg)
+		msg, err = s.repo.Create(txCtx, msg)
 		if err != nil {
 			return err
 		}
 
-		_, err = s.channelRepo.UpdateLastMessage(txCtx, ch.ID, &savedMsg.ID, &savedMsg.CreatedAt, now)
+		ch, err = s.channelRepo.UpdateLastMessage(txCtx, ch.ID, &msg.ID, &msg.CreatedAt, now)
 		if err != nil {
 			return err
 		}
 
-		_, err = s.memberRepo.UpdateLastReadMessage(
+		mem, err = s.memberRepo.UpdateLastReadMessage(
 			txCtx,
 			channelID,
-			authorID,
+			claims.UserID,
 			&msg.ID,
 			now,
 			now,
-			ptr.To(0),
+			nil,
 		)
-		if err != nil {
-			return err
-		}
-
-		err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, channelID, authorID, 1, now)
 		if err != nil {
 			return err
 		}
 
 		payload := EventMessageCreatedPayload{
-			ExcludeSessionID: sessionID,
-			Message:          savedMsg,
-			Author:           author,
-			MemberIDs:        memberIDs,
+			Channel:   ParseChannelView(ch),
+			Message:   ParseMessageView(msg),
+			CreatedAt: now,
 		}
 
-		return s.outboxRepo.Publish(
-			txCtx,
+		if memsLength > 1 {
+			peers, err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, channelID, claims.UserID, 1, now)
+			if err != nil {
+				return err
+			}
+
+			allMembers := make([]*Member, 0, len(peers)+1)
+			allMembers = append(allMembers, mem)
+			allMembers = append(allMembers, peers...)
+
+			membersMap := make(map[uuid.UUID]MemberView, len(allMembers))
+			for _, m := range allMembers {
+				membersMap[m.UserID] = ParseMemberView(m)
+			}
+			payload.Members = membersMap
+
+			if author != nil {
+				authorSummary := user.ParseSummary(author)
+				payload.Author = &authorSummary
+			}
+		}
+
+		event, txErr := outbox.New(
+			claims.UserID,
+			claims.SessionID,
+			appctx.GetTraceID(txCtx),
+			memberIDs,
 			EventMessageCreated,
 			payload,
 			now,
 		)
+		if txErr != nil {
+			return txErr
+		}
+
+		return s.outboxRepo.Create(txCtx, event)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_ = s.cache.Set(ctx, savedMsg)
-	_ = s.channelCache.Delete(ctx, channelID)
-	_ = s.channelCache.InvalidateMembers(ctx, channelID)
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
 
-	return savedMsg, nil
+	if err := s.cache.Set(cacheCtx, msg); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to seed message cache on create",
+			slog.String("message_id", msg.ID.String()),
+			slog.String("channel_id", channelID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	if err := s.channelRepo.Delete(cacheCtx, channelID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate channel cache on message create",
+			slog.String("channel_id", channelID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	if err := s.memberCache.InvalidateChannel(cacheCtx, channelID); err != nil {
+		slog.ErrorContext(cacheCtx, "failed to invalidate member cache on message create",
+			slog.String("channel_id", channelID.String()),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	return &CreateMessageResult{
+		Message: msg,
+		Channel: ch,
+		Member:  mem,
+	}, nil
 }
 
 // ListAround fetches messages directly before and after msgCursorID.
@@ -568,7 +639,7 @@ func (s *MessageService) getValidMemberships(ctx context.Context, channelID, aut
 		return nil, err
 	}
 
-	_, err = validateMembership(authorID, mems)
+	err = validateMembership(mems, authorID)
 	if err != nil {
 		return nil, err
 	}

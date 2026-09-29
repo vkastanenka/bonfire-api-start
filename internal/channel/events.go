@@ -128,9 +128,11 @@ func newMemberLeftHandler(b Broadcaster) outbox.Handler {
 }
 
 type EventMessageCreatedPayload struct {
-	Message   MessageView  `json:"message"`
-	Author    user.Summary `json:"author"`
-	CreatedAt time.Time    `json:"createdAt"`
+	Channel   ChannelView              `json:"channel"`
+	Members   map[uuid.UUID]MemberView `json:"members"`
+	Message   MessageView              `json:"message"`
+	Author    *user.Summary            `json:"author,omitempty"`
+	CreatedAt time.Time                `json:"createdAt"`
 }
 
 func newMessageCreatedHandler(b Broadcaster) outbox.Handler {

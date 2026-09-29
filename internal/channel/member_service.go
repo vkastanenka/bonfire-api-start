@@ -784,7 +784,6 @@ func (s *MemberService) LeaveGroup(
 			return err
 		}
 
-		// Target only remaining members (exclude the user who left)
 		recipientIDs := make([]uuid.UUID, 0, remainingCount)
 		for _, id := range memberIDs {
 			if id != claims.UserID {
