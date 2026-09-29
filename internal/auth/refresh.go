@@ -23,13 +23,13 @@ type RefreshResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResult, error) {
 	ctxMeta, err := appctx.GetMeta(ctx)
 	if err != nil {
 		return RefreshResult{}, err
 	}
 
-	claims, err := s.tokenProvider.VerifyRefresh(p.RefreshToken)
+	claims, err := s.tokenProvider.VerifyRefresh(refreshToken)
 	if err != nil {
 		return RefreshResult{}, ErrRefreshTokenInvalid()
 	}
@@ -53,7 +53,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, ErrSessionExpired()
 	}
 
-	presentedBytes := crypto.HashToken(p.RefreshToken)
+	presentedBytes := crypto.HashToken(refreshToken)
 	currentBytes := []byte(sess.RefreshTokenHash)
 
 	if subtle.ConstantTimeCompare(presentedBytes, currentBytes) != 1 {

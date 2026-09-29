@@ -38,12 +38,12 @@ func (v *Validator) Validate(s any) error {
 
 	var invalidValidationError *goValidator.InvalidValidationError
 	if errors.As(err, &invalidValidationError) {
-		return errs.Internal("failed to execute struct validation").Wrap(err)
+		return errs.Internal("Failed to execute struct validation.").Wrap(err)
 	}
 
 	var validationErrors goValidator.ValidationErrors
 	if errors.As(err, &validationErrors) {
-		appErr := errs.InvalidArgument("validation failed").
+		appErr := errs.InvalidArgument("Validation failed.").
 			Reason("VALIDATION_FAILED").
 			Wrap(err)
 
@@ -58,7 +58,19 @@ func (v *Validator) Validate(s any) error {
 		return appErr
 	}
 
-	return errs.Internal("unexpected validation error").Wrap(err)
+	return errs.Internal("Unexpected validation error.").Wrap(err)
+}
+
+// RegisterAlias registers a custom tag alias (e.g., alias="password", tags="min=12,max=255").
+func (v *Validator) RegisterAlias(alias, tags string) {
+	v.validate.RegisterAlias(alias, tags)
+}
+
+// RegisterAliases registers multiple tag aliases at once.
+func (v *Validator) RegisterAliases(aliases map[string]string) {
+	for alias, tags := range aliases {
+		v.validate.RegisterAlias(alias, tags)
+	}
 }
 
 // applyDefaults registers infrastructure-level tag extractors, aliases, and base validations.

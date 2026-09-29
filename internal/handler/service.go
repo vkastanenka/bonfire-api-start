@@ -2,11 +2,10 @@ package handler
 
 import (
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/channel"
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/relation"
 	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
 	"time"
@@ -17,13 +16,16 @@ import (
 type AuthService interface {
 	ForgotPassword(ctx context.Context, email string) error
 	Login(ctx context.Context, p auth.LoginParams) (auth.LoginResult, error)
-	PrintWSTicket(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID) (uuid.UUID, error)
+	PrintWSTicket(ctx context.Context) (uuid.UUID, error)
 	Refresh(ctx context.Context, p auth.RefreshParams) (auth.RefreshResult, error)
 	Register(ctx context.Context, p auth.RegisterParams) (auth.RegisterResult, error)
-	ResendVerify(ctx context.Context, userID uuid.UUID) error
+	ResendVerify(ctx context.Context) error
 	ResetPassword(ctx context.Context, p auth.ResetPasswordParams) (auth.ResetPasswordResult, error)
-	VerifyEmail(ctx context.Context, userID uuid.UUID, token string) (*user.User, error)
-	generateSession(u *user.User, clientMeta httpio.ClientMeta, now time.Time) (*session.Session, token.Pair, error)
+	VerifyEmail(ctx context.Context, token string) (*user.User, error)
+}
+
+type BootstrapService interface {
+	Bootstrap(ctx context.Context) (*bootstrap.Result, error)
 }
 
 type ChannelService interface {
@@ -64,7 +66,7 @@ type RelationService interface {
 type SessionService interface {
 	ListValidByUserID(ctx context.Context, userID uuid.UUID) ([]*session.Session, error)
 	Revoke(ctx context.Context, p session.RevokeParams) error
-	RevokeAll(ctx context.Context, userID uuid.UUID) error
+	RevokeAll(ctx context.Context) error
 }
 
 type UserService interface {
@@ -77,7 +79,4 @@ type UserService interface {
 	UpdatePreferredPresence(ctx context.Context, p user.UpdatePreferredPresenceParams) (*user.User, error)
 	UpdateProfile(ctx context.Context, p user.UpdateProfileParams) (*user.User, error)
 	UpdateUsername(ctx context.Context, p user.UpdateUsernameParams) (*user.User, error)
-	fetchAndAuthenticate(ctx context.Context, actorID uuid.UUID, password string) (*user.User, error)
-	fetchBatchValid(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*user.User, error)
-	fetchValid(ctx context.Context, actorID uuid.UUID) (*user.User, error)
 }

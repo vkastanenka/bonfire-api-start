@@ -23,7 +23,6 @@ type ChannelService struct {
 	presenceCache      PresenceCache
 	cachedUserRepo     CachedUserRepository
 	outboxRepo         OutboxRepository
-	relationRepo       RelationRepository
 	cachedRelationRepo CachedRelationRepository
 	tx                 TX
 }
@@ -38,7 +37,6 @@ func NewChannelService(
 	presenceCache PresenceCache,
 	cachedUserRepo CachedUserRepository,
 	outboxRepo OutboxRepository,
-	relationRepo RelationRepository,
 	cachedRelationRepo CachedRelationRepository,
 	tx TX,
 ) *ChannelService {
@@ -52,7 +50,6 @@ func NewChannelService(
 		presenceCache:      presenceCache,
 		cachedUserRepo:     cachedUserRepo,
 		outboxRepo:         outboxRepo,
-		relationRepo:       relationRepo,
 		cachedRelationRepo: cachedRelationRepo,
 		tx:                 tx,
 	}

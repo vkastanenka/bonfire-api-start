@@ -2,10 +2,17 @@ package handler
 
 import (
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/user"
 	"net/http"
+
+	"github.com/google/uuid"
 )
+
+type AccessTokenResponse struct {
+	AccessToken string `json:"accessToken"`
+}
 
 type AuthHandler struct {
 	service AuthService
@@ -20,7 +27,7 @@ func NewAuthHandler(service AuthService, bind *httpio.Bind) *AuthHandler {
 }
 
 type ForgotPasswordRequest struct {
-	Email string `json:"email" mod:"email" validate:"required,email,max=255"`
+	Email string `json:"email" mod:"email" validate:"required,email_spec"`
 }
 
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
@@ -40,11 +47,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 
 type ResetPasswordRequest struct {
 	Token    string `json:"token" validate:"required,token"`
-	Password string `json:"password" validate:"required,min=12,max=255"`
-}
-
-type ResetPasswordResponse struct {
-	AccessToken string `json:"access_token"`
+	Password string `json:"password" validate:"required,user_password"`
 }
 
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
@@ -54,32 +57,22 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	clientMeta, err := httpio.CtxGetMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
 	data, err := h.service.ResetPassword(r.Context(), auth.ResetPasswordParams{
-		Token:      req.Token,
-		Password:   req.Password,
-		ClientMeta: clientMeta,
+		Token:    req.Token,
+		Password: req.Password,
 	})
 	if err != nil {
 		return err
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, ResetPasswordResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" mod:"email" validate:"required,email,max=255"`
-	Password string `json:"password" validate:"required,min=12,max=255"`
-}
-
-type LoginResponse struct {
-	AccessToken string `json:"access_token"`
+	Email    string `json:"email" mod:"email" validate:"required,email_spec"`
+	Password string `json:"password" validate:"required,user_password"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
@@ -89,34 +82,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	clientMeta, err := httpio.CtxGetMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
 	data, err := h.service.Login(r.Context(), auth.LoginParams{
-		Email:      req.Email,
-		Password:   req.Password,
-		ClientMeta: clientMeta,
+		Email:    req.Email,
+		Password: req.Password,
 	})
 	if err != nil {
 		return err
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, LoginResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
 type RegisterRequest struct {
-	Email       string  `json:"email" mod:"email" validate:"required,email,max=255"`
-	Username    string  `json:"username" mod:"text" validate:"required,alphanum,min=3,max=32"`
-	DisplayName *string `json:"displayName,omitempty" mod:"text" validate:"omitempty,min=3,max=32"`
-	Password    string  `json:"password" validate:"required,min=12,max=255"`
-}
-
-type RegisterResponse struct {
-	AccessToken string `json:"access_token"`
+	Email       string  `json:"email" mod:"email" validate:"required,email_spec"`
+	Username    string  `json:"username" mod:"text" validate:"required,user_username"`
+	DisplayName *string `json:"displayName,omitempty" mod:"text" validate:"omitempty,user_display_name"`
+	Password    string  `json:"password" validate:"required,user_password"`
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
@@ -126,29 +109,19 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	clientMeta, err := httpio.CtxGetMeta(r.Context())
-	if err != nil {
-		return err
-	}
-
 	data, err := h.service.Register(r.Context(), auth.RegisterParams{
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
 		Password:    req.Password,
-		ClientMeta:  clientMeta,
 	})
 	if err != nil {
 		return err
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondCreated(w, r, RegisterResponse{AccessToken: data.AccessToken})
+	httpio.RespondCreated(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
 	return nil
-}
-
-type RefreshResponse struct {
-	AccessToken string `json:"access_token"`
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
@@ -165,7 +138,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, RefreshResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
@@ -174,32 +147,23 @@ type VerifyEmailRequest struct {
 }
 
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req VerifyEmailRequest
-	err = h.bind.JSON(w, r, &req)
+	err := h.bind.JSON(w, r, &req)
 	if err != nil {
 		return err
 	}
 
-	if _, err := h.service.VerifyEmail(r.Context(), userID, req.Token); err != nil {
+	u, err := h.service.VerifyEmail(r.Context(), req.Token)
+	if err != nil {
 		return err
 	}
 
-	httpio.RespondNoContent(w)
+	httpio.RespondOK(w, r, user.ParseMe(u))
 	return nil
 }
 
 func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.ResendVerify(r.Context(), userID); err != nil {
+	if err := h.service.ResendVerify(r.Context()); err != nil {
 		return err
 	}
 
@@ -208,20 +172,15 @@ func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error
 }
 
 type PrintWSTicketResponse struct {
-	Ticket string `json:"ticket"`
+	Ticket uuid.UUID `json:"ticket"`
 }
 
 func (h *AuthHandler) PrintWSTicket(w http.ResponseWriter, r *http.Request) error {
-	claims, err := httpio.CtxGetClaims(r.Context())
+	ticket, err := h.service.PrintWSTicket(r.Context())
 	if err != nil {
 		return err
 	}
 
-	ticket, err := h.service.PrintWSTicket(r.Context(), claims.UserID, claims.SessionID)
-	if err != nil {
-		return err
-	}
-
-	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket.String()})
+	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket})
 	return nil
 }

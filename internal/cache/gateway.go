@@ -94,7 +94,7 @@ func (c *GatewayCache) RegisterSession(
 		keys,
 		nodeID.String(),
 		sessionID.String(),
-		string(targetPresence),
+		targetPresence.Int(),
 		int(userPresenceTTL.Seconds()),
 	).Int64()
 	if err != nil {

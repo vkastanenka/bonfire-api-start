@@ -6,7 +6,6 @@ import (
 
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence"
-	"bonfire-api/internal/relation"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
@@ -82,20 +81,6 @@ type ReactionRepository interface {
 
 type OutboxRepository interface {
 	Create(ctx context.Context, e *outbox.Event) error
-}
-
-type RelationRepository interface {
-	DeleteByUserID(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID, actorID uuid.UUID) error
-	Get(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*relation.Relation, error)
-	GetForUpdate(ctx context.Context, user1ID uuid.UUID, user2ID uuid.UUID) (*relation.Relation, error)
-	HasIncomingBlock(ctx context.Context, actorID uuid.UUID, peerIDs []uuid.UUID) error
-	ListFriendsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*relation.Relation, error)
-	ListIncomingBlocksByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*relation.Relation, error)
-	ListIncomingPendingsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*relation.Relation, error)
-	ListOutgoingBlocksByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*relation.Relation, error)
-	ListOutgoingPendingsByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*relation.Relation, error)
-	ListTypeByUserID(ctx context.Context, userID uuid.UUID, relType relation.Type, limit int) ([]*relation.Relation, error)
-	Save(ctx context.Context, rel *relation.Relation) (*relation.Relation, error)
 }
 
 type CachedRelationRepository interface {

@@ -392,7 +392,7 @@ func (s *MessageService) UpdateContent(
 		return nil, ErrMessageContentMinLength()
 	}
 
-	msg, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	msg, _, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +403,7 @@ func (s *MessageService) UpdateContent(
 
 	var updatedMsg *Message
 	now := time.Now()
-	memIDs := getMemberIDs(mems)
+	// memIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedMsg, err = s.repo.UpdateContent(txCtx, messageID, content, now, now)
@@ -411,19 +411,20 @@ func (s *MessageService) UpdateContent(
 			return err
 		}
 
-		payload := EventMessageUpdatedPayload{
-			ExcludeSessionID: sessionID,
-			MessageID:        updatedMsg.ID,
-			MessageContent:   updatedMsg.Content,
-			MemberIDs:        memIDs,
-		}
+		// payload := EventMessageUpdatedPayload{
+		// 	ExcludeSessionID: sessionID,
+		// 	MessageID:        updatedMsg.ID,
+		// 	MessageContent:   updatedMsg.Content,
+		// 	MemberIDs:        memIDs,
+		// }
 
-		return s.outboxRepo.Publish(
-			txCtx,
-			EventMessageUpdated,
-			payload,
-			now,
-		)
+		// return s.outboxRepo.Publish(
+		// 	txCtx,
+		// 	EventMessageUpdated,
+		// 	payload,
+		// 	now,
+		// )
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -440,13 +441,13 @@ func (s *MessageService) UpdatePinnedAt(
 	actorID, sessionID, channelID, messageID uuid.UUID,
 	isPinned bool,
 ) (*Message, error) {
-	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	_, _, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
-	memIDs := getMemberIDs(mems)
+	// memIDs := getMemberIDs(mems)
 
 	var pinnedAt *time.Time
 	if isPinned {
@@ -454,7 +455,7 @@ func (s *MessageService) UpdatePinnedAt(
 	}
 
 	var updatedMsg *Message
-	var savedSysMsg *Message
+	// var savedSysMsg *Message
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		updatedMsg, err = s.repo.UpdatePinnedAt(txCtx, messageID, pinnedAt, now)
@@ -462,38 +463,40 @@ func (s *MessageService) UpdatePinnedAt(
 			return err
 		}
 
-		if isPinned {
-			sysMsg, err := NewMessagePin(
-				channelID,
-				&actorID,
-				updatedMsg.ID,
-				now,
-			)
-			if err != nil {
-				return err
-			}
+		// if isPinned {
+		// 	sysMsg, err := NewMessagePin(
+		// 		channelID,
+		// 		&actorID,
+		// 		updatedMsg.ID,
+		// 		now,
+		// 	)
+		// 	if err != nil {
+		// 		return err
+		// 	}
 
-			savedSysMsg, err = s.repo.Create(txCtx, sysMsg)
-			if err != nil {
-				return err
-			}
+		// 	savedSysMsg, err = s.repo.Create(txCtx, sysMsg)
+		// 	if err != nil {
+		// 		return err
+		// 	}
 
-			_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, &savedSysMsg.ID, &now, now)
-			if err != nil {
-				return err
-			}
-		}
+		// 	_, err = s.channelRepo.UpdateLastMessage(txCtx, channelID, &savedSysMsg.ID, &now, now)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// }
 
-		payload := EventMessageUpdatedPayload{
-			MemberIDs:        memIDs,
-			ExcludeSessionID: sessionID,
-			MessageID:        messageID,
-			MessagePinnedAt:  pinnedAt,
-			MessageUpdatedAt: updatedMsg.UpdatedAt,
-			SystemMessage:    savedSysMsg,
-		}
+		// payload := EventMessageUpdatedPayload{
+		// 	MemberIDs:        memIDs,
+		// 	ExcludeSessionID: sessionID,
+		// 	MessageID:        messageID,
+		// 	MessagePinnedAt:  pinnedAt,
+		// 	MessageUpdatedAt: updatedMsg.UpdatedAt,
+		// 	SystemMessage:    savedSysMsg,
+		// }
 
-		return s.outboxRepo.Publish(txCtx, EventMessageUpdated, payload, now)
+		// return s.outboxRepo.Publish(txCtx, EventMessageUpdated, payload, now)
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -501,10 +504,10 @@ func (s *MessageService) UpdatePinnedAt(
 
 	_ = s.cache.Delete(ctx, channelID, messageID)
 
-	if savedSysMsg != nil {
-		_ = s.cache.Set(ctx, savedSysMsg)
-		_ = s.channelCache.Delete(ctx, channelID)
-	}
+	// if savedSysMsg != nil {
+	// 	_ = s.cache.Set(ctx, savedSysMsg)
+	// 	_ = s.channelCache.Delete(ctx, channelID)
+	// }
 
 	return updatedMsg, nil
 }
@@ -514,7 +517,7 @@ func (s *MessageService) Delete(
 	ctx context.Context,
 	actorID, sessionID, channelID, messageID uuid.UUID,
 ) error {
-	msg, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	msg, _, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return err
 	}
@@ -523,22 +526,24 @@ func (s *MessageService) Delete(
 		return ErrMessageNotAuthor()
 	}
 
-	now := time.Now()
-	memIDs := getMemberIDs(mems)
+	// now := time.Now()
+	// memIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if txErr := s.repo.Delete(txCtx, messageID); txErr != nil {
 			return txErr
 		}
 
-		payload := EventMessageDeletedPayload{
-			MemberIDs:        memIDs,
-			ExcludeSessionID: sessionID,
-			MessageID:        messageID,
-			MessageDeletedAt: now,
-		}
+		// payload := EventMessageDeletedPayload{
+		// 	MemberIDs:        memIDs,
+		// 	ExcludeSessionID: sessionID,
+		// 	MessageID:        messageID,
+		// 	MessageDeletedAt: now,
+		// }
 
-		return s.outboxRepo.Publish(txCtx, EventMessageDeleted, payload, now)
+		// return s.outboxRepo.Publish(txCtx, EventMessageDeleted, payload, now)
+
+		return nil
 	})
 	if err != nil {
 		return err
@@ -555,7 +560,7 @@ func (s *MessageService) ToggleReaction(
 	actorID, sessionID, channelID, messageID uuid.UUID,
 	emoji string,
 ) (*EmojiCount, error) {
-	_, mems, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
+	_, _, err := s.prepareUpdate(ctx, actorID, channelID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +571,7 @@ func (s *MessageService) ToggleReaction(
 	)
 
 	now := time.Now()
-	memberIDs := getMemberIDs(mems)
+	// memberIDs := getMemberIDs(mems)
 
 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		existingRx, txErr := s.reactionRepo.Get(txCtx, messageID, actorID, emoji)
@@ -594,22 +599,24 @@ func (s *MessageService) ToggleReaction(
 		}
 
 		// Broadcast neutral Reacted: false so clients don't overwrite user-specific state
-		broadcastEmojiCount := EmojiCount{
-			Emoji:   emoji,
-			Count:   updatedCount,
-			Reacted: false,
-		}
+		// broadcastEmojiCount := EmojiCount{
+		// 	Emoji:   emoji,
+		// 	Count:   updatedCount,
+		// 	Reacted: false,
+		// }
 
-		payload := EventReactionToggledPayload{
-			MemberIDs:        memberIDs,
-			ExcludeSessionID: sessionID,
-			ActorID:          actorID,
-			MessageID:        messageID,
-			EmojiCount:       broadcastEmojiCount,
-			ToggledAt:        now,
-		}
+		// payload := EventReactionToggledPayload{
+		// 	MemberIDs:        memberIDs,
+		// 	ExcludeSessionID: sessionID,
+		// 	ActorID:          actorID,
+		// 	MessageID:        messageID,
+		// 	EmojiCount:       broadcastEmojiCount,
+		// 	ToggledAt:        now,
+		// }
 
-		return s.outboxRepo.Publish(txCtx, EventReactionToggled, payload, now)
+		// return s.outboxRepo.Publish(txCtx, EventReactionToggled, payload, now)
+
+		return nil
 	})
 	if err != nil {
 		return nil, err

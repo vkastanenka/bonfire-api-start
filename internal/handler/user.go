@@ -42,23 +42,17 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) error {
 }
 
 type UserUpdateEmailRequest struct {
-	NewEmail string `json:"newEmail" mod:"email" validate:"required,email,max=255"`
-	Password string `json:"password" validate:"required,min=12,max=255"`
+	NewEmail string `json:"newEmail" mod:"email" validate:"required,email_spec"`
+	Password string `json:"password" validate:"required,user_password"`
 }
 
 func (h *UserHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserUpdateEmailRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	u, err := h.service.UpdateEmail(r.Context(), user.UpdateEmailParams{
-		UserID:   userID,
 		NewEmail: req.NewEmail,
 		Password: req.Password,
 	})
@@ -71,23 +65,17 @@ func (h *UserHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) error 
 }
 
 type UserUpdateUsernameRequest struct {
-	NewUsername string `json:"newUsername" mod:"text" validate:"required,min=3,max=32,alphanum"`
-	Password    string `json:"password" validate:"required,min=12,max=255"`
+	NewUsername string `json:"newUsername" mod:"text" validate:"required,user_username"`
+	Password    string `json:"password" validate:"required,user_password"`
 }
 
 func (h *UserHandler) UpdateUsername(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserUpdateUsernameRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	u, err := h.service.UpdateUsername(r.Context(), user.UpdateUsernameParams{
-		UserID:      userID,
 		NewUsername: req.NewUsername,
 		Password:    req.Password,
 	})
@@ -100,24 +88,18 @@ func (h *UserHandler) UpdateUsername(w http.ResponseWriter, r *http.Request) err
 }
 
 type UserUpdatePasswordRequest struct {
-	CurrentPassword    string `json:"currentPassword" validate:"required,min=12,max=255"`
-	NewPassword        string `json:"newPassword" validate:"required,min=12,max=255"`
+	CurrentPassword    string `json:"currentPassword" validate:"required,user_password"`
+	NewPassword        string `json:"newPassword" validate:"required,user_password"`
 	NewPasswordConfirm string `json:"newPasswordConfirm" validate:"required,eqfield=NewPassword"`
 }
 
 func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserUpdatePasswordRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	if err := h.service.UpdatePassword(r.Context(), user.UpdatePasswordParams{
-		UserID:             userID,
 		CurrentPassword:    req.CurrentPassword,
 		NewPassword:        req.NewPassword,
 		NewPasswordConfirm: req.NewPasswordConfirm,
@@ -135,18 +117,12 @@ type UserUpdatePreferredPresenceRequest struct {
 }
 
 func (h *UserHandler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserUpdatePreferredPresenceRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	u, err := h.service.UpdatePreferredPresence(r.Context(), user.UpdatePreferredPresenceParams{
-		UserID:   userID,
 		Presence: req.Presence,
 		Duration: req.Duration,
 	})
@@ -159,25 +135,19 @@ func (h *UserHandler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Req
 }
 
 type UserUpdateProfileRequest struct {
-	DisplayName string  `json:"displayName" mod:"text" validate:"required,min=3,max=32"`
-	Bio         *string `json:"bio,omitempty" mod:"text" validate:"omitempty,max=190"`
-	AvatarURL   *string `json:"avatarUrl,omitempty" validate:"omitempty,url,max=2048"`
+	DisplayName string  `json:"displayName" mod:"text" validate:"required,user_display_name"`
+	Bio         *string `json:"bio,omitempty" mod:"text" validate:"omitempty,user_bio"`
+	AvatarURL   *string `json:"avatarUrl,omitempty" validate:"omitempty,url_spec"`
 	BannerColor *string `json:"bannerColor,omitempty" validate:"omitempty,hexcolor"`
 }
 
 func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserUpdateProfileRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	u, err := h.service.UpdateProfile(r.Context(), user.UpdateProfileParams{
-		UserID:      userID,
 		DisplayName: req.DisplayName,
 		Bio:         req.Bio,
 		AvatarURL:   req.AvatarURL,
@@ -192,22 +162,16 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) erro
 }
 
 type UserDisableRequest struct {
-	Password string `json:"password" validate:"required,min=12,max=255"`
+	Password string `json:"password" validate:"required,user_password"`
 }
 
 func (h *UserHandler) Disable(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserDisableRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	if err := h.service.Disable(r.Context(), user.DisableParams{
-		UserID:   userID,
 		Password: req.Password,
 	}); err != nil {
 		return err
@@ -218,22 +182,16 @@ func (h *UserHandler) Disable(w http.ResponseWriter, r *http.Request) error {
 }
 
 type UserScheduleDeleteRequest struct {
-	Password string `json:"password" validate:"required,min=12,max=255"`
+	Password string `json:"password" validate:"required,user_password"`
 }
 
 func (h *UserHandler) ScheduleDelete(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var req UserScheduleDeleteRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
 	if err := h.service.ScheduleDelete(r.Context(), user.ScheduleDeleteParams{
-		UserID:   userID,
 		Password: req.Password,
 	}); err != nil {
 		return err

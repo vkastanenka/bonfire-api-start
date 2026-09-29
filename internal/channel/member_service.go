@@ -28,7 +28,6 @@ type MemberService struct {
 	cachedUserRepo     CachedUserRepository
 	presenceCache      PresenceCache
 	outboxRepo         OutboxRepository
-	relationRepo       RelationRepository
 	cachedRelationRepo CachedRelationRepository
 	tx                 TX
 }
@@ -47,7 +46,6 @@ func NewMemberService(
 	cachedUserRepo CachedUserRepository,
 	presenceCache PresenceCache,
 	outboxRepo OutboxRepository,
-	relationRepo RelationRepository,
 	cachedRelationRepo CachedRelationRepository,
 	tx TX,
 ) *MemberService {
@@ -65,7 +63,6 @@ func NewMemberService(
 		cachedUserRepo:     cachedUserRepo,
 		presenceCache:      presenceCache,
 		outboxRepo:         outboxRepo,
-		relationRepo:       relationRepo,
 		cachedRelationRepo: cachedRelationRepo,
 		tx:                 tx,
 	}

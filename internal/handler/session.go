@@ -41,17 +41,12 @@ func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error
 }
 
 func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var path SessionPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	params := session.RevokeParams{SessionID: path.SessionID, UserID: userID}
+	params := session.RevokeParams{SessionID: path.SessionID}
 
 	if err := h.service.Revoke(r.Context(), params); err != nil {
 		return err
@@ -62,12 +57,7 @@ func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *SessionHandler) RevokeAll(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	if err := h.service.RevokeAll(r.Context(), userID); err != nil {
+	if err := h.service.RevokeAll(r.Context()); err != nil {
 		return err
 	}
 

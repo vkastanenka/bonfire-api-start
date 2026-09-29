@@ -20,7 +20,7 @@ type Channel struct {
 	Name          *string    `json:"name,omitempty"`
 	IconURL       *string    `json:"icon_url,omitempty"`
 	LastMessageID *uuid.UUID `json:"last_message_id,omitempty"`
-	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
+	LastMessageAt time.Time  `json:"last_message_at"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
@@ -86,7 +86,7 @@ type Member struct {
 	ChannelID         uuid.UUID  `json:"channel_id"`
 	UserID            uuid.UUID  `json:"user_id"`
 	LastReadMessageID *uuid.UUID `json:"last_read_message_id,omitempty"`
-	LastReadMessageAt *time.Time `json:"last_read_message_at,omitempty"`
+	LastReadMessageAt time.Time  `json:"last_read_message_at"`
 	PinnedAt          *time.Time `json:"pinned_at,omitempty"`
 	MutedUntil        *time.Time `json:"muted_until,omitempty"`
 	MentionCount      int        `json:"mention_count"`

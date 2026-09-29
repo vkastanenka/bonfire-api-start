@@ -13,9 +13,13 @@ var (
 )
 
 const (
+	tagEmail      = "email_spec"
+	tagEmailRules = "min=12,max=255"
+	tagHexColor   = "hexcolor"
 	tagToken      = "token"
 	tagTokenRules = "max=1024"
-	tagHexColor   = "hexcolor"
+	tagURL        = "url_spec"
+	tagURLRules   = "url,max=2048"
 )
 
 // defaultTagNameFunc extracts key names from "json", "form", or "path" struct tags in priority order.
@@ -34,6 +38,7 @@ func defaultTagNameFunc(fld reflect.StructField) string {
 // defaultAliases returns package-level default tag aliases.
 func defaultAliases() map[string]string {
 	return map[string]string{
+		tagEmail: tagEmailRules,
 		tagToken: tagTokenRules,
 	}
 }

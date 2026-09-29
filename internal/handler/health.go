@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"bonfire-api/internal/errs"
 	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/errs"
 
 	"github.com/redis/go-redis/v9"
 )

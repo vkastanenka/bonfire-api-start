@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bonfire-api/internal/appctx"
 	"context"
 	"errors"
 	"time"
@@ -8,13 +9,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) PrintWSTicket(ctx context.Context, userID, sessionID uuid.UUID) (uuid.UUID, error) {
-	sess, err := s.sessionCache.Get(ctx, sessionID)
+func (s *Service) PrintWSTicket(ctx context.Context) (uuid.UUID, error) {
+	claims, err := appctx.GetClaims(ctx)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
 
-	if sess.IsRevoked() || sess.IsExpired(time.Now()) || sess.UserID != userID {
+	sess, err := s.sessionCache.Get(ctx, claims.SessionID)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+
+	if sess.IsRevoked() || sess.IsExpired(time.Now()) || sess.UserID != claims.UserID {
 		return uuid.UUID{}, errors.New("Session invalid!")
 	}
 
@@ -23,7 +29,7 @@ func (s *Service) PrintWSTicket(ctx context.Context, userID, sessionID uuid.UUID
 		return uuid.UUID{}, err
 	}
 
-	if err := s.ticketCache.Print(ctx, ticketID, userID, sessionID); err != nil {
+	if err := s.ticketCache.Print(ctx, ticketID, claims.UserID, claims.SessionID); err != nil {
 		return uuid.UUID{}, err
 	}
 
