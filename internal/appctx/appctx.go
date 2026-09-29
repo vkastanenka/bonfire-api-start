@@ -1,7 +1,6 @@
 package appctx
 
 import (
-	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/token"
 	"context"
@@ -19,11 +18,19 @@ const (
 	KeyTraceID
 )
 
+// ClientMeta holds client connection metadata extracted from an HTTP request.
+type ClientMeta struct {
+	IP        netip.Addr
+	UserAgent string
+	OS        string
+	Browser   string
+}
+
 // GetMeta extracts ClientMeta from the context.
-func GetMeta(ctx context.Context) (httpio.ClientMeta, error) {
-	meta, ok := ctx.Value(KeyMeta).(httpio.ClientMeta)
+func GetMeta(ctx context.Context) (ClientMeta, error) {
+	meta, ok := ctx.Value(KeyMeta).(ClientMeta)
 	if !ok {
-		err := errs.Internal("client metadata missing from request context").
+		err := errs.Internal("Client metadata missing from request context.").
 			Reason("MISSING_CONTEXT_META")
 
 		if reqID := GetReqID(ctx); reqID != "" {
@@ -31,7 +38,7 @@ func GetMeta(ctx context.Context) (httpio.ClientMeta, error) {
 				err.Detail(reqInfo)
 			}
 		}
-		return httpio.ClientMeta{}, err
+		return ClientMeta{}, err
 	}
 	return meta, nil
 }

@@ -104,7 +104,9 @@ func run(cfg *config.Config) error {
 	}
 	dbStore := db.NewStore(dbClient)
 	rateLimiter := redis_rate.NewLimiter(cacheClient)
+
 	val := validator.New()
+	val.RegisterAliases(user.ValidationAliases())
 	bind := httpio.NewBind(val)
 
 	channelCache := cache.NewChannelCache(cacheClient)

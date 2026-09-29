@@ -1,20 +1,13 @@
 package httpio
 
 import (
+	"bonfire-api/internal/appctx"
 	"context"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
 )
-
-// ClientMeta holds client connection metadata extracted from an HTTP request.
-type ClientMeta struct {
-	IP        netip.Addr
-	UserAgent string
-	OS        string
-	Browser   string
-}
 
 // WithClientMeta extracts IP, UserAgent, OS, and Browser details and attaches them to the request context.
 func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
@@ -24,14 +17,14 @@ func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 			ua := r.UserAgent()
 			os, browser := parseUserAgent(ua)
 
-			meta := ClientMeta{
+			meta := appctx.ClientMeta{
 				IP:        ip,
 				UserAgent: ua,
 				OS:        os,
 				Browser:   browser,
 			}
 
-			ctx := context.WithValue(r.Context(), ClientMeta{}, meta)
+			ctx := context.WithValue(r.Context(), appctx.KeyMeta, meta)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

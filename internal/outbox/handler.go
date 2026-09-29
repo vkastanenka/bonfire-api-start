@@ -1,7 +1,7 @@
 package outbox
 
 import (
-	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/appctx"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,7 +30,7 @@ func BindHandler[T any](fn TypedHandler[T]) Handler {
 
 		// Inject TraceID from envelope metadata into execution context if present
 		if env.Metadata.TraceID != "" {
-			ctx = context.WithValue(ctx, httpio.CtxKeyTraceID, env.Metadata.TraceID)
+			ctx = context.WithValue(ctx, appctx.KeyTraceID, env.Metadata.TraceID)
 		}
 
 		return fn(ctx, env.Metadata, env.Payload)

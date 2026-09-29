@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/token"
 )
@@ -46,7 +47,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), CtxKeyClaims, claims)
+			ctx := context.WithValue(r.Context(), appctx.KeyClaims, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

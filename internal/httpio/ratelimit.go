@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/pkg/errs"
 
 	"github.com/go-redis/redis_rate/v10"
@@ -92,11 +93,11 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 
 // resolveKeyIdentifier extracts User ID from context if authenticated, defaulting to client IP.
 func resolveKeyIdentifier(ctx context.Context, r *http.Request) string {
-	if userID, err := CtxGetUserID(ctx); err == nil && userID != uuid.Nil {
+	if userID, err := appctx.GetUserID(ctx); err == nil && userID != uuid.Nil {
 		return "user:" + userID.String()
 	}
 
-	if ipAddr, err := CtxGetIP(ctx); err == nil {
+	if ipAddr, err := appctx.GetIP(ctx); err == nil {
 		return "ip:" + ipAddr.String()
 	}
 
