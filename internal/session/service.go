@@ -13,7 +13,6 @@ import (
 type Service struct {
 	cache      Cache
 	repo       Repository
-	cachedRepo CachedRepository
 	outboxRepo OutboxRepository
 	tx         TX
 }
@@ -21,14 +20,12 @@ type Service struct {
 func NewService(
 	cache Cache,
 	repo Repository,
-	cachedRepo CachedRepository,
 	outboxRepo OutboxRepository,
 	tx TX,
 ) *Service {
 	return &Service{
 		cache:      cache,
 		repo:       repo,
-		cachedRepo: cachedRepo,
 		outboxRepo: outboxRepo,
 		tx:         tx,
 	}
@@ -42,7 +39,7 @@ func (s *Service) ListValidByUserID(ctx context.Context) ([]*Session, error) {
 
 	now := time.Now()
 
-	sessions, err := s.cachedRepo.ListValidByUserID(ctx, claims.UserID, now, listValidByUserIDLimit)
+	sessions, err := s.repo.ListValidByUserID(ctx, claims.UserID, now, listValidByUserIDLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +104,7 @@ func (s *Service) RevokeAll(ctx context.Context) error {
 
 	now := time.Now()
 
-	activeSessions, err := s.cachedRepo.ListValidByUserID(ctx, claims.UserID, now, listValidByUserIDLimit)
+	activeSessions, err := s.repo.ListValidByUserID(ctx, claims.UserID, now, listValidByUserIDLimit)
 	if err != nil {
 		return err
 	}

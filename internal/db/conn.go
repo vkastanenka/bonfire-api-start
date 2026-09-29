@@ -12,8 +12,8 @@ import (
 
 type ConnConfig struct {
 	ConnString      string
-	MaxConns        int32
-	MinConns        int32
+	MaxConns        int
+	MinConns        int
 	MaxConnLifetime time.Duration
 	MaxConnIdleTime time.Duration
 	HealthCheck     time.Duration
@@ -43,10 +43,10 @@ func NewConn(ctx context.Context, cfg ConnConfig) (*pgxpool.Pool, error) {
 	)
 
 	if cfg.MaxConns > 0 {
-		config.MaxConns = cfg.MaxConns
+		config.MaxConns = int32(cfg.MaxConns)
 	}
 	if cfg.MinConns > 0 {
-		config.MinConns = cfg.MinConns
+		config.MinConns = int32(cfg.MinConns)
 	}
 	if cfg.MaxConnLifetime > 0 {
 		config.MaxConnLifetime = cfg.MaxConnLifetime

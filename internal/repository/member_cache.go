@@ -15,20 +15,17 @@ import (
 type CachedMemberRepository struct {
 	cache        MemberCache
 	channelCache ChannelCache
-	userCache    UserCache
 	repo         *MemberRepository
 }
 
 func NewCachedMemberRepository(
 	cache MemberCache,
 	channelCache ChannelCache,
-	userCache UserCache,
 	repo *MemberRepository,
 ) *CachedMemberRepository {
 	return &CachedMemberRepository{
 		cache:        cache,
 		channelCache: channelCache,
-		userCache:    userCache,
 		repo:         repo,
 	}
 }

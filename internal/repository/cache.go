@@ -34,7 +34,6 @@ type GatewayCache interface {
 
 type MemberCache interface {
 	Add(ctx context.Context, channelID uuid.UUID, members []*channel.Member) error
-	AddBatch(ctx context.Context, members []*channel.Member) error
 	Get(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) (*channel.Member, error)
 	GetBatchByChannelIDs(ctx context.Context, channelIDs []uuid.UUID) (map[uuid.UUID][]*channel.Member, []uuid.UUID, error)
 	Invalidate(ctx context.Context, channelID uuid.UUID, userID uuid.UUID) error

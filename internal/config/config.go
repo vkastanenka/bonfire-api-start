@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	// Server & Environment
+	AppName            string        `env:"APP_NAME" envDefault:"bonfire-api"`
 	AppEnv             string        `env:"APP_ENV" envDefault:"development"`
 	Port               string        `env:"PORT" envDefault:"8080"`
 	FrontendURL        string        `env:"FRONTEND_URL,required"`
@@ -48,8 +49,10 @@ type Config struct {
 	JWTEmailVerifyTTL   time.Duration `env:"JWT_EMAIL_VERIFY_TTL" envDefault:"24h"`
 	JWTPasswordResetTTL time.Duration `env:"JWT_PASSWORD_RESET_TTL" envDefault:"15m"`
 
-	AuthRateLimit  int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
-	AuthRateWindow time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
+	AuthRateLimit         int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	AuthRateWindow        time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
+	PublicRateLimit       int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	PublicRateLimitWindow time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173" envSeparator:","`
 

@@ -23,7 +23,7 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, er
 
 	now := time.Now()
 
-	u, err := s.userRepo.Verify(ctx, claims.UserID, now, now)
+	u, err := s.userRepo.Verify(ctx, claims.UserID, &now, now)
 	if err != nil {
 		return nil, err
 	}

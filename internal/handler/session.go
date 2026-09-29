@@ -26,12 +26,7 @@ type SessionPath struct {
 }
 
 func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error {
-	userID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
-	sessions, err := h.service.ListValidByUserID(r.Context(), userID)
+	sessions, err := h.service.ListValidByUserID(r.Context())
 	if err != nil {
 		return err
 	}

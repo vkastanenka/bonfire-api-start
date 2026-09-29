@@ -101,9 +101,9 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 			var err error
 
 			if u.IsScheduledForDeletion() {
-				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID, time.Time{}, time.Time{}, now)
+				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID, nil, nil, now)
 			} else {
-				u, err = s.userRepo.SetDisabled(txCtx, u.ID, time.Time{}, now)
+				u, err = s.userRepo.SetDisabled(txCtx, u.ID, nil, now)
 			}
 			if err != nil {
 				return err

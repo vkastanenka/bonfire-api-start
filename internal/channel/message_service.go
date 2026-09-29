@@ -31,6 +31,7 @@ type MessageService struct {
 }
 
 func NewMessageService(
+	cache MessageCache,
 	repo MessageRepository,
 	cachedRepo CachedMessageRepository,
 	channelRepo ChannelRepository,
@@ -45,6 +46,7 @@ func NewMessageService(
 	tx TX,
 ) *MessageService {
 	return &MessageService{
+		cache:             cache,
 		repo:              repo,
 		cachedRepo:        cachedRepo,
 		channelRepo:       channelRepo,

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-MIGRATIONS_DIR="db/migrations"
+MIGRATIONS_DIR="./migrations"
 CONTAINER_NAME="bonfire_postgres"
 DB_USER="postgres"
 DB_NAME="bonfire_db"

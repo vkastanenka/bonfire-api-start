@@ -17,7 +17,7 @@ type AuthService interface {
 	ForgotPassword(ctx context.Context, email string) error
 	Login(ctx context.Context, p auth.LoginParams) (auth.LoginResult, error)
 	PrintWSTicket(ctx context.Context) (uuid.UUID, error)
-	Refresh(ctx context.Context, p auth.RefreshParams) (auth.RefreshResult, error)
+	Refresh(ctx context.Context, refreshToken string) (auth.RefreshResult, error)
 	Register(ctx context.Context, p auth.RegisterParams) (auth.RegisterResult, error)
 	ResendVerify(ctx context.Context) error
 	ResetPassword(ctx context.Context, p auth.ResetPasswordParams) (auth.ResetPasswordResult, error)
@@ -29,23 +29,21 @@ type BootstrapService interface {
 }
 
 type ChannelService interface {
-	CreateGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, rawPeerIDs []uuid.UUID) (*channel.CreateGroupResult, error)
-	UpdateGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, name *string, iconURL *string) (*channel.Channel, error)
+	CreateGroup(ctx context.Context, rawMemberIDs []uuid.UUID) (*channel.CreateGroupResult, error)
+	UpdateGroup(ctx context.Context, channelID uuid.UUID, name *string, iconURL *string) (*channel.UpdateGroupResult, error)
 }
 
 type MemberService interface {
-	AddMembers(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, memberIDs []uuid.UUID) (*channel.AddMembersResult, error)
-	CloseDirect(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID) error
-	GetBatchByChannelID(ctx context.Context, channelID uuid.UUID) ([]*channel.Member, error)
-	GetBatchByChannelIDs(ctx context.Context, channelIDs []uuid.UUID) (map[uuid.UUID][]*channel.Member, error)
-	LeaveGroup(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID) error
-	UpdateLastReadMessage(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, lastReadMessageID uuid.UUID) (*channel.Member, error)
-	UpdateMutedUntil(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, rawDuration *int) (*channel.Member, error)
-	UpdatePinnedAt(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, isPinned bool) (*channel.Member, error)
+	AddMembers(ctx context.Context, channelID uuid.UUID, newPeerIDs []uuid.UUID) (*channel.AddMembersResult, error)
+	CloseDirect(ctx context.Context, channelID uuid.UUID) error
+	LeaveGroup(ctx context.Context, channelID uuid.UUID) error
+	UpdateLastReadMessage(ctx context.Context, channelID uuid.UUID, lastReadMessageID *uuid.UUID) (*channel.Member, error)
+	UpdateMutedUntil(ctx context.Context, channelID uuid.UUID, rawDuration *string) (*channel.Member, error)
+	UpdatePinnedAt(ctx context.Context, channelID uuid.UUID, isPinned bool) (*channel.Member, error)
 }
 
 type MessageService interface {
-	Create(ctx context.Context, authorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, content *string, replyToMsgID *uuid.UUID, fwdMsgID *uuid.UUID, fwdChannelID *uuid.UUID) (*channel.Message, error)
+	Create(ctx context.Context, channelID uuid.UUID, content *string, replyToMsgID *uuid.UUID, fwdMsgID *uuid.UUID, fwdChannelID *uuid.UUID) (*channel.CreateMessageResult, error)
 	Delete(ctx context.Context, actorID uuid.UUID, sessionID uuid.UUID, channelID uuid.UUID, messageID uuid.UUID) error
 	ListAfter(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID uuid.UUID) (*channel.GetMessageViewsResult, bool, error)
 	ListAround(ctx context.Context, actorID uuid.UUID, channelID uuid.UUID, msgCursorID uuid.UUID) (*channel.GetMessageViewsResult, bool, bool, error)
@@ -57,14 +55,14 @@ type MessageService interface {
 }
 
 type RelationService interface {
-	DeleteByUserID(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
-	TransitionBlocked(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
-	TransitionFriends(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) (*relation.TransitionFriendsResult, error)
-	TransitionPending(ctx context.Context, actorID uuid.UUID, peerID uuid.UUID) error
+	DeleteByUserID(ctx context.Context, peerID uuid.UUID) error
+	TransitionBlocked(ctx context.Context, peerID uuid.UUID) error
+	TransitionFriends(ctx context.Context, peerID uuid.UUID) (*relation.TransitionFriendsResult, error)
+	TransitionPending(ctx context.Context, peerID uuid.UUID) error
 }
 
 type SessionService interface {
-	ListValidByUserID(ctx context.Context, userID uuid.UUID) ([]*session.Session, error)
+	ListValidByUserID(ctx context.Context) ([]*session.Session, error)
 	Revoke(ctx context.Context, p session.RevokeParams) error
 	RevokeAll(ctx context.Context) error
 }

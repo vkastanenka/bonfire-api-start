@@ -19,24 +19,24 @@ type EventUpdatePresencePayload struct {
 
 type Service struct {
 	broadcaster   *Broadcaster
-	relationCache RelationCache
 	gatewayCache  GatewayCache
 	presenceCache PresenceCache
+	relationCache RelationCache
 	userCache     UserCache
 }
 
 func NewService(
 	broadcaster *Broadcaster,
-	relationCache RelationCache,
 	gatewayCache GatewayCache,
 	presenceCache PresenceCache,
+	relationCache RelationCache,
 	userCache UserCache,
 ) *Service {
 	return &Service{
 		broadcaster:   broadcaster,
-		relationCache: relationCache,
 		gatewayCache:  gatewayCache,
 		presenceCache: presenceCache,
+		relationCache: relationCache,
 		userCache:     userCache,
 	}
 }

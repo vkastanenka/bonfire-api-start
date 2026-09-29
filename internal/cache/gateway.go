@@ -22,7 +22,7 @@ type GatewayCache struct {
 	client redisdriver.Cmdable
 }
 
-func NewGatewayCache(client redisdriver.Cmdable, scope redis.Scope) *GatewayCache {
+func NewGatewayCache(client redisdriver.Cmdable) *GatewayCache {
 	return &GatewayCache{client: client}
 }
 

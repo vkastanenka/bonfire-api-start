@@ -130,9 +130,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
 		return errs.Unauthenticated("Missing refresh token, please log in.").Wrap(err)
 	}
 
-	data, err := h.service.Refresh(r.Context(), auth.RefreshParams{
-		RefreshToken: refreshToken,
-	})
+	data, err := h.service.Refresh(r.Context(), refreshToken)
 	if err != nil {
 		return err
 	}

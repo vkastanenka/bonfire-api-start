@@ -14,12 +14,9 @@ type Cache interface {
 }
 
 type Repository interface {
+ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]*Session, error)
 	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID, now time.Time) error
 	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
-}
-
-type CachedRepository interface {
-	ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]*Session, error)
 }
 
 type OutboxRepository interface {

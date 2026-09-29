@@ -28,17 +28,12 @@ type RelationPeerPath struct {
 }
 
 func (h *RelationHandler) SendRequest(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var path RelationPeerPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	if err := h.service.TransitionPending(r.Context(), actorID, path.PeerID); err != nil {
+	if err := h.service.TransitionPending(r.Context(), path.PeerID); err != nil {
 		return err
 	}
 
@@ -54,17 +49,12 @@ type AcceptRequestResponsePayload struct {
 }
 
 func (h *RelationHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var path RelationPeerPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	result, err := h.service.TransitionFriends(r.Context(), actorID, path.PeerID)
+	result, err := h.service.TransitionFriends(r.Context(), path.PeerID)
 	if err != nil {
 		return err
 	}
@@ -81,17 +71,12 @@ func (h *RelationHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *RelationHandler) BlockUser(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var path RelationPeerPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	if err := h.service.TransitionBlocked(r.Context(), actorID, path.PeerID); err != nil {
+	if err := h.service.TransitionBlocked(r.Context(), path.PeerID); err != nil {
 		return err
 	}
 
@@ -100,17 +85,12 @@ func (h *RelationHandler) BlockUser(w http.ResponseWriter, r *http.Request) erro
 }
 
 func (h *RelationHandler) RemoveRelation(w http.ResponseWriter, r *http.Request) error {
-	actorID, err := httpio.CtxGetUserID(r.Context())
-	if err != nil {
-		return err
-	}
-
 	var path RelationPeerPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	if err := h.service.DeleteByUserID(r.Context(), actorID, path.PeerID); err != nil {
+	if err := h.service.DeleteByUserID(r.Context(), path.PeerID); err != nil {
 		return err
 	}
 

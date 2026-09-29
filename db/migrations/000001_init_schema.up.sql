@@ -152,7 +152,7 @@ WHERE
 ALTER TABLE channels
     ADD CONSTRAINT fk_channels_last_message_id FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
-ALTER TABLE channel_memberss
+ALTER TABLE channel_members
     ADD CONSTRAINT fk_channels_last_read_message_id FOREIGN KEY (last_read_message_id) REFERENCES messages(id) ON DELETE SET NULL;
 
 CREATE TABLE message_reactions(
