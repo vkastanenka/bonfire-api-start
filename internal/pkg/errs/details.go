@@ -1,11 +1,7 @@
 package errs
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"regexp"
-	"strings"
 	"time"
 )
 
@@ -22,53 +18,8 @@ const (
 	DetailResourceInfo = detailTypeURLPrefix + "ResourceInfo"
 )
 
-var detailRegistry = map[string]func() Detail{
-	DetailErrorInfo:                        func() Detail { return &ErrorInfo{} },
-	cleanDetailTypeURL(DetailErrorInfo):    func() Detail { return &ErrorInfo{} },
-	DetailRetryInfo:                        func() Detail { return &RetryInfo{} },
-	cleanDetailTypeURL(DetailRetryInfo):    func() Detail { return &RetryInfo{} },
-	DetailDebugInfo:                        func() Detail { return &DebugInfo{} },
-	cleanDetailTypeURL(DetailDebugInfo):    func() Detail { return &DebugInfo{} },
-	DetailBadRequest:                       func() Detail { return &BadRequest{} },
-	cleanDetailTypeURL(DetailBadRequest):   func() Detail { return &BadRequest{} },
-	DetailRequestInfo:                      func() Detail { return &RequestInfo{} },
-	cleanDetailTypeURL(DetailRequestInfo):  func() Detail { return &RequestInfo{} },
-	DetailResourceInfo:                     func() Detail { return &ResourceInfo{} },
-	cleanDetailTypeURL(DetailResourceInfo): func() Detail { return &ResourceInfo{} },
-}
-
 type Detail interface {
 	TypeURL() string
-}
-
-type RawDetail struct {
-	Type    string          `json:"@type"`
-	RawData json.RawMessage `json:"-"`
-}
-
-func (r *RawDetail) TypeURL() string { return r.Type }
-
-func (r *RawDetail) MarshalJSON() ([]byte, error) {
-	if len(r.RawData) > 0 {
-		return r.RawData, nil
-	}
-	return json.Marshal(struct {
-		Type string `json:"@type"`
-	}{Type: r.Type})
-}
-
-func (r *RawDetail) UnmarshalJSON(data []byte) error {
-	r.RawData = append(r.RawData[:0], data...)
-
-	var typeExtract struct {
-		Type string `json:"@type"`
-	}
-	if err := json.Unmarshal(data, &typeExtract); err != nil {
-		return err
-	}
-
-	r.Type = typeExtract.Type
-	return nil
 }
 
 type ErrorInfo struct {
@@ -78,6 +29,8 @@ type ErrorInfo struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
+func (d *ErrorInfo) TypeURL() string { return d.Type }
+
 var (
 	errorInfoReasonMaxLength  = 63
 	errorInfoMetaKeyMaxLength = 64
@@ -85,18 +38,24 @@ var (
 	errorInfoMetaKeyRegex     = regexp.MustCompile(`^[a-z][a-zA-Z0-9-_]+$`)
 )
 
-func NewErrorInfo(reason, domain string, metadata map[string]string) (*ErrorInfo, error) {
+func NewErrorInfo(reason, domain string, metadata map[string]string) *ErrorInfo {
 	if domain == "" {
-		return nil, errors.New("error info domain is required")
+		domain = getDomain()
 	}
 
-	if reason != "" && !isValidErrorInfoReason(reason) {
-		return nil, fmt.Errorf("invalid ErrorInfo reason %q (must be UPPER_SNAKE_CASE, <=63 chars)", reason)
+	if reason == "" || !isValidErrorInfoReason(reason) {
+		reason = CodeInternal.Name()
+
 	}
 
-	for key := range metadata {
-		if !isValidErrorInfoMetaKey(key) {
-			return nil, fmt.Errorf("invalid ErrorInfo metadata key %q (must match [a-z][a-zA-Z0-9-_]+ and be <=64 chars)", key)
+	var finalMetadata map[string]string
+
+	for k, v := range metadata {
+		if isValidErrorInfoMetaKey(k) {
+			if finalMetadata == nil {
+				finalMetadata = make(map[string]string)
+			}
+			finalMetadata[k] = v
 		}
 	}
 
@@ -104,11 +63,9 @@ func NewErrorInfo(reason, domain string, metadata map[string]string) (*ErrorInfo
 		Type:     DetailErrorInfo,
 		Reason:   reason,
 		Domain:   domain,
-		Metadata: metadata,
-	}, nil
+		Metadata: finalMetadata,
+	}
 }
-
-func (e *ErrorInfo) TypeURL() string { return e.Type }
 
 func isValidErrorInfoReason(reason string) bool {
 	if len(reason) == 0 || len(reason) > errorInfoReasonMaxLength {
@@ -125,74 +82,51 @@ func isValidErrorInfoMetaKey(key string) bool {
 }
 
 type RetryInfo struct {
-	Type       string        `json:"@type"`
-	RetryDelay time.Duration `json:"-"`
-}
-
-type retryInfoJSON struct {
 	Type       string `json:"@type"`
-	RetryDelay string `json:"retryDelay,omitempty"`
+	RetryDelay string `json:"retryDelay"`
 }
 
-func NewRetryInfo(delay time.Duration) *RetryInfo {
-	return &RetryInfo{Type: DetailRetryInfo, RetryDelay: delay}
+func (d *RetryInfo) TypeURL() string { return d.Type }
+
+func NewRetryInfo(d time.Duration) *RetryInfo {
+	if d <= 0 {
+		return nil
+	}
+	return &RetryInfo{
+		Type:       DetailRetryInfo,
+		RetryDelay: d.String(),
+	}
 }
 
-func (r *RetryInfo) TypeURL() string { return r.Type }
-
-func (r *RetryInfo) MarshalJSON() ([]byte, error) {
-	var delayStr string
-	if r.RetryDelay > 0 {
-		delayStr = fmt.Sprintf("%.9fs", r.RetryDelay.Seconds())
+func (r *RetryInfo) Duration() time.Duration {
+	if r == nil || r.RetryDelay == "" {
+		return 0
 	}
-
-	return json.Marshal(retryInfoJSON{
-		Type:       r.Type,
-		RetryDelay: delayStr,
-	})
-}
-
-func (r *RetryInfo) UnmarshalJSON(b []byte) error {
-	var aux retryInfoJSON
-	if err := json.Unmarshal(b, &aux); err != nil {
-		return err
+	d, err := time.ParseDuration(r.RetryDelay)
+	if err != nil {
+		return 0
 	}
-
-	if aux.Type != "" {
-		r.Type = aux.Type
-	} else {
-		r.Type = DetailRetryInfo
-	}
-
-	if aux.RetryDelay != "" {
-		d, err := time.ParseDuration(aux.RetryDelay)
-		if err != nil {
-			return fmt.Errorf("invalid retryDelay duration %q: %w", aux.RetryDelay, err)
-		}
-		r.RetryDelay = d
-	}
-
-	return nil
+	return d
 }
 
 type DebugInfo struct {
 	Type         string   `json:"@type"`
-	Detail       string   `json:"detail,omitempty"`
+	Detail       string   `json:"detail"`
 	StackEntries []string `json:"stackEntries,omitempty"`
 }
 
-func NewDebugInfo(detail string, stackEntries ...string) (*DebugInfo, error) {
+func (d *DebugInfo) TypeURL() string { return d.Type }
+
+func NewDebugInfo(detail string, stackEntries ...string) *DebugInfo {
 	if detail == "" {
-		return nil, errors.New("debug info detail is required")
+		return nil
 	}
 	return &DebugInfo{
 		Type:         DetailDebugInfo,
 		Detail:       detail,
 		StackEntries: stackEntries,
-	}, nil
+	}
 }
-
-func (d *DebugInfo) TypeURL() string { return d.Type }
 
 type FieldViolation struct {
 	Field       string `json:"field"`
@@ -200,26 +134,26 @@ type FieldViolation struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-func NewFieldViolation(field, description, reason string) (*FieldViolation, error) {
+func NewFieldViolation(field, description, reason string) *FieldViolation {
 	if field == "" || description == "" {
-		return nil, errors.New("field violation field and description are required")
+		return nil
 	}
-	return &FieldViolation{Field: field, Description: description, Reason: reason}, nil
+	return &FieldViolation{Field: field, Description: description, Reason: reason}
 }
 
 type BadRequest struct {
 	Type            string           `json:"@type"`
-	FieldViolations []FieldViolation `json:"fieldViolations,omitempty"`
+	FieldViolations []FieldViolation `json:"fieldViolations"`
 }
 
-func NewBadRequest(violations ...FieldViolation) (*BadRequest, error) {
+func (d *BadRequest) TypeURL() string { return d.Type }
+
+func NewBadRequest(violations ...FieldViolation) *BadRequest {
 	if len(violations) == 0 {
-		return nil, errors.New("bad request requires at least one field violation")
+		return nil
 	}
-	return &BadRequest{Type: DetailBadRequest, FieldViolations: violations}, nil
+	return &BadRequest{Type: DetailBadRequest, FieldViolations: violations}
 }
-
-func (b *BadRequest) TypeURL() string { return b.Type }
 
 type RequestInfo struct {
 	Type        string `json:"@type"`
@@ -227,14 +161,14 @@ type RequestInfo struct {
 	ServingData string `json:"servingData,omitempty"`
 }
 
-func NewRequestInfo(requestID, servingData string) (*RequestInfo, error) {
-	if requestID == "" {
-		return nil, errors.New("request info requestID is required")
-	}
-	return &RequestInfo{Type: DetailRequestInfo, RequestId: requestID, ServingData: servingData}, nil
-}
+func (d *RequestInfo) TypeURL() string { return d.Type }
 
-func (r *RequestInfo) TypeURL() string { return r.Type }
+func NewRequestInfo(requestID, servingData string) *RequestInfo {
+	if requestID == "" {
+		return nil
+	}
+	return &RequestInfo{Type: DetailRequestInfo, RequestId: requestID, ServingData: servingData}
+}
 
 type ResourceInfo struct {
 	Type         string `json:"@type"`
@@ -244,18 +178,12 @@ type ResourceInfo struct {
 	Description  string `json:"description,omitempty"`
 }
 
-func NewResourceInfo(rType, rName, owner, desc string) (*ResourceInfo, error) {
+func (d *ResourceInfo) TypeURL() string { return d.Type }
+
+func NewResourceInfo(rType, rName, owner, desc string) *ResourceInfo {
 	if rType == "" || rName == "" {
-		return nil, errors.New("resource info resourceType and resourceName are required")
+		return nil
 	}
-	return &ResourceInfo{Type: DetailResourceInfo, ResourceType: rType, ResourceName: rName, Owner: owner, Description: desc}, nil
+	return &ResourceInfo{Type: DetailResourceInfo, ResourceType: rType, ResourceName: rName, Owner: owner, Description: desc}
 }
 
-func (r *ResourceInfo) TypeURL() string { return r.Type }
-
-func cleanDetailTypeURL(rawType string) string {
-	if idx := strings.LastIndex(rawType, "/"); idx != -1 {
-		rawType = rawType[idx+1:]
-	}
-	return strings.TrimPrefix(rawType, "google.rpc.")
-}
