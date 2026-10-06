@@ -5,6 +5,39 @@ import (
 	"errors"
 )
 
+const (
+	ErrReasonGenerateIDFailed        = "GENERATE_ID_FAILED"
+	ErrReasonHashPasswordFailed      = "HASH_PASSWORD_FAILED"
+	ErrReasonGenerateTokenFailed     = "GENERATE_TOKEN_FAILED"
+	ErrReasonGenerateTokenPairFailed = "GENERATE_TOKEN_PAIR_FAILED"
+)
+
+func ErrGenerateIDFailed() *errs.Error {
+	return errs.Internal("failed to generate ID").
+		Reason(ErrReasonGenerateIDFailed)
+}
+
+func ErrHashPasswordFailed() *errs.Error {
+	return errs.Internal("failed to hash password").
+		Reason(ErrReasonHashPasswordFailed)
+}
+
+func ErrGenerateTokenFailed() *errs.Error {
+	return errs.Internal("failed to generate token").
+		Reason(ErrReasonGenerateTokenFailed)
+}
+
+func ErrGenerateTokenPairFailed() *errs.Error {
+	return errs.Internal("failed to generate token pair").
+		Reason(ErrReasonGenerateTokenPairFailed)
+}
+
+// ++++++++++ //
+
+func ErrFailedToGenerateUserID() *errs.Error {
+	return errs.Internal("Failed to generate user ID.")
+}
+
 func ErrEmailInvalid() *errs.Error {
 	return errs.InvalidArgument("Invalid email address.").
 		FieldViolation("email", "Must be a valid email address.", "INVALID_EMAIL").
@@ -68,7 +101,7 @@ func ErrConflict(emailAvailable, usernameAvailable bool) *errs.Error {
 		Wrap(errors.New("registration conflict"))
 
 	if !emailAvailable {
-		e = e.FieldViolation("email", "This email address is already registered.", "ALREADY_EXISTS")
+		e = e.FieldViolation("email", "This email address is already taken.", "ALREADY_EXISTS")
 	}
 	if !usernameAvailable {
 		e = e.FieldViolation("username", "This username is already taken.", "ALREADY_EXISTS")

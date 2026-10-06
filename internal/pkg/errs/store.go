@@ -4,14 +4,14 @@ import "sync/atomic"
 
 var domain atomic.Value
 
+const defaultStoreDomain = "api.bonfire.app"
+
 func init() {
-	domain.Store("unknown.service")
+	domain.Store(defaultStoreDomain)
 }
 
-func NewStore(serviceDomain string) {
-	if serviceDomain != "" {
-		domain.Store(serviceDomain)
-	}
+func NewStore(appDomain string) {
+	domain.Store(appDomain)
 }
 
 func getDomain() string {
@@ -20,5 +20,5 @@ func getDomain() string {
 			return s
 		}
 	}
-	return "unknown.service"
+	return defaultStoreDomain
 }

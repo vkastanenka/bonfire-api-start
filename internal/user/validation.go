@@ -6,7 +6,7 @@ const (
 	tagDisplayName      = "user_display_name"
 	tagDisplayNameRules = "min=3,max=32"
 	tagPassword         = "user_password"
-	tagPasswordRules    = "min=12,max=255"
+	tagPasswordRules    = "min=12,max=72"
 	tagUsername         = "user_username"
 	tagUsernameRules    = "min=3,max=32,alphanum"
 )

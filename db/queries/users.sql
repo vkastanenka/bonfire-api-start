@@ -42,23 +42,6 @@ LIMIT @limit_val::int
 FOR UPDATE
     SKIP LOCKED;
 
--- name: UserAvailability :one
-SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users
-        WHERE
-            email = @email::citext)::boolean AS email_available,
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users
-        WHERE
-            username = @username::citext)::boolean AS username_available;
-
 -- name: UserUpdate :one
 UPDATE
     users

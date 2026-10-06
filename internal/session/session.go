@@ -19,7 +19,7 @@ const (
 type Session struct {
 	ID               uuid.UUID
 	UserID           uuid.UUID
-	RefreshTokenHash string
+	RefreshTokenHash [32]byte
 	ClientIP         netip.Addr
 	UserAgent        string
 	OS               string
@@ -31,21 +31,42 @@ type Session struct {
 	UpdatedAt        time.Time
 }
 
-func Reconstitute(
-	id uuid.UUID,
+func New(
+	id,
 	userID uuid.UUID,
-	refreshTokenHash string,
+	refreshTokenHash [32]byte,
 	clientIP netip.Addr,
 	userAgent string,
 	os string,
 	client string,
 	expiresAt,
-	lastSeenAt time.Time,
+	now time.Time,
+) Session {
+	return Session{
+		ID:               id,
+		UserID:           userID,
+		RefreshTokenHash: refreshTokenHash,
+		ClientIP:         clientIP,
+		UserAgent:        userAgent,
+		OS:               os,
+		Client:           client,
+		ExpiresAt:        expiresAt,
+		LastSeenAt:       now,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+}
+
+func Reconstitute(
+	id, userID uuid.UUID,
+	refreshTokenHash [32]byte,
+	clientIP netip.Addr,
+	userAgent, os, client string,
+	expiresAt, lastSeenAt time.Time,
 	revokedAt *time.Time,
-	createdAt,
-	updatedAt time.Time,
-) *Session {
-	return &Session{
+	createdAt, updatedAt time.Time,
+) Session {
+	return Session{
 		ID:               id,
 		UserID:           userID,
 		RefreshTokenHash: refreshTokenHash,
@@ -59,37 +80,6 @@ func Reconstitute(
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
 	}
-}
-
-func New(
-	userID uuid.UUID,
-	refreshTokenHash string,
-	clientIP netip.Addr,
-	userAgent string,
-	os string,
-	client string,
-	expiresAt,
-	now time.Time,
-) (*Session, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, err
-	}
-
-	return Reconstitute(
-		id,
-		userID,
-		refreshTokenHash,
-		clientIP,
-		userAgent,
-		os,
-		client,
-		expiresAt,
-		now,
-		nil,
-		now,
-		now,
-	), nil
 }
 
 func (s *Session) IsRevoked() bool {

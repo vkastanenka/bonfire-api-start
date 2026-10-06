@@ -28,7 +28,6 @@ type SessionRepository interface {
 }
 
 type UserRepository interface {
-	Availability(ctx context.Context, email *string, username *string) (bool, bool, error)
 	Create(ctx context.Context, u *user.User) (*user.User, error)
 	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, error)

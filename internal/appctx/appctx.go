@@ -1,21 +1,25 @@
 package appctx
 
 import (
-	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/token"
 	"context"
+	"errors"
 	"net/netip"
 
-	"github.com/google/uuid"
+	"bonfire-api/internal/token"
 )
 
-type Key int
+var (
+	ErrClientMetaNotFound = errors.New("client metadata missing from context")
+	ErrClaimsNotFound     = errors.New("auth claims missing or invalid from context")
+)
+
+type contextKey int
 
 const (
-	KeyClaims Key = iota
-	KeyMeta
-	KeyReqID
-	KeyTraceID
+	keyClaims contextKey = iota
+	keyMeta
+	keyReqID
+	keyTraceID
 )
 
 // ClientMeta holds client connection metadata extracted from an HTTP request.
@@ -26,63 +30,43 @@ type ClientMeta struct {
 	Browser   string
 }
 
-// GetMeta extracts ClientMeta from the context.
-func GetMeta(ctx context.Context) (ClientMeta, error) {
-	meta, ok := ctx.Value(KeyMeta).(ClientMeta)
-	if !ok {
-		err := errs.Internal("Client metadata missing from request context.").
-			Reason("MISSING_CONTEXT_META")
+func WithClientMeta(ctx context.Context, meta ClientMeta) context.Context {
+	return context.WithValue(ctx, keyMeta, meta)
+}
 
-		if reqID := GetReqID(ctx); reqID != "" {
-			if reqInfo, e := errs.NewRequestInfo(reqID, ""); e == nil {
-				err.Detail(reqInfo)
-			}
-		}
-		return ClientMeta{}, err
+func WithClaims(ctx context.Context, claims *token.Claims) context.Context {
+	return context.WithValue(ctx, keyClaims, claims)
+}
+
+func WithReqID(ctx context.Context, reqID string) context.Context {
+	return context.WithValue(ctx, keyReqID, reqID)
+}
+
+func WithTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, keyTraceID, traceID)
+}
+
+// GetClientMeta extracts ClientMeta from the context.
+func GetClientMeta(ctx context.Context) (ClientMeta, error) {
+	meta, ok := ctx.Value(keyMeta).(ClientMeta)
+	if !ok {
+		return ClientMeta{}, ErrClientMetaNotFound
 	}
 	return meta, nil
 }
 
-// GetIP extracts the client IP address from the context metadata.
-func GetIP(ctx context.Context) (netip.Addr, error) {
-	meta, err := GetMeta(ctx)
-	if err != nil {
-		return netip.Addr{}, err
-	}
-	return meta.IP, nil
-}
-
-// GetClaims extracts token claims from the context.
-func GetClaims(ctx context.Context) (*token.Claims, error) {
-	claims, ok := ctx.Value(KeyClaims).(*token.Claims)
+// GetAuthClaims extracts token claims from the context.
+func GetAuthClaims(ctx context.Context) (*token.Claims, error) {
+	claims, ok := ctx.Value(keyClaims).(*token.Claims)
 	if !ok || claims == nil {
-		return nil, errs.Unauthenticated("authentication token missing or invalid").
-			Reason("AUTH_TOKEN_MISSING")
+		return nil, ErrClaimsNotFound
 	}
 	return claims, nil
 }
 
-// GetUserID extracts the authenticated user ID from token claims in the context.
-func GetUserID(ctx context.Context) (uuid.UUID, error) {
-	claims, err := GetClaims(ctx)
-	if err != nil {
-		return uuid.UUID{}, err
-	}
-	return claims.UserID, nil
-}
-
-// GetSessionID extracts the authenticated session ID from token claims in the context.
-func GetSessionID(ctx context.Context) (uuid.UUID, error) {
-	claims, err := GetClaims(ctx)
-	if err != nil {
-		return uuid.UUID{}, err
-	}
-	return claims.SessionID, nil
-}
-
 // GetReqID extracts the request ID from the context if present.
 func GetReqID(ctx context.Context) string {
-	if v, ok := ctx.Value(KeyReqID).(string); ok {
+	if v, ok := ctx.Value(keyReqID).(string); ok {
 		return v
 	}
 	return ""
@@ -90,7 +74,7 @@ func GetReqID(ctx context.Context) string {
 
 // GetTraceID extracts the trace ID from the context if present.
 func GetTraceID(ctx context.Context) string {
-	if v, ok := ctx.Value(KeyTraceID).(string); ok {
+	if v, ok := ctx.Value(keyTraceID).(string); ok {
 		return v
 	}
 	return ""

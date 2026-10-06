@@ -9,12 +9,12 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/pkg/id"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 )
 
 type Service struct {
@@ -76,13 +76,13 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	u, err := s.userRepo.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if errs.IsNotFound(err) {
-			crypto.CompareDummyPassword(p.Password)
+			crypto.CompareDummyHashAndPassword(p.Password)
 			return LoginResult{}, ErrCredentialsInvalid()
 		}
 		return LoginResult{}, err
 	}
 
-	err = crypto.ComparePasswords(u.PasswordHash, p.Password)
+	err = crypto.CompareHashAndPassword(u.PasswordHash, p.Password)
 	if err != nil {
 		return LoginResult{}, ErrCredentialsInvalid()
 	}
@@ -160,6 +160,7 @@ type RegisterParams struct {
 	Username    string
 	DisplayName *string
 	Password    string
+	ClientMeta  appctx.ClientMeta
 }
 
 func (p RegisterParams) ResolveDisplayName() string {
@@ -176,73 +177,35 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
-	ctxMeta, err := appctx.GetMeta(ctx)
+	uID, err := id.NewV7()
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	var (
-		passwordHash   string
-		emailAvailable bool
-		userAvailable  bool
-	)
-
-	g, gCtx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		var hErr error
-		passwordHash, hErr = crypto.HashPassword(p.Password)
-		if hErr != nil {
-			return hErr
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		var aErr error
-		emailAvailable, userAvailable, aErr = s.userRepo.Availability(gCtx, &p.Email, &p.Username)
-		return aErr
-	})
-
-	if err := g.Wait(); err != nil {
-		return RegisterResult{}, err
-	}
-
-	if !emailAvailable || !userAvailable {
-		return RegisterResult{}, ErrConflict(emailAvailable, userAvailable)
-	}
-
-	userID, err := uuid.NewV7()
+	pHash, err := crypto.HashPassword(p.Password)
 	if err != nil {
 		return RegisterResult{}, err
-	}
-
-	username := p.Username
-	if p.DisplayName != nil {
-		username = *p.DisplayName
 	}
 
 	now := time.Now()
-	newUser := user.New(userID, p.Email, p.Username, username, passwordHash, now)
-	newSession, tokenPair, err := s.generateSession(ctxMeta, newUser, now)
+	u := user.New(uID, p.Email, p.Username, p.ResolveDisplayName(), pHash, now)
+
+	sess, tokenPair, err := s.createSession(p.ClientMeta, u.ID, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	evToken, _, err := s.tokenProvider.GenerateEmailVerify(newUser.ID)
+	evToken, _, err := s.tokenProvider.GenerateEmailVerify(u.ID)
 	if err != nil {
 		return RegisterResult{}, err
 	}
-
-	var createdSession *session.Session
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if newUser, err = s.userRepo.Create(txCtx, newUser); err != nil {
+		if u, err = s.userRepo.Create(txCtx, u); err != nil {
 			return err
 		}
 
-		var err error
-		createdSession, err = s.sessionRepo.Create(txCtx, newSession)
+		s, err = s.sessionRepo.Create(txCtx, sess)
 		if err != nil {
 			return err
 		}
@@ -274,17 +237,17 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	if err := s.userCache.Set(ctx, newUser); err != nil {
+	if err := s.userCache.Set(ctx, u); err != nil {
 		slog.WarnContext(ctx, "failed to seed new user into cache after registration",
-			slog.String("user_id", newUser.ID.String()),
+			slog.String("user_id", u.ID.String()),
 			slog.Any("error", err),
 		)
 	}
 
-	if err := s.sessionCache.Set(ctx, createdSession); err != nil {
+	if err := s.sessionCache.Set(ctx, sess); err != nil {
 		slog.WarnContext(ctx, "failed to seed new session into cache after registration",
-			slog.String("user_id", newUser.ID.String()),
-			slog.String("session_id", createdSession.ID.String()),
+			slog.String("user_id", u.ID.String()),
+			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),
 		)
 	}
@@ -296,31 +259,26 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) generateSession(meta appctx.ClientMeta, u *user.User, now time.Time) (*session.Session, token.Pair, error) {
-	sessionID, err := uuid.NewV7()
+func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (session.Session, token.Pair, error) {
+	sid, err := id.NewV7()
 	if err != nil {
-		return nil, token.Pair{}, err
+		return session.Session{}, token.Pair{}, err
 	}
 
-	tokenPair, err := s.tokenProvider.GeneratePair(u.ID, sessionID)
+	tokenPair, err := s.tokenProvider.GeneratePair(userID, sid)
 	if err != nil {
-		return nil, token.Pair{}, errs.Internal("failed to generate token pair").Wrap(err)
+		return session.Session{}, token.Pair{}, err
 	}
 
-	tokenHash := crypto.HashToken(tokenPair.Refresh)
-
-	newSession := session.Reconstitute(
-		sessionID,
-		u.ID,
-		string(tokenHash),
+	newSession := session.New(
+		sid,
+		userID,
+		crypto.HashToken(tokenPair.Refresh),
 		meta.IP,
 		meta.UserAgent,
 		meta.OS,
 		meta.Browser,
 		tokenPair.RefreshExpiresAt,
-		now,
-		nil,
-		now,
 		now,
 	)
 

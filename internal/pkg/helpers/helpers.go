@@ -1,6 +1,9 @@
 package helpers
 
 import (
+	"context"
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -70,4 +73,24 @@ func StringToUUID(s string) (uuid.UUID, error) {
 		return uuid.Nil, nil
 	}
 	return uuid.Parse(s)
+}
+
+// ConstantWindow returns a deferrable function that delays execution until the target duration has elapsed.
+func ConstantWindow(ctx context.Context, target time.Duration) func() {
+	start := time.Now()
+
+	return func() {
+		remaining := target - time.Since(start)
+		if remaining <= 0 {
+			return
+		}
+
+		timer := time.NewTimer(remaining)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+		}
+	}
 }

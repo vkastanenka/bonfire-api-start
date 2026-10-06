@@ -39,6 +39,7 @@ func New(code Code, msg string) *Error {
 	if err == nil {
 		e.Detail(info)
 	}
+
 	return e
 }
 

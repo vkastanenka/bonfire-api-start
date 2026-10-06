@@ -31,25 +31,36 @@ type User struct {
 	UpdatedAt              time.Time
 }
 
+func New(
+	id uuid.UUID,
+	email,
+	username,
+	displayName,
+	passwordHash string,
+	now time.Time,
+) User {
+	return User{
+		ID:           id,
+		Email:        email,
+		Username:     username,
+		DisplayName:  displayName,
+		PasswordHash: passwordHash,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
 func Reconstitute(
 	id uuid.UUID,
-	email string,
-	username string,
-	passwordHash string,
+	email, username, passwordHash string,
 	phone *string,
 	displayName string,
-	bio *string,
-	avatarURL *string,
-	bannerColor *string,
+	bio, avatarURL, bannerColor *string,
 	preferredPresence *presence.Presence,
-	preferredPresenceUntil *time.Time,
-	verifiedAt *time.Time,
-	disabledAt *time.Time,
-	deleteScheduledAt *time.Time,
-	createdAt time.Time,
-	updatedAt time.Time,
-) *User {
-	return &User{
+	preferredPresenceUntil, verifiedAt, disabledAt, deleteScheduledAt *time.Time,
+	createdAt, updatedAt time.Time,
+) User {
+	return User{
 		ID:                     id,
 		Email:                  email,
 		Username:               username,
@@ -66,19 +77,6 @@ func Reconstitute(
 		DeleteScheduledAt:      deleteScheduledAt,
 		CreatedAt:              createdAt,
 		UpdatedAt:              updatedAt,
-	}
-}
-
-func New(id uuid.UUID, email, username, displayName, passwordHash string, now time.Time) *User {
-	now = now.UTC()
-	return &User{
-		ID:           id,
-		Email:        email,
-		Username:     username,
-		DisplayName:  displayName,
-		PasswordHash: passwordHash,
-		CreatedAt:    now,
-		UpdatedAt:    now,
 	}
 }
 
