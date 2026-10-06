@@ -66,12 +66,8 @@ func (e *Error) Unwrap() error {
 }
 
 func (e *Error) Is(target error) bool {
-	if e == nil {
-		return target == nil
-	}
-	var t *Error
-	if errors.As(target, &t) && t != nil {
-		return e.Code == t.Code
+	if appErr := From(target); appErr != nil {
+		return e.Code == appErr.Code
 	}
 	return false
 }
@@ -156,7 +152,7 @@ func (e *Error) Meta(key, value string) *Error {
 	if info.Metadata == nil {
 		info.Metadata = make(map[string]string)
 	}
-	
+
 	info.Metadata[key] = value
 	return e
 }
