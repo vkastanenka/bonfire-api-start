@@ -30,8 +30,8 @@ var presenceNames = [...]string{
 	PresenceInvisible: "INVISIBLE",
 }
 
-func ParseInt(raw int) (Presence, error) {
-	return sanitize.ParseEnumInt(raw, presenceMax, "presence")
+func ParseInt(i int) (Presence, error) {
+	return sanitize.ParseEnumInt(i, presenceMax, "presence")
 }
 
 func ParseIntBytes(b []byte) (Presence, error) {

@@ -1,9 +1,6 @@
 package token
 
 import (
-	"bytes"
-	"strconv"
-
 	"bonfire-api/internal/pkg/sanitize"
 )
 
@@ -26,8 +23,8 @@ var typeNames = [...]string{
 	TypePasswordReset: "PASSWORD_RESET",
 }
 
-func ParseType(raw int) (Type, error) {
-	return sanitize.ParseEnumInt(raw, typeMax, "token_type")
+func ParseTypeInt(i int) (Type, error) {
+	return sanitize.ParseEnumInt(i, typeMax, "token_type")
 }
 
 func ParseTypeString(s string) (Type, error) {
@@ -40,6 +37,13 @@ func ParseTypeStringBytes(b []byte) (Type, error) {
 
 func (t Type) IsValid() bool {
 	return t > TypeUnknown && t < typeMax
+}
+
+func (t Type) Int() int {
+	if t.IsValid() {
+		return int(t)
+	}
+	return int(TypeUnknown)
 }
 
 func (t Type) String() string {
@@ -63,25 +67,6 @@ func (t *Type) UnmarshalText(text []byte) error {
 	if err != nil {
 		return err
 	}
-	*t = parsed
-	return nil
-}
-
-func (t Type) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, t.String()), nil
-}
-
-func (t *Type) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		*t = TypeUnknown
-		return nil
-	}
-
-	parsed, err := ParseTypeStringBytes(data)
-	if err != nil {
-		return err
-	}
-
 	*t = parsed
 	return nil
 }

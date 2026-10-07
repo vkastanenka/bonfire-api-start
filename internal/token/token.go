@@ -27,7 +27,7 @@ type TypeConfig struct {
 	TTL    time.Duration `json:"ttl"`
 }
 
-func (tc TypeConfig) Validate(tokenType Type) error {
+func (tc TypeConfig) validate(tokenType Type) error {
 	path := "variants." + tokenType.String()
 
 	if tc.Secret == "" {
@@ -73,7 +73,7 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	}
 
 	for tokenType, spec := range specs {
-		if err := spec.Validate(tokenType); err != nil {
+		if err := spec.validate(tokenType); err != nil {
 			return nil, err
 		}
 	}
