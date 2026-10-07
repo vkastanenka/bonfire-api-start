@@ -11,41 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const userAvailability = `-- name: UserAvailability :one
-SELECT
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users
-        WHERE
-            email = $1::citext)::boolean AS email_available,
-    NOT EXISTS (
-        SELECT
-            1
-        FROM
-            users
-        WHERE
-            username = $2::citext)::boolean AS username_available
-`
-
-type UserAvailabilityParams struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-}
-
-type UserAvailabilityRow struct {
-	EmailAvailable    pgtype.Bool `json:"email_available"`
-	UsernameAvailable pgtype.Bool `json:"username_available"`
-}
-
-func (q *Queries) UserAvailability(ctx context.Context, arg UserAvailabilityParams) (UserAvailabilityRow, error) {
-	row := q.db.QueryRow(ctx, userAvailability, arg.Email, arg.Username)
-	var i UserAvailabilityRow
-	err := row.Scan(&i.EmailAvailable, &i.UsernameAvailable)
-	return i, err
-}
-
 const userCreate = `-- name: UserCreate :one
 INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
     VALUES ($1::uuid, $2::citext, $3::citext, $4::citext, $5::text, $6::text, $7::text, $8::text, $9::text, $10::smallint, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16::timestamptz)
@@ -203,6 +168,39 @@ WHERE
 
 func (q *Queries) UserGetByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, userGetByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VerifiedAt,
+		&i.DisabledAt,
+		&i.DeleteScheduledAt,
+		&i.PreferredPresenceUntil,
+		&i.PreferredPresence,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Phone,
+		&i.Bio,
+		&i.AvatarURL,
+		&i.BannerColor,
+	)
+	return i, err
+}
+
+const userGetByUsername = `-- name: UserGetByUsername :one
+SELECT
+    users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+FROM
+    users
+WHERE
+    username = $1
+`
+
+func (q *Queries) UserGetByUsername(ctx context.Context, username string) (User, error) {
+	row := q.db.QueryRow(ctx, userGetByUsername, username)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -456,55 +454,47 @@ func (q *Queries) UserUpdate(ctx context.Context, arg UserUpdateParams) (User, e
 }
 
 const userUpdateBatch = `-- name: UserUpdateBatch :many
-WITH input_data AS (
-    SELECT
-        jsonb_populate_recordset
-    FROM
-        jsonb_populate_recordset(NULL::users, $1::jsonb))
-INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
-SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
+UPDATE
+    users AS u
+SET
+    email = v.email,
+    username = v.username,
+    display_name = v.display_name,
+    password_hash = v.password_hash,
+    phone = v.phone,
+    bio = v.bio,
+    avatar_url = v.avatar_url,
+    banner_color = v.banner_color,
+    preferred_presence = v.preferred_presence,
+    preferred_presence_until = v.preferred_presence_until,
+    verified_at = v.verified_at,
+    disabled_at = v.disabled_at,
+    delete_scheduled_at = v.delete_scheduled_at,
+    updated_at = v.updated_at
 FROM
-    input_data
-ORDER BY
-    id ASC
-ON CONFLICT (id)
-    DO UPDATE SET
-        email = EXCLUDED.email,
-        username = EXCLUDED.username,
-        display_name = EXCLUDED.display_name,
-        password_hash = EXCLUDED.password_hash,
-        phone = EXCLUDED.phone,
-        bio = EXCLUDED.bio,
-        avatar_url = EXCLUDED.avatar_url,
-        banner_color = EXCLUDED.banner_color,
-        preferred_presence = EXCLUDED.preferred_presence,
-        preferred_presence_until = EXCLUDED.preferred_presence_until,
-        verified_at = EXCLUDED.verified_at,
-        disabled_at = EXCLUDED.disabled_at,
-        delete_scheduled_at = EXCLUDED.delete_scheduled_at,
-        updated_at = EXCLUDED.updated_at
-    RETURNING
-        users.id, users.created_at, users.updated_at, users.verified_at, users.disabled_at, users.delete_scheduled_at, users.preferred_presence_until, users.preferred_presence, users.email, users.username, users.display_name, users.password_hash, users.phone, users.bio, users.avatar_url, users.banner_color
+    jsonb_to_recordset($1::jsonb) AS v(id uuid,
+        email citext,
+        username citext,
+        display_name citext,
+        password_hash text,
+        phone text,
+        bio text,
+        avatar_url text,
+        banner_color text,
+        preferred_presence smallint,
+        preferred_presence_until timestamptz,
+        verified_at timestamptz,
+        disabled_at timestamptz,
+        delete_scheduled_at timestamptz,
+        updated_at timestamptz)
+WHERE
+    u.id = v.id
+RETURNING
+    u.id, u.created_at, u.updated_at, u.verified_at, u.disabled_at, u.delete_scheduled_at, u.preferred_presence_until, u.preferred_presence, u.email, u.username, u.display_name, u.password_hash, u.phone, u.bio, u.avatar_url, u.banner_color
 `
 
-func (q *Queries) UserUpdateBatch(ctx context.Context, usersJson []byte) ([]User, error) {
-	rows, err := q.db.Query(ctx, userUpdateBatch, usersJson)
+func (q *Queries) UserUpdateBatch(ctx context.Context, payload []byte) ([]User, error) {
+	rows, err := q.db.Query(ctx, userUpdateBatch, payload)
 	if err != nil {
 		return nil, err
 	}

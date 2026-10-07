@@ -65,19 +65,22 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (user.Use
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]user.User, error) {
+func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user.User, error) {
+	row, err := r.store.UserGetByUsername(ctx, username)
+	if err != nil {
+		return user.User{}, db.NewError(err, db.EntityChannel)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]user.User, error) {
 	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return nil, db.NewError(err, db.EntityUser)
 	}
 
-	result := make(map[uuid.UUID]user.User, len(rows))
-	for _, row := range rows {
-		u := userFromRow(row)
-		result[u.ID] = u
-	}
-
-	return result, nil
+	return usersFromRows(rows), nil
 }
 
 func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime time.Time, limitVal int) ([]user.User, error) {
@@ -89,13 +92,7 @@ func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime ti
 		return nil, db.NewError(err, db.EntityChannel)
 	}
 
-	users := make([]user.User, 0, len(rows))
-	for _, row := range rows {
-		u := userFromRow(row)
-		users = append(users, u)
-	}
-
-	return users, nil
+	return usersFromRows(rows), nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, u user.User) (user.User, error) {
@@ -117,7 +114,7 @@ func (r *UserRepository) Update(ctx context.Context, u user.User) (user.User, er
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -130,7 +127,7 @@ func (r *UserRepository) UpdateEmail(ctx context.Context, id uuid.UUID, email st
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -143,7 +140,7 @@ func (r *UserRepository) UpdateUsername(ctx context.Context, id uuid.UUID, usern
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -156,7 +153,7 @@ func (r *UserRepository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *s
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -169,7 +166,7 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, p
 		UpdatedAt:    db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -183,7 +180,7 @@ func (r *UserRepository) UpdateProfile(
 	avatarURL *string,
 	bannerColor *string,
 	updatedAt time.Time,
-) (*user.User, error) {
+) (user.User, error) {
 	row, err := r.store.UserUpdateProfile(ctx, db.UserUpdateProfileParams{
 		ID:          db.ToUUID(id),
 		DisplayName: displayName,
@@ -193,27 +190,27 @@ func (r *UserRepository) UpdateProfile(
 		UpdatedAt:   db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdatePresence(
+func (r *UserRepository) UpdatePreferredPresence(
 	ctx context.Context,
 	id uuid.UUID,
-	presence *presence.Presence,
-	presenceUntil *time.Time,
+	preferredPresence *presence.Presence,
+	preferredPresenceUntil *time.Time,
 	updatedAt time.Time,
 ) (user.User, error) {
 	row, err := r.store.UserUpdatePresence(ctx, db.UserUpdatePresenceParams{
 		ID:                     db.ToUUID(id),
-		PreferredPresence:      db.ToInt2Ptr(presence),
-		PreferredPresenceUntil: db.ToTimestamptzPtr(presenceUntil),
+		PreferredPresence:      db.ToInt2Ptr(preferredPresence),
+		PreferredPresenceUntil: db.ToTimestamptzPtr(preferredPresenceUntil),
 		UpdatedAt:              db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -226,7 +223,7 @@ func (r *UserRepository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *t
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -239,7 +236,7 @@ func (r *UserRepository) SetDisabled(ctx context.Context, id uuid.UUID, disabled
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
@@ -253,13 +250,13 @@ func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, de
 		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([]user.User, error) {
+func (r *UserRepository) UpdateBatch(ctx context.Context, users []user.User) ([]user.User, error) {
 	if len(users) == 0 {
 		return []user.User{}, nil
 	}
@@ -313,14 +310,14 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([
 
 	jsonBytes, err := json.Marshal(payloads)
 	if err != nil {
-		return nil, errs.Internal("failed to marshal user update batch payload").
+		return user.User{}, errs.Internal("failed to marshal user update batch payload").
 			Meta("scope", "user").
 			Wrap(err)
 	}
 
 	rows, err := r.store.UserUpdateBatch(ctx, jsonBytes)
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.EntityChannel)
 	}
 
 	updatedUsers := make([]user.User, len(rows))
@@ -356,4 +353,17 @@ func userFromRow(row db.User) user.User {
 		db.FromTimestamptz(row.CreatedAt),
 		db.FromTimestamptz(row.UpdatedAt),
 	)
+}
+
+func usersFromRows(rows []db.User) []user.User {
+	if len(rows) == 0 {
+		return []user.User{}
+	}
+
+	users := make([]user.User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, userFromRow(row))
+	}
+
+	return users
 }

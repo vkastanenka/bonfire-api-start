@@ -9,7 +9,6 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/pkg/id"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
@@ -177,9 +176,11 @@ type RegisterResult struct {
 }
 
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
-	uID, err := id.NewV7()
+	uID, err := uuid.NewV7()
 	if err != nil {
-		return RegisterResult{}, err
+		return RegisterResult{}, ErrIDGenerateFailed().
+			Meta("resource", "user").
+			Wrap(err)
 	}
 
 	pHash, err := crypto.HashPassword(p.Password)
@@ -188,7 +189,15 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}
 
 	now := time.Now()
-	u := user.New(uID, p.Email, p.Username, p.ResolveDisplayName(), pHash, now)
+
+	u := user.New(
+		uID,
+		p.Email,
+		p.Username,
+		p.ResolveDisplayName(),
+		pHash,
+		now,
+	)
 
 	sess, tokenPair, err := s.createSession(p.ClientMeta, u.ID, now)
 	if err != nil {
@@ -205,7 +214,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return err
 		}
 
-		s, err = s.sessionRepo.Create(txCtx, sess)
+		sess, err = s.sessionRepo.Create(txCtx, sess)
 		if err != nil {
 			return err
 		}
@@ -260,9 +269,11 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 }
 
 func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (session.Session, token.Pair, error) {
-	sid, err := id.NewV7()
+	sid, err := uuid.NewV7()
 	if err != nil {
-		return session.Session{}, token.Pair{}, err
+		return session.Session{}, token.Pair{}, ErrIDGenerateFailed().
+			Meta("resource", "session").
+			Wrap(err)
 	}
 
 	tokenPair, err := s.tokenProvider.GeneratePair(userID, sid)

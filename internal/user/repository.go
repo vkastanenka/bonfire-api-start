@@ -1,54 +1,355 @@
 package user
 
 import (
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
 	"context"
+	"encoding/json"
 	"time"
+
+	"bonfire-api/internal/db"
+	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
 
-type Cache interface {
-	Delete(ctx context.Context, id uuid.UUID) error
-	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
+type Repository struct {
+	store *db.Store
 }
 
-type Repository interface {
-	Get(ctx context.Context, id uuid.UUID) (*User, error)
-	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, error)
-	ListDeleteScheduled(ctx context.Context, currentTime time.Time, limitVal int) ([]*User, error)
-	SetDeleteSchedule(ctx context.Context, id uuid.UUID, deleteScheduledAt *time.Time, disabledAt *time.Time, updatedAt time.Time) (*User, error)
-	SetDisabled(ctx context.Context, id uuid.UUID, disabledAt *time.Time, updatedAt time.Time) (*User, error)
-	UpdateBatch(ctx context.Context, users []*User) ([]*User, error)
-	UpdateEmail(ctx context.Context, id uuid.UUID, email string, updatedAt time.Time) (*User, error)
-	UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string, updatedAt time.Time) (*User, error)
-	UpdatePresence(ctx context.Context, id uuid.UUID, presence *presence.Presence, presenceUntil *time.Time, updatedAt time.Time) (*User, error)
-	UpdateProfile(ctx context.Context, id uuid.UUID, displayName string, bio *string, avatarURL *string, bannerColor *string, updatedAt time.Time) (*User, error)
-	UpdateUsername(ctx context.Context, id uuid.UUID, username string, updatedAt time.Time) (*User, error)
+func NewRepository(store *db.Store) *Repository {
+	return &Repository{store: store}
 }
 
-type CachedRepository interface {
-	Get(ctx context.Context, id uuid.UUID) (*User, error)
-	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, error)
+func (r *Repository) Create(ctx context.Context, u User) (User, error) {
+	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
+		ID:                     db.ToUUID(u.ID),
+		Email:                  u.Email,
+		Username:               u.Username,
+		DisplayName:            u.DisplayName,
+		PasswordHash:           u.PasswordHash,
+		Phone:                  db.ToTextPtr(u.Phone),
+		Bio:                    db.ToTextPtr(u.Bio),
+		AvatarURL:              db.ToTextPtr(u.AvatarURL),
+		BannerColor:            db.ToTextPtr(u.BannerColor),
+		PreferredPresence:      db.ToInt2Ptr(u.PreferredPresence),
+		PreferredPresenceUntil: db.ToTimestamptzPtr(u.PreferredPresenceUntil),
+		VerifiedAt:             db.ToTimestamptzPtr(u.VerifiedAt),
+		DisabledAt:             db.ToTimestamptzPtr(u.DisabledAt),
+		DeleteScheduledAt:      db.ToTimestamptzPtr(u.DeleteScheduledAt),
+		CreatedAt:              db.ToTimestamptz(u.CreatedAt),
+		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
 }
 
-type CachedRelationRepository interface {
-	GetFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+func (r *Repository) Get(ctx context.Context, id uuid.UUID) (User, error) {
+	row, err := r.store.UserGet(ctx, db.ToUUID(id))
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
 }
 
-type OutboxRepository interface {
-	Create(ctx context.Context, e *outbox.Event) error
+func (r *Repository) GetByEmail(ctx context.Context, email string) (User, error) {
+	row, err := r.store.UserGetByEmail(ctx, email)
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
 }
 
-type SessionCache interface {
-	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
+func (r *Repository) GetByUsername(ctx context.Context, username string) (User, error) {
+	row, err := r.store.UserGetByUsername(ctx, username)
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
 }
 
-type SessionRepository interface {
-	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
+func (r *Repository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]User, error) {
+	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+
+	return usersFromRows(rows), nil
 }
 
-type TX interface {
-	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+func (r *Repository) ListDeleteScheduled(ctx context.Context, currentTime time.Time, limitVal int) ([]User, error) {
+	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
+		Now:      db.ToTimestamptz(currentTime),
+		LimitVal: int32(limitVal),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+
+	return usersFromRows(rows), nil
+}
+
+func (r *Repository) Update(ctx context.Context, u User) (User, error) {
+	row, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
+		ID:                     db.ToUUID(u.ID),
+		Email:                  u.Email,
+		Username:               u.Username,
+		DisplayName:            u.DisplayName,
+		PasswordHash:           u.PasswordHash,
+		Phone:                  db.ToTextPtr(u.Phone),
+		Bio:                    db.ToTextPtr(u.Bio),
+		AvatarURL:              db.ToTextPtr(u.AvatarURL),
+		BannerColor:            db.ToTextPtr(u.BannerColor),
+		PreferredPresence:      db.ToInt2Ptr(u.PreferredPresence),
+		PreferredPresenceUntil: db.ToTimestamptzPtr(u.PreferredPresenceUntil),
+		VerifiedAt:             db.ToTimestamptzPtr(u.VerifiedAt),
+		DisabledAt:             db.ToTimestamptzPtr(u.DisabledAt),
+		DeleteScheduledAt:      db.ToTimestamptzPtr(u.DeleteScheduledAt),
+		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdateEmail(ctx context.Context, id uuid.UUID, email string, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserUpdateEmail(ctx, db.UserUpdateEmailParams{
+		ID:        db.ToUUID(id),
+		Email:     email,
+		UpdatedAt: db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdateUsername(ctx context.Context, id uuid.UUID, username string, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserUpdateUsername(ctx, db.UserUpdateUsernameParams{
+		ID:        db.ToUUID(id),
+		Username:  username,
+		UpdatedAt: db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *string, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserUpdatePhone(ctx, db.UserUpdatePhoneParams{
+		ID:        db.ToUUID(id),
+		Phone:     db.ToTextPtr(phone),
+		UpdatedAt: db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserUpdatePasswordHash(ctx, db.UserUpdatePasswordHashParams{
+		ID:           db.ToUUID(id),
+		PasswordHash: passwordHash,
+		UpdatedAt:    db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdateProfile(
+	ctx context.Context,
+	id uuid.UUID,
+	displayName string,
+	bio *string,
+	avatarURL *string,
+	bannerColor *string,
+	updatedAt time.Time,
+) (User, error) {
+	row, err := r.store.UserUpdateProfile(ctx, db.UserUpdateProfileParams{
+		ID:          db.ToUUID(id),
+		DisplayName: displayName,
+		Bio:         db.ToTextPtr(bio),
+		AvatarURL:   db.ToTextPtr(avatarURL),
+		BannerColor: db.ToTextPtr(bannerColor),
+		UpdatedAt:   db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) UpdatePreferredPresence(
+	ctx context.Context,
+	id uuid.UUID,
+	preferredPresence *presence.Presence,
+	preferredPresenceUntil *time.Time,
+	updatedAt time.Time,
+) (User, error) {
+	row, err := r.store.UserUpdatePresence(ctx, db.UserUpdatePresenceParams{
+		ID:                     db.ToUUID(id),
+		PreferredPresence:      db.ToInt2Ptr(preferredPresence),
+		PreferredPresenceUntil: db.ToTimestamptzPtr(preferredPresenceUntil),
+		UpdatedAt:              db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *time.Time, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserVerify(ctx, db.UserVerifyParams{
+		ID:         db.ToUUID(id),
+		VerifiedAt: db.ToTimestamptzPtr(verifiedAt),
+		UpdatedAt:  db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) SetDisabled(ctx context.Context, id uuid.UUID, disabledAt *time.Time, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserSetDisabled(ctx, db.UserSetDisabledParams{
+		ID:         db.ToUUID(id),
+		DisabledAt: db.ToTimestamptzPtr(disabledAt),
+		UpdatedAt:  db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+func (r *Repository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, deleteScheduledAt, disabledAt *time.Time, updatedAt time.Time) (User, error) {
+	row, err := r.store.UserSetDeleteSchedule(ctx, db.UserSetDeleteScheduleParams{
+		ID:                db.ToUUID(id),
+		DeleteScheduledAt: db.ToTimestamptzPtr(deleteScheduledAt),
+		DisabledAt:        db.ToTimestamptzPtr(disabledAt),
+		UpdatedAt:         db.ToTimestamptz(updatedAt),
+	})
+	if err != nil {
+		return User{}, db.NewError(err, db.EntityUser)
+	}
+
+	return userFromRow(row), nil
+}
+
+type userUpdatePayload struct {
+	ID                     uuid.UUID  `json:"id"`
+	Email                  string     `json:"email"`
+	Username               string     `json:"username"`
+	DisplayName            string     `json:"display_name"`
+	PasswordHash           string     `json:"password_hash"`
+	Phone                  *string    `json:"phone"`
+	Bio                    *string    `json:"bio"`
+	AvatarURL              *string    `json:"avatar_url"`
+	BannerColor            *string    `json:"banner_color"`
+	PreferredPresence      *int16     `json:"preferred_presence"`
+	PreferredPresenceUntil *time.Time `json:"preferred_presence_until"`
+	VerifiedAt             *time.Time `json:"verified_at"`
+	DisabledAt             *time.Time `json:"disabled_at"`
+	DeleteScheduledAt      *time.Time `json:"delete_scheduled_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+func (r *Repository) UpdateBatch(ctx context.Context, users []User) ([]User, error) {
+	payloads := make([]userUpdatePayload, len(users))
+	for i, u := range users {
+		payloads[i] = userUpdatePayload{
+			ID:                     u.ID,
+			Email:                  u.Email,
+			Username:               u.Username,
+			DisplayName:            u.DisplayName,
+			PasswordHash:           u.PasswordHash,
+			Phone:                  u.Phone,
+			Bio:                    u.Bio,
+			AvatarURL:              u.AvatarURL,
+			BannerColor:            u.BannerColor,
+			PreferredPresence:      toInt16Ptr(u.PreferredPresence),
+			PreferredPresenceUntil: u.PreferredPresenceUntil,
+			VerifiedAt:             u.VerifiedAt,
+			DisabledAt:             u.DisabledAt,
+			DeleteScheduledAt:      u.DeleteScheduledAt,
+			UpdatedAt:              u.UpdatedAt,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(payloads)
+	if err != nil {
+		return nil, ErrUserUpdateBatchMarshalFailed().Wrap(err)
+	}
+
+	rows, err := r.store.UserUpdateBatch(ctx, jsonBytes)
+	if err != nil {
+		return nil, db.NewError(err, db.EntityUser)
+	}
+
+	return usersFromRows(rows), nil
+}
+
+func userFromRow(row db.User) User {
+	var preferredPresence *presence.Presence
+	if p, err := presence.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
+		preferredPresence = &p
+	}
+
+	return Reconstitute(
+		db.FromUUID(row.ID),
+		row.Email,
+		row.Username,
+		row.PasswordHash,
+		db.FromTextPtr(row.Phone),
+		row.DisplayName,
+		db.FromTextPtr(row.Bio),
+		db.FromTextPtr(row.AvatarURL),
+		db.FromTextPtr(row.BannerColor),
+		preferredPresence,
+		db.FromTimestamptzPtr(row.PreferredPresenceUntil),
+		db.FromTimestamptzPtr(row.VerifiedAt),
+		db.FromTimestamptzPtr(row.DisabledAt),
+		db.FromTimestamptzPtr(row.DeleteScheduledAt),
+		db.FromTimestamptz(row.CreatedAt),
+		db.FromTimestamptz(row.UpdatedAt),
+	)
+}
+
+func usersFromRows(rows []db.User) []User {
+	if len(rows) == 0 {
+		return []User{}
+	}
+
+	users := make([]User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, userFromRow(row))
+	}
+
+	return users
+}
+
+func toInt16Ptr[T ~int | ~int16 | ~int32](val *T) *int16 {
+	if val == nil {
+		return nil
+	}
+	v := int16(*val)
+	return &v
 }
