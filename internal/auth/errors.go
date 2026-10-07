@@ -6,15 +6,15 @@ import (
 )
 
 const (
-	ErrReasonGenerateIDFailed        = "GENERATE_ID_FAILED"
+	ErrReasonIDGenerateFailed        = "ID_GENERATE_FAILED"
 	ErrReasonHashPasswordFailed      = "HASH_PASSWORD_FAILED"
 	ErrReasonGenerateTokenFailed     = "GENERATE_TOKEN_FAILED"
 	ErrReasonGenerateTokenPairFailed = "GENERATE_TOKEN_PAIR_FAILED"
 )
 
-func ErrGenerateIDFailed() *errs.Error {
-	return errs.Internal("failed to generate ID").
-		Reason(ErrReasonGenerateIDFailed)
+func ErrIDGenerateFailed() *errs.Error {
+	return errs.Internal("Failed to generate ID.").
+		Reason(ErrReasonIDGenerateFailed)
 }
 
 func ErrHashPasswordFailed() *errs.Error {

@@ -1,7 +1,6 @@
 package token
 
 import (
-	"bonfire-api/internal/pkg/id"
 	"errors"
 	"fmt"
 	"time"
@@ -94,18 +93,13 @@ func (p *Provider) generate(tokenType Type, claims *Claims) (string, time.Time, 
 	now := time.Now().UTC().Truncate(time.Second)
 	expiresAt := now.Add(spec.TTL)
 
-	tokenID, err := id.NewV7()
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
 	if claims == nil {
 		claims = &Claims{}
 	}
 
 	claims.TokenType = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		ID:        tokenID.String(),
+		ID:        uuid.New().String(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(expiresAt),
