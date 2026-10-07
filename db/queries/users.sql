@@ -20,6 +20,14 @@ FROM
 WHERE
     email = $1;
 
+-- name: UserGetByUsername :one
+SELECT
+    users.*
+FROM
+    users
+WHERE
+    username = $1;
+
 -- name: UserGetBatch :many
 SELECT
     users.*
@@ -170,49 +178,42 @@ RETURNING
     users.*;
 
 -- name: UserUpdateBatch :many
-WITH input_data AS (
+UPDATE
+    users AS u
+SET
+    email = data.email,
+    username = data.username,
+    display_name = data.display_name,
+    password_hash = data.password_hash,
+    phone = data.phone,
+    bio = data.bio,
+    avatar_url = data.avatar_url,
+    banner_color = data.banner_color,
+    preferred_presence = data.preferred_presence,
+    preferred_presence_until = data.preferred_presence_until,
+    verified_at = data.verified_at,
+    disabled_at = data.disabled_at,
+    delete_scheduled_at = data.delete_scheduled_at,
+    updated_at = data.updated_at
+FROM (
     SELECT
-        *
-    FROM
-        jsonb_populate_recordset(NULL::users, @users_json::jsonb))
-INSERT INTO users(id, email, username, display_name, password_hash, phone, bio, avatar_url, banner_color, preferred_presence, preferred_presence_until, verified_at, disabled_at, delete_scheduled_at, created_at, updated_at)
-SELECT
-    id,
-    email,
-    username,
-    display_name,
-    password_hash,
-    phone,
-    bio,
-    avatar_url,
-    banner_color,
-    preferred_presence,
-    preferred_presence_until,
-    verified_at,
-    disabled_at,
-    delete_scheduled_at,
-    created_at,
-    updated_at
-FROM
-    input_data
-ORDER BY
-    id ASC
-ON CONFLICT (id)
-    DO UPDATE SET
-        email = EXCLUDED.email,
-        username = EXCLUDED.username,
-        display_name = EXCLUDED.display_name,
-        password_hash = EXCLUDED.password_hash,
-        phone = EXCLUDED.phone,
-        bio = EXCLUDED.bio,
-        avatar_url = EXCLUDED.avatar_url,
-        banner_color = EXCLUDED.banner_color,
-        preferred_presence = EXCLUDED.preferred_presence,
-        preferred_presence_until = EXCLUDED.preferred_presence_until,
-        verified_at = EXCLUDED.verified_at,
-        disabled_at = EXCLUDED.disabled_at,
-        delete_scheduled_at = EXCLUDED.delete_scheduled_at,
-        updated_at = EXCLUDED.updated_at
-    RETURNING
-        users.*;
+        UNNEST(@ids::uuid[]) AS id,
+        UNNEST(@emails::citext[]) AS email,
+        UNNEST(@usernames::citext[]) AS username,
+        UNNEST(@display_names::citext[]) AS display_name,
+        UNNEST(@password_hashes::text[]) AS password_hash,
+        UNNEST(@phones::text[]) AS phone,
+        UNNEST(@bios::text[]) AS bio,
+        UNNEST(@avatar_urls::text[]) AS avatar_url,
+        UNNEST(@banner_colors::text[]) AS banner_color,
+        UNNEST(@preferred_presences::smallint[]) AS preferred_presence,
+        UNNEST(@preferred_presence_untils::timestamptz[]) AS preferred_presence_until,
+        UNNEST(@verified_ats::timestamptz[]) AS verified_at,
+        UNNEST(@disabled_ats::timestamptz[]) AS disabled_at,
+        UNNEST(@delete_scheduled_ats::timestamptz[]) AS delete_scheduled_at,
+        UNNEST(@updated_ats::timestamptz[]) AS updated_at) AS data
+WHERE
+    u.id = data.id
+RETURNING
+    u.*;
 
