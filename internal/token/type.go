@@ -1,8 +1,6 @@
 package token
 
-import (
-	"bonfire-api/internal/pkg/sanitize"
-)
+import "bonfire-api/internal/pkg/parse"
 
 type Type int
 
@@ -23,16 +21,18 @@ var typeNames = [...]string{
 	TypePasswordReset: "PASSWORD_RESET",
 }
 
+var typeNamesSlice = typeNames[:]
+
 func ParseTypeInt(i int) (Type, error) {
-	return sanitize.ParseEnumInt(i, typeMax, "token_type")
+	return parse.EnumInt(i, typeMax, "token_type")
 }
 
 func ParseTypeString(s string) (Type, error) {
-	return sanitize.ParseEnumString[Type](s, typeNames[:], "token_type")
+	return parse.EnumString[Type](s, typeNamesSlice, "token_type")
 }
 
 func ParseTypeStringBytes(b []byte) (Type, error) {
-	return sanitize.ParseEnumStringBytes[Type](b, typeNames[:], "token_type")
+	return parse.EnumStringBytes[Type](b, typeNamesSlice, "token_type")
 }
 
 func (t Type) IsValid() bool {
