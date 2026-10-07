@@ -1,7 +1,7 @@
 package token
 
 import (
-	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/pkg/id"
 	"errors"
 	"fmt"
 	"time"
@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	DefaultIssuer      = "bonfire-api"
-	DefaultClockLeeway = 5 * time.Second
+	defaultIssuer      = "api.domain.com"
+	defaultClockLeeway = 5 * time.Second
 )
 
 type Claims struct {
@@ -22,7 +22,37 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-type Config struct {
+type TypeConfig struct {
+	Secret string        `json:"secret"`
+	TTL    time.Duration `json:"ttl"`
+}
+
+func (tc TypeConfig) Validate(tokenType Type) error {
+	path := "variants." + tokenType.String()
+
+	if tc.Secret == "" {
+		return ErrTokenConfigInvalid().
+			Meta("token_type", tokenType.String()).
+			Meta("secret", "").
+			FieldViolation(path+".secret", "Secret key cannot be empty.", "REQUIRED")
+	}
+
+	if tc.TTL <= 0 {
+		return ErrTokenConfigInvalid().
+			Meta("token_type", tokenType.String()).
+			Meta("ttl", tc.TTL.String()).
+			FieldViolation(path+".ttl", "TTL must be a positive duration.", "OUT_OF_BOUNDS")
+	}
+
+	return nil
+}
+
+type Provider struct {
+	issuer   string
+	variants map[Type]TypeConfig
+}
+
+type ProviderConfig struct {
 	Issuer        string
 	Access        TypeConfig
 	Refresh       TypeConfig
@@ -30,24 +60,9 @@ type Config struct {
 	PasswordReset TypeConfig
 }
 
-type TypeConfig struct {
-	Secret string
-	TTL    time.Duration
-}
-
-type typeConfig struct {
-	secret []byte
-	ttl    time.Duration
-}
-
-type Provider struct {
-	issuer   string
-	variants map[Type]typeConfig
-}
-
-func NewProvider(cfg Config) (*Provider, error) {
+func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	if cfg.Issuer == "" {
-		cfg.Issuer = DefaultIssuer
+		cfg.Issuer = defaultIssuer
 	}
 
 	specs := map[Type]TypeConfig{
@@ -57,66 +72,40 @@ func NewProvider(cfg Config) (*Provider, error) {
 		TypePasswordReset: cfg.PasswordReset,
 	}
 
-	variants := make(map[Type]typeConfig, len(specs))
-
-	for val, spec := range specs {
-		if spec.Secret == "" {
-			return nil, errs.InvalidArgument("invalid token configuration").
-				Reason("INVALID_TOKEN_CONFIG").
-				Meta("token_type", val.String()).
-				Meta("provided_secret", "").
-				FieldViolation(
-					"variants."+val.String()+".secret",
-					"secret key cannot be empty",
-					"REQUIRED",
-				)
-		}
-
-		if spec.TTL <= 0 {
-			return nil, errs.InvalidArgument("invalid token configuration").
-				Reason("INVALID_TOKEN_CONFIG").
-				Meta("token_type", val.String()).
-				Meta("provided_ttl", spec.TTL.String()).
-				FieldViolation(
-					"variants."+val.String()+".ttl",
-					"TTL must be a positive duration",
-					"OUT_OF_BOUNDS",
-				)
-		}
-
-		variants[val] = typeConfig{
-			secret: []byte(spec.Secret),
-			ttl:    spec.TTL,
+	for tokenType, spec := range specs {
+		if err := spec.Validate(tokenType); err != nil {
+			return nil, err
 		}
 	}
 
 	return &Provider{
 		issuer:   cfg.Issuer,
-		variants: variants,
+		variants: specs,
 	}, nil
 }
 
-func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, error) {
+func (p *Provider) generate(tokenType Type, claims *Claims) (string, time.Time, error) {
 	spec, exists := p.variants[tokenType]
-	if !exists || len(spec.secret) == 0 {
-		return "", time.Time{}, errs.Internal("missing signing configuration for token type").
-			Reason("UNCONFIGURED_TOKEN_TYPE").
+	if !exists || len(spec.Secret) == 0 {
+		return "", time.Time{}, ErrTokenConfigMissing().
 			Meta("token_type", tokenType.String())
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	expiresAt := now.Add(spec.ttl)
+	expiresAt := now.Add(spec.TTL)
 
-	id, err := uuid.NewV7()
+	tokenID, err := id.NewV7()
 	if err != nil {
-		return "", time.Time{}, errs.Internal("failed to generate token uuid").
-			Reason("UUID_GENERATION_FAILED").
-			Wrap(err)
+		return "", time.Time{}, err
+	}
+
+	if claims == nil {
+		claims = &Claims{}
 	}
 
 	claims.TokenType = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		ID:        id.String(),
+		ID:        tokenID.String(),
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(expiresAt),
@@ -124,10 +113,9 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString(spec.secret)
+	signedToken, err := token.SignedString([]byte(spec.Secret))
 	if err != nil {
-		return "", time.Time{}, errs.Internal("failed to sign token").
-			Reason("TOKEN_SIGNING_FAILED").
+		return "", time.Time{}, ErrTokenSignFailed().
 			Meta("token_type", tokenType.String()).
 			Wrap(err)
 	}
@@ -137,69 +125,49 @@ func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, e
 
 func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 	spec, exists := p.variants[tokenType]
-	if !exists || len(spec.secret) == 0 {
-		return nil, errs.Internal("missing verification configuration for token type").
-			Reason("UNCONFIGURED_TOKEN_TYPE").
+	if !exists || spec.Secret == "" {
+		return nil, ErrTokenConfigMissing().
 			Meta("token_type", tokenType.String())
 	}
 
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
 		&Claims{},
-		func(t *jwt.Token) (interface{}, error) {
+		func(t *jwt.Token) (any, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				algVal := "none"
-				if alg, ok := t.Header["alg"].(string); ok {
-					algVal = alg
-				}
-				return nil, fmt.Errorf("unexpected signing algorithm: %s", algVal)
+				return nil, fmt.Errorf("unexpected signing algorithm: %v", t.Header["alg"])
 			}
-			return spec.secret, nil
+			return []byte(spec.Secret), nil
 		},
 		jwt.WithIssuer(p.issuer),
-		jwt.WithLeeway(DefaultClockLeeway),
+		jwt.WithLeeway(defaultClockLeeway),
 	)
 
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenExpired):
-			return nil, errs.Unauthenticated("token has expired").
-				Reason("TOKEN_EXPIRED").
-				Wrap(err)
+			return nil, ErrTokenExpired().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenInvalidIssuer):
-			return nil, errs.Unauthenticated("token issuer mismatch").
-				Reason("TOKEN_ISSUER_MISMATCH").
-				Meta("expected_issuer", p.issuer).
-				Wrap(err)
+			return nil, ErrTokenIssuerInvalid().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenMalformed):
-			return nil, errs.InvalidArgument("malformed token format").
-				Reason("TOKEN_MALFORMED").
-				Meta("provided_token", tokenStr).
-				FieldViolation("token", "provided JWT string is malformed or unparseable", "INVALID_FORMAT").
-				Wrap(err)
+			return nil, ErrTokenMalformed().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
-			return nil, errs.Unauthenticated("invalid token signature").
-				Reason("TOKEN_SIGNATURE_INVALID").
-				Wrap(err)
+			return nil, ErrTokenSignatureInvalid().Wrap(err)
 		default:
-			return nil, errs.Unauthenticated("invalid token").
-				Reason("TOKEN_INVALID").
-				Wrap(err)
+			return nil, ErrTokenInvalid().Wrap(err)
 		}
 	}
 
-	claims, ok := token.Claims.(*Claims)
+	parsedClaims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, errs.Unauthenticated("invalid or corrupt token claims").
-			Reason("TOKEN_CLAIMS_INVALID")
+		return nil, ErrTokenClaimsInvalid()
 	}
 
-	if claims.TokenType != tokenType {
-		return nil, errs.Unauthenticated("token variant mismatch").
-			Reason("TOKEN_VARIANT_MISMATCH").
+	if parsedClaims.TokenType != tokenType {
+		return nil, ErrTokenTypeInvalid().
 			Meta("expected_type", tokenType.String()).
-			Meta("actual_type", claims.TokenType.String())
+			Meta("actual_type", parsedClaims.TokenType.String())
 	}
 
-	return claims, nil
+	return parsedClaims, nil
 }

@@ -27,15 +27,15 @@ var typeNames = [...]string{
 }
 
 func ParseType(raw int) (Type, error) {
-	return sanitize.ParseEnumInt(raw, typeMax, "token type")
+	return sanitize.ParseEnumInt(raw, typeMax, "token_type")
 }
 
 func ParseTypeString(s string) (Type, error) {
-	return sanitize.ParseEnumString[Type](s, typeNames[:], "token type")
+	return sanitize.ParseEnumString[Type](s, typeNames[:], "token_type")
 }
 
 func ParseTypeStringBytes(b []byte) (Type, error) {
-	return sanitize.ParseEnumStringBytes[Type](b, typeNames[:], "token type")
+	return sanitize.ParseEnumStringBytes[Type](b, typeNames[:], "token_type")
 }
 
 func (t Type) IsValid() bool {

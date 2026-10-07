@@ -7,7 +7,7 @@ import (
 func NewV7() (uuid.UUID, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
-		return uuid.Nil, ErrGenerateIDFailed().Wrap(err)
+		return uuid.Nil, ErrIDGenerateFailed().Wrap(err)
 	}
 	return id, nil
 }

@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"bonfire-api/internal/pkg/errs"
 	"crypto/sha256"
 
 	"golang.org/x/crypto/bcrypt"
@@ -12,21 +11,21 @@ const dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
 // HashPassword hashes a raw password using bcrypt with the default cost factor (bcrypt.DefaultCost).
 // Passwords longer than 72 bytes are truncated by the hashing algorithm.
-// Returns ErrHashPasswordFailed().Wrap(err) on failure.
-func HashPassword(password string) (string, *errs.Error) {
+// Returns ErrPasswordHashFailed().Wrap(err) on failure.
+func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", ErrHashPasswordFailed().Wrap(err)
+		return "", ErrPasswordHashFailed().Wrap(err)
 	}
 	return string(hash), nil
 }
 
 // CompareHashAndPassword verifies whether a raw password matches a hashed password.
-// Returns ErrInvalidCredentials().Wrap(err) on failure.
-func CompareHashAndPassword(hashedPassword, password string) *errs.Error {
+// Returns ErrCredentialsInvalid().Wrap(err) on failure.
+func CompareHashAndPassword(hashedPassword, password string) error {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	if err != nil {
-		return ErrInvalidCredentials().Wrap(err)
+		return ErrCredentialsInvalid().Wrap(err)
 	}
 	return nil
 }
