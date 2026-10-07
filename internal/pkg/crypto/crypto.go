@@ -10,7 +10,9 @@ import (
 // Valid 60 character password hash.
 const dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
-// HashPassword returns the string hash of a password at the default cost of the hashing algorithm.
+// HashPassword hashes a raw password using bcrypt with the default cost factor (bcrypt.DefaultCost).
+// Passwords longer than 72 bytes are truncated by the hashing algorithm.
+// Returns ErrHashPasswordFailed().Wrap(err) on failure.
 func HashPassword(password string) (string, *errs.Error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -19,7 +21,8 @@ func HashPassword(password string) (string, *errs.Error) {
 	return string(hash), nil
 }
 
-// CompareHashAndPassword compares a hashed password against a candidate password.
+// CompareHashAndPassword verifies whether a raw password matches a hashed password.
+// Returns ErrInvalidCredentials().Wrap(err) on failure.
 func CompareHashAndPassword(hashedPassword, password string) *errs.Error {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	if err != nil {
@@ -28,12 +31,12 @@ func CompareHashAndPassword(hashedPassword, password string) *errs.Error {
 	return nil
 }
 
-// CompareDummyHashAndPassword compares a fake password hash against a candidate password.
+// CompareDummyHashAndPassword verifies whether a raw password matches a dummy hashed password.
 func CompareDummyHashAndPassword(password string) {
 	_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
 }
 
-// HashToken returns the 32 byte hash of a token.
+// HashToken generates a SHA-256 hash of a token or string.
 func HashToken(token string) [32]byte {
 	return sha256.Sum256([]byte(token))
 }

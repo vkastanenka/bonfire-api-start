@@ -1,7 +1,7 @@
 package errs
 
-// Code represents standard gRPC-aligned error codes used to categorize errors
-// across system boundaries (https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto).
+// Code Represents standard gRPC error codes used to categorize errors.
+// https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto
 type Code int
 
 const (
@@ -25,7 +25,6 @@ const (
 	codeMax
 )
 
-// codeNames maps Code enum values to string representations.
 var codeNames = [...]string{
 	CodeOK:                 "OK",
 	CodeCancelled:          "CANCELLED",
@@ -46,7 +45,6 @@ var codeNames = [...]string{
 	CodeUnauthenticated:    "UNAUTHENTICATED",
 }
 
-// codeMessages maps Code enum values to default human-readable descriptions.
 var codeMessages = [...]string{
 	CodeOK:                 "The operation completed successfully.",
 	CodeCancelled:          "The operation was cancelled.",
@@ -67,7 +65,6 @@ var codeMessages = [...]string{
 	CodeUnauthenticated:    "The request does not have valid authentication credentials for the operation.",
 }
 
-// codeHTTPStatuses maps Code enum values to corresponding HTTP status codes.
 var codeHTTPStatuses = [...]int{
 	CodeOK:                 200,
 	CodeCancelled:          499,
@@ -93,7 +90,7 @@ func (c Code) IsValid() bool {
 	return c >= CodeOK && c < codeMax
 }
 
-// Name returns string identifier for code (e.g., "INVALID_ARGUMENT").
+// Name string identifier for code.
 // Returns "UNKNOWN" if invalid.
 func (c Code) Name() string {
 	if c.IsValid() {
@@ -102,7 +99,7 @@ func (c Code) Name() string {
 	return codeNames[CodeUnknown]
 }
 
-// Message returns default descriptive message for code.
+// Message returns descriptive message for code.
 // Returns default unknown message if invalid.
 func (c Code) Message() string {
 	if c.IsValid() {
@@ -111,7 +108,7 @@ func (c Code) Message() string {
 	return codeMessages[CodeUnknown]
 }
 
-// HTTPStatus maps code to corresponding HTTP status code (e.g., 400 for CodeInvalidArgument).
+// HTTPStatus maps code to corresponding HTTP status code.
 // Returns 500 if invalid.
 func (c Code) HTTPStatus() int {
 	if c.IsValid() {

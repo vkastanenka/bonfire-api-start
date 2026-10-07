@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// Error represents a structured, standard-compliant error implementation holding a gRPC-style
-// status code, user-facing message, optional wrapped causal error, and metadata payload list.
+// Structured error implementation of gRPC status error.
 type Error struct {
 	Code    Code   `json:"code"`
 	Message string `json:"message"`
@@ -14,9 +13,9 @@ type Error struct {
 	Err     error  `json:"-"`
 }
 
-// New constructs a new *Error with the specified code and message. Automatically initializes
-// and appends a default ErrorInfo payload containing the code name as reason. Fallbacks to
-// default code message if msg is empty.
+// Constructs new *Error with code and message.
+// Automatically initializes and appends default ErrorInfo payload containing code name as reason.
+// Fallbacks to default code message if `msg` is empty.
 func New(code Code, msg string) *Error {
 	if msg == "" {
 		msg = code.Message()
@@ -33,8 +32,8 @@ func New(code Code, msg string) *Error {
 	return e
 }
 
-// From extracts *Error from error chain using errors.As. Returns nil if target error
-// does not contain *Error.
+// From parses *Error from error using errors.As.
+// Returns nil if target error does not contain *Error.
 func From(err error) *Error {
 	if err == nil {
 		return nil
@@ -46,8 +45,7 @@ func From(err error) *Error {
 	return nil
 }
 
-// Error formats error message into readable string including code name and underlying
-// wrapped error if present.
+// Error formats error message into readable string including code name and underlying wrapped error if present.
 func (e *Error) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -101,55 +99,6 @@ func IsCode(err error, code Code) bool {
 
 // IsNotFound is a convenience helper for IsCode(err, CodeNotFound).
 func IsNotFound(err error) bool { return IsCode(err, CodeNotFound) }
-
-// Code-specific convenience constructors
-
-// Cancelled constructs a CodeCancelled error with custom message.
-func Cancelled(msg string) *Error { return New(CodeCancelled, msg) }
-
-// InvalidArgument constructs a CodeInvalidArgument error with custom message.
-func InvalidArgument(msg string) *Error { return New(CodeInvalidArgument, msg) }
-
-// DeadlineExceeded constructs a CodeDeadlineExceeded error with custom message.
-func DeadlineExceeded(msg string) *Error { return New(CodeDeadlineExceeded, msg) }
-
-// NotFound constructs a CodeNotFound error with custom message.
-func NotFound(msg string) *Error { return New(CodeNotFound, msg) }
-
-// AlreadyExists constructs a CodeAlreadyExists error with custom message.
-func AlreadyExists(msg string) *Error { return New(CodeAlreadyExists, msg) }
-
-// PermissionDenied constructs a CodePermissionDenied error with custom message.
-func PermissionDenied(msg string) *Error { return New(CodePermissionDenied, msg) }
-
-// ResourceExhausted constructs a CodeResourceExhausted error with custom message.
-func ResourceExhausted(msg string) *Error { return New(CodeResourceExhausted, msg) }
-
-// FailedPrecondition constructs a CodeFailedPrecondition error with custom message.
-func FailedPrecondition(msg string) *Error { return New(CodeFailedPrecondition, msg) }
-
-// Aborted constructs a CodeAborted error with custom message.
-func Aborted(msg string) *Error { return New(CodeAborted, msg) }
-
-// OutOfRange constructs a CodeOutOfRange error with custom message.
-func OutOfRange(msg string) *Error { return New(CodeOutOfRange, msg) }
-
-// Unimplemented constructs a CodeUnimplemented error with custom message.
-func Unimplemented(msg string) *Error { return New(CodeUnimplemented, msg) }
-
-// Internal constructs a CodeInternal error with custom message.
-func Internal(msg string) *Error { return New(CodeInternal, msg) }
-
-// Unavailable constructs a CodeUnavailable error with custom message.
-func Unavailable(msg string) *Error { return New(CodeUnavailable, msg) }
-
-// DataLoss constructs a CodeDataLoss error with custom message.
-func DataLoss(msg string) *Error { return New(CodeDataLoss, msg) }
-
-// Unauthenticated constructs a CodeUnauthenticated error with custom message.
-func Unauthenticated(msg string) *Error { return New(CodeUnauthenticated, msg) }
-
-// Fluent Builder Interface Methods
 
 // Detail appends or updates detail payload in e.Details matching type URL.
 func (e *Error) Detail(d any) *Error {
@@ -279,3 +228,20 @@ func getDetail[T any](e *Error) (T, bool) {
 
 	return zero, false
 }
+
+func Cancelled(msg string) *Error          { return New(CodeCancelled, msg) }
+func Unknown() *Error                      { return New(CodeUnknown, codeMessages[CodeUnknown]) }
+func InvalidArgument(msg string) *Error    { return New(CodeInvalidArgument, msg) }
+func DeadlineExceeded(msg string) *Error   { return New(CodeDeadlineExceeded, msg) }
+func NotFound(msg string) *Error           { return New(CodeNotFound, msg) }
+func AlreadyExists(msg string) *Error      { return New(CodeAlreadyExists, msg) }
+func PermissionDenied(msg string) *Error   { return New(CodePermissionDenied, msg) }
+func ResourceExhausted(msg string) *Error  { return New(CodeResourceExhausted, msg) }
+func FailedPrecondition(msg string) *Error { return New(CodeFailedPrecondition, msg) }
+func Aborted(msg string) *Error            { return New(CodeAborted, msg) }
+func OutOfRange(msg string) *Error         { return New(CodeOutOfRange, msg) }
+func Unimplemented(msg string) *Error      { return New(CodeUnimplemented, msg) }
+func Internal(msg string) *Error           { return New(CodeInternal, msg) }
+func Unavailable(msg string) *Error        { return New(CodeUnavailable, msg) }
+func DataLoss(msg string) *Error           { return New(CodeDataLoss, msg) }
+func Unauthenticated(msg string) *Error    { return New(CodeUnauthenticated, msg) }
