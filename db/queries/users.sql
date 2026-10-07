@@ -181,39 +181,38 @@ RETURNING
 UPDATE
     users AS u
 SET
-    email = data.email,
-    username = data.username,
-    display_name = data.display_name,
-    password_hash = data.password_hash,
-    phone = data.phone,
-    bio = data.bio,
-    avatar_url = data.avatar_url,
-    banner_color = data.banner_color,
-    preferred_presence = data.preferred_presence,
-    preferred_presence_until = data.preferred_presence_until,
-    verified_at = data.verified_at,
-    disabled_at = data.disabled_at,
-    delete_scheduled_at = data.delete_scheduled_at,
-    updated_at = data.updated_at
-FROM (
-    SELECT
-        UNNEST(@ids::uuid[]) AS id,
-        UNNEST(@emails::citext[]) AS email,
-        UNNEST(@usernames::citext[]) AS username,
-        UNNEST(@display_names::citext[]) AS display_name,
-        UNNEST(@password_hashes::text[]) AS password_hash,
-        UNNEST(@phones::text[]) AS phone,
-        UNNEST(@bios::text[]) AS bio,
-        UNNEST(@avatar_urls::text[]) AS avatar_url,
-        UNNEST(@banner_colors::text[]) AS banner_color,
-        UNNEST(@preferred_presences::smallint[]) AS preferred_presence,
-        UNNEST(@preferred_presence_untils::timestamptz[]) AS preferred_presence_until,
-        UNNEST(@verified_ats::timestamptz[]) AS verified_at,
-        UNNEST(@disabled_ats::timestamptz[]) AS disabled_at,
-        UNNEST(@delete_scheduled_ats::timestamptz[]) AS delete_scheduled_at,
-        UNNEST(@updated_ats::timestamptz[]) AS updated_at) AS data
+    email = v.email,
+    username = v.username,
+    display_name = v.display_name,
+    password_hash = v.password_hash,
+    phone = v.phone,
+    bio = v.bio,
+    avatar_url = v.avatar_url,
+    banner_color = v.banner_color,
+    preferred_presence = v.preferred_presence,
+    preferred_presence_until = v.preferred_presence_until,
+    verified_at = v.verified_at,
+    disabled_at = v.disabled_at,
+    delete_scheduled_at = v.delete_scheduled_at,
+    updated_at = v.updated_at
+FROM
+    jsonb_to_recordset(@payload::jsonb) AS v(id uuid,
+        email citext,
+        username citext,
+        display_name citext,
+        password_hash text,
+        phone text,
+        bio text,
+        avatar_url text,
+        banner_color text,
+        preferred_presence smallint,
+        preferred_presence_until timestamptz,
+        verified_at timestamptz,
+        disabled_at timestamptz,
+        delete_scheduled_at timestamptz,
+        updated_at timestamptz)
 WHERE
-    u.id = data.id
+    u.id = v.id
 RETURNING
     u.*;
 
