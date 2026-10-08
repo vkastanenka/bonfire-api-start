@@ -178,9 +178,7 @@ type RegisterResult struct {
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
 	uID, err := uuid.NewV7()
 	if err != nil {
-		return RegisterResult{}, ErrIDGenerateFailed().
-			Meta("resource", "user").
-			Wrap(err)
+		return RegisterResult{}, ErrIDGenerateFailed().Meta("resource", "user").Wrap(err)
 	}
 
 	pHash, err := crypto.HashPassword(p.Password)
@@ -271,9 +269,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (session.Session, token.Pair, error) {
 	sid, err := uuid.NewV7()
 	if err != nil {
-		return session.Session{}, token.Pair{}, ErrIDGenerateFailed().
-			Meta("resource", "session").
-			Wrap(err)
+		return session.Session{}, token.Pair{}, ErrIDGenerateFailed().Meta("resource", "session").Wrap(err)
 	}
 
 	tokenPair, err := s.tokenProvider.GeneratePair(userID, sid)

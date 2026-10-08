@@ -74,6 +74,7 @@ type Querier interface {
 	RelationSave(ctx context.Context, arg RelationSaveParams) (Relation, error)
 	SessionCreate(ctx context.Context, arg SessionCreateParams) (Session, error)
 	SessionDeleteBatchExpired(ctx context.Context, arg SessionDeleteBatchExpiredParams) error
+	SessionDeleteBatchRevoked(ctx context.Context, arg SessionDeleteBatchRevokedParams) error
 	SessionGet(ctx context.Context, id pgtype.UUID) (Session, error)
 	SessionListValidByUserID(ctx context.Context, arg SessionListValidByUserIDParams) ([]Session, error)
 	SessionRevoke(ctx context.Context, arg SessionRevokeParams) error

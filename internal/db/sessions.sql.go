@@ -99,6 +99,39 @@ func (q *Queries) SessionDeleteBatchExpired(ctx context.Context, arg SessionDele
 	return err
 }
 
+const sessionDeleteBatchRevoked = `-- name: SessionDeleteBatchRevoked :exec
+WITH targets AS (
+    SELECT
+        id
+    FROM
+        sessions
+    WHERE
+        revoked_at IS NOT NULL
+        AND revoked_at <= $1::timestamptz
+    ORDER BY
+        revoked_at ASC,
+        id ASC
+    LIMIT $2::int
+    FOR UPDATE
+        SKIP LOCKED)
+DELETE FROM sessions
+WHERE id IN (
+        SELECT
+            id
+        FROM
+            targets)
+`
+
+type SessionDeleteBatchRevokedParams struct {
+	Now      pgtype.Timestamptz `json:"now"`
+	LimitVal int32              `json:"limit_val"`
+}
+
+func (q *Queries) SessionDeleteBatchRevoked(ctx context.Context, arg SessionDeleteBatchRevokedParams) error {
+	_, err := q.db.Exec(ctx, sessionDeleteBatchRevoked, arg.Now, arg.LimitVal)
+	return err
+}
+
 const sessionGet = `-- name: SessionGet :one
 SELECT
     sessions.id, sessions.user_id, sessions.created_at, sessions.updated_at, sessions.last_seen_at, sessions.expires_at, sessions.revoked_at, sessions.client_ip, sessions.refresh_token_hash, sessions.os, sessions.client, sessions.user_agent
@@ -251,10 +284,12 @@ SET
     last_seen_at = $3::timestamptz,
     updated_at = $3::timestamptz,
     client_ip = $4::inet,
-    user_agent = $5::text
+    user_agent = $5::text,
+    os = $6::text,
+    client = $7::text
 WHERE
-    id = $6::uuid
-    AND refresh_token_hash = $7::bytea
+    id = $8::uuid
+    AND refresh_token_hash = $9::bytea
     AND revoked_at IS NULL
     AND expires_at > $3::timestamptz
 RETURNING
@@ -267,6 +302,8 @@ type SessionRotateRefreshTokenHashParams struct {
 	Now                 pgtype.Timestamptz `json:"now"`
 	ClientIP            netip.Addr         `json:"client_ip"`
 	UserAgent           string             `json:"user_agent"`
+	OS                  string             `json:"os"`
+	Client              string             `json:"client"`
 	ID                  pgtype.UUID        `json:"id"`
 	OldRefreshTokenHash []byte             `json:"old_refresh_token_hash"`
 }
@@ -278,6 +315,8 @@ func (q *Queries) SessionRotateRefreshTokenHash(ctx context.Context, arg Session
 		arg.Now,
 		arg.ClientIP,
 		arg.UserAgent,
+		arg.OS,
+		arg.Client,
 		arg.ID,
 		arg.OldRefreshTokenHash,
 	)
