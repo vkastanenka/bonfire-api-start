@@ -34,7 +34,9 @@ SET
     last_seen_at = @now::timestamptz,
     updated_at = @now::timestamptz,
     client_ip = @client_ip::inet,
-    user_agent = @user_agent::text
+    user_agent = @user_agent::text,
+    os = @os::text,
+    client = @client::text
 WHERE
     id = @id::uuid
     AND refresh_token_hash = @old_refresh_token_hash::bytea
@@ -76,6 +78,28 @@ WITH targets AS (
         expires_at <= @now::timestamptz
     ORDER BY
         expires_at ASC,
+        id ASC
+    LIMIT @limit_val::int
+    FOR UPDATE
+        SKIP LOCKED)
+DELETE FROM sessions
+WHERE id IN (
+        SELECT
+            id
+        FROM
+            targets);
+
+-- name: SessionDeleteBatchRevoked :exec
+WITH targets AS (
+    SELECT
+        id
+    FROM
+        sessions
+    WHERE
+        revoked_at IS NOT NULL
+        AND revoked_at <= @now::timestamptz
+    ORDER BY
+        revoked_at ASC,
         id ASC
     LIMIT @limit_val::int
     FOR UPDATE
