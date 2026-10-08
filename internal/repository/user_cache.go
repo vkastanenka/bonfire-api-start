@@ -3,9 +3,8 @@ package repository
 import (
 	"context"
 	"log/slog"
+	"os/user"
 	"time"
-
-	"bonfire-api/internal/user"
 
 	"github.com/google/uuid"
 )

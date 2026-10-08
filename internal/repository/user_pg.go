@@ -41,7 +41,7 @@ func (r *UserRepository) Create(ctx context.Context, u user.User) (user.User, er
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityUser)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -50,7 +50,7 @@ func (r *UserRepository) Create(ctx context.Context, u user.User) (user.User, er
 func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -59,7 +59,7 @@ func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (user.User, erro
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -68,7 +68,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (user.Use
 func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user.User, error) {
 	row, err := r.store.UserGetByUsername(ctx, username)
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -77,7 +77,7 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (us
 func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]user.User, error) {
 	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
-		return nil, db.NewError(err, db.EntityUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return usersFromRows(rows), nil
@@ -89,7 +89,7 @@ func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime ti
 		LimitVal: int32(limitVal),
 	})
 	if err != nil {
-		return nil, db.NewError(err, db.EntityChannel)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return usersFromRows(rows), nil
@@ -114,7 +114,7 @@ func (r *UserRepository) Update(ctx context.Context, u user.User) (user.User, er
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -127,7 +127,7 @@ func (r *UserRepository) UpdateEmail(ctx context.Context, id uuid.UUID, email st
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -140,7 +140,7 @@ func (r *UserRepository) UpdateUsername(ctx context.Context, id uuid.UUID, usern
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -153,7 +153,7 @@ func (r *UserRepository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *s
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -166,7 +166,7 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, p
 		UpdatedAt:    db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -190,7 +190,7 @@ func (r *UserRepository) UpdateProfile(
 		UpdatedAt:   db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -210,7 +210,7 @@ func (r *UserRepository) UpdatePreferredPresence(
 		UpdatedAt:              db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -223,7 +223,7 @@ func (r *UserRepository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *t
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -236,7 +236,7 @@ func (r *UserRepository) SetDisabled(ctx context.Context, id uuid.UUID, disabled
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -250,45 +250,40 @@ func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, de
 		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return user.User{}, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
+type userUpdatePayload struct {
+	ID                     uuid.UUID  `json:"id"`
+	Email                  string     `json:"email"`
+	Username               string     `json:"username"`
+	DisplayName            string     `json:"display_name"`
+	PasswordHash           string     `json:"password_hash"`
+	Phone                  *string    `json:"phone"`
+	Bio                    *string    `json:"bio"`
+	AvatarURL              *string    `json:"avatar_url"`
+	BannerColor            *string    `json:"banner_color"`
+	PreferredPresence      *int16     `json:"preferred_presence"`
+	PreferredPresenceUntil *time.Time `json:"preferred_presence_until"`
+	VerifiedAt             *time.Time `json:"verified_at"`
+	DisabledAt             *time.Time `json:"disabled_at"`
+	DeleteScheduledAt      *time.Time `json:"delete_scheduled_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+func ErrUserUpdateBatchMarshalFailed() *errs.Error {
+	return errs.Internal("Failed to marshal user update batch payload.").
+		Reason("USER_UPDATE_BATCH_MARSHAL_FAILED").
+		Meta("scope", "user")
+}
+
 func (r *UserRepository) UpdateBatch(ctx context.Context, users []user.User) ([]user.User, error) {
-	if len(users) == 0 {
-		return []user.User{}, nil
-	}
-
-	type userPayload struct {
-		ID                     uuid.UUID  `json:"id"`
-		Email                  string     `json:"email"`
-		Username               string     `json:"username"`
-		DisplayName            string     `json:"display_name"`
-		PasswordHash           string     `json:"password_hash"`
-		Phone                  *string    `json:"phone,omitempty"`
-		Bio                    *string    `json:"bio,omitempty"`
-		AvatarURL              *string    `json:"avatar_url,omitempty"`
-		BannerColor            *string    `json:"banner_color,omitempty"`
-		PreferredPresence      *int16     `json:"preferred_presence,omitempty"`
-		PreferredPresenceUntil *time.Time `json:"preferred_presence_until,omitempty"`
-		VerifiedAt             *time.Time `json:"verified_at,omitempty"`
-		DisabledAt             *time.Time `json:"disabled_at,omitempty"`
-		DeleteScheduledAt      *time.Time `json:"delete_scheduled_at,omitempty"`
-		CreatedAt              time.Time  `json:"created_at"`
-		UpdatedAt              time.Time  `json:"updated_at"`
-	}
-
-	payloads := make([]userPayload, len(users))
+	payloads := make([]userUpdatePayload, len(users))
 	for i, u := range users {
-		var preferredPresence *int16
-		if u.PreferredPresence != nil {
-			val := int16(*u.PreferredPresence)
-			preferredPresence = &val
-		}
-
-		payloads[i] = userPayload{
+		payloads[i] = userUpdatePayload{
 			ID:                     u.ID,
 			Email:                  u.Email,
 			Username:               u.Username,
@@ -298,35 +293,26 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []user.User) ([]
 			Bio:                    u.Bio,
 			AvatarURL:              u.AvatarURL,
 			BannerColor:            u.BannerColor,
-			PreferredPresence:      preferredPresence,
+			PreferredPresence:      toInt16Ptr(u.PreferredPresence),
 			PreferredPresenceUntil: u.PreferredPresenceUntil,
 			VerifiedAt:             u.VerifiedAt,
 			DisabledAt:             u.DisabledAt,
 			DeleteScheduledAt:      u.DeleteScheduledAt,
-			CreatedAt:              u.CreatedAt,
 			UpdatedAt:              u.UpdatedAt,
 		}
 	}
 
 	jsonBytes, err := json.Marshal(payloads)
 	if err != nil {
-		return user.User{}, errs.Internal("failed to marshal user update batch payload").
-			Meta("scope", "user").
-			Wrap(err)
+		return nil, ErrUserUpdateBatchMarshalFailed().Wrap(err)
 	}
 
 	rows, err := r.store.UserUpdateBatch(ctx, jsonBytes)
 	if err != nil {
-		return user.User{}, db.NewError(err, db.EntityChannel)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
-	updatedUsers := make([]user.User, len(rows))
-	for i, row := range rows {
-		u := userFromRow(row)
-		updatedUsers[i] = u
-	}
-
-	return updatedUsers, nil
+	return usersFromRows(rows), nil
 }
 
 func userFromRow(row db.User) user.User {
@@ -366,4 +352,12 @@ func usersFromRows(rows []db.User) []user.User {
 	}
 
 	return users
+}
+
+func toInt16Ptr[T ~int | ~int16 | ~int32](val *T) *int16 {
+	if val == nil {
+		return nil
+	}
+	v := int16(*val)
+	return &v
 }

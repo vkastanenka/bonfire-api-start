@@ -32,9 +32,9 @@ func New(code Code, msg string) *Error {
 	return e
 }
 
-// From parses *Error from error using errors.As.
+// As parses *Error from error using errors.As.
 // Returns nil if target error does not contain *Error.
-func From(err error) *Error {
+func As(err error) *Error {
 	if err == nil {
 		return nil
 	}
@@ -75,7 +75,7 @@ func (e *Error) Unwrap() error {
 
 // Is compares whether target error shares the same Code.
 func (e *Error) Is(target error) bool {
-	if appErr := From(target); appErr != nil {
+	if appErr := As(target); appErr != nil {
 		return e.Code == appErr.Code
 	}
 	return false
@@ -91,7 +91,7 @@ func (e *Error) Wrap(err error) *Error {
 
 // IsCode checks whether any error in chain resolves to *Error with matching code.
 func IsCode(err error, code Code) bool {
-	if appErr := From(err); appErr != nil {
+	if appErr := As(err); appErr != nil {
 		return appErr.Code == code
 	}
 	return false

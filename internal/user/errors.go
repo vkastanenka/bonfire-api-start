@@ -2,12 +2,6 @@ package user
 
 import "bonfire-api/internal/pkg/errs"
 
-func ErrUserUpdateBatchMarshalFailed() *errs.Error {
-	return errs.Internal("Failed to marshal user update batch payload.").
-		Reason("USER_UPDATE_BATCH_MARSHAL_FAILED").
-		Meta("scope", "user")
-}
-
 func ErrInvalidPassword() *errs.Error {
 	return errs.Unauthenticated("Invalid password.").
 		Reason("INVALID_PASSWORD").

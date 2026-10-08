@@ -3,11 +3,8 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
-
-	"bonfire-api/internal/pkg/errs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,15 +18,14 @@ type Store struct {
 
 // NewStore initializes a Store configured with dynamic transaction context routing.
 func NewStore(pool *pgxpool.Pool) *Store {
-	cdb := newContextDB(pool)
+	cdb := &ctxDB{pool: pool}
 	return &Store{
 		Queries: New(cdb),
 		pool:    pool,
 	}
 }
 
-// ExecTx executes fn within a database transaction, reusing an existing in-context
-// transaction or managing a new transaction lifecycle with rollback on error or panic.
+// ExecTx executes fn within a tx, reusing a tx in ctx or instead beginning a new tx with rollback on error or panic.
 func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error) (err error) {
 	if _, ok := ExtractTx(ctx); ok {
 		return fn(ctx)
@@ -37,16 +33,15 @@ func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error
 
 	tx, beginErr := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if beginErr != nil {
-		return errs.Internal("Failed to begin database transaction.").
-			Reason("DB_TX_BEGIN_FAILED").
-			Wrap(beginErr)
+		return ErrDBTXStartFailed().Wrap(beginErr)
 	}
 
 	defer func() {
 		if p := recover(); p != nil {
 			rbCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
 			_ = tx.Rollback(rbCtx)
-			cancel()
 			panic(p)
 		}
 
@@ -62,7 +57,6 @@ func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error
 						slog.Any("rollback_error", rbErr),
 					)
 				}
-				err = fmt.Errorf("tx error: %w (rollback failed: %v)", err, rbErr)
 			}
 		}
 	}()
@@ -74,9 +68,7 @@ func (s *Store) ExecTx(ctx context.Context, fn func(txCtx context.Context) error
 	}
 
 	if commitErr := tx.Commit(ctx); commitErr != nil {
-		return errs.Internal("Failed to commit database transaction.").
-			Reason("DB_TX_COMMIT_FAILED").
-			Wrap(commitErr)
+		return ErrDBTXCommitFailed().Wrap(commitErr)
 	}
 
 	return nil

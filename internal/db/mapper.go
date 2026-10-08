@@ -14,7 +14,7 @@ type Integer interface {
 }
 
 // -----------------------------------------------------------------------------
-// Domain -> DB (Interpolation via Generics)
+// Domain -> DB
 // -----------------------------------------------------------------------------
 
 // ToInt2 converts any integer type or custom integer alias into pgtype.Int2.
@@ -125,7 +125,7 @@ func ToUUIDs(ids []uuid.UUID) []pgtype.UUID {
 }
 
 // -----------------------------------------------------------------------------
-// DB -> Domain (Direct Concrete Typing)
+// DB -> Domain
 // -----------------------------------------------------------------------------
 
 // FromInt2 converts pgtype.Int2 into an int, returning 0 if NULL.
