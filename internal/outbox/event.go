@@ -5,13 +5,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"bonfire-api/internal/pkg/errs"
-
 	"github.com/google/uuid"
 )
 
 const (
-	maxAttemptsDefault = 5
+	defaultMaxAttempts = 3
 	maxLastErrorLen    = 4096
 )
 
@@ -19,7 +17,6 @@ type Event struct {
 	ID             uuid.UUID
 	Type           string
 	Payload        json.RawMessage
-	TraceID        *string
 	ProcessedAt    *time.Time
 	Attempts       int
 	MaxAttempts    int
@@ -44,8 +41,8 @@ func ReconstituteEvent(
 	leaseExpiresAt *time.Time,
 	createdAt time.Time,
 	updatedAt time.Time,
-) *Event {
-	return &Event{
+) Event {
+	return Event{
 		ID:             id,
 		Type:           eventType,
 		Payload:        payload,
@@ -62,54 +59,46 @@ func ReconstituteEvent(
 }
 
 func New[T any](
-	actorID uuid.UUID,
-	sessionID uuid.UUID,
-	traceID string,
-	recipientIDs []uuid.UUID,
 	eventType string,
+	metadata Metadata,
 	payload T,
 	now time.Time,
-) (*Event, error) {
+) (Event, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, errs.Internal("Failed to generate outbox event ID.").Wrap(err)
-	}
-
-	meta := Metadata{
-		ActorID:      actorID,
-		SessionID:    sessionID,
-		TraceID:      traceID,
-		RecipientIDs: recipientIDs,
-	}
-
-	env := Envelope[T]{
-		Metadata: meta,
-		Payload:  payload,
-	}
-
-	data, err := json.Marshal(env)
-	if err != nil {
-		return nil, errs.Internal("Failed to marshal outbox event envelope.").
+		return Event{}, ErrIDGenerateFailed().
+			Meta("resource", "outbox_event").
 			Meta("event_type", eventType).
 			Wrap(err)
 	}
 
-	event := ReconstituteEvent(
+	env := Envelope[T]{
+		Metadata: metadata,
+		Payload:  payload,
+	}
+
+	envBytes, err := json.Marshal(env)
+	if err != nil {
+		return Event{}, ErrJSONMarshalFailed().
+			Meta("resource", "outbox_event").
+			Meta("event_type", eventType).
+			Wrap(err)
+	}
+
+	return ReconstituteEvent(
 		id,
 		eventType,
-		data,
+		envBytes,
 		nil,
 		0,
-		maxAttemptsDefault,
+		defaultMaxAttempts,
 		now,
 		nil,
 		nil,
 		nil,
 		now,
 		now,
-	)
-
-	return event, nil
+	), nil
 }
 
 func (e *Event) IsProcessed() bool  { return e.ProcessedAt != nil }

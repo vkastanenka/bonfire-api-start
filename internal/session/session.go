@@ -31,32 +31,6 @@ type Session struct {
 	UpdatedAt        time.Time
 }
 
-func New(
-	id,
-	userID uuid.UUID,
-	refreshTokenHash [32]byte,
-	clientIP netip.Addr,
-	userAgent string,
-	os string,
-	client string,
-	expiresAt,
-	now time.Time,
-) Session {
-	return Session{
-		ID:               id,
-		UserID:           userID,
-		RefreshTokenHash: refreshTokenHash,
-		ClientIP:         clientIP,
-		UserAgent:        userAgent,
-		OS:               os,
-		Client:           client,
-		ExpiresAt:        expiresAt,
-		LastSeenAt:       now,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
-}
-
 func Reconstitute(
 	id, userID uuid.UUID,
 	refreshTokenHash [32]byte,
@@ -80,6 +54,31 @@ func Reconstitute(
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
 	}
+}
+
+func New(
+	id, userID uuid.UUID,
+	refreshTokenHash [32]byte,
+	clientIP netip.Addr,
+	userAgent string,
+	os string,
+	client string,
+	expiresAt, now time.Time,
+) Session {
+	return Reconstitute(
+		id,
+		userID,
+		refreshTokenHash,
+		clientIP,
+		userAgent,
+		os,
+		client,
+		expiresAt,
+		now,
+		nil,
+		now,
+		now,
+	)
 }
 
 func (s *Session) IsRevoked() bool {
