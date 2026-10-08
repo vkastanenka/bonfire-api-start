@@ -66,18 +66,22 @@ func (r *SessionRepository) ListValidByUserID(ctx context.Context, userID uuid.U
 func (r *SessionRepository) RotateRefreshTokenHash(
 	ctx context.Context,
 	id uuid.UUID,
-	oldHash, newHash string,
+	oldHash, newHash [32]byte,
 	clientIP netip.Addr,
 	userAgent string,
+	os string,
+	client string,
 	expiresAt,
 	now time.Time,
 ) (session.Session, error) {
 	row, err := r.store.SessionRotateRefreshTokenHash(ctx, db.SessionRotateRefreshTokenHashParams{
 		ID:                  db.ToUUID(id),
-		OldRefreshTokenHash: []byte(oldHash),
-		NewRefreshTokenHash: []byte(newHash),
+		OldRefreshTokenHash: oldHash[:],
+		NewRefreshTokenHash: newHash[:],
 		ClientIP:            clientIP,
 		UserAgent:           userAgent,
+		OS:                  os,
+		Client:              client,
 		ExpiresAt:           db.ToTimestamptz(expiresAt),
 		Now:                 db.ToTimestamptz(now),
 	})
@@ -125,10 +129,10 @@ func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Tim
 	return nil
 }
 
-func (r *SessionRepository) SessionDeleteBatchRevoked(ctx context.Context, now time.Time, limitVal int) error {
+func (r *SessionRepository) DeleteBatchRevoked(ctx context.Context, now time.Time, limitVal int) error {
 	err := r.store.SessionDeleteBatchRevoked(ctx, db.SessionDeleteBatchRevokedParams{
-		Now: db.ToTimestamptz(now),
-		LimitVal:      int32(limitVal),
+		Now:      db.ToTimestamptz(now),
+		LimitVal: int32(limitVal),
 	})
 	if err != nil {
 		return db.NewError(err, db.ResourceSession)

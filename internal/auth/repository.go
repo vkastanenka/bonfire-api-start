@@ -25,6 +25,7 @@ type SessionRepository interface {
 	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID, now time.Time) error
 	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
 	RotateRefreshTokenHash(ctx context.Context, id uuid.UUID, oldHash string, newHash string, clientIP netip.Addr, userAgent string, expiresAt time.Time, now time.Time) (session.Session, error)
+	DeleteBatchRevoked(ctx context.Context, now time.Time, limitVal int) error
 }
 
 type UserRepository interface {

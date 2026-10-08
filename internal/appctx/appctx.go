@@ -27,7 +27,7 @@ type ClientMeta struct {
 	IP        netip.Addr
 	UserAgent string
 	OS        string
-	Browser   string
+	Client   string
 }
 
 func WithClientMeta(ctx context.Context, meta ClientMeta) context.Context {
