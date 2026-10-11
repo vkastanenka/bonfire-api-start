@@ -20,7 +20,11 @@ func NewUserRepository(store *db.Store) *UserRepository {
 	return &UserRepository{store: store}
 }
 
-func (r *UserRepository) Create(ctx context.Context, u user.User) (user.User, error) {
+func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, error) {
+	if u == nil {
+		return nil, ErrDomainPayloadRequired().Meta("resource", db.ResourceUser.String())
+	}
+
 	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
 		ID:                     db.ToUUID(u.ID),
 		Email:                  u.Email,
@@ -40,40 +44,40 @@ func (r *UserRepository) Create(ctx context.Context, u user.User) (user.User, er
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (user.User, error) {
+func (r *UserRepository) Get(ctx context.Context, id uuid.UUID) (*user.User, error) {
 	row, err := r.store.UserGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (user.User, error) {
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.User, error) {
 	row, err := r.store.UserGetByEmail(ctx, email)
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user.User, error) {
+func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*user.User, error) {
 	row, err := r.store.UserGetByUsername(ctx, username)
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]user.User, error) {
+func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]*user.User, error) {
 	rows, err := r.store.UserGetBatch(ctx, db.ToUUIDs(ids))
 	if err != nil {
 		return nil, db.NewError(err, db.ResourceUser)
@@ -82,7 +86,7 @@ func (r *UserRepository) GetBatch(ctx context.Context, ids []uuid.UUID) ([]user.
 	return usersFromRows(rows), nil
 }
 
-func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime time.Time, limitVal int) ([]user.User, error) {
+func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime time.Time, limitVal int) ([]*user.User, error) {
 	rows, err := r.store.UserListDeleteScheduled(ctx, db.UserListDeleteScheduledParams{
 		Now:      db.ToTimestamptz(currentTime),
 		LimitVal: int32(limitVal),
@@ -94,7 +98,11 @@ func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime ti
 	return usersFromRows(rows), nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, u user.User) (user.User, error) {
+func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, error) {
+	if u == nil {
+		return nil, ErrDomainPayloadRequired().Meta("resource", db.ResourceUser.String())
+	}
+
 	row, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
 		ID:                     db.ToUUID(u.ID),
 		Email:                  u.Email,
@@ -113,59 +121,59 @@ func (r *UserRepository) Update(ctx context.Context, u user.User) (user.User, er
 		UpdatedAt:              db.ToTimestamptz(u.UpdatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdateEmail(ctx context.Context, id uuid.UUID, email string, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) UpdateEmail(ctx context.Context, id uuid.UUID, email string, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserUpdateEmail(ctx, db.UserUpdateEmailParams{
 		ID:        db.ToUUID(id),
 		Email:     email,
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdateUsername(ctx context.Context, id uuid.UUID, username string, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) UpdateUsername(ctx context.Context, id uuid.UUID, username string, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserUpdateUsername(ctx, db.UserUpdateUsernameParams{
 		ID:        db.ToUUID(id),
 		Username:  username,
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *string, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) UpdatePhone(ctx context.Context, id uuid.UUID, phone *string, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserUpdatePhone(ctx, db.UserUpdatePhoneParams{
 		ID:        db.ToUUID(id),
 		Phone:     db.ToTextPtr(phone),
 		UpdatedAt: db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserUpdatePasswordHash(ctx, db.UserUpdatePasswordHashParams{
 		ID:           db.ToUUID(id),
 		PasswordHash: passwordHash,
 		UpdatedAt:    db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -179,7 +187,7 @@ func (r *UserRepository) UpdateProfile(
 	avatarURL *string,
 	bannerColor *string,
 	updatedAt time.Time,
-) (user.User, error) {
+) (*user.User, error) {
 	row, err := r.store.UserUpdateProfile(ctx, db.UserUpdateProfileParams{
 		ID:          db.ToUUID(id),
 		DisplayName: displayName,
@@ -189,7 +197,7 @@ func (r *UserRepository) UpdateProfile(
 		UpdatedAt:   db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
@@ -201,7 +209,7 @@ func (r *UserRepository) UpdatePreferredPresence(
 	preferredPresence *presence.Presence,
 	preferredPresenceUntil *time.Time,
 	updatedAt time.Time,
-) (user.User, error) {
+) (*user.User, error) {
 	row, err := r.store.UserUpdatePresence(ctx, db.UserUpdatePresenceParams{
 		ID:                     db.ToUUID(id),
 		PreferredPresence:      db.ToInt2Ptr(preferredPresence),
@@ -209,39 +217,39 @@ func (r *UserRepository) UpdatePreferredPresence(
 		UpdatedAt:              db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *time.Time, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) Verify(ctx context.Context, id uuid.UUID, verifiedAt *time.Time, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserVerify(ctx, db.UserVerifyParams{
 		ID:         db.ToUUID(id),
 		VerifiedAt: db.ToTimestamptzPtr(verifiedAt),
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) SetDisabled(ctx context.Context, id uuid.UUID, disabledAt *time.Time, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) SetDisabled(ctx context.Context, id uuid.UUID, disabledAt *time.Time, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserSetDisabled(ctx, db.UserSetDisabledParams{
 		ID:         db.ToUUID(id),
 		DisabledAt: db.ToTimestamptzPtr(disabledAt),
 		UpdatedAt:  db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, deleteScheduledAt, disabledAt *time.Time, updatedAt time.Time) (user.User, error) {
+func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, deleteScheduledAt, disabledAt *time.Time, updatedAt time.Time) (*user.User, error) {
 	row, err := r.store.UserSetDeleteSchedule(ctx, db.UserSetDeleteScheduleParams{
 		ID:                db.ToUUID(id),
 		DeleteScheduledAt: db.ToTimestamptzPtr(deleteScheduledAt),
@@ -249,13 +257,13 @@ func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, de
 		UpdatedAt:         db.ToTimestamptz(updatedAt),
 	})
 	if err != nil {
-		return user.User{}, db.NewError(err, db.ResourceUser)
+		return nil, db.NewError(err, db.ResourceUser)
 	}
 
 	return userFromRow(row), nil
 }
 
-func (r *UserRepository) UpdateBatch(ctx context.Context, users []user.User) ([]user.User, error) {
+func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([]*user.User, error) {
 	jsonBytes, err := json.Marshal(parseUserUpdatePayloads(users))
 	if err != nil {
 		return nil, ErrJSONMarshalFailed().Wrap(err)
@@ -269,7 +277,7 @@ func (r *UserRepository) UpdateBatch(ctx context.Context, users []user.User) ([]
 	return usersFromRows(rows), nil
 }
 
-func userFromRow(row db.User) user.User {
+func userFromRow(row db.User) *user.User {
 	var preferredPresence *presence.Presence
 	if p, err := presence.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
 		preferredPresence = &p
@@ -295,12 +303,12 @@ func userFromRow(row db.User) user.User {
 	)
 }
 
-func usersFromRows(rows []db.User) []user.User {
+func usersFromRows(rows []db.User) []*user.User {
 	if len(rows) == 0 {
-		return []user.User{}
+		return nil
 	}
 
-	users := make([]user.User, 0, len(rows))
+	users := make([]*user.User, 0, len(rows))
 	for _, row := range rows {
 		users = append(users, userFromRow(row))
 	}

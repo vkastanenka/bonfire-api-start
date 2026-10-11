@@ -27,7 +27,7 @@ type ClientMeta struct {
 	IP        netip.Addr
 	UserAgent string
 	OS        string
-	Client   string
+	Client    string
 }
 
 func WithClientMeta(ctx context.Context, meta ClientMeta) context.Context {
@@ -55,11 +55,11 @@ func GetClientMeta(ctx context.Context) (ClientMeta, error) {
 	return meta, nil
 }
 
-// GetAuthClaims extracts token claims from the context.
-func GetAuthClaims(ctx context.Context) (*token.Claims, error) {
-	claims, ok := ctx.Value(keyClaims).(*token.Claims)
-	if !ok || claims == nil {
-		return nil, ErrClaimsNotFound
+// GetClaims extracts token claims from the context.
+func GetClaims(ctx context.Context) (token.Claims, error) {
+	claims, ok := ctx.Value(keyClaims).(token.Claims)
+	if !ok {
+		return token.Claims{}, ErrClaimsNotFound
 	}
 	return claims, nil
 }

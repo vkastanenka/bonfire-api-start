@@ -4,14 +4,6 @@ import (
 	"bonfire-api/internal/appctx"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-)
-
-var (
-	ErrFatal          = errors.New("outbox: fatal event execution error")
-	ErrLeaseLost      = errors.New("outbox: lease renewal failed")
-	ErrInvalidPayload = errors.New("outbox: invalid event payload schema")
 )
 
 // Handler processes raw outbox payloads.
@@ -25,12 +17,11 @@ func BindHandler[T any](fn TypedHandler[T]) Handler {
 	return func(ctx context.Context, rawPayload json.RawMessage) error {
 		var env Envelope[T]
 		if err := json.Unmarshal(rawPayload, &env); err != nil {
-			return fmt.Errorf("%w: failed to unmarshal outbox envelope: %w", ErrInvalidPayload, err)
+			return ErrJSONUnmarshalFailed().Wrap(err)
 		}
 
-		// Inject TraceID from envelope metadata into execution context if present
 		if env.Metadata.TraceID != "" {
-			ctx = context.WithValue(ctx, appctx.KeyTraceID, env.Metadata.TraceID)
+			ctx = appctx.WithTraceID(ctx, env.Metadata.TraceID)
 		}
 
 		return fn(ctx, env.Metadata, env.Payload)

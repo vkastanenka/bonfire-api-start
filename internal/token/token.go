@@ -83,7 +83,7 @@ func NewProvider(cfg ProviderConfig) (*Provider, error) {
 	}, nil
 }
 
-func (p *Provider) generate(tokenType Type, claims *Claims) (string, time.Time, error) {
+func (p *Provider) generate(tokenType Type, claims Claims) (string, time.Time, error) {
 	spec, exists := p.variants[tokenType]
 	if !exists || len(spec.Secret) == 0 {
 		return "", time.Time{}, ErrTokenConfigMissing().
@@ -92,10 +92,6 @@ func (p *Provider) generate(tokenType Type, claims *Claims) (string, time.Time, 
 
 	now := time.Now().UTC().Truncate(time.Second)
 	expiresAt := now.Add(spec.TTL)
-
-	if claims == nil {
-		claims = &Claims{}
-	}
 
 	claims.TokenType = tokenType
 	claims.RegisteredClaims = jwt.RegisteredClaims{
@@ -117,16 +113,16 @@ func (p *Provider) generate(tokenType Type, claims *Claims) (string, time.Time, 
 	return signedToken, expiresAt, nil
 }
 
-func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
+func (p *Provider) verify(tokenType Type, tokenStr string) (Claims, error) {
 	spec, exists := p.variants[tokenType]
 	if !exists || spec.Secret == "" {
-		return nil, ErrTokenConfigMissing().
+		return Claims{}, ErrTokenConfigMissing().
 			Meta("token_type", tokenType.String())
 	}
 
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
-		&Claims{},
+		Claims{},
 		func(t *jwt.Token) (any, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing algorithm: %v", t.Header["alg"])
@@ -140,25 +136,25 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenExpired):
-			return nil, ErrTokenExpired().Wrap(err)
+			return Claims{}, ErrTokenExpired().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenInvalidIssuer):
-			return nil, ErrTokenIssuerInvalid().Wrap(err)
+			return Claims{}, ErrTokenIssuerInvalid().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenMalformed):
-			return nil, ErrTokenMalformed().Wrap(err)
+			return Claims{}, ErrTokenMalformed().Wrap(err)
 		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
-			return nil, ErrTokenSignatureInvalid().Wrap(err)
+			return Claims{}, ErrTokenSignatureInvalid().Wrap(err)
 		default:
-			return nil, ErrTokenInvalid().Wrap(err)
+			return Claims{}, ErrTokenInvalid().Wrap(err)
 		}
 	}
 
-	parsedClaims, ok := token.Claims.(*Claims)
+	parsedClaims, ok := token.Claims.(Claims)
 	if !ok || !token.Valid {
-		return nil, ErrTokenClaimsInvalid()
+		return Claims{}, ErrTokenClaimsInvalid()
 	}
 
 	if parsedClaims.TokenType != tokenType {
-		return nil, ErrTokenTypeInvalid().
+		return Claims{}, ErrTokenTypeInvalid().
 			Meta("expected_type", tokenType.String()).
 			Meta("actual_type", parsedClaims.TokenType.String())
 	}

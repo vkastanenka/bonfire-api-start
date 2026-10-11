@@ -6,9 +6,9 @@ import (
 
 // Metadata contains contextual information attached to outbox events.
 type Metadata struct {
-	ActorID      uuid.UUID   `json:"actor_id,omitempty"`
-	SessionID    uuid.UUID   `json:"session_id,omitempty"`
-	TraceID      string      `json:"trace_id,omitempty"`
+	ActorID      *uuid.UUID  `json:"actor_id,omitempty"`
+	SessionID    *uuid.UUID  `json:"session_id,omitempty"`
+	TraceID      string      `json:"trace_id"`
 	RecipientIDs []uuid.UUID `json:"recipient_ids,omitempty"`
 }
 

@@ -67,7 +67,6 @@ func New[T any](
 	id, err := uuid.NewV7()
 	if err != nil {
 		return Event{}, ErrIDGenerateFailed().
-			Meta("resource", "outbox_event").
 			Meta("event_type", eventType).
 			Wrap(err)
 	}
@@ -80,7 +79,6 @@ func New[T any](
 	envBytes, err := json.Marshal(env)
 	if err != nil {
 		return Event{}, ErrJSONMarshalFailed().
-			Meta("resource", "outbox_event").
 			Meta("event_type", eventType).
 			Wrap(err)
 	}

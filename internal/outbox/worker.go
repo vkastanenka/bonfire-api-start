@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"bonfire-api/internal/pkg/errs"
-
 	"github.com/google/uuid"
 )
 
@@ -22,7 +20,6 @@ type Worker struct {
 	maxWorkers    int
 	sem           chan struct{}
 	handlers      map[string]Handler
-	handlersMu    sync.RWMutex
 	wg            sync.WaitGroup
 	cancel        context.CancelFunc
 }
@@ -34,10 +31,6 @@ func NewWorker(
 	batchSize int,
 	maxWorkers int,
 ) (*Worker, error) {
-	if repo == nil {
-		return nil, errs.Internal("Outbox worker repository cannot be nil.")
-	}
-
 	if pollInterval <= 0 {
 		pollInterval = 2 * time.Second
 	}
@@ -51,13 +44,8 @@ func NewWorker(
 		maxWorkers = 10
 	}
 
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, errs.Internal("Failed to generate outbox worker ID.").Wrap(err)
-	}
-
 	return &Worker{
-		id:            id,
+		id:            uuid.New(),
 		repo:          repo,
 		pollInterval:  pollInterval,
 		leaseDuration: leaseDuration,
@@ -70,13 +58,6 @@ func NewWorker(
 
 // RegisterHandler registers a callback function for a specific event type.
 func (w *Worker) RegisterHandler(eventType string, handler Handler) {
-	if handler == nil {
-		panic(fmt.Sprintf("outbox worker: handler for event %q cannot be nil", eventType))
-	}
-
-	w.handlersMu.Lock()
-	defer w.handlersMu.Unlock()
-
 	if _, exists := w.handlers[eventType]; exists {
 		panic(fmt.Sprintf("outbox worker: handler for event %q is already registered", eventType))
 	}
@@ -93,14 +74,8 @@ func (w *Worker) Start(ctx context.Context) {
 	go func() {
 		defer w.wg.Done()
 
-		slog.InfoContext(workerCtx, "initializing outbox background processor",
-			"worker_id", w.id,
-			"batch_size", w.batchSize,
-			"poll_interval", w.pollInterval,
-			"max_workers", w.maxWorkers,
-		)
+		slog.InfoContext(workerCtx, "initializing outbox background processor", "worker_id", w.id)
 
-		// Initial poll on startup
 		w.processBatch(workerCtx)
 
 		ticker := time.NewTicker(w.pollInterval)
@@ -202,10 +177,7 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 		}
 	}()
 
-	w.handlersMu.RLock()
 	handler, exists := w.handlers[event.Type]
-	w.handlersMu.RUnlock()
-
 	if !exists {
 		slog.WarnContext(ctx, "unhandled event type encountered",
 			"event_type", event.Type,

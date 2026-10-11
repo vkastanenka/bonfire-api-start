@@ -25,8 +25,12 @@ type userUpdatePayload struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
-func parseUserUpdatePayload(u user.User) userUpdatePayload {
-	return userUpdatePayload{
+func parseUserUpdatePayload(u *user.User) *userUpdatePayload {
+	if u == nil {
+		return nil
+	}
+
+	return &userUpdatePayload{
 		ID:                     u.ID,
 		Email:                  u.Email,
 		Username:               u.Username,
@@ -45,8 +49,9 @@ func parseUserUpdatePayload(u user.User) userUpdatePayload {
 	}
 }
 
-func parseUserUpdatePayloads(users []user.User) []userUpdatePayload {
-	payloads := make([]userUpdatePayload, len(users))
+func parseUserUpdatePayloads(users []*user.User) []*userUpdatePayload {
+	payloads := make([]*userUpdatePayload, len(users))
+
 	for i, u := range users {
 		payloads[i] = parseUserUpdatePayload(u)
 	}

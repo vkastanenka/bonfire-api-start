@@ -31,6 +31,25 @@ type User struct {
 	UpdatedAt              time.Time
 }
 
+func New(
+	id uuid.UUID,
+	email,
+	username,
+	displayName,
+	passwordHash string,
+	now time.Time,
+) *User {
+	return &User{
+		ID:           id,
+		Email:        email,
+		Username:     username,
+		DisplayName:  displayName,
+		PasswordHash: passwordHash,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
 func Reconstitute(
 	id uuid.UUID,
 	email, username, passwordHash string,
@@ -40,8 +59,8 @@ func Reconstitute(
 	preferredPresence *presence.Presence,
 	preferredPresenceUntil, verifiedAt, disabledAt, deleteScheduledAt *time.Time,
 	createdAt, updatedAt time.Time,
-) User {
-	return User{
+) *User {
+	return &User{
 		ID:                     id,
 		Email:                  email,
 		Username:               username,
@@ -59,34 +78,6 @@ func Reconstitute(
 		CreatedAt:              createdAt,
 		UpdatedAt:              updatedAt,
 	}
-}
-
-func New(
-	id uuid.UUID,
-	email,
-	username,
-	displayName,
-	passwordHash string,
-	now time.Time,
-) User {
-	return Reconstitute(
-		id,
-		email,
-		username,
-		passwordHash,
-		nil,
-		displayName,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		now,
-		now,
-	)
 }
 
 func (u *User) IsVerified() bool             { return u.VerifiedAt != nil }
