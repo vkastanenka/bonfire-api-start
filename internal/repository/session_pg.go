@@ -19,7 +19,11 @@ func NewSessionRepository(store *db.Store) *SessionRepository {
 	return &SessionRepository{store: store}
 }
 
-func (r *SessionRepository) Create(ctx context.Context, s session.Session) (session.Session, error) {
+func (r *SessionRepository) Create(ctx context.Context, s *session.Session) (*session.Session, error) {
+	if s == nil {
+		return nil, ErrDomainPayloadRequired().Meta("resource", db.ResourceSession.String())
+	}
+
 	row, err := r.store.SessionCreate(ctx, db.SessionCreateParams{
 		ID:               db.ToUUID(s.ID),
 		UserID:           db.ToUUID(s.UserID),
@@ -35,22 +39,22 @@ func (r *SessionRepository) Create(ctx context.Context, s session.Session) (sess
 		UserAgent:        s.UserAgent,
 	})
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.ResourceSession)
+		return nil, db.NewError(err, db.ResourceSession)
 	}
 
 	return sessionFromRow(row), nil
 }
 
-func (r *SessionRepository) Get(ctx context.Context, id uuid.UUID) (session.Session, error) {
+func (r *SessionRepository) Get(ctx context.Context, id uuid.UUID) (*session.Session, error) {
 	row, err := r.store.SessionGet(ctx, db.ToUUID(id))
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.ResourceSession)
+		return nil, db.NewError(err, db.ResourceSession)
 	}
 
 	return sessionFromRow(row), nil
 }
 
-func (r *SessionRepository) ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]session.Session, error) {
+func (r *SessionRepository) ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]*session.Session, error) {
 	rows, err := r.store.SessionListValidByUserID(ctx, db.SessionListValidByUserIDParams{
 		UserID:   db.ToUUID(userID),
 		Now:      db.ToTimestamptz(now),
@@ -73,7 +77,7 @@ func (r *SessionRepository) RotateRefreshTokenHash(
 	client string,
 	expiresAt,
 	now time.Time,
-) (session.Session, error) {
+) (*session.Session, error) {
 	row, err := r.store.SessionRotateRefreshTokenHash(ctx, db.SessionRotateRefreshTokenHashParams{
 		ID:                  db.ToUUID(id),
 		OldRefreshTokenHash: oldHash[:],
@@ -86,7 +90,7 @@ func (r *SessionRepository) RotateRefreshTokenHash(
 		Now:                 db.ToTimestamptz(now),
 	})
 	if err != nil {
-		return session.Session{}, db.NewError(err, db.ResourceSession)
+		return nil, db.NewError(err, db.ResourceSession)
 	}
 
 	return sessionFromRow(row), nil
@@ -141,7 +145,7 @@ func (r *SessionRepository) DeleteBatchRevoked(ctx context.Context, now time.Tim
 	return nil
 }
 
-func sessionFromRow(row db.Session) session.Session {
+func sessionFromRow(row db.Session) *session.Session {
 	var hash [32]byte
 	copy(hash[:], row.RefreshTokenHash)
 
@@ -161,12 +165,12 @@ func sessionFromRow(row db.Session) session.Session {
 	)
 }
 
-func sessionsFromRows(rows []db.Session) []session.Session {
+func sessionsFromRows(rows []db.Session) []*session.Session {
 	if len(rows) == 0 {
-		return []session.Session{}
+		return nil
 	}
 
-	sessions := make([]session.Session, 0, len(rows))
+	sessions := make([]*session.Session, 0, len(rows))
 	for _, row := range rows {
 		sessions = append(sessions, sessionFromRow(row))
 	}
