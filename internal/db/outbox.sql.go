@@ -24,9 +24,9 @@ WITH target_events AS (
         AND (lease_expires_at IS NULL
             OR lease_expires_at < $3::timestamptz)
     ORDER BY
-        next_attempt_at ASC,
-        lease_expires_at ASC NULLS FIRST,
-        id ASC
+        next_attempt_at,
+        lease_expires_at NULLS FIRST,
+        id
     LIMIT $4::int
     FOR UPDATE
         SKIP LOCKED)
@@ -197,18 +197,20 @@ const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
 UPDATE
     outbox_events
 SET
-    next_attempt_at = $1::timestamptz,
-    last_error = $2::text,
+    attempts = $1::integer,
+    next_attempt_at = $2::timestamptz,
+    last_error = $3::text,
     locked_by = NULL,
     lease_expires_at = NULL,
-    updated_at = $3::timestamptz
+    updated_at = $4::timestamptz
 WHERE
-    id = $4::uuid
-    AND locked_by = $5::uuid
+    id = $5::uuid
+    AND locked_by = $6::uuid
     AND processed_at IS NULL
 `
 
 type OutboxEventMarkFailureParams struct {
+	Attempts      int32              `json:"attempts"`
 	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
 	LastError     pgtype.Text        `json:"last_error"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
@@ -218,6 +220,7 @@ type OutboxEventMarkFailureParams struct {
 
 func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error {
 	_, err := q.db.Exec(ctx, outboxEventMarkFailure,
+		arg.Attempts,
 		arg.NextAttemptAt,
 		arg.LastError,
 		arg.UpdatedAt,

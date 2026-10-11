@@ -8,11 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	defaultMaxAttempts = 3
-	maxLastErrorLen    = 4096
-)
-
 type Event struct {
 	ID             uuid.UUID
 	Type           string
@@ -28,6 +23,43 @@ type Event struct {
 	UpdatedAt      time.Time
 }
 
+func New[T any](
+	eventType string,
+	metadata Metadata,
+	payload T,
+	now time.Time,
+) (*Event, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, ErrIDGenerateFailed().
+			Meta("event_type", eventType).
+			Wrap(err)
+	}
+
+	env := Envelope[T]{
+		Metadata: metadata,
+		Payload:  payload,
+	}
+
+	envBytes, err := json.Marshal(env)
+	if err != nil {
+		return nil, ErrJSONMarshalFailed().
+			Meta("event_type", eventType).
+			Wrap(err)
+	}
+
+	return &Event{
+		ID:            id,
+		Type:          eventType,
+		Payload:       envBytes,
+		Attempts:      0,
+		MaxAttempts:   defaultMaxAttempts,
+		NextAttemptAt: now,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}, nil
+}
+
 func ReconstituteEvent(
 	id uuid.UUID,
 	eventType string,
@@ -41,8 +73,8 @@ func ReconstituteEvent(
 	leaseExpiresAt *time.Time,
 	createdAt time.Time,
 	updatedAt time.Time,
-) Event {
-	return Event{
+) *Event {
+	return &Event{
 		ID:             id,
 		Type:           eventType,
 		Payload:        payload,
@@ -56,47 +88,6 @@ func ReconstituteEvent(
 		CreatedAt:      createdAt,
 		UpdatedAt:      updatedAt,
 	}
-}
-
-func New[T any](
-	eventType string,
-	metadata Metadata,
-	payload T,
-	now time.Time,
-) (Event, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return Event{}, ErrIDGenerateFailed().
-			Meta("event_type", eventType).
-			Wrap(err)
-	}
-
-	env := Envelope[T]{
-		Metadata: metadata,
-		Payload:  payload,
-	}
-
-	envBytes, err := json.Marshal(env)
-	if err != nil {
-		return Event{}, ErrJSONMarshalFailed().
-			Meta("event_type", eventType).
-			Wrap(err)
-	}
-
-	return ReconstituteEvent(
-		id,
-		eventType,
-		envBytes,
-		nil,
-		0,
-		defaultMaxAttempts,
-		now,
-		nil,
-		nil,
-		nil,
-		now,
-		now,
-	), nil
 }
 
 func (e *Event) IsProcessed() bool  { return e.ProcessedAt != nil }

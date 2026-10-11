@@ -107,6 +107,7 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, e *outbox.Event, w
 // MarkFailure updates attempt count, backoff schedule, and failure reason.
 func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, workerID uuid.UUID) error {
 	err := r.store.OutboxEventMarkFailure(ctx, db.OutboxEventMarkFailureParams{
+		Attempts:      int32(e.Attempts),
 		NextAttemptAt: db.ToTimestamptz(e.NextAttemptAt),
 		LastError:     db.ToTextPtr(e.LastError),
 		UpdatedAt:     db.ToTimestamptz(e.UpdatedAt),
@@ -116,7 +117,6 @@ func (r *OutboxRepository) MarkFailure(ctx context.Context, e *outbox.Event, wor
 	if err != nil {
 		return db.NewError(err, db.EntityOutboxEvent)
 	}
-
 	return nil
 }
 

@@ -17,7 +17,7 @@ func BindHandler[T any](fn TypedHandler[T]) Handler {
 	return func(ctx context.Context, rawPayload json.RawMessage) error {
 		var env Envelope[T]
 		if err := json.Unmarshal(rawPayload, &env); err != nil {
-			return ErrJSONUnmarshalFailed().Wrap(err)
+			return ErrInvalidPayload
 		}
 
 		if env.Metadata.TraceID != "" {

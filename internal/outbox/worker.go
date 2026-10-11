@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	defaultPollInterval      = 2 * time.Second
+	defaultLeaseDuration     = 30 * time.Second
+	defaultBatchSize         = 50
+	defaultMaxWorkers        = 10
+	defaultMaxAttempts       = 3
+	defaultHandlerTimeout    = 5 * time.Second
+	defaultHeartbeatInterval = 2 * time.Second
+	maxLastErrorLen          = 4096
+)
+
 type Worker struct {
 	id            uuid.UUID
 	repo          Repository
@@ -32,16 +43,16 @@ func NewWorker(
 	maxWorkers int,
 ) (*Worker, error) {
 	if pollInterval <= 0 {
-		pollInterval = 2 * time.Second
+		pollInterval = defaultPollInterval
 	}
 	if leaseDuration <= 0 {
-		leaseDuration = 30 * time.Second
+		leaseDuration = defaultLeaseDuration
 	}
 	if batchSize <= 0 {
-		batchSize = 50
+		batchSize = defaultBatchSize
 	}
 	if maxWorkers <= 0 {
-		maxWorkers = 10
+		maxWorkers = defaultMaxWorkers
 	}
 
 	return &Worker{
@@ -71,10 +82,14 @@ func (w *Worker) Start(ctx context.Context) {
 	w.cancel = cancel
 
 	w.wg.Add(1)
+
 	go func() {
 		defer w.wg.Done()
 
-		slog.InfoContext(workerCtx, "initializing outbox background processor", "worker_id", w.id)
+		slog.InfoContext(workerCtx,
+			"initializing outbox worker",
+			"worker_id", w.id,
+		)
 
 		w.processBatch(workerCtx)
 
@@ -86,51 +101,56 @@ func (w *Worker) Start(ctx context.Context) {
 			case <-ticker.C:
 				w.processBatch(workerCtx)
 			case <-workerCtx.Done():
-				slog.InfoContext(workerCtx, "stopping outbox worker loop", "worker_id", w.id)
+				slog.InfoContext(workerCtx,
+					"stopping outbox worker",
+					"worker_id", w.id,
+				)
 				return
 			}
 		}
 	}()
 }
 
-// Stop gracefully waits for in-flight tasks to complete before shutting down.
-func (w *Worker) Stop() {
-	if w.cancel != nil {
-		w.cancel()
+// Stop signals the worker loop to cancel and waits for active routines to finish.
+func (w *Worker) Stop(ctx context.Context) {
+	if w.cancel == nil {
+		return
+	}
 
-		done := make(chan struct{})
-		go func() {
-			w.wg.Wait()
-			close(done)
-		}()
+	w.cancel()
 
-		select {
-		case <-done:
-			slog.Info("outbox background processor gracefully stopped", "worker_id", w.id)
-		case <-time.After(10 * time.Second):
-			slog.Warn("outbox background processor shutdown timed out", "worker_id", w.id)
-		}
+	done := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.InfoContext(ctx,
+			"outbox worker stopped",
+			"worker_id", w.id,
+		)
+	case <-ctx.Done():
+		slog.WarnContext(ctx,
+			"outbox worker shutdown timed out or was canceled",
+			"worker_id", w.id,
+			"err", ctx.Err(),
+		)
 	}
 }
 
 // processBatch claims pending events and executes them concurrently using worker slots.
 func (w *Worker) processBatch(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.ErrorContext(ctx, "recovered from panic in outbox batch processing",
-				"worker_id", w.id,
-				"panic", r,
-			)
-		}
-	}()
-
 	now := time.Now()
-	leaseExpiresAt := now.Add(w.leaseDuration)
 
-	events, err := w.repo.ClaimPending(ctx, w.id, leaseExpiresAt, now, w.batchSize)
+	events, err := w.repo.ClaimPending(ctx, w.id, now.Add(w.leaseDuration), now, w.batchSize)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
-			slog.ErrorContext(ctx, "failed to acquire outbox events", "error", err)
+			slog.ErrorContext(ctx,
+				"failed to claim outbox events",
+				"error", err,
+			)
 		}
 		return
 	}
@@ -141,31 +161,35 @@ func (w *Worker) processBatch(ctx context.Context) {
 
 	var batchWg sync.WaitGroup
 
-	for i := range events {
-		evt := events[i]
+eventLoop:
+	for _, evt := range events {
 		select {
-		case <-ctx.Done():
-			slog.InfoContext(ctx, "batch processing loop canceled; draining active workers",
-				"worker_id", w.id,
-			)
-			goto Drain
 		case w.sem <- struct{}{}:
 			batchWg.Add(1)
 			go func(e *Event) {
 				defer batchWg.Done()
 				defer func() { <-w.sem }()
-
 				w.executeEvent(ctx, e)
 			}(evt)
+
+		case <-ctx.Done():
+			slog.InfoContext(ctx,
+				"batch processing canceled; stopping further dispatches",
+				"worker_id", w.id,
+			)
+			break eventLoop
 		}
 	}
 
-Drain:
 	batchWg.Wait()
 }
 
 // executeEvent processes a single outbox event with lease management, context propagation, and error handling.
 func (w *Worker) executeEvent(ctx context.Context, event *Event) {
+	if event == nil {
+		return
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			slog.ErrorContext(ctx, "recovered from panic during outbox event execution",
@@ -179,24 +203,18 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 
 	handler, exists := w.handlers[event.Type]
 	if !exists {
-		slog.WarnContext(ctx, "unhandled event type encountered",
-			"event_type", event.Type,
+		slog.WarnContext(ctx, "unknown outbox event type encountered in event execution",
 			"event_id", event.ID,
+			"event_type", event.Type,
 		)
 		w.handleFailure(ctx, event, fmt.Errorf("no handler registered for event type: %s", event.Type), true)
 		return
 	}
 
-	// Calculate handler timeout boundary (80% of lease duration)
-	handlerTimeout := time.Duration(float64(w.leaseDuration) * 0.8)
-	if handlerTimeout <= 0 {
-		handlerTimeout = 5 * time.Second
-	}
-
-	baseCtx, cancelTimeout := context.WithTimeout(context.WithoutCancel(ctx), handlerTimeout)
+	timeoutCtx, cancelTimeout := context.WithTimeout(context.WithoutCancel(ctx), w.calculateHandlerTimeout())
 	defer cancelTimeout()
 
-	taskCtx, cancelTask := context.WithCancelCause(baseCtx)
+	taskCtx, cancelTask := context.WithCancelCause(timeoutCtx)
 	defer cancelTask(nil)
 
 	heartbeatDone := make(chan struct{})
@@ -204,11 +222,9 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 
 	executionErr := handler(taskCtx, event.Payload)
 
-	// Stop heartbeat loop
 	close(heartbeatDone)
 
 	if executionErr != nil {
-		// Check if cancellation was explicitly caused by lease renewal failure
 		if leaseErr := context.Cause(taskCtx); leaseErr != nil && errors.Is(leaseErr, ErrLeaseLost) {
 			slog.ErrorContext(ctx, "handler execution aborted due to lost outbox lease",
 				"event_id", event.ID,
@@ -217,21 +233,29 @@ func (w *Worker) executeEvent(ctx context.Context, event *Event) {
 			return
 		}
 
-		// Shutdown in progress: abandon lease to expire naturally
 		if errors.Is(executionErr, context.Canceled) && ctx.Err() != nil {
-			slog.InfoContext(ctx, "execution context canceled during shutdown; leaving lease to expire for recovery",
+			slog.InfoContext(ctx, "execution context canceled during shutdown; releasing lease",
 				"event_id", event.ID,
 			)
+
+			releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancelRelease()
+
+			if err := w.repo.ReleaseLease(releaseCtx, event, w.id); err != nil {
+				slog.ErrorContext(releaseCtx, "failed to release outbox event lease during shutdown",
+					"event_id", event.ID,
+					"worker_id", w.id,
+					"error", err,
+				)
+			}
 			return
 		}
 
-		// Mark as fatal if the handler returned ErrFatal OR ErrInvalidPayload
 		isFatal := errors.Is(executionErr, ErrFatal) || errors.Is(executionErr, ErrInvalidPayload)
 		w.handleFailure(ctx, event, executionErr, isFatal)
 		return
 	}
 
-	// Update entity state
 	event.MarkProcessed(time.Now())
 
 	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
@@ -310,12 +334,7 @@ func (w *Worker) startHeartbeat(
 	done <-chan struct{},
 	cancelTask context.CancelCauseFunc,
 ) {
-	interval := w.leaseDuration / 2
-	if interval < 2*time.Second {
-		interval = 2 * time.Second
-	}
-
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(w.calculateHeartbeatInterval())
 	defer ticker.Stop()
 
 	for {
@@ -332,22 +351,39 @@ func (w *Worker) startHeartbeat(
 			}
 
 			renewCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 2*time.Second)
-
 			now := time.Now()
 			newLease := now.Add(w.leaseDuration)
 
-			if err := w.repo.RenewLease(renewCtx, event.ID, w.id, newLease, now); err != nil {
-				slog.WarnContext(renewCtx, "failed to renew outbox event lease; cancelling task context",
+			err := w.repo.RenewLease(renewCtx, event.ID, w.id, newLease, now)
+			cancel()
+
+			if err != nil {
+				slog.WarnContext(parentCtx, "failed to renew outbox event lease; cancelling task context",
 					"event_id", event.ID,
 					"worker_id", w.id,
 					"error", err,
 				)
-
 				cancelTask(fmt.Errorf("%w: %w", ErrLeaseLost, err))
-				cancel()
 				return
 			}
-			cancel()
 		}
 	}
+}
+
+// calculateHandlerTimeout computes a timeout based on the lease duration.
+func (w *Worker) calculateHandlerTimeout() time.Duration {
+	timeout := time.Duration(float64(w.leaseDuration) * 0.8)
+	if timeout <= 0 {
+		return defaultHandlerTimeout
+	}
+	return timeout
+}
+
+// calculateHeartbeatInterval computes a safe heartbeat interval based on the lease duration.
+func (w *Worker) calculateHeartbeatInterval() time.Duration {
+	interval := w.leaseDuration / 2
+	if interval < defaultHeartbeatInterval {
+		return defaultHeartbeatInterval
+	}
+	return interval
 }

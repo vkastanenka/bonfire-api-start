@@ -12,9 +12,8 @@ var (
 )
 
 const (
-	ErrReasonIDGenerateFailed    = "ID_GENERATE_FAILED"
-	ErrReasonJSONMarshalFailed   = "JSON_MARSHAL_FAILED"
-	ErrReasonJSONUnmarshalFailed = "JSON_UNMARSHAL_FAILED"
+	ErrReasonIDGenerateFailed  = "ID_GENERATE_FAILED"
+	ErrReasonJSONMarshalFailed = "JSON_MARSHAL_FAILED"
 )
 
 func ErrIDGenerateFailed() *errs.Error {
@@ -25,9 +24,4 @@ func ErrIDGenerateFailed() *errs.Error {
 func ErrJSONMarshalFailed() *errs.Error {
 	return errs.Internal("Failed to marshal json payload.").
 		Reason(ErrReasonJSONMarshalFailed)
-}
-
-func ErrJSONUnmarshalFailed() *errs.Error {
-	return errs.Internal("Failed to unmarshal json payload.").
-		Reason(ErrReasonJSONUnmarshalFailed)
 }

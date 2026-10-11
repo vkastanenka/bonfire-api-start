@@ -19,9 +19,9 @@ WITH target_events AS (
         AND (lease_expires_at IS NULL
             OR lease_expires_at < @now::timestamptz)
     ORDER BY
-        next_attempt_at ASC,
-        lease_expires_at ASC NULLS FIRST,
-        id ASC
+        next_attempt_at,
+        lease_expires_at NULLS FIRST,
+        id
     LIMIT @limit_val::int
     FOR UPDATE
         SKIP LOCKED)
@@ -56,6 +56,7 @@ WHERE
 UPDATE
     outbox_events
 SET
+    attempts = @attempts::integer,
     next_attempt_at = @next_attempt_at::timestamptz,
     last_error = sqlc.narg('last_error')::text,
     locked_by = NULL,
