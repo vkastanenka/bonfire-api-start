@@ -6,15 +6,20 @@ import (
 )
 
 const (
-	ErrReasonIDGenerateFailed        = "ID_GENERATE_FAILED"
-	ErrReasonHashPasswordFailed      = "HASH_PASSWORD_FAILED"
-	ErrReasonGenerateTokenFailed     = "GENERATE_TOKEN_FAILED"
-	ErrReasonGenerateTokenPairFailed = "GENERATE_TOKEN_PAIR_FAILED"
+	ErrReasonIDGenerateFailed   = "ID_GENERATE_FAILED"
+	ErrReasonCredentialsInvalid = "CREDENTIALS_INVALID"
 )
 
 func ErrIDGenerateFailed() *errs.Error {
 	return errs.Internal("Failed to generate ID.").
 		Reason(ErrReasonIDGenerateFailed)
+}
+
+func ErrCredentialsInvalid() *errs.Error {
+	return errs.Unauthenticated("Invalid credentials.").
+		Reason(ErrReasonCredentialsInvalid).
+		FieldViolation("email", "Invalid email or password.", "INVALID_CREDENTIALS").
+		FieldViolation("password", "Invalid email or password.", "INVALID_CREDENTIALS")
 }
 
 // ++++++++++ //
@@ -38,13 +43,6 @@ func ErrUsernameInvalid() *errs.Error {
 func ErrDisplayNameInvalid() *errs.Error {
 	return errs.InvalidArgument("Invalid display name format.").
 		FieldViolation("display_name", "Invalid display name format.", "INVALID_DISPLAY_NAME")
-}
-
-func ErrCredentialsInvalid() *errs.Error {
-	return errs.Unauthenticated("Invalid email or password.").
-		FieldViolation("email", "Invalid email or password.", "INVALID_CREDENTIALS").
-		FieldViolation("password", "Invalid email or password.", "INVALID_CREDENTIALS").
-		Wrap(errors.New("invalid credentials"))
 }
 
 func ErrAccountLocked() *errs.Error {

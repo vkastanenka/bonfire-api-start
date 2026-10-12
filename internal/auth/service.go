@@ -59,8 +59,9 @@ func NewService(
 }
 
 type LoginParams struct {
-	Email    string
-	Password string
+	Email      string
+	Password   string
+	ClientMeta appctx.ClientMeta
 }
 
 type LoginResult struct {
@@ -70,11 +71,6 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
-	ctxMeta, err := appctx.GetMeta(ctx)
-	if err != nil {
-		return LoginResult{}, err
-	}
-
 	u, err := s.userRepo.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if errs.IsNotFound(err) {
@@ -91,16 +87,13 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	now := time.Now()
 
-	var (
-		createdSession *session.Session
-		newSession     *session.Session
-		tokenPair      token.Pair
-	)
+	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
+	if err != nil {
+		return LoginResult{}, err
+	}
 
 	if u.IsDisabled() || u.IsScheduledForDeletion() {
 		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-			var err error
-
 			if u.IsScheduledForDeletion() {
 				u, err = s.userRepo.SetDeleteSchedule(txCtx, u.ID, nil, nil, now)
 			} else {
@@ -110,42 +103,23 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 				return err
 			}
 
-			newSession, tokenPair, err = s.generateSession(ctxMeta, u, now)
-			if err != nil {
-				return err
-			}
-
-			createdSession, err = s.sessionRepo.Create(txCtx, newSession)
+			sess, err = s.sessionRepo.Create(txCtx, sess)
 			return err
 		})
-
 		if txErr != nil {
 			return LoginResult{}, txErr
 		}
 	} else {
-		var err error
-		newSession, tokenPair, err = s.generateSession(ctxMeta, u, now)
-		if err != nil {
-			return LoginResult{}, err
-		}
-
-		createdSession, err = s.sessionRepo.Create(ctx, newSession)
+		sess, err = s.sessionRepo.Create(ctx, sess)
 		if err != nil {
 			return LoginResult{}, err
 		}
 	}
 
-	if err := s.userCache.Set(ctx, u); err != nil {
-		slog.WarnContext(ctx, "failed to seed user into cache after login",
+	if err := s.cache.Login(ctx, u, sess); err != nil {
+		slog.WarnContext(ctx, "failed backfill cache after login",
 			slog.String("user_id", u.ID.String()),
-			slog.Any("error", err),
-		)
-	}
-
-	if err := s.sessionCache.Set(ctx, createdSession); err != nil {
-		slog.WarnContext(ctx, "failed to seed new session into cache after login",
-			slog.String("user_id", u.ID.String()),
-			slog.String("session_id", createdSession.ID.String()),
+			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),
 		)
 	}
@@ -202,7 +176,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		now,
 	)
 
-	sess, tokenPair, err := s.createSession(p.ClientMeta, u.ID, now)
+	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -253,7 +227,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (*session.Session, token.Pair, error) {
+func (s *Service) generateSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (*session.Session, token.Pair, error) {
 	sid, err := uuid.NewV7()
 	if err != nil {
 		return nil, token.Pair{}, ErrIDGenerateFailed().
