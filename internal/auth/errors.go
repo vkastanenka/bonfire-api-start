@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	ErrReasonIDGenerateFailed   = "ID_GENERATE_FAILED"
-	ErrReasonCredentialsInvalid = "CREDENTIALS_INVALID"
+	ErrReasonIDGenerateFailed      = "ID_GENERATE_FAILED"
+	ErrReasonCredentialsInvalid    = "CREDENTIALS_INVALID"
+	ErrReasonLoginCooldownExceeded = "LOGIN_COOLDOWN_EXCEEDED"
 )
 
 func ErrIDGenerateFailed() *errs.Error {
@@ -20,6 +21,11 @@ func ErrCredentialsInvalid() *errs.Error {
 		Reason(ErrReasonCredentialsInvalid).
 		FieldViolation("email", "Invalid email or password.", "INVALID_CREDENTIALS").
 		FieldViolation("password", "Invalid email or password.", "INVALID_CREDENTIALS")
+}
+
+func ErrLoginCooldownExceeded() *errs.Error {
+	return errs.ResourceExhausted("Too many login attempts. Please try again soon.").
+		Reason(ErrReasonLoginCooldownExceeded)
 }
 
 // ++++++++++ //

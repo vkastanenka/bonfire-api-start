@@ -23,6 +23,7 @@ type Service struct {
 	cachedUserRepo CachedUserRepository
 	sessionCache   SessionCache
 	sessionRepo    SessionRepository
+	shieldCache    ShieldCache
 	outboxRepo     OutboxRepository
 	ticketCache    WSTicketCache
 	tokenCache     TokenCache
@@ -37,6 +38,7 @@ func NewService(
 	cachedUserRepo CachedUserRepository,
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
+	shieldCache ShieldCache,
 	outboxRepo OutboxRepository,
 	ticketCache WSTicketCache,
 	tokenCache TokenCache,
@@ -50,6 +52,7 @@ func NewService(
 		cachedUserRepo: cachedUserRepo,
 		sessionCache:   sessionCache,
 		sessionRepo:    sessionRepo,
+		shieldCache:    shieldCache,
 		outboxRepo:     outboxRepo,
 		ticketCache:    ticketCache,
 		tokenCache:     tokenCache,
@@ -71,6 +74,13 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
+	blocked, err := s.shieldCache.GetCooldown(ctx, "auth", "login", p.Email)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to get login cooldown cache", slog.Any("error", err))
+	} else if blocked {
+		return LoginResult{}, ErrLoginCooldownExceeded()
+	}
+
 	u, err := s.userRepo.GetByEmail(ctx, p.Email)
 	if err != nil {
 		if errs.IsNotFound(err) {
@@ -82,6 +92,9 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 
 	err = crypto.CompareHashAndPassword(u.PasswordHash, p.Password)
 	if err != nil {
+		if _, shieldErr := s.shieldCache.RecordFailure(ctx, "auth", "login", p.Email); shieldErr != nil {
+			slog.WarnContext(ctx, "failed to record login failure", slog.Any("error", shieldErr))
+		}
 		return LoginResult{}, ErrCredentialsInvalid()
 	}
 
@@ -117,7 +130,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	}
 
 	if err := s.cache.Login(ctx, u, sess); err != nil {
-		slog.WarnContext(ctx, "failed backfill cache after login",
+		slog.WarnContext(ctx, "failed cache login after login",
 			slog.String("user_id", u.ID.String()),
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),
@@ -213,7 +226,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}
 
 	if err := s.cache.Login(ctx, u, sess); err != nil {
-		slog.WarnContext(ctx, "failed backfill cache after registration",
+		slog.WarnContext(ctx, "failed cache login after registration",
 			slog.String("user_id", u.ID.String()),
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),

@@ -10,8 +10,8 @@ import (
 )
 
 const (
+	DefaultClockLeeway = 5 * time.Second
 	defaultIssuer      = "api.domain.com"
-	defaultClockLeeway = 5 * time.Second
 )
 
 type Claims struct {
@@ -130,8 +130,8 @@ func (p *Provider) verify(tokenType Type, tokenStr string) (*Claims, error) {
 			}
 			return []byte(spec.Secret), nil
 		},
+		jwt.WithLeeway(DefaultClockLeeway),
 		jwt.WithIssuer(p.issuer),
-		jwt.WithLeeway(defaultClockLeeway),
 	)
 
 	if err != nil {

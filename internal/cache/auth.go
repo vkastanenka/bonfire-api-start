@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bonfire-api/internal/pkg/shield"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/session"
 	"bonfire-api/internal/user"
@@ -36,13 +37,18 @@ func (s *AuthCache) Login(ctx context.Context, u *user.User, sess *session.Sessi
 		return err
 	}
 
+	cKey := shield.CooldownKey("auth", "login", u.Email)
+	fKey := shield.FailuresKey("auth", "login", u.Email)
+
 	_, err = s.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.Set(ctx, userKey, userBytes, user.CacheTTL)
 		pipe.Set(ctx, sessKey, sessBytes, sessTTL)
+		pipe.Del(ctx, cKey)
+		pipe.Del(ctx, fKey)
 		return nil
 	})
 	if err != nil {
-		return redis.NewError(err, redis.ScopeAuth)
+		return redis.NewError(err, redis.ResourceAuth)
 	}
 
 	return nil

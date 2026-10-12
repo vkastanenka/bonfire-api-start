@@ -7,45 +7,39 @@ import (
 
 	"bonfire-api/internal/pkg/errs"
 
-	"github.com/redis/go-redis/v9"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-type Scope string
+// Resource identifies the Redis resource associated with an operation or error.
+type Resource string
 
 const (
-	ScopeAuth        Scope = "auth"
-	ScopeChannel     Scope = "channel"
-	ScopeGateway     Scope = "gateway"
-	ScopeMember      Scope = "member"
-	ScopeOutboxEvent Scope = "outbox_event"
-	ScopeMessage     Scope = "message"
-	ScopeReaction    Scope = "reaction"
-	ScopePresence    Scope = "presence"
-	ScopeRelation    Scope = "relation"
-	ScopeSession     Scope = "session"
-	ScopeStore       Scope = "store"
-	ScopeTicket      Scope = "ticket"
-	ScopeToken       Scope = "token"
-	ScopeUser        Scope = "user"
+	ResourceAuth        Resource = "auth"
+	ResourceChannel     Resource = "channel"
+	ResourceGateway     Resource = "gateway"
+	ResourceMember      Resource = "member"
+	ResourceOutboxEvent Resource = "outbox_event"
+	ResourceMessage     Resource = "message"
+	ResourceReaction    Resource = "reaction"
+	ResourcePresence    Resource = "presence"
+	ResourceRelation    Resource = "relation"
+	ResourceSession     Resource = "session"
+	ResourceShield      Resource = "shield"
+	ResourceStore       Resource = "store"
+	ResourceTicket      Resource = "ticket"
+	ResourceToken       Resource = "token"
+	ResourceUser        Resource = "user"
 )
 
-func (e Scope) String() string { return string(e) }
+func (e Resource) String() string { return string(e) }
 
-var (
-	// ErrCacheMiss indicates the requested key does not exist in Redis.
-	ErrCacheMiss = errors.New("cache: key not found")
-
-	// ErrCorruptedData indicates raw bytes were found but failed deserialization.
-	ErrCorruptedData = errors.New("cache: data corrupted or schema mismatch")
-)
-
-// IsCacheMiss checks if the underlying error is a redis.Nil or package sentinel ErrCacheMiss.
+// IsCacheMiss checks if the underlying error is a redisdriver.Nil or package sentinel ErrCacheMiss.
 func IsCacheMiss(err error) bool {
-	return errors.Is(err, redis.Nil) || errors.Is(err, ErrCacheMiss)
+	return errors.Is(err, redisdriver.Nil)
 }
 
-// NewError transforms raw application/Redis errors into structured domain errors with scope metadata.
-func NewError(err error, scope Scope) error {
+// NewError transforms raw Redis errors into structured domain errors with resource metadata.
+func NewError(err error, resource Resource) error {
 	if err == nil || IsCacheMiss(err) {
 		return nil
 	}
@@ -54,41 +48,28 @@ func NewError(err error, scope Scope) error {
 		return err
 	}
 
-	return handleCacheError(err, scope)
+	return handleCacheError(err, resource)
 }
 
-func handleCacheError(err error, scope Scope) error {
-	switch {
-	case errors.Is(err, ErrCorruptedData):
-		return errs.Internal("Cached data is corrupted.").
-			Reason("CACHE_CORRUPTED").
-			Meta("scope", scope.String()).
-			Wrap(err)
+// handleCacheError classifies general cache failures into domain errors.
+func handleCacheError(err error, resource Resource) error {
+	var e *errs.Error
 
+	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		return errs.DeadlineExceeded("Cache operation timed out.").
-			Reason("CACHE_TIMEOUT").
-			Meta("scope", scope.String()).
-			Wrap(err)
+		e = ErrCacheTimeout()
 
 	case errors.Is(err, context.Canceled):
-		return errs.Aborted("Cache operation was canceled.").
-			Reason("CACHE_CANCELED").
-			Meta("scope", scope.String()).
-			Wrap(err)
+		e = ErrCacheCanceled()
 
 	case isNetworkError(err):
-		return errs.Unavailable("Cache service is temporarily unavailable.").
-			Reason("CACHE_UNAVAILABLE").
-			Meta("scope", scope.String()).
-			Wrap(err)
+		e = ErrCacheUnavailable()
 
 	default:
-		return errs.Internal("An internal caching error occurred.").
-			Reason("CACHE_INTERNAL_ERROR").
-			Meta("scope", scope.String()).
-			Wrap(err)
+		e = ErrCacheInternal()
 	}
+
+	return ErrWithResource(e, resource).Wrap(err)
 }
 
 func isNetworkError(err error) bool {

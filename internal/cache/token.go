@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/redis"
 	"bonfire-api/internal/token"
 
@@ -20,15 +21,15 @@ func NewTokenCache(client redisdriver.Cmdable) *TokenCache {
 }
 
 func (c *TokenCache) ConsumePasswordReset(ctx context.Context, claims *token.Claims) error {
-	return c.consumeJTI(ctx, "forgot_password", claims.ID, claims.ExpiresAt.Time)
+	return c.consumeJTI(ctx, "forgot_password", claims)
 }
 
 func (c *TokenCache) ConsumeRefresh(ctx context.Context, claims *token.Claims) error {
-	return c.consumeJTI(ctx, "refresh", claims.ID, claims.ExpiresAt.Time)
+	return c.consumeJTI(ctx, "refresh", claims)
 }
 
 func (c *TokenCache) ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error {
-	return c.consumeJTI(ctx, "email_verify", claims.ID, claims.ExpiresAt.Time)
+	return c.consumeJTI(ctx, "email_verify", claims)
 }
 
 var tokenConsumeJTIScript = redisdriver.NewScript(`
@@ -43,8 +44,13 @@ var tokenConsumeJTIScript = redisdriver.NewScript(`
 	return 1
 `)
 
-func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory, jti string, expiresAt time.Time) error {
-	remainingTTL := time.Until(expiresAt) + token.DefaultClockLeeway
+func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims *token.Claims) error {
+	if claims == nil {
+		return errs.Internal("token claims cannot be nil").
+			Resource("type", keyCategory, "", "")
+	}
+
+	remainingTTL := time.Until(claims.ExpiresAt.Time) + token.DefaultClockLeeway
 	if remainingTTL <= 0 {
 		return ErrTokenAlreadyUsed()
 	}
@@ -54,7 +60,7 @@ func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory, jti string, ex
 		ttlSeconds = 1
 	}
 
-	key := "token:consumed:" + keyCategory + ":" + jti
+	key := "token:consumed:" + keyCategory + ":{" + claims.ID + "}"
 
 	res, err := tokenConsumeJTIScript.Run(
 		ctx,
@@ -64,7 +70,7 @@ func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory, jti string, ex
 	).Int64()
 
 	if err != nil {
-		return redis.NewError(err, redis.ScopeToken)
+		return redis.NewError(err, redis.ResourceToken)
 	}
 
 	if res == 0 {

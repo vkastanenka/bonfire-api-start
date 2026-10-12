@@ -22,6 +22,12 @@ type SessionCache interface {
 	SetBatch(ctx context.Context, sessions map[uuid.UUID]*session.Session) error
 }
 
+type ShieldCache interface {
+	Clear(ctx context.Context, domain string, action string, identifier string) error
+	GetCooldown(ctx context.Context, domain string, action string, identifier string) (bool, error)
+	RecordFailure(ctx context.Context, domain string, action string, identifier string) (int, error)
+}
+
 type TokenCache interface {
 	ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error
 	ConsumePasswordReset(ctx context.Context, claims *token.Claims) error
