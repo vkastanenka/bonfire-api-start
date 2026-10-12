@@ -74,11 +74,11 @@ type LoginResult struct {
 }
 
 func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error) {
-	blocked, err := s.shieldCache.GetCooldown(ctx, "auth", "login", p.Email)
+	blocked, ttl, err := s.shieldCache.GetCooldown(ctx, "auth", "login", p.Email)
 	if err != nil {
 		slog.WarnContext(ctx, "failed to get login cooldown cache", slog.Any("error", err))
 	} else if blocked {
-		return LoginResult{}, ErrLoginCooldownExceeded()
+		return LoginResult{}, ErrCooldownExceeded().Retry(ttl)
 	}
 
 	u, err := s.userRepo.GetByEmail(ctx, p.Email)

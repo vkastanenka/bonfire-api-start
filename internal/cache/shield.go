@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"time"
 
 	"bonfire-api/internal/pkg/shield"
 	"bonfire-api/internal/redis"
@@ -17,18 +18,33 @@ func NewShieldCache(rdb redisdriver.Cmdable) *ShieldCache {
 	return &ShieldCache{rdb: rdb}
 }
 
-func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifier string) (bool, error) {
+func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifier string) (bool, time.Duration, error) {
 	k := shield.CooldownKey(domain, action, identifier)
 
-	val, err := c.rdb.Get(ctx, k).Result()
+	ttl, err := c.rdb.TTL(ctx, k).Result()
 	if err != nil {
 		if redis.IsCacheMiss(err) {
-			return false, nil
+			return false, 0, nil
 		}
-		return false, redis.NewError(err, redis.ResourceShield)
+		return false, 0, redis.NewError(err, redis.ResourceShield)
 	}
 
-	return val == "1", nil
+	if ttl <= 0 {
+		return false, 0, nil
+	}
+
+	return true, ttl, nil
+}
+
+func (c *ShieldCache) SetCooldown(ctx context.Context, domain, action, identifier string) error {
+	k := shield.CooldownKey(domain, action, identifier)
+
+	err := c.rdb.Set(ctx, k, "1", shield.DefaultCooldownTTL).Err()
+	if err != nil {
+		return redis.NewError(err, redis.ResourceShield)
+	}
+
+	return nil
 }
 
 var recordFailureScript = redisdriver.NewScript(`

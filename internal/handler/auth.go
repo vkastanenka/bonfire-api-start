@@ -76,6 +76,8 @@ type LoginRequest struct {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
+	// check if auth cookie before doing anything?
+
 	var req LoginRequest
 	err := h.bind.JSON(w, r, &req)
 	if err != nil {

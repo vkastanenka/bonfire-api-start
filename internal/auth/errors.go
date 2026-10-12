@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	ErrReasonIDGenerateFailed      = "ID_GENERATE_FAILED"
-	ErrReasonCredentialsInvalid    = "CREDENTIALS_INVALID"
-	ErrReasonLoginCooldownExceeded = "LOGIN_COOLDOWN_EXCEEDED"
+	ErrReasonIDGenerateFailed   = "ID_GENERATE_FAILED"
+	ErrReasonCredentialsInvalid = "CREDENTIALS_INVALID"
+	ErrReasonCooldownExceeded   = "COOLDOWN_EXCEEDED"
+	ErrReasonTokenInvalid       = "TOKEN_INVALID"
 )
 
 func ErrIDGenerateFailed() *errs.Error {
@@ -23,9 +24,15 @@ func ErrCredentialsInvalid() *errs.Error {
 		FieldViolation("password", "Invalid email or password.", "INVALID_CREDENTIALS")
 }
 
-func ErrLoginCooldownExceeded() *errs.Error {
-	return errs.ResourceExhausted("Too many login attempts. Please try again soon.").
-		Reason(ErrReasonLoginCooldownExceeded)
+func ErrCooldownExceeded() *errs.Error {
+	return errs.ResourceExhausted("Too many attempts. Please try again soon.").
+		Reason(ErrReasonCooldownExceeded)
+}
+
+func ErrTokenInvalid() *errs.Error {
+	return errs.Unauthenticated("Invalid or expired token.").
+		Reason(ErrReasonTokenInvalid).
+		FieldViolation("token", "Invalid or expired token.", "INVALID")
 }
 
 // ++++++++++ //
@@ -103,11 +110,6 @@ func ErrResetTokenRequired() *errs.Error {
 	return errs.InvalidArgument("Reset token is required.").
 		FieldViolation("token", "Reset token is required.", "REQUIRED").
 		Wrap(errors.New("reset token is required"))
-}
-
-func ErrResetTokenInvalid() *errs.Error {
-	return errs.Unauthenticated("Invalid or expired reset token.").
-		FieldViolation("token", "Invalid or expired reset token.", "INVALID_TOKEN")
 }
 
 func ErrResetTokenUserNotFound() *errs.Error {

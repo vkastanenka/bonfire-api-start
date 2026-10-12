@@ -46,7 +46,7 @@ var tokenConsumeJTIScript = redisdriver.NewScript(`
 
 func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims *token.Claims) error {
 	if claims == nil {
-		return errs.Internal("token claims cannot be nil").
+		return errs.Internal("Token claims cannot be nil.").
 			Resource("type", keyCategory, "", "")
 	}
 

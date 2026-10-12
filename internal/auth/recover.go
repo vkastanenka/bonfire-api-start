@@ -9,20 +9,22 @@ import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/user"
+	"bonfire-api/internal/pkg/utils"
 
 	"github.com/google/uuid"
 )
 
-const (
-	forgotPasswordTimingWindow = 35 * time.Millisecond
-)
-
 func (s *Service) ForgotPassword(ctx context.Context, email string) error {
-	defer crypto.ConstantWindow(ctx, forgotPasswordTimingWindow)()
+	blocked, ttl, err := s.shieldCache.GetCooldown(ctx, "auth", "forgot_password", email)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to get forgot_password cooldown cache", slog.Any("error", err))
+	} else if blocked {
+		return ErrCooldownExceeded().Retry(ttl)
+	}
 
-	userRow, err := s.userRepo.GetByEmail(ctx, email)
+	defer utils.ConstantWindow(ctx, 35*time.Millisecond)()
+
+	u, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			return nil
@@ -30,42 +32,43 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	if err := userRow.EnsureActive(); err != nil {
+	if err := u.EnsureActive(); err != nil {
 		return nil
 	}
 
-	t, _, err := s.tokenProvider.GeneratePasswordReset(userRow.ID)
+	t, _, err := s.tokenProvider.GeneratePasswordReset(u.ID)
 	if err != nil {
 		return err
 	}
 
 	now := time.Now()
 
-	payload := EventPasswordResetRequestedPayload{
-		Email:       userRow.Email,
-		Token:       t,
-		RequestedAt: now,
-	}
-
 	event, err := outbox.New(
-		uuid.Nil,
-		uuid.Nil,
-		appctx.GetTraceID(ctx),
-		nil,
 		EventPasswordResetRequested,
-		payload,
+		outbox.NewMetadata(appctx.GetTraceID(ctx), &u.ID, nil, nil),
+		newEventPasswordResetRequestedPayload(u.Email, u.Username, t, now),
 		now,
 	)
 	if err != nil {
 		return err
 	}
 
-	return s.outboxRepo.Create(ctx, event)
+	err = s.outboxRepo.Create(ctx, event)
+	if err != nil {
+		return err
+	}
+
+	if err := s.shieldCache.SetCooldown(ctx, "auth", "forgot_password", email); err != nil {
+		slog.WarnContext(ctx, "failed to set forgot_password cooldown", slog.Any("error", err))
+	}
+
+	return nil
 }
 
 type ResetPasswordParams struct {
-	Token    string
-	Password string
+	Token      string
+	Password   string
+	ClientMeta appctx.ClientMeta
 }
 
 type ResetPasswordResult struct {
@@ -75,14 +78,9 @@ type ResetPasswordResult struct {
 }
 
 func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (ResetPasswordResult, error) {
-	ctxMeta, err := appctx.GetMeta(ctx)
-	if err != nil {
-		return ResetPasswordResult{}, err
-	}
-
 	claims, err := s.tokenProvider.VerifyPasswordReset(p.Token)
 	if err != nil {
-		return ResetPasswordResult{}, ErrResetTokenInvalid().Wrap(err)
+		return ResetPasswordResult{}, err
 	}
 
 	if err := s.tokenCache.ConsumePasswordReset(ctx, claims); err != nil {
@@ -92,7 +90,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 	u, err := s.userRepo.Get(ctx, claims.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
-			return ResetPasswordResult{}, ErrResetTokenUserNotFound().Wrap(err)
+			return ResetPasswordResult{}, ErrTokenInvalid().Wrap(err)
 		}
 		return ResetPasswordResult{}, err
 	}
@@ -104,84 +102,52 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	now := time.Now()
 
-	newSession, tokenPair, err := s.generateSession(ctxMeta, u, now)
+	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
 
-	var revokedSessionIDs []uuid.UUID
-	var updatedUser *user.User
-	var dbSession *session.Session
+	var revokedSessIDs []uuid.UUID
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, u.ID, now)
+		revokedSessIDs, err = s.sessionRepo.RevokeAll(txCtx, u.ID, now)
 		if err != nil {
 			return err
 		}
 
-		updatedUser, err = s.userRepo.UpdatePasswordHash(txCtx, u.ID, passwordHash, now)
+		u, err = s.userRepo.UpdatePasswordHash(txCtx, u.ID, passwordHash, now)
 		if err != nil {
 			return err
 		}
 
-		if dbSession, err = s.sessionRepo.Create(txCtx, newSession); err != nil {
+		if sess, err = s.sessionRepo.Create(txCtx, sess); err != nil {
 			return err
 		}
 
-		if len(revokedSessionIDs) > 0 {
-			payload := session.EventRevokedAllPayload{
-				UserID:     u.ID,
-				SessionIDs: revokedSessionIDs,
-				RevokedAt:  now,
-			}
-
+		if len(revokedSessIDs) > 0 {
 			event, err := outbox.New(
-				updatedUser.ID,
-				uuid.Nil,
-				appctx.GetTraceID(txCtx),
-				nil,
-				session.EventRevokedAll,
-				payload,
+				EventSessionRevokedBatch,
+				outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
+				newEventSessionRevokedBatchPayload(u.ID, revokedSessIDs, now),
 				now,
 			)
 			if err != nil {
 				return err
 			}
 
-			if err := s.outboxRepo.Create(txCtx, event); err != nil {
-				return err
-			}
+			return s.outboxRepo.Create(txCtx, event)
 		}
 
 		return nil
 	})
-
 	if txErr != nil {
 		return ResetPasswordResult{}, txErr
 	}
 
-	if len(revokedSessionIDs) > 0 {
-		if err := s.sessionCache.DeleteBatch(ctx, revokedSessionIDs); err != nil {
-			slog.WarnContext(ctx, "failed to invalidate revoked sessions in cache after password reset",
-				slog.String("user_id", u.ID.String()),
-				slog.Int("count", len(revokedSessionIDs)),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	if err := s.userCache.Set(ctx, updatedUser); err != nil {
-		slog.WarnContext(ctx, "failed to update user in cache after password reset",
+	if err := s.cache.ResetPassword(ctx, u, sess, revokedSessIDs); err != nil {
+		slog.WarnContext(ctx, "failed cache login after reset password",
 			slog.String("user_id", u.ID.String()),
-			slog.Any("error", err),
-		)
-	}
-
-	if err := s.sessionCache.Set(ctx, dbSession); err != nil {
-		slog.WarnContext(ctx, "failed to seed new session into cache after password reset",
-			slog.String("user_id", u.ID.String()),
-			slog.String("session_id", dbSession.ID.String()),
+			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),
 		)
 	}

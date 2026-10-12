@@ -5,12 +5,14 @@ import (
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type Cache interface {
 	Login(ctx context.Context, u *user.User, sess *session.Session) error
+	ResetPassword(ctx context.Context, u *user.User, sess *session.Session, revokedSessionIDs []uuid.UUID) error
 }
 
 type SessionCache interface {
@@ -24,8 +26,9 @@ type SessionCache interface {
 
 type ShieldCache interface {
 	Clear(ctx context.Context, domain string, action string, identifier string) error
-	GetCooldown(ctx context.Context, domain string, action string, identifier string) (bool, error)
+	GetCooldown(ctx context.Context, domain string, action string, identifier string) (bool, time.Duration, error)
 	RecordFailure(ctx context.Context, domain string, action string, identifier string) (int, error)
+	SetCooldown(ctx context.Context, domain string, action string, identifier string) error
 }
 
 type TokenCache interface {
