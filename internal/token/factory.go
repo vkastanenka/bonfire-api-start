@@ -33,43 +33,43 @@ func (p *Provider) GeneratePair(uid, sid uuid.UUID) (Pair, error) {
 }
 
 func (p *Provider) GenerateAccess(uid, sid uuid.UUID) (string, time.Time, error) {
-	return p.generate(TypeAccess, Claims{
+	return p.generate(TypeAccess, &Claims{
 		UserID:    uid,
 		SessionID: sid,
 	})
 }
 
 func (p *Provider) GenerateRefresh(uid, sid uuid.UUID) (string, time.Time, error) {
-	return p.generate(TypeRefresh, Claims{
+	return p.generate(TypeRefresh, &Claims{
 		UserID:    uid,
 		SessionID: sid,
 	})
 }
 
 func (p *Provider) GenerateEmailVerify(userID uuid.UUID) (string, time.Time, error) {
-	return p.generate(TypeEmailVerify, Claims{
+	return p.generate(TypeEmailVerify, &Claims{
 		UserID: userID,
 	})
 }
 
 func (p *Provider) GeneratePasswordReset(userID uuid.UUID) (string, time.Time, error) {
-	return p.generate(TypePasswordReset, Claims{
+	return p.generate(TypePasswordReset, &Claims{
 		UserID: userID,
 	})
 }
 
-func (p *Provider) VerifyAccess(tokenStr string) (Claims, error) {
+func (p *Provider) VerifyAccess(tokenStr string) (*Claims, error) {
 	return p.verify(TypeAccess, tokenStr)
 }
 
-func (p *Provider) VerifyRefresh(tokenStr string) (Claims, error) {
+func (p *Provider) VerifyRefresh(tokenStr string) (*Claims, error) {
 	return p.verify(TypeRefresh, tokenStr)
 }
 
-func (p *Provider) VerifyEmailVerify(tokenStr string) (Claims, error) {
+func (p *Provider) VerifyEmailVerify(tokenStr string) (*Claims, error) {
 	return p.verify(TypeEmailVerify, tokenStr)
 }
 
-func (p *Provider) VerifyPasswordReset(tokenStr string) (Claims, error) {
+func (p *Provider) VerifyPasswordReset(tokenStr string) (*Claims, error) {
 	return p.verify(TypePasswordReset, tokenStr)
 }

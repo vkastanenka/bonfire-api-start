@@ -17,21 +17,6 @@ func ErrIDGenerateFailed() *errs.Error {
 		Reason(ErrReasonIDGenerateFailed)
 }
 
-func ErrHashPasswordFailed() *errs.Error {
-	return errs.Internal("failed to hash password").
-		Reason(ErrReasonHashPasswordFailed)
-}
-
-func ErrGenerateTokenFailed() *errs.Error {
-	return errs.Internal("failed to generate token").
-		Reason(ErrReasonGenerateTokenFailed)
-}
-
-func ErrGenerateTokenPairFailed() *errs.Error {
-	return errs.Internal("failed to generate token pair").
-		Reason(ErrReasonGenerateTokenPairFailed)
-}
-
 // ++++++++++ //
 
 func ErrFailedToGenerateUserID() *errs.Error {

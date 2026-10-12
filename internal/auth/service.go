@@ -178,7 +178,9 @@ type RegisterResult struct {
 func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResult, error) {
 	uID, err := uuid.NewV7()
 	if err != nil {
-		return RegisterResult{}, ErrIDGenerateFailed().Meta("resource", "user").Wrap(err)
+		return RegisterResult{}, ErrIDGenerateFailed().
+			Resource("domain", "user", "", "").
+			Wrap(err)
 	}
 
 	pHash, err := crypto.HashPassword(p.Password)
@@ -217,20 +219,10 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 			return err
 		}
 
-		payload := EventRegisteredPayload{
-			Email:       newUser.Email,
-			Username:    newUser.Username,
-			Token:       evToken,
-			RequestedAt: now,
-		}
-
 		event, err := outbox.New(
-			newUser.ID,
-			createdSession.ID,
-			appctx.GetTraceID(txCtx),
-			nil,
 			EventRegistered,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
+			newEventRegisteredPayload(u.Email, u.Username, evToken, now),
 			now,
 		)
 		if err != nil {
@@ -239,7 +231,6 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-
 	if txErr != nil {
 		return RegisterResult{}, txErr
 	}
@@ -266,28 +257,30 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 	}, nil
 }
 
-func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (session.Session, token.Pair, error) {
+func (s *Service) createSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (*session.Session, token.Pair, error) {
 	sid, err := uuid.NewV7()
 	if err != nil {
-		return session.Session{}, token.Pair{}, ErrIDGenerateFailed().Meta("resource", "session").Wrap(err)
+		return nil, token.Pair{}, ErrIDGenerateFailed().
+			Resource("domain", "session", "", "").
+			Wrap(err)
 	}
 
 	tokenPair, err := s.tokenProvider.GeneratePair(userID, sid)
 	if err != nil {
-		return session.Session{}, token.Pair{}, err
+		return nil, token.Pair{}, err
 	}
 
-	newSession := session.New(
+	sess := session.New(
 		sid,
 		userID,
 		crypto.HashToken(tokenPair.Refresh),
 		meta.IP,
 		meta.UserAgent,
 		meta.OS,
-		meta.Browser,
+		meta.Client,
 		tokenPair.RefreshExpiresAt,
 		now,
 	)
 
-	return newSession, tokenPair, nil
+	return sess, tokenPair, nil
 }

@@ -47,6 +47,15 @@ type EventRegisteredPayload struct {
 	RequestedAt time.Time `json:"requestedAt"`
 }
 
+func newEventRegisteredPayload(email, username, token string, now time.Time) EventRegisteredPayload {
+	return EventRegisteredPayload{
+		Email:       email,
+		Username:    username,
+		Token:       token,
+		RequestedAt: now,
+	}
+}
+
 func newRegisteredHandler(mailer Mailer) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventRegisteredPayload) error {
 		return mailer.SendRegister(ctx, p.Email, p.Username, p.Token, p.RequestedAt)
