@@ -75,7 +75,7 @@ func NewError(err error, resource Resource) error {
 // handleDBError classifies general database failures into domain errors, prioritizing record misses and Postgres-specific errors.
 func handleDBError(err error, resource Resource) error {
 	if IsNotFoundError(err) {
-		return withDBResource(ErrDBNotFound(), resource).Wrap(err)
+		return ErrWithResource(ErrDBNotFound(), resource).Wrap(err)
 	}
 
 	var pgErr *pgconn.PgError
@@ -85,16 +85,16 @@ func handleDBError(err error, resource Resource) error {
 
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		return withDBResource(ErrDBTimeout(), resource).Wrap(err)
+		return ErrWithResource(ErrDBTimeout(), resource).Wrap(err)
 
 	case errors.Is(err, context.Canceled):
-		return withDBResource(ErrDBCanceled(), resource).Wrap(err)
+		return ErrWithResource(ErrDBCanceled(), resource).Wrap(err)
 
 	case isNetworkError(err):
-		return withDBResource(ErrDBUnavailable(), resource).Wrap(err)
+		return ErrWithResource(ErrDBUnavailable(), resource).Wrap(err)
 
 	default:
-		return withDBResource(ErrDBInternal(), resource).Wrap(err)
+		return ErrWithResource(ErrDBInternal(), resource).Wrap(err)
 	}
 }
 
@@ -105,7 +105,7 @@ func handlePGError(
 	resource Resource,
 ) error {
 	if pgErr == nil {
-		return withDBResource(ErrDBInternal(), resource).Wrap(origErr)
+		return ErrWithResource(ErrDBInternal(), resource).Wrap(origErr)
 	}
 
 	var e *errs.Error
@@ -173,12 +173,12 @@ func handlePGError(
 		e = ErrDBInternal()
 	}
 
-	e = withDBResource(e, resource)
+	e = ErrWithResource(e, resource)
 
 	return e.Wrap(origErr)
 }
 
-func withDBResource(e *errs.Error, resource Resource) *errs.Error {
+func ErrWithResource(e *errs.Error, resource Resource) *errs.Error {
 	return e.Resource("db", resource.String(), "", "")
 }
 

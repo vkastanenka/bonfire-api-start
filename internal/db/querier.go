@@ -49,10 +49,10 @@ type Querier interface {
 	OutboxEventCreate(ctx context.Context, arg OutboxEventCreateParams) error
 	OutboxEventCreateBatch(ctx context.Context, arg []OutboxEventCreateBatchParams) (int64, error)
 	OutboxEventDeleteProcessedBatch(ctx context.Context, arg OutboxEventDeleteProcessedBatchParams) (int64, error)
-	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error
-	OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error
-	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error
-	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error
+	OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (int64, error)
+	OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) (int64, error)
+	OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) (int64, error)
+	OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) (int64, error)
 	OutboxEventRenewLease(ctx context.Context, arg OutboxEventRenewLeaseParams) (int64, error)
 	ReactionCountByEmoji(ctx context.Context, arg ReactionCountByEmojiParams) (int64, error)
 	ReactionCreate(ctx context.Context, arg ReactionCreateParams) (MessageReaction, error)

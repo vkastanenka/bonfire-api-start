@@ -22,7 +22,8 @@ func NewUserRepository(store *db.Store) *UserRepository {
 
 func (r *UserRepository) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	if u == nil {
-		return nil, ErrDomainPayloadRequired().Meta("resource", db.ResourceUser.String())
+		return nil, ErrDomainPayloadRequired().
+			Meta("resource", db.ResourceUser.String())
 	}
 
 	row, err := r.store.UserCreate(ctx, db.UserCreateParams{
@@ -100,7 +101,8 @@ func (r *UserRepository) ListDeleteScheduled(ctx context.Context, currentTime ti
 
 func (r *UserRepository) Update(ctx context.Context, u *user.User) (*user.User, error) {
 	if u == nil {
-		return nil, ErrDomainPayloadRequired().Meta("resource", db.ResourceUser.String())
+		return nil, ErrDomainPayloadRequired().
+			Meta("resource", db.ResourceUser.String())
 	}
 
 	row, err := r.store.UserUpdate(ctx, db.UserUpdateParams{
@@ -264,6 +266,10 @@ func (r *UserRepository) SetDeleteSchedule(ctx context.Context, id uuid.UUID, de
 }
 
 func (r *UserRepository) UpdateBatch(ctx context.Context, users []*user.User) ([]*user.User, error) {
+	if len(users) == 0 {
+		return nil, nil
+	}
+
 	jsonBytes, err := json.Marshal(parseUserUpdatePayloads(users))
 	if err != nil {
 		return nil, ErrJSONMarshalFailed().Wrap(err)

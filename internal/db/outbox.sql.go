@@ -161,7 +161,7 @@ func (q *Queries) OutboxEventDeleteProcessedBatch(ctx context.Context, arg Outbo
 	return result.RowsAffected(), nil
 }
 
-const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :exec
+const outboxEventMarkDeadLetter = `-- name: OutboxEventMarkDeadLetter :execrows
 UPDATE
     outbox_events
 SET
@@ -183,17 +183,20 @@ type OutboxEventMarkDeadLetterParams struct {
 	WorkerID  pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
+func (q *Queries) OutboxEventMarkDeadLetter(ctx context.Context, arg OutboxEventMarkDeadLetterParams) (int64, error) {
+	result, err := q.db.Exec(ctx, outboxEventMarkDeadLetter,
 		arg.LastError,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.WorkerID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :exec
+const outboxEventMarkFailure = `-- name: OutboxEventMarkFailure :execrows
 UPDATE
     outbox_events
 SET
@@ -218,8 +221,8 @@ type OutboxEventMarkFailureParams struct {
 	WorkerID      pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkFailure,
+func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMarkFailureParams) (int64, error) {
+	result, err := q.db.Exec(ctx, outboxEventMarkFailure,
 		arg.Attempts,
 		arg.NextAttemptAt,
 		arg.LastError,
@@ -227,10 +230,13 @@ func (q *Queries) OutboxEventMarkFailure(ctx context.Context, arg OutboxEventMar
 		arg.ID,
 		arg.WorkerID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :exec
+const outboxEventMarkProcessed = `-- name: OutboxEventMarkProcessed :execrows
 UPDATE
     outbox_events
 SET
@@ -251,17 +257,20 @@ type OutboxEventMarkProcessedParams struct {
 	WorkerID    pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) error {
-	_, err := q.db.Exec(ctx, outboxEventMarkProcessed,
+func (q *Queries) OutboxEventMarkProcessed(ctx context.Context, arg OutboxEventMarkProcessedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, outboxEventMarkProcessed,
 		arg.ProcessedAt,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.WorkerID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const outboxEventReleaseLease = `-- name: OutboxEventReleaseLease :exec
+const outboxEventReleaseLease = `-- name: OutboxEventReleaseLease :execrows
 UPDATE
     outbox_events
 SET
@@ -280,9 +289,12 @@ type OutboxEventReleaseLeaseParams struct {
 	WorkerID  pgtype.UUID        `json:"worker_id"`
 }
 
-func (q *Queries) OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) error {
-	_, err := q.db.Exec(ctx, outboxEventReleaseLease, arg.UpdatedAt, arg.ID, arg.WorkerID)
-	return err
+func (q *Queries) OutboxEventReleaseLease(ctx context.Context, arg OutboxEventReleaseLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, outboxEventReleaseLease, arg.UpdatedAt, arg.ID, arg.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const outboxEventRenewLease = `-- name: OutboxEventRenewLease :execrows
