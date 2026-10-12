@@ -39,7 +39,7 @@ WHERE
 RETURNING
     o.*;
 
--- name: OutboxEventMarkProcessed :exec
+-- name: OutboxEventMarkProcessed :execrows
 UPDATE
     outbox_events
 SET
@@ -52,7 +52,7 @@ WHERE
     AND locked_by = @worker_id::uuid
     AND processed_at IS NULL;
 
--- name: OutboxEventMarkFailure :exec
+-- name: OutboxEventMarkFailure :execrows
 UPDATE
     outbox_events
 SET
@@ -67,7 +67,7 @@ WHERE
     AND locked_by = @worker_id::uuid
     AND processed_at IS NULL;
 
--- name: OutboxEventMarkDeadLetter :exec
+-- name: OutboxEventMarkDeadLetter :execrows
 UPDATE
     outbox_events
 SET
@@ -92,7 +92,7 @@ WHERE
     AND locked_by = @worker_id::uuid
     AND lease_expires_at > @now::timestamptz;
 
--- name: OutboxEventReleaseLease :exec
+-- name: OutboxEventReleaseLease :execrows
 UPDATE
     outbox_events
 SET
