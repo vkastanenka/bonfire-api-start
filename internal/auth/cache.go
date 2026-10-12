@@ -9,6 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
+type Cache interface {
+	Login(ctx context.Context, u *user.User, sess *session.Session) error
+}
+
 type SessionCache interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteBatch(ctx context.Context, ids []uuid.UUID) error

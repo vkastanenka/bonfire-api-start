@@ -5,6 +5,15 @@ import (
 	"errors"
 )
 
+const (
+	ErrReasonJSONMarshalFailed = "JSON_MARSHAL_FAILED"
+)
+
+func ErrJSONMarshalFailed() *errs.Error {
+	return errs.Internal("Failed to marshal json payload.").
+		Reason(ErrReasonJSONMarshalFailed)
+}
+
 func ErrInvalidWSTicketLength() *errs.Error {
 	return errs.Internal("").
 		Wrap(errors.New("invalid websocket ticket payload length"))

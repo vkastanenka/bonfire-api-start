@@ -17,6 +17,7 @@ import (
 )
 
 type Service struct {
+	cache          Cache
 	userCache      UserCache
 	userRepo       UserRepository
 	cachedUserRepo CachedUserRepository
@@ -30,6 +31,7 @@ type Service struct {
 }
 
 func NewService(
+	cache Cache,
 	userCache UserCache,
 	userRepo UserRepository,
 	cachedUserRepo CachedUserRepository,
@@ -42,6 +44,7 @@ func NewService(
 	tx TX,
 ) *Service {
 	return &Service{
+		cache:          cache,
 		userCache:      userCache,
 		userRepo:       userRepo,
 		cachedUserRepo: cachedUserRepo,
@@ -235,15 +238,8 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	if err := s.userCache.Set(ctx, u); err != nil {
-		slog.WarnContext(ctx, "failed to seed new user into cache after registration",
-			slog.String("user_id", u.ID.String()),
-			slog.Any("error", err),
-		)
-	}
-
-	if err := s.sessionCache.Set(ctx, sess); err != nil {
-		slog.WarnContext(ctx, "failed to seed new session into cache after registration",
+	if err := s.cache.Login(ctx, u, sess); err != nil {
+		slog.WarnContext(ctx, "failed backfill cache after registration",
 			slog.String("user_id", u.ID.String()),
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),

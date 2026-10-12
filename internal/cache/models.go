@@ -371,8 +371,8 @@ func marshalUser(usr *user.User) ([]byte, error) {
 	dto := ParseUser(usr)
 	bytes, err := json.Marshal(dto)
 	if err != nil {
-		return nil, errs.Internal("Failed to marshal user json.").
-			Meta("scope", redis.ScopeUser.String()).
+		return nil, ErrJSONMarshalFailed().
+			Resource("cache", "user", "", "").
 			Wrap(err)
 	}
 	return bytes, nil
