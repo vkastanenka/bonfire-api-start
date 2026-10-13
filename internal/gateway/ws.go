@@ -1,4 +1,4 @@
-package auth
+package gateway
 
 import (
 	"bonfire-api/internal/appctx"

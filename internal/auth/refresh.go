@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
-	"bonfire-api/internal/session"
 	"context"
 	"crypto/subtle"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 
 type RefreshParams struct {
 	RefreshToken string
+	ClientMeta   appctx.ClientMeta
 }
 
 type RefreshResult struct {
@@ -23,18 +23,13 @@ type RefreshResult struct {
 	RefreshTokenExpiresAt time.Time
 }
 
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResult, error) {
-	ctxMeta, err := appctx.GetMeta(ctx)
+func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, error) {
+	claims, err := s.tokenProvider.VerifyRefresh(p.RefreshToken)
 	if err != nil {
 		return RefreshResult{}, err
 	}
 
-	claims, err := s.tokenProvider.VerifyRefresh(refreshToken)
-	if err != nil {
-		return RefreshResult{}, ErrRefreshTokenInvalid()
-	}
-
-	if err := s.tokenCache.ConsumeRefresh(ctx, claims); err != nil {
+	if err = s.tokenCache.ConsumeRefresh(ctx, claims); err != nil {
 		return RefreshResult{}, err
 	}
 
@@ -53,38 +48,22 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResu
 		return RefreshResult{}, ErrSessionExpired()
 	}
 
-	presentedBytes := crypto.HashToken(refreshToken)
-	currentBytes := []byte(sess.RefreshTokenHash)
+	candidateBytes := crypto.HashToken(p.RefreshToken)
 
-	if subtle.ConstantTimeCompare(presentedBytes, currentBytes) != 1 {
-		slog.WarnContext(ctx, "refresh token reuse detected: token hash mismatch",
-			slog.String("session_id", sess.ID.String()),
-			slog.String("user_id", sess.UserID.String()),
-		)
-
+	if subtle.ConstantTimeCompare(candidateBytes[:], sess.RefreshTokenHash[:]) != 1 {
 		var revokedIDs []uuid.UUID
 
-		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-			var err error
+		err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 			revokedIDs, err = s.sessionRepo.RevokeAll(txCtx, sess.UserID, now)
 			if err != nil {
 				return err
 			}
 
 			if len(revokedIDs) > 0 {
-				payload := session.EventRevokedAllPayload{
-					UserID:     sess.UserID,
-					SessionIDs: revokedIDs,
-					RevokedAt:  now,
-				}
-
 				event, err := outbox.New(
-					sess.UserID,
-					sess.ID,
-					appctx.GetTraceID(txCtx),
-					nil,
-					session.EventRevokedAll,
-					payload,
+					EventSessionRevokedBatch,
+					outbox.NewMetadata(appctx.GetTraceID(ctx), &sess.UserID, &sess.ID, nil),
+					newEventSessionRevokedBatchPayload(sess.UserID, revokedIDs, now),
 					now,
 				)
 				if err != nil {
@@ -96,15 +75,15 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResu
 
 			return nil
 		})
-
-		if txErr != nil {
-			return RefreshResult{}, txErr
+		if err != nil {
+			return RefreshResult{}, err
 		}
 
 		if len(revokedIDs) > 0 {
 			if err := s.sessionCache.DeleteBatch(ctx, revokedIDs); err != nil {
 				slog.WarnContext(ctx, "failed to invalidate revoked sessions in cache during token reuse detection",
 					slog.String("user_id", sess.UserID.String()),
+					slog.String("session_ids", sess.ID.String()),
 					slog.Int("count", len(revokedIDs)),
 					slog.Any("error", err),
 				)
@@ -119,15 +98,15 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResu
 		return RefreshResult{}, err
 	}
 
-	newHash := crypto.HashToken(tokenPair.Refresh)
-
-	newSess, err := s.sessionRepo.RotateRefreshTokenHash(
+	sess, err = s.sessionRepo.RotateRefreshTokenHash(
 		ctx,
 		sess.ID,
 		sess.RefreshTokenHash,
-		string(newHash),
-		ctxMeta.IP,
-		ctxMeta.UserAgent,
+		crypto.HashToken(tokenPair.Refresh),
+		p.ClientMeta.IP,
+		p.ClientMeta.UserAgent,
+		p.ClientMeta.OS,
+		p.ClientMeta.Client,
 		tokenPair.RefreshExpiresAt,
 		now,
 	)
@@ -135,7 +114,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResu
 		return RefreshResult{}, err
 	}
 
-	if err := s.sessionCache.Set(ctx, newSess); err != nil {
+	if err := s.sessionCache.Set(ctx, sess); err != nil {
 		slog.WarnContext(ctx, "failed to update session cache after token refresh",
 			slog.String("user_id", sess.UserID.String()),
 			slog.String("session_id", sess.ID.String()),
