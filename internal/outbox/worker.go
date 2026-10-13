@@ -24,7 +24,7 @@ const (
 
 type Worker struct {
 	id            uuid.UUID
-	repo          Repository
+	repo          *Repository
 	pollInterval  time.Duration
 	leaseDuration time.Duration
 	batchSize     int
@@ -36,7 +36,7 @@ type Worker struct {
 }
 
 func NewWorker(
-	repo Repository,
+	repo *Repository,
 	pollInterval time.Duration,
 	leaseDuration time.Duration,
 	batchSize int,
