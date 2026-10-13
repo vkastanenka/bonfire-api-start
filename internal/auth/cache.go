@@ -1,52 +1,77 @@
 package auth
 
 import (
-	"bonfire-api/internal/session"
-	"bonfire-api/internal/token"
+	"bonfire-api/internal/pkg/shield"
+	"bonfire-api/internal/redis"
 	"bonfire-api/internal/user"
 	"context"
-	"time"
 
 	"github.com/google/uuid"
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
-type Cache interface {
-	Login(ctx context.Context, u *user.User, sess *session.Session) error
-	ResetPassword(ctx context.Context, u *user.User, sess *session.Session, revokedSessionIDs []uuid.UUID) error
+type Cache struct {
+	rdb redisdriver.Cmdable
 }
 
-type SessionCache interface {
-	Delete(ctx context.Context, id uuid.UUID) error
-	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
-	Get(ctx context.Context, id uuid.UUID) (*session.Session, error)
-	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*session.Session, []uuid.UUID, error)
-	Set(ctx context.Context, sess *session.Session) error
-	SetBatch(ctx context.Context, sessions map[uuid.UUID]*session.Session) error
+func NewCache(rdb redisdriver.Cmdable) *Cache {
+	return &Cache{rdb: rdb}
 }
 
-type ShieldCache interface {
-	Clear(ctx context.Context, domain string, action string, identifier string) error
-	GetCooldown(ctx context.Context, domain string, action string, identifier string) (bool, time.Duration, error)
-	RecordFailure(ctx context.Context, domain string, action string, identifier string) (int, error)
-	SetCooldown(ctx context.Context, domain string, action string, identifier string) error
+func (s *Cache) Login(ctx context.Context, u *user.User, sess *Session) error {
+	return s.commitSession(ctx, u, sess, nil)
 }
 
-type TokenCache interface {
-	ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error
-	ConsumePasswordReset(ctx context.Context, claims *token.Claims) error
-	ConsumeRefresh(ctx context.Context, claims *token.Claims) error
+func (s *Cache) ResetPassword(ctx context.Context, u *user.User, sess *Session, revokedSessionIDs []uuid.UUID) error {
+	return s.commitSession(ctx, u, sess, revokedSessionIDs)
 }
 
-type UserCache interface {
-	Delete(ctx context.Context, id uuid.UUID) error
-	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
-	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
-	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error)
-	Set(ctx context.Context, usr *user.User) error
-	SetBatch(ctx context.Context, users map[uuid.UUID]*user.User) error
-}
+func (s *Cache) commitSession(
+	ctx context.Context,
+	u *user.User,
+	sess *Session,
+	revokedSessionIDs []uuid.UUID,
+) error {
+	userKey := user.CacheKey(u.ID)
+	sessKey := SessionCacheKey(sess.ID)
 
-type WSTicketCache interface {
-	Print(ctx context.Context, ticketID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
-	Punch(ctx context.Context, ticketID uuid.UUID) (uuid.UUID, uuid.UUID, error)
+	sessTTL, ok := CalcSessionCacheTTL(sess)
+	if !ok {
+		return nil
+	}
+
+	userBytes, err := user.MarshalCacheDTO(u)
+	if err != nil {
+		return err
+	}
+
+	sessBytes, err := MarshalSessionCacheDTO(sess)
+	if err != nil {
+		return err
+	}
+
+	loginCooldownKey := shield.CooldownKey("auth", "login", u.Email)
+	loginFailuresKey := shield.FailuresKey("auth", "login", u.Email)
+
+	_, err = s.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Set(ctx, userKey, userBytes, user.CacheTTL)
+		pipe.Set(ctx, sessKey, sessBytes, sessTTL)
+		pipe.Del(ctx, loginCooldownKey)
+		pipe.Del(ctx, loginFailuresKey)
+
+		if len(revokedSessionIDs) > 0 {
+			keys := make([]string, len(revokedSessionIDs))
+			for i, id := range revokedSessionIDs {
+				keys[i] = SessionCacheKey(id)
+			}
+			pipe.Del(ctx, keys...)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ResourceAuth)
+	}
+
+	return nil
 }

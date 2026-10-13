@@ -126,9 +126,9 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 		if len(revokedSessIDs) > 0 {
 			event, err := outbox.New(
-				EventSessionRevokedBatch,
+				EventSessionRevokedAll,
 				outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
-				newEventSessionRevokedBatchPayload(u.ID, revokedSessIDs, now),
+				newEventSessionRevokedAllPayload(u.ID, revokedSessIDs, now),
 				now,
 			)
 			if err != nil {

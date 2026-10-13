@@ -61,9 +61,9 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 
 			if len(revokedIDs) > 0 {
 				event, err := outbox.New(
-					EventSessionRevokedBatch,
+					EventSessionRevokedAll,
 					outbox.NewMetadata(appctx.GetTraceID(ctx), &sess.UserID, &sess.ID, nil),
-					newEventSessionRevokedBatchPayload(sess.UserID, revokedIDs, now),
+					newEventSessionRevokedAllPayload(sess.UserID, revokedIDs, now),
 					now,
 				)
 				if err != nil {

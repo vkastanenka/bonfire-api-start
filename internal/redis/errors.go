@@ -3,11 +3,13 @@ package redis
 import "bonfire-api/internal/pkg/errs"
 
 const (
-	ErrReasonCacheCorrupted   = "CACHE_CORRUPTED"
-	ErrReasonCacheTimeout     = "CACHE_TIMEOUT"
-	ErrReasonCacheCanceled    = "CACHE_CANCELED"
-	ErrReasonCacheUnavailable = "CACHE_UNAVAILABLE"
-	ErrReasonCacheInternal    = "CACHE_INTERNAL_ERROR"
+	ErrReasonCacheCorrupted          = "CACHE_CORRUPTED"
+	ErrReasonCacheTimeout            = "CACHE_TIMEOUT"
+	ErrReasonCacheCanceled           = "CACHE_CANCELED"
+	ErrReasonCacheUnavailable        = "CACHE_UNAVAILABLE"
+	ErrReasonCacheInternal           = "CACHE_INTERNAL_ERROR"
+	ErrReasonResourceUnmarshalFailed = "RESOURCE_UNMARSHAL_FAILED"
+	ErrReasonResourceMarshalFailed   = "RESOURCE_MARSHAL_FAILED"
 )
 
 // ErrCacheCorrupted returns an Internal error when cached data fails deserialization or schema validation.
@@ -38,6 +40,16 @@ func ErrCacheUnavailable() *errs.Error {
 func ErrCacheInternal() *errs.Error {
 	return errs.Internal("An internal caching error occurred.").
 		Reason(ErrReasonCacheInternal)
+}
+
+func ErrResourceUnmarshalFailed() *errs.Error {
+	return errs.Internal("Failed to unmarshal cached resource.").
+		Reason(ErrReasonResourceUnmarshalFailed)
+}
+
+func ErrResourceMarshalFailed() *errs.Error {
+	return errs.Internal("Failed to marshal resource for cache.").
+		Reason(ErrReasonResourceMarshalFailed)
 }
 
 // ErrWithResource attaches standard resource metadata matching the DB error pattern.

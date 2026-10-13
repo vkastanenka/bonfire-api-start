@@ -3,29 +3,53 @@ package auth
 import (
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/presence"
-	"bonfire-api/internal/session"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 	"context"
-	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type OutboxRepository interface {
-	Create(ctx context.Context, e *outbox.Event) error
+type Worker interface {
+	RegisterHandler(eventType string, handler outbox.Handler)
 }
 
-type SessionRepository interface {
-	Create(ctx context.Context, s *session.Session) (*session.Session, error)
-	DeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error
-	DeleteBatchRevoked(ctx context.Context, now time.Time, limitVal int) error
-	Get(ctx context.Context, id uuid.UUID) (*session.Session, error)
-	ListValidByUserID(ctx context.Context, userID uuid.UUID, now time.Time, limit int) ([]*session.Session, error)
-	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID, now time.Time) error
-	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
-	RotateRefreshTokenHash(ctx context.Context, id uuid.UUID, oldHash [32]byte, newHash [32]byte, clientIP netip.Addr, userAgent string, os string, client string, expiresAt time.Time, now time.Time) (*session.Session, error)
+type Broadcaster interface {
+	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	BroadcastToUserSession(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID, eventType string, payload any) error
+}
+
+type Mailer interface {
+	SendPasswordReset(ctx context.Context, emailAddress string, resetToken string, requestedAt time.Time) error
+	SendRegister(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
+	SendResendVerification(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
+}
+
+type ShieldCache interface {
+	Clear(ctx context.Context, domain string, action string, identifier string) error
+	GetCooldown(ctx context.Context, domain string, action string, identifier string) (bool, time.Duration, error)
+	RecordFailure(ctx context.Context, domain string, action string, identifier string) (int, error)
+	SetCooldown(ctx context.Context, domain string, action string, identifier string) error
+}
+
+type TokenCache interface {
+	ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error
+	ConsumePasswordReset(ctx context.Context, claims *token.Claims) error
+	ConsumeRefresh(ctx context.Context, claims *token.Claims) error
+}
+
+type UserCache interface {
+	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
+	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
+	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*user.User, []uuid.UUID, error)
+	Set(ctx context.Context, usr *user.User) error
+	SetBatch(ctx context.Context, users map[uuid.UUID]*user.User) error
+}
+
+type OutboxRepository interface {
+	Create(ctx context.Context, e *outbox.Event) error
 }
 
 type UserRepository interface {

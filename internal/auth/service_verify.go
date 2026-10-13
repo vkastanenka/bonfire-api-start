@@ -29,8 +29,11 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, er
 		return nil, err
 	}
 
-	if err := s.userCache.Delete(ctx, claims.UserID); err != nil {
-		slog.WarnContext(ctx, "failed to invalidate user cache after email verification",
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.userCache.Delete(cacheCtx, claims.UserID); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate user cache after email verification",
 			slog.String("user_id", claims.UserID.String()),
 			slog.Any("error", err),
 		)

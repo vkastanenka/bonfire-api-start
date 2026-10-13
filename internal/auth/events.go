@@ -11,27 +11,12 @@ import (
 
 // TODO: CONFIRM PAYLOAD VS META IMPLEMENTATION
 
-type Worker interface {
-	RegisterHandler(eventType string, handler outbox.Handler)
-}
-
-type Broadcaster interface {
-	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
-	BroadcastToUserSession(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID, eventType string, payload any) error
-}
-
-type Mailer interface {
-	SendPasswordReset(ctx context.Context, emailAddress string, resetToken string, requestedAt time.Time) error
-	SendRegister(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
-	SendResendVerification(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
-}
-
 const (
 	EventPasswordResetRequested = "auth.password_reset_requested"
 	EventRegistered             = "auth.user_registered"
 	EventVerificationResent     = "auth.verification_resent"
 	EventSessionRevoked         = "auth.session_revoked"
-	EventSessionRevokedBatch    = "auth.session_revoked_batch"
+	EventSessionRevokedAll      = "auth.session_revoked_all"
 )
 
 func RegisterEvents(w Worker, m Mailer, b Broadcaster) {
@@ -39,7 +24,7 @@ func RegisterEvents(w Worker, m Mailer, b Broadcaster) {
 	w.RegisterHandler(EventRegistered, newRegisteredHandler(m))
 	w.RegisterHandler(EventVerificationResent, newVerificationResentHandler(m))
 	w.RegisterHandler(EventSessionRevoked, newSessionRevokedEventHandler(b))
-	w.RegisterHandler(EventSessionRevokedBatch, newSessionRevokedBatchEventHandler(b))
+	w.RegisterHandler(EventSessionRevokedAll, newSessionRevokedAllEventHandler(b))
 }
 
 // --- Password Reset ---
@@ -138,22 +123,22 @@ func newSessionRevokedEventHandler(b Broadcaster) outbox.Handler {
 
 // --- Session Revoked All ---
 
-type EventSessionRevokedBatchPayload struct {
+type EventSessionRevokedAllPayload struct {
 	UserID     uuid.UUID   `json:"userId"`
 	SessionIDs []uuid.UUID `json:"sessionIds"`
 	RevokedAt  time.Time   `json:"revokedAt"`
 }
 
-func newEventSessionRevokedBatchPayload(userID uuid.UUID, sessionIDs []uuid.UUID, now time.Time) EventSessionRevokedBatchPayload {
-	return EventSessionRevokedBatchPayload{
+func newEventSessionRevokedAllPayload(userID uuid.UUID, sessionIDs []uuid.UUID, now time.Time) EventSessionRevokedAllPayload {
+	return EventSessionRevokedAllPayload{
 		UserID:     userID,
 		SessionIDs: sessionIDs,
 		RevokedAt:  now,
 	}
 }
 
-func newSessionRevokedBatchEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventSessionRevokedBatchPayload) error {
-		return b.BroadcastToUser(ctx, p.UserID, EventSessionRevokedBatch, p)
+func newSessionRevokedAllEventHandler(b Broadcaster) outbox.Handler {
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventSessionRevokedAllPayload) error {
+		return b.BroadcastToUser(ctx, p.UserID, EventSessionRevokedAll, p)
 	})
 }
