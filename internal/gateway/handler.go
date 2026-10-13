@@ -1,66 +1,54 @@
 package gateway
 
-import (
-	"context"
-	"net/http"
+// var upgrader = websocket.Upgrader{
+// 	CheckOrigin: func(r *http.Request) bool { return true },
+// }
 
-	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/presence"
+// // Handler manages WebSocket connection upgrades, query verification, and client lifecycle registration.
+// type Handler struct {
+// 	hub         *Hub
+// 	ticketCache WSTicketCache
+// 	bind        *httpio.Bind
+// }
 
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
-)
+// // NewHandler initializes and returns a new gateway Handler instance.
+// func NewHandler(hub *Hub, ticketCache WSTicketCache, bind *httpio.Bind) *Handler {
+// 	return &Handler{
+// 		hub:         hub,
+// 		ticketCache: ticketCache,
+// 		bind:        bind,
+// 	}
+// }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+// // ServeWSQuery defines the required query parameters extracted during the WebSocket handshake.
+// type ServeWSQuery struct {
+// 	TicketID uuid.UUID         `form:"ticketId" validate:"required"`
+// 	Presence presence.Presence `form:"presence" validate:"required"`
+// }
 
-// Handler manages WebSocket connection upgrades, query verification, and client lifecycle registration.
-type Handler struct {
-	hub         *Hub
-	ticketCache WSTicketCache
-	bind        *httpio.Bind
-}
+// // ServeWS validates incoming query parameters, punches the connection ticket, upgrades the HTTP
+// // connection to a WebSocket, and registers the active client with the hub.
+// func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
+// 	var query ServeWSQuery
+// 	if err := h.bind.Query(r, &query); err != nil {
+// 		return err
+// 	}
 
-// NewHandler initializes and returns a new gateway Handler instance.
-func NewHandler(hub *Hub, ticketCache WSTicketCache, bind *httpio.Bind) *Handler {
-	return &Handler{
-		hub:         hub,
-		ticketCache: ticketCache,
-		bind:        bind,
-	}
-}
+// 	ctx := r.Context()
 
-// ServeWSQuery defines the required query parameters extracted during the WebSocket handshake.
-type ServeWSQuery struct {
-	TicketID uuid.UUID         `form:"ticketId" validate:"required"`
-	Presence presence.Presence `form:"presence" validate:"required"`
-}
+// 	userID, sessionID, err := h.ticketCache.Punch(ctx, query.TicketID)
+// 	if err != nil {
+// 		return err
+// 	}
 
-// ServeWS validates incoming query parameters, punches the connection ticket, upgrades the HTTP
-// connection to a WebSocket, and registers the active client with the hub.
-func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
-	var query ServeWSQuery
-	if err := h.bind.Query(r, &query); err != nil {
-		return err
-	}
+// 	conn, err := upgrader.Upgrade(w, r, nil)
+// 	if err != nil {
+// 		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
+// 	}
 
-	ctx := r.Context()
+// 	client := NewClient(context.Background(), h.hub.ID(), userID, sessionID, conn)
+// 	h.hub.Register(client, query.Presence)
+// 	client.StartPumps(h.hub)
 
-	userID, sessionID, err := h.ticketCache.Punch(ctx, query.TicketID)
-	if err != nil {
-		return err
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
-	}
-
-	client := NewClient(context.Background(), h.hub.ID(), userID, sessionID, conn)
-	h.hub.Register(client, query.Presence)
-	client.StartPumps(h.hub)
-
-	return nil
-}
+// 	return nil
+// }

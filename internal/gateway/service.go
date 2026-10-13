@@ -1,130 +1,122 @@
 package gateway
 
-import (
-	"bonfire-api/internal/presence"
-	"context"
-	"log/slog"
+// const (
+// 	EventUpdatePresence = "user.update_presence"
+// )
 
-	"github.com/google/uuid"
-)
+// type EventUpdatePresencePayload struct {
+// 	UserID   uuid.UUID         `json:"userId"`
+// 	Presence presence.Presence `json:"presence"`
+// }
 
-const (
-	EventUpdatePresence = "user.update_presence"
-)
+// type Service struct {
+// 	broadcaster   *Broadcaster
+// 	gatewayCache  GatewayCache
+// 	presenceCache PresenceCache
+// 	relationCache RelationCache
+// 	userCache     UserCache
+// }
 
-type EventUpdatePresencePayload struct {
-	UserID   uuid.UUID         `json:"userId"`
-	Presence presence.Presence `json:"presence"`
-}
+// func NewService(
+// 	broadcaster *Broadcaster,
+// 	gatewayCache GatewayCache,
+// 	presenceCache PresenceCache,
+// 	relationCache RelationCache,
+// 	userCache UserCache,
+// ) *Service {
+// 	return &Service{
+// 		broadcaster:   broadcaster,
+// 		gatewayCache:  gatewayCache,
+// 		presenceCache: presenceCache,
+// 		relationCache: relationCache,
+// 		userCache:     userCache,
+// 	}
+// }
 
-type Service struct {
-	broadcaster   *Broadcaster
-	gatewayCache  GatewayCache
-	presenceCache PresenceCache
-	relationCache RelationCache
-	userCache     UserCache
-}
+// func (s *Service) RegisterSession(
+// 	ctx context.Context,
+// 	nodeID, userID, sessionID uuid.UUID,
+// 	p presence.Presence,
+// ) error {
+// 	wasOffline, err := s.gatewayCache.RegisterSession(ctx, nodeID, userID, sessionID, p)
+// 	if err != nil {
+// 		return err
+// 	}
 
-func NewService(
-	broadcaster *Broadcaster,
-	gatewayCache GatewayCache,
-	presenceCache PresenceCache,
-	relationCache RelationCache,
-	userCache UserCache,
-) *Service {
-	return &Service{
-		broadcaster:   broadcaster,
-		gatewayCache:  gatewayCache,
-		presenceCache: presenceCache,
-		relationCache: relationCache,
-		userCache:     userCache,
-	}
-}
+// 	if wasOffline {
+// 		friendIDs, err := s.relationCache.GetFriendIDs(ctx, userID)
+// 		if err != nil {
+// 			return err
+// 		}
 
-func (s *Service) RegisterSession(
-	ctx context.Context,
-	nodeID, userID, sessionID uuid.UUID,
-	p presence.Presence,
-) error {
-	wasOffline, err := s.gatewayCache.RegisterSession(ctx, nodeID, userID, sessionID, p)
-	if err != nil {
-		return err
-	}
+// 		if len(friendIDs) == 0 {
+// 			return nil
+// 		}
 
-	if wasOffline {
-		friendIDs, err := s.relationCache.GetFriendIDs(ctx, userID)
-		if err != nil {
-			return err
-		}
+// 		payload := EventUpdatePresencePayload{
+// 			UserID:   userID,
+// 			Presence: p,
+// 		}
 
-		if len(friendIDs) == 0 {
-			return nil
-		}
+// 		broadcastErr := s.broadcaster.BroadcastToUsers(ctx, friendIDs, EventUpdatePresence, payload)
+// 		if broadcastErr != nil {
+// 			slog.ErrorContext(ctx, "failed to broadcast presence update on register", "user_id", userID, "error", broadcastErr)
+// 		}
+// 	}
 
-		payload := EventUpdatePresencePayload{
-			UserID:   userID,
-			Presence: p,
-		}
+// 	return nil
+// }
 
-		broadcastErr := s.broadcaster.BroadcastToUsers(ctx, friendIDs, EventUpdatePresence, payload)
-		if broadcastErr != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update on register", "user_id", userID, "error", broadcastErr)
-		}
-	}
+// func (s *Service) UnregisterSession(ctx context.Context, nodeID, userID, sessionID uuid.UUID) error {
+// 	wentOffline, err := s.gatewayCache.UnregisterSession(ctx, nodeID, userID, sessionID)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	if wentOffline {
+// 		friendIDs, err := s.relationCache.GetFriendIDs(ctx, userID)
+// 		if err != nil {
+// 			return err
+// 		}
 
-func (s *Service) UnregisterSession(ctx context.Context, nodeID, userID, sessionID uuid.UUID) error {
-	wentOffline, err := s.gatewayCache.UnregisterSession(ctx, nodeID, userID, sessionID)
-	if err != nil {
-		return err
-	}
+// 		if len(friendIDs) == 0 {
+// 			return nil
+// 		}
 
-	if wentOffline {
-		friendIDs, err := s.relationCache.GetFriendIDs(ctx, userID)
-		if err != nil {
-			return err
-		}
+// 		payload := EventUpdatePresencePayload{
+// 			UserID:   userID,
+// 			Presence: presence.PresenceOffline,
+// 		}
 
-		if len(friendIDs) == 0 {
-			return nil
-		}
+// 		broadcastErr := s.broadcaster.BroadcastToUsers(ctx, friendIDs, EventUpdatePresence, payload)
+// 		if broadcastErr != nil {
+// 			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
+// 		}
+// 	}
 
-		payload := EventUpdatePresencePayload{
-			UserID:   userID,
-			Presence: presence.PresenceOffline,
-		}
+// 	return nil
+// }
 
-		broadcastErr := s.broadcaster.BroadcastToUsers(ctx, friendIDs, EventUpdatePresence, payload)
-		if broadcastErr != nil {
-			slog.ErrorContext(ctx, "failed to broadcast presence update on unregister", "user_id", userID, "error", broadcastErr)
-		}
-	}
+// func (s *Service) HandleHeartbeat(
+// 	ctx context.Context,
+// 	userID, nodeID, sessionID uuid.UUID,
+// 	newPresence presence.Presence,
+// ) error {
+// 	currentPresence, err := s.presenceCache.Get(ctx, userID)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	if currentPresence == presence.PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
+// 		if !newPresence.IsValid() {
+// 			newPresence = presence.PresenceOnline
+// 		}
+// 		return s.RegisterSession(ctx, userID, nodeID, sessionID, newPresence)
+// 	}
 
-func (s *Service) HandleHeartbeat(
-	ctx context.Context,
-	userID, nodeID, sessionID uuid.UUID,
-	newPresence presence.Presence,
-) error {
-	currentPresence, err := s.presenceCache.Get(ctx, userID)
-	if err != nil {
-		return err
-	}
+// 	return s.gatewayCache.Heartbeat(ctx, userID, nodeID, sessionID)
+// }
 
-	if currentPresence == presence.PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
-		if !newPresence.IsValid() {
-			newPresence = presence.PresenceOnline
-		}
-		return s.RegisterSession(ctx, userID, nodeID, sessionID, newPresence)
-	}
-
-	return s.gatewayCache.Heartbeat(ctx, userID, nodeID, sessionID)
-}
-
-func (s *Service) RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
-	return s.gatewayCache.RemoveBatchUsers(ctx, nodeID, userIDs)
-}
+// func (s *Service) RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
+// 	return s.gatewayCache.RemoveBatchUsers(ctx, nodeID, userIDs)
+// }

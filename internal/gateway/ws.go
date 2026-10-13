@@ -1,37 +1,28 @@
 package gateway
 
-import (
-	"bonfire-api/internal/appctx"
-	"context"
-	"errors"
-	"time"
+// func (s *Service) PrintWSTicket(ctx context.Context) (uuid.UUID, error) {
+// 	claims, err := appctx.GetClaims(ctx)
+// 	if err != nil {
+// 		return uuid.UUID{}, err
+// 	}
 
-	"github.com/google/uuid"
-)
+// 	sess, err := s.sessionCache.Get(ctx, claims.SessionID)
+// 	if err != nil {
+// 		return uuid.UUID{}, err
+// 	}
 
-func (s *Service) PrintWSTicket(ctx context.Context) (uuid.UUID, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return uuid.UUID{}, err
-	}
+// 	if sess.IsRevoked() || sess.IsExpired(time.Now()) || sess.UserID != claims.UserID {
+// 		return uuid.UUID{}, errors.New("Session invalid!")
+// 	}
 
-	sess, err := s.sessionCache.Get(ctx, claims.SessionID)
-	if err != nil {
-		return uuid.UUID{}, err
-	}
+// 	ticketID, err := uuid.NewV7()
+// 	if err != nil {
+// 		return uuid.UUID{}, err
+// 	}
 
-	if sess.IsRevoked() || sess.IsExpired(time.Now()) || sess.UserID != claims.UserID {
-		return uuid.UUID{}, errors.New("Session invalid!")
-	}
+// 	if err := s.ticketCache.Print(ctx, ticketID, claims.UserID, claims.SessionID); err != nil {
+// 		return uuid.UUID{}, err
+// 	}
 
-	ticketID, err := uuid.NewV7()
-	if err != nil {
-		return uuid.UUID{}, err
-	}
-
-	if err := s.ticketCache.Print(ctx, ticketID, claims.UserID, claims.SessionID); err != nil {
-		return uuid.UUID{}, err
-	}
-
-	return ticketID, nil
-}
+// 	return ticketID, nil
+// }

@@ -1,361 +1,348 @@
 package channel
 
-import (
-	"bonfire-api/internal/appctx"
-	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
-	"bonfire-api/internal/user"
-	"context"
-	"log/slog"
-	"time"
+// type ChannelService struct {
+// 	cache              ChannelCache
+// 	repo               ChannelRepository
+// 	memberCache        MemberCache
+// 	memberRepo         MemberRepository
+// 	messageCache       MessageCache
+// 	messageRepo        MessageRepository
+// 	presenceCache      PresenceCache
+// 	cachedUserRepo     CachedUserRepository
+// 	outboxRepo         OutboxRepository
+// 	cachedRelationRepo CachedRelationRepository
+// 	tx                 TX
+// }
 
-	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
-)
+// func NewChannelService(
+// 	cache ChannelCache,
+// 	repo ChannelRepository,
+// 	memberCache MemberCache,
+// 	memberRepo MemberRepository,
+// 	messageCache MessageCache,
+// 	messageRepo MessageRepository,
+// 	presenceCache PresenceCache,
+// 	cachedUserRepo CachedUserRepository,
+// 	outboxRepo OutboxRepository,
+// 	cachedRelationRepo CachedRelationRepository,
+// 	tx TX,
+// ) *ChannelService {
+// 	return &ChannelService{
+// 		cache:              cache,
+// 		repo:               repo,
+// 		memberCache:        memberCache,
+// 		memberRepo:         memberRepo,
+// 		messageCache:       messageCache,
+// 		messageRepo:        messageRepo,
+// 		presenceCache:      presenceCache,
+// 		cachedUserRepo:     cachedUserRepo,
+// 		outboxRepo:         outboxRepo,
+// 		cachedRelationRepo: cachedRelationRepo,
+// 		tx:                 tx,
+// 	}
+// }
 
-type ChannelService struct {
-	cache              ChannelCache
-	repo               ChannelRepository
-	memberCache        MemberCache
-	memberRepo         MemberRepository
-	messageCache       MessageCache
-	messageRepo        MessageRepository
-	presenceCache      PresenceCache
-	cachedUserRepo     CachedUserRepository
-	outboxRepo         OutboxRepository
-	cachedRelationRepo CachedRelationRepository
-	tx                 TX
-}
+// type CreateGroupResult struct {
+// 	Channel     *Channel
+// 	MemberIDs   []uuid.UUID
+// 	ActorMember *Member
+// 	Users       map[uuid.UUID]*user.User
+// 	Presences   map[uuid.UUID]presence.Presence
+// }
 
-func NewChannelService(
-	cache ChannelCache,
-	repo ChannelRepository,
-	memberCache MemberCache,
-	memberRepo MemberRepository,
-	messageCache MessageCache,
-	messageRepo MessageRepository,
-	presenceCache PresenceCache,
-	cachedUserRepo CachedUserRepository,
-	outboxRepo OutboxRepository,
-	cachedRelationRepo CachedRelationRepository,
-	tx TX,
-) *ChannelService {
-	return &ChannelService{
-		cache:              cache,
-		repo:               repo,
-		memberCache:        memberCache,
-		memberRepo:         memberRepo,
-		messageCache:       messageCache,
-		messageRepo:        messageRepo,
-		presenceCache:      presenceCache,
-		cachedUserRepo:     cachedUserRepo,
-		outboxRepo:         outboxRepo,
-		cachedRelationRepo: cachedRelationRepo,
-		tx:                 tx,
-	}
-}
+// // CreateGroup creates a new group channel with members and returns the initialized result for the actor.
+// func (s *ChannelService) CreateGroup(ctx context.Context, rawMemberIDs []uuid.UUID) (*CreateGroupResult, error) {
+// 	claims, err := appctx.GetClaims(ctx)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-type CreateGroupResult struct {
-	Channel     *Channel
-	MemberIDs   []uuid.UUID
-	ActorMember *Member
-	Users       map[uuid.UUID]*user.User
-	Presences   map[uuid.UUID]presence.Presence
-}
+// 	if err := validateMaxPeers(rawMemberIDs); err != nil {
+// 		return nil, err
+// 	}
 
-// CreateGroup creates a new group channel with members and returns the initialized result for the actor.
-func (s *ChannelService) CreateGroup(ctx context.Context, rawMemberIDs []uuid.UUID) (*CreateGroupResult, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
+// 	memberIDs, peerIDs := getChMemberIDs(rawMemberIDs, claims.UserID)
 
-	if err := validateMaxPeers(rawMemberIDs); err != nil {
-		return nil, err
-	}
+// 	counts, err := s.memberRepo.CountBatchByUserID(ctx, memberIDs)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	memberIDs, peerIDs := getChMemberIDs(rawMemberIDs, claims.UserID)
+// 	if counts[claims.UserID] >= MaxUserMemberships {
+// 		return nil, ErrUserMaxChannelsReached()
+// 	}
 
-	counts, err := s.memberRepo.CountBatchByUserID(ctx, memberIDs)
-	if err != nil {
-		return nil, err
-	}
+// 	if len(peerIDs) > 0 {
+// 		for _, peerID := range peerIDs {
+// 			if counts[peerID] >= MaxUserMemberships {
+// 				return nil, ErrPeerMaxChannelsReached()
+// 			}
+// 		}
 
-	if counts[claims.UserID] >= MaxUserMemberships {
-		return nil, ErrUserMaxChannelsReached()
-	}
+// 		friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, claims.UserID)
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-	if len(peerIDs) > 0 {
-		for _, peerID := range peerIDs {
-			if counts[peerID] >= MaxUserMemberships {
-				return nil, ErrPeerMaxChannelsReached()
-			}
-		}
+// 		friendSet := make(map[uuid.UUID]struct{}, len(friendIDs))
+// 		for _, id := range friendIDs {
+// 			friendSet[id] = struct{}{}
+// 		}
 
-		friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, claims.UserID)
-		if err != nil {
-			return nil, err
-		}
+// 		for _, peerID := range peerIDs {
+// 			if _, isFriend := friendSet[peerID]; !isFriend {
+// 				return nil, ErrCannotAddNonFriendUserToGroup()
+// 			}
+// 		}
+// 	}
 
-		friendSet := make(map[uuid.UUID]struct{}, len(friendIDs))
-		for _, id := range friendIDs {
-			friendSet[id] = struct{}{}
-		}
+// 	now := time.Now()
 
-		for _, peerID := range peerIDs {
-			if _, isFriend := friendSet[peerID]; !isFriend {
-				return nil, ErrCannotAddNonFriendUserToGroup()
-			}
-		}
-	}
+// 	ch, err := NewGroupChannel(now)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	now := time.Now()
+// 	membs := NewMembers(ch.ID, claims.UserID, peerIDs, now)
 
-	ch, err := NewGroupChannel(now)
-	if err != nil {
-		return nil, err
-	}
+// 	g, gCtx := errgroup.WithContext(ctx)
 
-	membs := NewMembers(ch.ID, claims.UserID, peerIDs, now)
+// 	var (
+// 		users     map[uuid.UUID]*user.User
+// 		presences map[uuid.UUID]presence.Presence
+// 	)
 
-	g, gCtx := errgroup.WithContext(ctx)
+// 	g.Go(func() error {
+// 		var fetchErr error
+// 		users, fetchErr = s.cachedUserRepo.GetBatch(gCtx, memberIDs)
+// 		return fetchErr
+// 	})
 
-	var (
-		users     map[uuid.UUID]*user.User
-		presences map[uuid.UUID]presence.Presence
-	)
+// 	g.Go(func() error {
+// 		var fetchErr error
+// 		presences, fetchErr = s.presenceCache.GetBatch(gCtx, memberIDs)
+// 		return fetchErr
+// 	})
 
-	g.Go(func() error {
-		var fetchErr error
-		users, fetchErr = s.cachedUserRepo.GetBatch(gCtx, memberIDs)
-		return fetchErr
-	})
+// 	if err := g.Wait(); err != nil {
+// 		return nil, err
+// 	}
 
-	g.Go(func() error {
-		var fetchErr error
-		presences, fetchErr = s.presenceCache.GetBatch(gCtx, memberIDs)
-		return fetchErr
-	})
+// 	var actorMember *Member
 
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
+// 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+// 		var repoErr error
+// 		if ch, repoErr = s.repo.Create(txCtx, ch); repoErr != nil {
+// 			return repoErr
+// 		}
 
-	var actorMember *Member
+// 		if membs, repoErr = s.memberRepo.CreateBatch(txCtx, membs); repoErr != nil {
+// 			return repoErr
+// 		}
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var repoErr error
-		if ch, repoErr = s.repo.Create(txCtx, ch); repoErr != nil {
-			return repoErr
-		}
+// 		for _, m := range membs {
+// 			if m.UserID == claims.UserID {
+// 				actorMember = m
+// 				break
+// 			}
+// 		}
 
-		if membs, repoErr = s.memberRepo.CreateBatch(txCtx, membs); repoErr != nil {
-			return repoErr
-		}
+// 		payload := EventChannelCreatedPayload{
+// 			Channel:   ParseChannelView(ch),
+// 			Members:   ParseMemberViewsMap(membs),
+// 			Users:     user.ParseSummariesMap(users),
+// 			Presences: presences,
+// 			CreatedAt: now,
+// 		}
 
-		for _, m := range membs {
-			if m.UserID == claims.UserID {
-				actorMember = m
-				break
-			}
-		}
+// 		event, err := outbox.New(
+// 			claims.UserID,
+// 			claims.SessionID,
+// 			appctx.GetTraceID(ctx),
+// 			memberIDs,
+// 			EventChannelCreated,
+// 			payload,
+// 			now,
+// 		)
+// 		if err != nil {
+// 			return err
+// 		}
 
-		payload := EventChannelCreatedPayload{
-			Channel:   ParseChannelView(ch),
-			Members:   ParseMemberViewsMap(membs),
-			Users:     user.ParseSummariesMap(users),
-			Presences: presences,
-			CreatedAt: now,
-		}
+// 		return s.outboxRepo.Create(txCtx, event)
+// 	})
+// 	if txErr != nil {
+// 		return nil, txErr
+// 	}
 
-		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			memberIDs,
-			EventChannelCreated,
-			payload,
-			now,
-		)
-		if err != nil {
-			return err
-		}
+// 	sortMembers(membs, users)
+// 	memberIDs = getMemberIDs(membs)
 
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return nil, txErr
-	}
+// 	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+// 	defer cancel()
 
-	sortMembers(membs, users)
-	memberIDs = getMemberIDs(membs)
+// 	if err := s.cache.CreateGroup(cacheCtx, ch, membs); err != nil {
+// 		slog.ErrorContext(cacheCtx, "failed to seed created group in cache",
+// 			slog.String("channel_id", ch.ID.String()),
+// 			slog.Any("error", err),
+// 		)
+// 	}
 
-	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+// 	return &CreateGroupResult{
+// 		Channel:     ch,
+// 		MemberIDs:   memberIDs,
+// 		ActorMember: actorMember,
+// 		Users:       users,
+// 		Presences:   presences,
+// 	}, nil
+// }
 
-	if err := s.cache.CreateGroup(cacheCtx, ch, membs); err != nil {
-		slog.ErrorContext(cacheCtx, "failed to seed created group in cache",
-			slog.String("channel_id", ch.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+// type UpdateGroupResult struct {
+// 	Channel        *Channel
+// 	SystemMessages []*Message
+// }
 
-	return &CreateGroupResult{
-		Channel:     ch,
-		MemberIDs:   memberIDs,
-		ActorMember: actorMember,
-		Users:       users,
-		Presences:   presences,
-	}, nil
-}
+// // UpdateGroup updates the group channel properties name and icon_url.
+// func (s *ChannelService) UpdateGroup(ctx context.Context, channelID uuid.UUID, name, iconURL *string) (*UpdateGroupResult, error) {
+// 	claims, err := appctx.GetClaims(ctx)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-type UpdateGroupResult struct {
-	Channel        *Channel
-	SystemMessages []*Message
-}
+// 	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-// UpdateGroup updates the group channel properties name and icon_url.
-func (s *ChannelService) UpdateGroup(ctx context.Context, channelID uuid.UUID, name, iconURL *string) (*UpdateGroupResult, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
+// 	err = validateMembership(members, claims.UserID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	members, err := s.memberRepo.GetBatchByChannelID(ctx, channelID)
-	if err != nil {
-		return nil, err
-	}
+// 	memberIDs := getMemberIDs(members)
+// 	var updatedChannel *Channel
+// 	var systemMessages []*Message
+// 	var updatedPeers []*Member
+// 	now := time.Now()
 
-	err = validateMembership(members, claims.UserID)
-	if err != nil {
-		return nil, err
-	}
+// 	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+// 		updatedChannel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
+// 		if err != nil {
+// 			return err
+// 		}
 
-	memberIDs := getMemberIDs(members)
-	var updatedChannel *Channel
-	var systemMessages []*Message
-	var updatedPeers []*Member
-	now := time.Now()
+// 		systemMessages, err = buildUpdateGroupSystemMessages(updatedChannel.ID, claims.UserID, name, iconURL, now)
+// 		if err != nil {
+// 			return err
+// 		}
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		updatedChannel, err = s.repo.UpdateGroup(txCtx, channelID, name, iconURL, now)
-		if err != nil {
-			return err
-		}
+// 		systemMessagesLength := len(systemMessages)
 
-		systemMessages, err = buildUpdateGroupSystemMessages(updatedChannel.ID, claims.UserID, name, iconURL, now)
-		if err != nil {
-			return err
-		}
+// 		if systemMessagesLength > 0 {
+// 			if systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
+// 				return err
+// 			}
 
-		systemMessagesLength := len(systemMessages)
+// 			updatedPeers, err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, updatedChannel.ID, claims.UserID, systemMessagesLength, now)
+// 			if err != nil {
+// 				return err
+// 			}
+// 		}
 
-		if systemMessagesLength > 0 {
-			if systemMessages, err = s.messageRepo.CreateBatch(txCtx, systemMessages); err != nil {
-				return err
-			}
+// 		sortMessages(systemMessages)
 
-			updatedPeers, err = s.memberRepo.IncrementPeersMentionCountByChannelID(txCtx, updatedChannel.ID, claims.UserID, systemMessagesLength, now)
-			if err != nil {
-				return err
-			}
-		}
+// 		payload := EventChannelUpdatedPayload{
+// 			Channel:        ParseChannelView(updatedChannel),
+// 			Members:        ParseMemberViewsMap(updatedPeers),
+// 			SystemMessages: ParseMessageViews(systemMessages),
+// 			CreatedAt:      now,
+// 		}
 
-		sortMessages(systemMessages)
+// 		event, repoErr := outbox.New(
+// 			claims.UserID,
+// 			claims.SessionID,
+// 			appctx.GetTraceID(ctx),
+// 			memberIDs,
+// 			EventChannelUpdated,
+// 			payload,
+// 			now,
+// 		)
+// 		if repoErr != nil {
+// 			return repoErr
+// 		}
 
-		payload := EventChannelUpdatedPayload{
-			Channel:        ParseChannelView(updatedChannel),
-			Members:        ParseMemberViewsMap(updatedPeers),
-			SystemMessages: ParseMessageViews(systemMessages),
-			CreatedAt:      now,
-		}
+// 		return s.outboxRepo.Create(txCtx, event)
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-		event, repoErr := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			memberIDs,
-			EventChannelUpdated,
-			payload,
-			now,
-		)
-		if repoErr != nil {
-			return repoErr
-		}
+// 	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+// 	defer cancel()
 
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if err != nil {
-		return nil, err
-	}
+// 	if err := s.cache.Delete(cacheCtx, updatedChannel.ID); err != nil {
+// 		slog.ErrorContext(cacheCtx, "failed to delete channel cache",
+// 			slog.String("channel_id", updatedChannel.ID.String()),
+// 			slog.Any("error", err),
+// 		)
+// 	}
 
-	cacheCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+// 	if len(systemMessages) > 0 {
+// 		if err := s.messageCache.SetBatch(cacheCtx, updatedChannel.ID, systemMessages); err != nil {
+// 			slog.ErrorContext(cacheCtx, "failed to seed system messages into cache",
+// 				slog.String("channel_id", updatedChannel.ID.String()),
+// 				slog.Int("count", len(systemMessages)),
+// 				slog.Any("error", err),
+// 			)
+// 		}
+// 	}
 
-	if err := s.cache.Delete(cacheCtx, updatedChannel.ID); err != nil {
-		slog.ErrorContext(cacheCtx, "failed to delete channel cache",
-			slog.String("channel_id", updatedChannel.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+// 	if len(updatedPeers) > 0 {
+// 		peerIDs := getMemberIDs(updatedPeers)
 
-	if len(systemMessages) > 0 {
-		if err := s.messageCache.SetBatch(cacheCtx, updatedChannel.ID, systemMessages); err != nil {
-			slog.ErrorContext(cacheCtx, "failed to seed system messages into cache",
-				slog.String("channel_id", updatedChannel.ID.String()),
-				slog.Int("count", len(systemMessages)),
-				slog.Any("error", err),
-			)
-		}
-	}
+// 		if err := s.memberCache.InvalidateBatch(cacheCtx, updatedChannel.ID, peerIDs); err != nil {
+// 			slog.ErrorContext(cacheCtx, "failed to invalidate updated peer members in cache",
+// 				slog.String("channel_id", updatedChannel.ID.String()),
+// 				slog.Int("count", len(peerIDs)),
+// 				slog.Any("error", err),
+// 			)
+// 		}
+// 	}
 
-	if len(updatedPeers) > 0 {
-		peerIDs := getMemberIDs(updatedPeers)
+// 	return &UpdateGroupResult{
+// 		Channel:        updatedChannel,
+// 		SystemMessages: systemMessages,
+// 	}, nil
+// }
 
-		if err := s.memberCache.InvalidateBatch(cacheCtx, updatedChannel.ID, peerIDs); err != nil {
-			slog.ErrorContext(cacheCtx, "failed to invalidate updated peer members in cache",
-				slog.String("channel_id", updatedChannel.ID.String()),
-				slog.Int("count", len(peerIDs)),
-				slog.Any("error", err),
-			)
-		}
-	}
+// func buildUpdateGroupSystemMessages(
+// 	channelID uuid.UUID,
+// 	actorID uuid.UUID,
+// 	name *string,
+// 	iconURL *string,
+// 	now time.Time,
+// ) ([]*Message, error) {
+// 	var systemMessages []*Message
 
-	return &UpdateGroupResult{
-		Channel:        updatedChannel,
-		SystemMessages: systemMessages,
-	}, nil
-}
+// 	if name != nil {
+// 		msg, err := NewMessageNameChange(channelID, actorID, name, now)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		systemMessages = append(systemMessages, msg)
+// 	}
 
-func buildUpdateGroupSystemMessages(
-	channelID uuid.UUID,
-	actorID uuid.UUID,
-	name *string,
-	iconURL *string,
-	now time.Time,
-) ([]*Message, error) {
-	var systemMessages []*Message
+// 	if iconURL != nil {
+// 		iconTime := now
+// 		if len(systemMessages) > 0 {
+// 			iconTime = now.Add(time.Microsecond)
+// 		}
 
-	if name != nil {
-		msg, err := NewMessageNameChange(channelID, actorID, name, now)
-		if err != nil {
-			return nil, err
-		}
-		systemMessages = append(systemMessages, msg)
-	}
+// 		msg, err := NewMessageIconChange(channelID, actorID, iconTime)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		systemMessages = append(systemMessages, msg)
+// 	}
 
-	if iconURL != nil {
-		iconTime := now
-		if len(systemMessages) > 0 {
-			iconTime = now.Add(time.Microsecond)
-		}
-
-		msg, err := NewMessageIconChange(channelID, actorID, iconTime)
-		if err != nil {
-			return nil, err
-		}
-		systemMessages = append(systemMessages, msg)
-	}
-
-	return systemMessages, nil
-}
+// 	return systemMessages, nil
+// }

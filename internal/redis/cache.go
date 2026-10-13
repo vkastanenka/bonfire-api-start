@@ -120,7 +120,7 @@ func GetAndUnmarshalBatch[K comparable, T any](
 	}
 
 	if len(corrupted) > 0 {
-		_ = deleteBatchKeys(ctx, resource, client, corrupted)
+		_ = deleteBatchKeys(ctx, client, resource, corrupted)
 	}
 
 	return found, missing, nil

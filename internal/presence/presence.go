@@ -1,10 +1,7 @@
 package presence
 
 import (
-	"bytes"
-	"strconv"
-
-	"bonfire-api/internal/pkg/sanitize"
+	"bonfire-api/internal/pkg/parse"
 )
 
 type Presence int
@@ -31,19 +28,19 @@ var presenceNames = [...]string{
 }
 
 func ParseInt(i int) (Presence, error) {
-	return sanitize.ParseEnumInt(i, presenceMax, "presence")
+	return parse.EnumInt(i, presenceMax, "presence")
 }
 
 func ParseIntBytes(b []byte) (Presence, error) {
-	return sanitize.ParseEnumIntBytes(b, presenceMax, "presence")
+	return parse.EnumIntBytes(b, presenceMax, "presence")
 }
 
 func ParseString(s string) (Presence, error) {
-	return sanitize.ParseEnumString[Presence](s, presenceNames[:], "presence")
+	return parse.EnumString[Presence](s, presenceNames[:], "presence")
 }
 
 func ParseStringBytes(b []byte) (Presence, error) {
-	return sanitize.ParseEnumStringBytes[Presence](b, presenceNames[:], "presence")
+	return parse.EnumStringBytes[Presence](b, presenceNames[:], "presence")
 }
 
 func (p Presence) IsValid() bool {
@@ -84,25 +81,6 @@ func (p *Presence) UnmarshalText(text []byte) error {
 	if err != nil {
 		return err
 	}
-	*p = parsed
-	return nil
-}
-
-func (p Presence) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, p.String()), nil
-}
-
-func (p *Presence) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		*p = PresenceUnknown
-		return nil
-	}
-
-	parsed, err := ParseStringBytes(data)
-	if err != nil {
-		return err
-	}
-
 	*p = parsed
 	return nil
 }
