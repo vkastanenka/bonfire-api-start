@@ -37,7 +37,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			crypto.CompareDummyHashAndPassword(p.Password)
-			return LoginResult{}, ErrCredentialsInvalid()
+			return LoginResult{}, ErrCredentialsInvalid().Wrap(err)
 		}
 		return LoginResult{}, err
 	}
@@ -47,12 +47,12 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		if _, shieldErr := s.shieldCache.RecordFailure(ctx, "auth", "login", p.Email); shieldErr != nil {
 			slog.WarnContext(ctx, "failed to record login failure", slog.Any("error", shieldErr))
 		}
-		return LoginResult{}, ErrCredentialsInvalid()
+		return LoginResult{}, ErrCredentialsInvalid().Wrap(err)
 	}
 
 	now := time.Now()
 
-	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
+	sess, tokenPair, err := s.generateSession(u.ID, p.ClientMeta, now)
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -81,13 +81,7 @@ func (s *Service) Login(ctx context.Context, p LoginParams) (LoginResult, error)
 		}
 	}
 
-	if err := s.cache.Login(ctx, u, sess); err != nil {
-		slog.WarnContext(ctx, "failed cache login after login",
-			slog.String("user_id", u.ID.String()),
-			slog.String("session_id", sess.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.cacheLogin(ctx, u, sess, "login")
 
 	return LoginResult{
 		AccessToken:           tokenPair.Access,
@@ -141,7 +135,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		now,
 	)
 
-	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
+	sess, tokenPair, err := s.generateSession(u.ID, p.ClientMeta, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -177,13 +171,7 @@ func (s *Service) Register(ctx context.Context, p RegisterParams) (RegisterResul
 		return RegisterResult{}, txErr
 	}
 
-	if err := s.cache.Login(ctx, u, sess); err != nil {
-		slog.WarnContext(ctx, "failed cache login after registration",
-			slog.String("user_id", u.ID.String()),
-			slog.String("session_id", sess.ID.String()),
-			slog.Any("error", err),
-		)
-	}
+	s.cacheLogin(ctx, u, sess, "registration")
 
 	return RegisterResult{
 		AccessToken:           tokenPair.Access,

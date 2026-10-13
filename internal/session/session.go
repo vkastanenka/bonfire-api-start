@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	maxSessions             = 10
-	listValidByUserIDLimit  = maxSessions
-	deleteBatchExpiredLimit = 100
+	maxSessions            = 10
+	listValidByUserIDLimit = maxSessions
 )
 
 type Session struct {

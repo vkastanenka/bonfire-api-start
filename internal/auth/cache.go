@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"bonfire-api/internal/pkg/shield"
 	"bonfire-api/internal/redis"
+	"bonfire-api/internal/shield"
 	"bonfire-api/internal/user"
 	"context"
 

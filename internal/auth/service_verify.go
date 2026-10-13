@@ -8,8 +8,9 @@ import (
 	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
+
+	"github.com/google/uuid"
 )
 
 func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, error) {
@@ -18,7 +19,7 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, er
 		return nil, err
 	}
 
-	if err := s.tokenCache.ConsumeEmailVerify(ctx, claims); err != nil {
+	if err = s.tokenCache.ConsumeEmailVerify(ctx, claims); err != nil {
 		return nil, err
 	}
 
@@ -43,11 +44,12 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (*user.User, er
 }
 
 type ResendVerifyParams struct {
-	Claims token.Claims
+	UserID    uuid.UUID
+	SessionID uuid.UUID
 }
 
 func (s *Service) ResendVerify(ctx context.Context, p ResendVerifyParams) error {
-	u, err := s.cachedUserRepo.Get(ctx, p.Claims.UserID)
+	u, err := s.cachedUserRepo.Get(ctx, p.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
 			return nil
@@ -64,7 +66,7 @@ func (s *Service) ResendVerify(ctx context.Context, p ResendVerifyParams) error 
 
 	event, err := outbox.New(
 		EventVerificationResent,
-		outbox.NewMetadata(appctx.GetTraceID(ctx), &p.Claims.UserID, &p.Claims.SessionID, nil),
+		outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
 		newEventVerificationResentPayload(u.Email, u.Username, vToken, now),
 		now,
 	)

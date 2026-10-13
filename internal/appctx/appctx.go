@@ -56,10 +56,10 @@ func GetClientMeta(ctx context.Context) (ClientMeta, error) {
 }
 
 // GetClaims extracts token claims from the context.
-func GetClaims(ctx context.Context) (token.Claims, error) {
-	claims, ok := ctx.Value(keyClaims).(token.Claims)
+func GetClaims(ctx context.Context) (*token.Claims, error) {
+	claims, ok := ctx.Value(keyClaims).(*token.Claims)
 	if !ok {
-		return token.Claims{}, ErrClaimsNotFound
+		return nil, ErrClaimsNotFound
 	}
 	return claims, nil
 }

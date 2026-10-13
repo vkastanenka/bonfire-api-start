@@ -22,7 +22,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return ErrCooldownExceeded().Retry(ttl)
 	}
 
-	defer utils.ConstantWindow(ctx, 35*time.Millisecond)()
+	defer utils.ConstantWindow(ctx, forgotPasswordWindow)()
 
 	u, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
@@ -32,7 +32,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	if err := u.EnsureActive(); err != nil {
+	if err = u.EnsureActive(); err != nil {
 		return nil
 	}
 
@@ -58,8 +58,11 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 		return err
 	}
 
-	if err := s.shieldCache.SetCooldown(ctx, "auth", "forgot_password", email); err != nil {
-		slog.WarnContext(ctx, "failed to set forgot_password cooldown", slog.Any("error", err))
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err = s.shieldCache.SetCooldown(cacheCtx, "auth", "forgot_password", email); err != nil {
+		slog.WarnContext(cacheCtx, "failed to set forgot_password cooldown", slog.Any("error", err))
 	}
 
 	return nil
@@ -83,7 +86,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		return ResetPasswordResult{}, err
 	}
 
-	if err := s.tokenCache.ConsumePasswordReset(ctx, claims); err != nil {
+	if err = s.tokenCache.ConsumePasswordReset(ctx, claims); err != nil {
 		return ResetPasswordResult{}, err
 	}
 
@@ -102,7 +105,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 
 	now := time.Now()
 
-	sess, tokenPair, err := s.generateSession(p.ClientMeta, u.ID, now)
+	sess, tokenPair, err := s.generateSession(u.ID, p.ClientMeta, now)
 	if err != nil {
 		return ResetPasswordResult{}, err
 	}
@@ -128,7 +131,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			event, err := outbox.New(
 				EventSessionRevokedAll,
 				outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
-				newEventSessionRevokedAllPayload(u.ID, revokedSessIDs, now),
+				newEventSessionRevokedAllPayload(revokedSessIDs),
 				now,
 			)
 			if err != nil {
@@ -144,8 +147,11 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 		return ResetPasswordResult{}, txErr
 	}
 
-	if err := s.cache.ResetPassword(ctx, u, sess, revokedSessIDs); err != nil {
-		slog.WarnContext(ctx, "failed cache login after reset password",
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err = s.cache.ResetPassword(cacheCtx, u, sess, revokedSessIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed cache reset password pipeline",
 			slog.String("user_id", u.ID.String()),
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),

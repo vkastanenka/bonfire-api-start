@@ -53,7 +53,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 	if subtle.ConstantTimeCompare(candidateBytes[:], sess.RefreshTokenHash[:]) != 1 {
 		var revokedIDs []uuid.UUID
 
-		err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 			revokedIDs, err = s.sessionRepo.RevokeAll(txCtx, sess.UserID, now)
 			if err != nil {
 				return err
@@ -63,7 +63,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 				event, err := outbox.New(
 					EventSessionRevokedAll,
 					outbox.NewMetadata(appctx.GetTraceID(ctx), &sess.UserID, &sess.ID, nil),
-					newEventSessionRevokedAllPayload(sess.UserID, revokedIDs, now),
+					newEventSessionRevokedAllPayload(revokedIDs),
 					now,
 				)
 				if err != nil {
@@ -75,22 +75,15 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 
 			return nil
 		})
-		if err != nil {
-			return RefreshResult{}, err
+		if txErr != nil {
+			return RefreshResult{}, txErr
 		}
 
 		if len(revokedIDs) > 0 {
-			if err := s.sessionCache.DeleteBatch(ctx, revokedIDs); err != nil {
-				slog.WarnContext(ctx, "failed to invalidate revoked sessions in cache during token reuse detection",
-					slog.String("user_id", sess.UserID.String()),
-					slog.String("session_ids", sess.ID.String()),
-					slog.Int("count", len(revokedIDs)),
-					slog.Any("error", err),
-				)
-			}
+			s.cacheDeleteSessionBatch(ctx, claims.UserID, revokedIDs, "refresh failure")
 		}
 
-		return RefreshResult{}, ErrRefreshTokenInvalidReuse()
+		return RefreshResult{}, ErrTokenInvalid()
 	}
 
 	tokenPair, err := s.tokenProvider.GeneratePair(sess.UserID, sess.ID)
@@ -114,8 +107,11 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 		return RefreshResult{}, err
 	}
 
-	if err := s.sessionCache.Set(ctx, sess); err != nil {
-		slog.WarnContext(ctx, "failed to update session cache after token refresh",
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.sessionCache.Set(cacheCtx, sess); err != nil {
+		slog.WarnContext(cacheCtx, "failed to update session cache after token refresh",
 			slog.String("user_id", sess.UserID.String()),
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),

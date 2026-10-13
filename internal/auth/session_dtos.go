@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type View struct {
+type SessionDTO struct {
 	ID         uuid.UUID  `json:"id"`
 	ClientIP   netip.Addr `json:"clientIp"`
 	UserAgent  string     `json:"userAgent"`
@@ -18,8 +18,8 @@ type View struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 }
 
-func ParseView(s *Session) View {
-	return View{
+func NewSessionDTO(s *Session) SessionDTO {
+	return SessionDTO{
 		ID:         s.ID,
 		ClientIP:   s.ClientIP,
 		UserAgent:  s.UserAgent,
@@ -31,10 +31,10 @@ func ParseView(s *Session) View {
 	}
 }
 
-func ParseViews(sessions []*Session) []View {
-	views := make([]View, len(sessions))
+func NewSessionDTOs(sessions []*Session) []SessionDTO {
+	dtos := make([]SessionDTO, len(sessions))
 	for i, s := range sessions {
-		views[i] = ParseView(s)
+		dtos[i] = NewSessionDTO(s)
 	}
-	return views
+	return dtos
 }

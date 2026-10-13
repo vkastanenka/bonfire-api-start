@@ -1,14 +1,30 @@
-package cache
+package shield
 
 import (
+	"bonfire-api/internal/redis"
 	"context"
 	"time"
 
-	"bonfire-api/internal/pkg/shield"
-	"bonfire-api/internal/redis"
-
 	redisdriver "github.com/redis/go-redis/v9"
 )
+
+const (
+	defaultMaxAttempts = 5
+	defaultFailuresTTL = 1 * time.Minute
+	defaultCooldownTTL = 1 * time.Minute
+)
+
+func cacheIdentifier(identifier string) string {
+	return "{" + identifier + "}"
+}
+
+func FailuresKey(domain, action, identifier string) string {
+	return "shield:failures:" + domain + ":" + action + ":" + cacheIdentifier(identifier)
+}
+
+func CooldownKey(domain, action, identifier string) string {
+	return "shield:cooldown:" + domain + ":" + action + ":" + cacheIdentifier(identifier)
+}
 
 type ShieldCache struct {
 	rdb redisdriver.Cmdable
@@ -19,7 +35,7 @@ func NewShieldCache(rdb redisdriver.Cmdable) *ShieldCache {
 }
 
 func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifier string) (bool, time.Duration, error) {
-	k := shield.CooldownKey(domain, action, identifier)
+	k := CooldownKey(domain, action, identifier)
 
 	ttl, err := c.rdb.TTL(ctx, k).Result()
 	if err != nil {
@@ -37,9 +53,9 @@ func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifie
 }
 
 func (c *ShieldCache) SetCooldown(ctx context.Context, domain, action, identifier string) error {
-	k := shield.CooldownKey(domain, action, identifier)
+	k := CooldownKey(domain, action, identifier)
 
-	err := c.rdb.Set(ctx, k, "1", shield.DefaultCooldownTTL).Err()
+	err := c.rdb.Set(ctx, k, "1", defaultCooldownTTL).Err()
 	if err != nil {
 		return redis.NewError(err, redis.ResourceShield)
 	}
@@ -68,14 +84,14 @@ var recordFailureScript = redisdriver.NewScript(`
 `)
 
 func (c *ShieldCache) RecordFailure(ctx context.Context, domain, action, identifier string) (int, error) {
-	fKey := shield.FailuresKey(domain, action, identifier)
-	cKey := shield.CooldownKey(domain, action, identifier)
+	fKey := FailuresKey(domain, action, identifier)
+	cKey := CooldownKey(domain, action, identifier)
 
 	keys := []string{fKey, cKey}
 	args := []any{
-		shield.DefaultMaxAttempts,
-		int(shield.DefaultFailuresTTL.Seconds()),
-		int(shield.DefaultCooldownTTL.Seconds()),
+		defaultMaxAttempts,
+		int(defaultFailuresTTL.Seconds()),
+		int(defaultCooldownTTL.Seconds()),
 	}
 
 	count, err := recordFailureScript.Run(ctx, c.rdb, keys, args...).Int64()
@@ -87,8 +103,8 @@ func (c *ShieldCache) RecordFailure(ctx context.Context, domain, action, identif
 }
 
 func (c *ShieldCache) Clear(ctx context.Context, domain, action, identifier string) error {
-	cKey := shield.CooldownKey(domain, action, identifier)
-	fKey := shield.FailuresKey(domain, action, identifier)
+	cKey := CooldownKey(domain, action, identifier)
+	fKey := FailuresKey(domain, action, identifier)
 
 	_, err := c.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
 		pipe.Del(ctx, cKey)

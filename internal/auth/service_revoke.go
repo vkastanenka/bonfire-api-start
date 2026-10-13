@@ -19,7 +19,7 @@ type RevokeParams struct {
 func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 	now := time.Now()
 
-	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
 		if err := s.sessionRepo.Revoke(txCtx, p.RevokeSessionID, p.UserID, now); err != nil {
 			return err
 		}
@@ -27,7 +27,7 @@ func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 		event, err := outbox.New(
 			EventSessionRevoked,
 			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			newEventSessionRevokedPayload(p.UserID, p.SessionID, now),
+			newEventSessionRevokedPayload(p.SessionID),
 			now,
 		)
 		if err != nil {
@@ -36,11 +36,11 @@ func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return err
+	if txErr != nil {
+		return txErr
 	}
 
-	s.deleteSessionCache(ctx, p.UserID, p.SessionID, "revoke session")
+	s.cacheDeleteSession(ctx, p.UserID, p.SessionID, "revoke session")
 
 	return nil
 }
@@ -51,21 +51,20 @@ type RevokeAllParams struct {
 }
 
 func (s *Service) RevokeAll(ctx context.Context, p RevokeAllParams) error {
+	var err error
 	var revokedSessionIDs []uuid.UUID
 
 	now := time.Now()
 
-	err := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var txErr error
-
-		if revokedSessionIDs, txErr = s.sessionRepo.RevokeAll(txCtx, p.UserID, now); txErr != nil {
-			return txErr
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		if revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, p.UserID, now); err != nil {
+			return err
 		}
 
 		event, err := outbox.New(
 			EventSessionRevokedAll,
 			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			newEventSessionRevokedPayload(p.UserID, p.SessionID, now),
+			newEventSessionRevokedPayload(p.SessionID),
 			now,
 		)
 		if err != nil {
@@ -74,11 +73,11 @@ func (s *Service) RevokeAll(ctx context.Context, p RevokeAllParams) error {
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return err
+	if txErr != nil {
+		return txErr
 	}
 
-	s.deleteSessionBatchCache(ctx, p.UserID, revokedSessionIDs, "revoke all sessions")
+	s.cacheDeleteSessionBatch(ctx, p.UserID, revokedSessionIDs, "revoke all sessions")
 
 	return nil
 }

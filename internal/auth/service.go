@@ -4,6 +4,7 @@ import (
 	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/pkg/crypto"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 	"context"
 	"log/slog"
 	"time"
@@ -12,8 +13,8 @@ import (
 )
 
 const (
-	listValidByUserIDLimit  = 20
-	deleteBatchExpiredLimit = 100
+	listValidByUserIDLimit = 20
+	forgotPasswordWindow   = 35 * time.Millisecond
 )
 
 type Service struct {
@@ -69,7 +70,7 @@ func (s *Service) ListValidUserSessions(ctx context.Context, uid uuid.UUID) ([]*
 	return sessions, nil
 }
 
-func (s *Service) generateSession(meta appctx.ClientMeta, userID uuid.UUID, now time.Time) (*Session, token.Pair, error) {
+func (s *Service) generateSession(userID uuid.UUID, meta appctx.ClientMeta, now time.Time) (*Session, token.Pair, error) {
 	sid, err := uuid.NewV7()
 	if err != nil {
 		return nil, token.Pair{}, ErrIDGenerateFailed().
@@ -97,7 +98,7 @@ func (s *Service) generateSession(meta appctx.ClientMeta, userID uuid.UUID, now 
 	return sess, tokenPair, nil
 }
 
-func (s *Service) deleteSessionCache(ctx context.Context, userID, sessionID uuid.UUID, action string) {
+func (s *Service) cacheDeleteSession(ctx context.Context, userID, sessionID uuid.UUID, action string) {
 	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
@@ -110,7 +111,7 @@ func (s *Service) deleteSessionCache(ctx context.Context, userID, sessionID uuid
 	}
 }
 
-func (s *Service) deleteSessionBatchCache(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
+func (s *Service) cacheDeleteSessionBatch(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
 	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
@@ -122,5 +123,18 @@ func (s *Service) deleteSessionBatchCache(ctx context.Context, userID uuid.UUID,
 				slog.Any("error", err),
 			)
 		}
+	}
+}
+
+func (s *Service) cacheLogin(ctx context.Context, u *user.User, sess *Session, action string) {
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.cache.Login(cacheCtx, u, sess); err != nil {
+		slog.WarnContext(cacheCtx, "failed cache login pipeline after "+action,
+			slog.String("user_id", u.ID.String()),
+			slog.String("session_id", sess.ID.String()),
+			slog.Any("error", err),
+		)
 	}
 }
