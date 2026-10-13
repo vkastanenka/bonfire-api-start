@@ -13,7 +13,7 @@ import (
 
 const (
 	SessionCacheTTL    = 24 * time.Hour
-	SessionCacheMinTTL = 1 * time.Second
+	sessionCacheMinTTL = 1 * time.Second
 )
 
 func SessionCacheKey(id uuid.UUID) string { return "session:" + "{" + id.String() + "}" }
@@ -74,7 +74,7 @@ func CalcSessionCacheTTL(sess *Session) (time.Duration, bool) {
 	}
 
 	remaining := time.Until(sess.ExpiresAt)
-	if remaining < SessionCacheMinTTL {
+	if remaining < sessionCacheMinTTL {
 		return 0, false
 	}
 

@@ -27,7 +27,7 @@ func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 		event, err := outbox.New(
 			EventSessionRevoked,
 			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			newEventSessionRevokedPayload(p.SessionID),
+			newEventSessionRevokedPayload(p.RevokeSessionID),
 			now,
 		)
 		if err != nil {
@@ -40,7 +40,7 @@ func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 		return txErr
 	}
 
-	s.cacheDeleteSession(ctx, p.UserID, p.SessionID, "revoke session")
+	s.cacheDeleteSession(ctx, p.UserID, p.RevokeSessionID, "revoke session")
 
 	return nil
 }
