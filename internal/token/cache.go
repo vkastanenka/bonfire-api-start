@@ -1,4 +1,4 @@
-package cache
+package token
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 
 	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/redis"
-	"bonfire-api/internal/token"
 
 	redisdriver "github.com/redis/go-redis/v9"
 )
@@ -20,15 +19,15 @@ func NewTokenCache(client redisdriver.Cmdable) *TokenCache {
 	return &TokenCache{client: client}
 }
 
-func (c *TokenCache) ConsumePasswordReset(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumePasswordReset(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "forgot_password", claims)
 }
 
-func (c *TokenCache) ConsumeRefresh(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumeRefresh(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "refresh", claims)
 }
 
-func (c *TokenCache) ConsumeEmailVerify(ctx context.Context, claims *token.Claims) error {
+func (c *TokenCache) ConsumeEmailVerify(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "email_verify", claims)
 }
 
@@ -44,15 +43,15 @@ var tokenConsumeJTIScript = redisdriver.NewScript(`
 	return 1
 `)
 
-func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims *token.Claims) error {
+func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims *Claims) error {
 	if claims == nil {
 		return errs.Internal("Token claims cannot be nil.").
 			Resource("type", keyCategory, "", "")
 	}
 
-	remainingTTL := time.Until(claims.ExpiresAt.Time) + token.DefaultClockLeeway
+	remainingTTL := time.Until(claims.ExpiresAt.Time) + DefaultClockLeeway
 	if remainingTTL <= 0 {
-		return ErrTokenAlreadyUsed()
+		return ErrTokenConsumed().Meta("type", keyCategory)
 	}
 
 	ttlSeconds := int64(math.Ceil(remainingTTL.Seconds()))
@@ -74,7 +73,7 @@ func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims 
 	}
 
 	if res == 0 {
-		return ErrTokenAlreadyUsed().Meta("type", keyCategory)
+		return ErrTokenConsumed().Meta("type", keyCategory)
 	}
 
 	return nil

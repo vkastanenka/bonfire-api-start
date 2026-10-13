@@ -18,8 +18,3 @@ func ErrInvalidWSTicketLength() *errs.Error {
 	return errs.Internal("").
 		Wrap(errors.New("invalid websocket ticket payload length"))
 }
-
-func ErrTokenAlreadyUsed() *errs.Error {
-	return errs.InvalidArgument("Token already used.").
-		FieldViolation("token", "Token already used.", "INVALID")
-}

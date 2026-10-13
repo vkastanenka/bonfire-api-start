@@ -13,6 +13,7 @@ const (
 	ErrReasonTokenInvalid          = "TOKEN_INVALID"
 	ErrReasonTokenTypeInvalid      = "TOKEN_TYPE_INVALID"
 	ErrReasonTokenClaimsInvalid    = "TOKEN_CLAIMS_INVALID"
+	ErrReasonTokenConsumed         = "TOKEN_CONSUMED"
 )
 
 // ErrTokenConfigInvalid returns an InvalidArgument error when token provider setup fails validation.
@@ -74,4 +75,9 @@ func ErrTokenTypeInvalid() *errs.Error {
 func ErrTokenClaimsInvalid() *errs.Error {
 	return errs.Unauthenticated("Invalid token claims.").
 		Reason(ErrReasonTokenClaimsInvalid)
+}
+
+func ErrTokenConsumed() *errs.Error {
+	return errs.Unauthenticated("Token already used.").
+		Reason(ErrReasonTokenConsumed)
 }
