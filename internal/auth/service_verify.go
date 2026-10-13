@@ -49,6 +49,13 @@ type ResendVerifyParams struct {
 }
 
 func (s *Service) ResendVerify(ctx context.Context, p ResendVerifyParams) error {
+	blocked, ttl, err := s.shieldCache.GetCooldown(ctx, "auth", "resend_verify", p.UserID.String())
+	if err != nil {
+		slog.WarnContext(ctx, "failed to get resend_verify cooldown cache", slog.Any("error", err))
+	} else if blocked {
+		return ErrCooldownExceeded().Retry(ttl)
+	}
+
 	u, err := s.cachedUserRepo.Get(ctx, p.UserID)
 	if err != nil {
 		if errs.IsNotFound(err) {
@@ -74,5 +81,17 @@ func (s *Service) ResendVerify(ctx context.Context, p ResendVerifyParams) error 
 		return err
 	}
 
-	return s.outboxRepo.Create(ctx, event)
+	err = s.outboxRepo.Create(ctx, event)
+	if err != nil {
+		return err
+	}
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err = s.shieldCache.SetCooldown(cacheCtx, "auth", "resend_verify", p.UserID.String()); err != nil {
+		slog.WarnContext(cacheCtx, "failed to set resend_verify cooldown", slog.Any("error", err))
+	}
+
+	return nil
 }

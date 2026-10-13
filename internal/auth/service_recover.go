@@ -131,7 +131,7 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			event, err := outbox.New(
 				EventSessionRevokedAll,
 				outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
-				newEventSessionRevokedAllPayload(revokedSessIDs),
+				struct{}{},
 				now,
 			)
 			if err != nil {

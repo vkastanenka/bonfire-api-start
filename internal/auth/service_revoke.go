@@ -64,7 +64,7 @@ func (s *Service) RevokeAll(ctx context.Context, p RevokeAllParams) error {
 		event, err := outbox.New(
 			EventSessionRevokedAll,
 			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			newEventSessionRevokedPayload(p.SessionID),
+			struct{}{},
 			now,
 		)
 		if err != nil {

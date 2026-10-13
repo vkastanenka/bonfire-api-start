@@ -107,18 +107,8 @@ func newSessionRevokedEventHandler(b Broadcaster) outbox.Handler {
 	})
 }
 
-type EventSessionRevokedAllPayload struct {
-	RevokedSessionIDs []uuid.UUID `json:"revokedSessionIDs"`
-}
-
-func newEventSessionRevokedAllPayload(revokedSessionIDs []uuid.UUID) EventSessionRevokedAllPayload {
-	return EventSessionRevokedAllPayload{
-		RevokedSessionIDs: revokedSessionIDs,
-	}
-}
-
 func newSessionRevokedAllEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventSessionRevokedAllPayload) error {
-		return b.BroadcastToUser(ctx, *m.ActorID, EventSessionRevokedAll, p)
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p struct{}) error {
+		return b.BroadcastToUser(ctx, *m.ActorID, EventSessionRevokedAll, struct{}{})
 	})
 }

@@ -63,7 +63,7 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 				event, err := outbox.New(
 					EventSessionRevokedAll,
 					outbox.NewMetadata(appctx.GetTraceID(ctx), &sess.UserID, &sess.ID, nil),
-					newEventSessionRevokedAllPayload(revokedIDs),
+					struct{}{},
 					now,
 				)
 				if err != nil {
