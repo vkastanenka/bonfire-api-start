@@ -21,32 +21,32 @@ type CacheItem struct {
 func GetAndUnmarshal[T any](
 	ctx context.Context,
 	client redisdriver.Cmdable,
-	r Resource,
+	resource Resource,
 	key string,
 	unmarshalFn func([]byte) (*T, error),
 ) (*T, error) {
-	rBytes, found, err := getKey(ctx, r, client, key)
+	rBytes, found, err := getKey(ctx, resource, client, key)
 	if err != nil || !found {
 		return nil, err
 	}
 
-	resource, err := unmarshalFn(rBytes)
+	uResource, err := unmarshalFn(rBytes)
 	if err != nil {
 		_ = client.Del(ctx, key).Err()
 		return nil, ErrResourceUnmarshalFailed().
-			Meta("resource", r.String()).
+			Meta("resource", resource.String()).
 			Meta("key", key).
 			Wrap(err)
 	}
 
-	return resource, nil
+	return uResource, nil
 }
 
 // MarshalAndSet marshals a domain entity using the provided marshal function and writes it to
 func MarshalAndSet[T any](
 	ctx context.Context,
 	client redisdriver.Cmdable,
-	r Resource,
+	resource Resource,
 	key string,
 	entity *T,
 	ttl time.Duration,
@@ -55,13 +55,13 @@ func MarshalAndSet[T any](
 	bytes, err := marshalFn(entity)
 	if err != nil {
 		return ErrResourceMarshalFailed().
-			Meta("resource", r.String()).
+			Meta("resource", resource.String()).
 			Meta("key", key).
 			Wrap(err)
 	}
 
 	if err := client.Set(ctx, key, bytes, ttl).Err(); err != nil {
-		return NewError(err, r)
+		return NewError(err, resource)
 	}
 
 	return nil
@@ -72,8 +72,8 @@ func GetAndUnmarshalBatch[K comparable, T any](
 	ctx context.Context,
 	client redisdriver.Cmdable,
 	resource Resource,
-	identifiers []K,
 	keyFn func(K) string,
+	identifiers []K,
 	unmarshalFn func([]byte) (*T, error),
 ) (map[K]*T, []K, error) {
 	found := make(map[K]*T, len(identifiers))
@@ -124,6 +124,68 @@ func GetAndUnmarshalBatch[K comparable, T any](
 	}
 
 	return found, missing, nil
+}
+
+// MarshalAndSetBatch generic helper that marshals a map of entities and writes them in chunks using pipelines.
+func MarshalAndSetBatch[K comparable, T any](
+	ctx context.Context,
+	client redisdriver.Cmdable,
+	resource Resource,
+	keyFn func(K) string,
+	entities map[K]*T,
+	ttl time.Duration,
+	marshalFn func(*T) ([]byte, error),
+) error {
+	if len(entities) == 0 {
+		return nil
+	}
+
+	items := make([]CacheItem, 0, len(entities))
+	for id, entity := range entities {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if entity == nil {
+			continue
+		}
+
+		data, err := marshalFn(entity)
+		if err != nil {
+			return ErrResourceMarshalFailed().
+				Meta("resource", resource.String()).
+				Wrap(err)
+		}
+
+		items = append(items, CacheItem{
+			Key:   keyFn(id),
+			Value: data,
+		})
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	for i := 0; i < len(items); i += maxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		end := min(i+maxBatchSize, len(items))
+		chunk := items[i:end]
+
+		pipe := client.Pipeline()
+		for _, item := range chunk {
+			pipe.Set(ctx, item.Key, item.Value, ttl)
+		}
+
+		if _, err := pipe.Exec(ctx); err != nil {
+			return NewError(err, resource)
+		}
+	}
+
+	return nil
 }
 
 // DeleteBatch transforms typed domain identifiers into Redis keys and passes them to deleteBatchKeys.
@@ -178,72 +240,6 @@ func getBatchKeys(ctx context.Context, resource Resource, client redisdriver.Cmd
 		return nil, NewError(err, resource)
 	}
 	return vals, nil
-}
-
-// setBatchPipeline executes chunked pipelined SET commands.
-func setBatchPipeline(
-	ctx context.Context,
-	resource Resource,
-	client redisdriver.Cmdable,
-	items []CacheItem,
-	ttl time.Duration,
-) error {
-	for i := 0; i < len(items); i += maxBatchSize {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		end := min(i+maxBatchSize, len(items))
-		chunk := items[i:end]
-
-		pipe := client.Pipeline()
-		for _, item := range chunk {
-			pipe.Set(ctx, item.Key, item.Value, ttl)
-		}
-
-		if _, err := pipe.Exec(ctx); err != nil {
-			return NewError(err, resource)
-		}
-	}
-	return nil
-}
-
-// marshalAndSetBatch accepts a map of entities, marshals non-nil entries, and writes them to Redis using chunked pipelines.
-func marshalAndSetBatch[K comparable, T any](
-	ctx context.Context,
-	resource Resource,
-	client redisdriver.Cmdable,
-	entities map[K]*T,
-	keyFn func(K) string,
-	ttl time.Duration,
-	marshalFn func(*T) ([]byte, error),
-) error {
-	if len(entities) == 0 {
-		return nil
-	}
-
-	items := make([]CacheItem, 0, len(entities))
-	for id, entity := range entities {
-		if entity == nil {
-			continue
-		}
-
-		bytes, err := marshalFn(entity)
-		if err != nil {
-			return err
-		}
-
-		items = append(items, CacheItem{
-			Key:   keyFn(id),
-			Value: bytes,
-		})
-	}
-
-	if len(items) == 0 {
-		return nil
-	}
-
-	return setBatchPipeline(ctx, resource, client, items, ttl)
 }
 
 // toBytes converts an MGet interface result into a byte slice without heap allocation for strings.

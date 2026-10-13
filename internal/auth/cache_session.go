@@ -3,6 +3,7 @@ package auth
 import (
 	"bonfire-api/internal/redis"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"net/netip"
 	"time"
@@ -100,7 +101,7 @@ func NewSessionCacheDTO(s *Session) SessionCacheDTO {
 	return SessionCacheDTO{
 		ID:               s.ID,
 		UserID:           s.UserID,
-		RefreshTokenHash: string(s.RefreshTokenHash[:]),
+		RefreshTokenHash: hex.EncodeToString(s.RefreshTokenHash[:]),
 		ClientIP:         s.ClientIP,
 		UserAgent:        s.UserAgent,
 		OS:               s.OS,
@@ -115,7 +116,8 @@ func NewSessionCacheDTO(s *Session) SessionCacheDTO {
 
 func (dto SessionCacheDTO) ToDomain() *Session {
 	var hash [32]byte
-	copy(hash[:], dto.RefreshTokenHash)
+	decoded, _ := hex.DecodeString(dto.RefreshTokenHash)
+	copy(hash[:], decoded)
 
 	return Reconstitute(
 		dto.ID,
