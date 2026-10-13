@@ -18,8 +18,11 @@ type SessionDTO struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 }
 
-func NewSessionDTO(s *Session) SessionDTO {
-	return SessionDTO{
+func NewSessionDTO(s *Session) *SessionDTO {
+	if s == nil {
+		return nil
+	}
+	return &SessionDTO{
 		ID:         s.ID,
 		ClientIP:   s.ClientIP,
 		UserAgent:  s.UserAgent,
@@ -32,9 +35,16 @@ func NewSessionDTO(s *Session) SessionDTO {
 }
 
 func NewSessionDTOs(sessions []*Session) []SessionDTO {
-	dtos := make([]SessionDTO, len(sessions))
-	for i, s := range sessions {
-		dtos[i] = NewSessionDTO(s)
+	if len(sessions) == 0 {
+		return nil
 	}
+
+	dtos := make([]SessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		if dto := NewSessionDTO(s); dto != nil {
+			dtos = append(dtos, *dto)
+		}
+	}
+
 	return dtos
 }

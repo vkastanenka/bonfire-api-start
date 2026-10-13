@@ -12,11 +12,11 @@ var (
 )
 
 const (
-	ErrReasonIDGenerateFailed     = "ID_GENERATE_FAILED"
-	ErrReasonJSONMarshalFailed    = "JSON_MARSHAL_FAILED"
-	ErrReasonSessionEventRequired = "OUTBOX_EVENT_PAYLOAD_REQUIRED"
-	ErrReasonEventNotFound        = "OUTBOX_EVENT_NOT_FOUND"
-	ErrReasonLeaseLost            = "OUTBOX_EVENT_LEASE_LOST"
+	ErrReasonIDGenerateFailed  = "ID_GENERATE_FAILED"
+	ErrReasonJSONMarshalFailed = "JSON_MARSHAL_FAILED"
+	ErrReasonPayloadRequired   = "OUTBOX_EVENT_PAYLOAD_REQUIRED"
+	ErrReasonEventNotFound     = "OUTBOX_EVENT_NOT_FOUND"
+	ErrReasonLeaseLost         = "OUTBOX_EVENT_LEASE_LOST"
 )
 
 func ErrIDGenerateFailed() *errs.Error {
@@ -31,7 +31,7 @@ func ErrJSONMarshalFailed() *errs.Error {
 
 func ErrPayloadRequired() *errs.Error {
 	return errs.Internal("Outbox event payload required.").
-		Reason(ErrReasonSessionEventRequired)
+		Reason(ErrReasonPayloadRequired)
 }
 
 func ErrOutboxEventNotFound() *errs.Error {

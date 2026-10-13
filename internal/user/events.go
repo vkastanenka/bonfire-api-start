@@ -9,14 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Worker interface {
-	RegisterHandler(eventType string, handler outbox.Handler)
-}
-
-type Broadcaster interface {
-	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
-	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
-}
+// TODO
 
 const (
 	EventEmailUpdated             = "user.email_updated"

@@ -8,14 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-type Cache interface {
-	Delete(ctx context.Context, id uuid.UUID) error
-	DeleteBatch(ctx context.Context, ids []uuid.UUID) error
-}
-
-type CachedRepository interface {
-	Get(ctx context.Context, id uuid.UUID) (*User, error)
-	GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, error)
+type Broadcaster interface {
+	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
 }
 
 type CachedRelationRepository interface {
@@ -36,4 +31,8 @@ type SessionRepository interface {
 
 type TX interface {
 	ExecTx(ctx context.Context, fn func(txCtx context.Context) error) error
+}
+
+type Worker interface {
+	RegisterHandler(eventType string, handler outbox.Handler)
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Summary struct {
+type SummaryDTO struct {
 	ID          uuid.UUID `json:"id"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
@@ -15,8 +15,11 @@ type Summary struct {
 	IsDisabled  bool      `json:"isDisabled"`
 }
 
-func ParseSummary(u *User) Summary {
-	return Summary{
+func NewSummaryDTO(u *User) *SummaryDTO {
+	if u == nil {
+		return nil
+	}
+	return &SummaryDTO{
 		ID:          u.ID,
 		Username:    u.Username,
 		DisplayName: u.DisplayName,
@@ -25,23 +28,37 @@ func ParseSummary(u *User) Summary {
 	}
 }
 
-func ParseSummariesMap(users map[uuid.UUID]*User) map[uuid.UUID]Summary {
+func NewSummaryDTOs(users []*User) []SummaryDTO {
 	if len(users) == 0 {
-		return make(map[uuid.UUID]Summary)
+		return nil
 	}
 
-	summaries := make(map[uuid.UUID]Summary, len(users))
-	for id, u := range users {
-		if u == nil {
-			continue
+	dtos := make([]SummaryDTO, 0, len(users))
+	for _, u := range users {
+		if dto := NewSummaryDTO(u); dto != nil {
+			dtos = append(dtos, *dto)
 		}
-		summaries[id] = ParseSummary(u)
 	}
 
-	return summaries
+	return dtos
 }
 
-type View struct {
+func NewSummaryDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]SummaryDTO {
+	if len(users) == 0 {
+		return make(map[uuid.UUID]SummaryDTO)
+	}
+
+	dtos := make(map[uuid.UUID]SummaryDTO, len(users))
+	for id, u := range users {
+		if dto := NewSummaryDTO(u); dto != nil {
+			dtos[id] = *dto
+		}
+	}
+
+	return dtos
+}
+
+type ViewDTO struct {
 	ID          uuid.UUID `json:"id"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
@@ -52,8 +69,11 @@ type View struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
-func ParseView(u *User) View {
-	return View{
+func NewViewDTO(u *User) *ViewDTO {
+	if u == nil {
+		return nil
+	}
+	return &ViewDTO{
 		ID:          u.ID,
 		Username:    u.Username,
 		DisplayName: u.DisplayName,
@@ -65,23 +85,37 @@ func ParseView(u *User) View {
 	}
 }
 
-func ParseViewsMap(users map[uuid.UUID]*User) map[uuid.UUID]View {
+func NewViewDTOs(users []*User) []ViewDTO {
 	if len(users) == 0 {
-		return make(map[uuid.UUID]View)
+		return nil
 	}
 
-	views := make(map[uuid.UUID]View, len(users))
-	for id, u := range users {
-		if u == nil {
-			continue
+	dtos := make([]ViewDTO, 0, len(users))
+	for _, u := range users {
+		if dto := NewViewDTO(u); dto != nil {
+			dtos = append(dtos, *dto)
 		}
-		views[id] = ParseView(u)
 	}
 
-	return views
+	return dtos
 }
 
-type Me struct {
+func NewViewDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]ViewDTO {
+	if len(users) == 0 {
+		return make(map[uuid.UUID]ViewDTO)
+	}
+
+	dtos := make(map[uuid.UUID]ViewDTO, len(users))
+	for id, u := range users {
+		if dto := NewViewDTO(u); dto != nil {
+			dtos[id] = *dto
+		}
+	}
+
+	return dtos
+}
+
+type MeDTO struct {
 	ID                     uuid.UUID          `json:"id"`
 	Email                  string             `json:"email"`
 	Username               string             `json:"username"`
@@ -97,8 +131,11 @@ type Me struct {
 	UpdatedAt              time.Time          `json:"updatedAt"`
 }
 
-func ParseMe(u *User) Me {
-	return Me{
+func NewMeDTO(u *User) *MeDTO {
+	if u == nil {
+		return nil
+	}
+	return &MeDTO{
 		ID:                     u.ID,
 		Email:                  u.Email,
 		Username:               u.Username,

@@ -13,10 +13,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const AnonymizeBatchSize = 100
+const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
+
 type Service struct {
-	cache              Cache
-	repo               Repository
-	cachedRepo         CachedRepository
+	cache              *Cache
+	repo               *Repository
+	cachedRepo         *CachedRepository
 	cachedRelationRepo CachedRelationRepository
 	outboxRepo         OutboxRepository
 	sessionCache       SessionCache
@@ -25,11 +28,11 @@ type Service struct {
 }
 
 func NewService(
-	cache Cache,
-	repo Repository,
-	cachedRepo CachedRepository,
-	cachedRelationRepo CachedRelationRepository,
+	cache *Cache,
+	repo *Repository,
+	cachedRepo *CachedRepository,
 	outboxRepo OutboxRepository,
+	cachedRelationRepo CachedRelationRepository,
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	tx TX,
@@ -38,8 +41,8 @@ func NewService(
 		cache:              cache,
 		repo:               repo,
 		cachedRepo:         cachedRepo,
-		cachedRelationRepo: cachedRelationRepo,
 		outboxRepo:         outboxRepo,
+		cachedRelationRepo: cachedRelationRepo,
 		sessionCache:       sessionCache,
 		sessionRepo:        sessionRepo,
 		tx:                 tx,
@@ -200,7 +203,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 
 	newPasswordHash, err := crypto.HashPassword(p.NewPassword)
 	if err != nil {
-		return ErrPasswordHashFailed().Wrap(err)
+		return err
 	}
 
 	var revokedSessionIDs []uuid.UUID
@@ -566,8 +569,8 @@ func (s *Service) fetchAndAuthenticate(ctx context.Context, actorID uuid.UUID, p
 		return nil, err
 	}
 
-	if err := crypto.ComparePasswords(u.PasswordHash, password); err != nil {
-		return nil, ErrInvalidPassword().Wrap(err)
+	if err := crypto.CompareHashAndPassword(u.PasswordHash, password); err != nil {
+		return nil, err
 	}
 
 	return u, nil

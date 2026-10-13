@@ -1,10 +1,7 @@
 package user
 
 import (
-	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/pkg/sanitize"
-	"bytes"
-	"strconv"
+	"bonfire-api/internal/pkg/parse"
 	"time"
 )
 
@@ -31,20 +28,31 @@ var preferredPresenceDurationNames = [...]string{
 	PreferredPresenceDurationForever: "FOREVER",
 }
 
-func ParsePreferredPresenceDuration(raw int) (PreferredPresenceDuration, error) {
-	return sanitize.ParseEnumInt(raw, preferredPresenceDurationMax, "preferredPresenceDuration")
+func ParsePreferredPresenceDurationInt(i int) (PreferredPresenceDuration, error) {
+	return parse.EnumInt(i, preferredPresenceDurationMax, "preferred_presence_duration")
+}
+
+func ParsePreferredPresenceDurationIntBytes(b []byte) (PreferredPresenceDuration, error) {
+	return parse.EnumIntBytes(b, preferredPresenceDurationMax, "preferred_presence_duration")
 }
 
 func ParsePreferredPresenceDurationString(s string) (PreferredPresenceDuration, error) {
-	return sanitize.ParseEnumString[PreferredPresenceDuration](s, preferredPresenceDurationNames[:], "preferredPresenceDuration")
+	return parse.EnumString[PreferredPresenceDuration](s, preferredPresenceDurationNames[:], "preferred_presence_duration")
 }
 
 func ParsePreferredPresenceDurationStringBytes(b []byte) (PreferredPresenceDuration, error) {
-	return sanitize.ParseEnumStringBytes[PreferredPresenceDuration](b, preferredPresenceDurationNames[:], "preferredPresenceDuration")
+	return parse.EnumStringBytes[PreferredPresenceDuration](b, preferredPresenceDurationNames[:], "preferred_presence_duration")
 }
 
 func (d PreferredPresenceDuration) IsValid() bool {
 	return d > PreferredPresenceDurationUnknown && d < preferredPresenceDurationMax
+}
+
+func (p PreferredPresenceDuration) Int() int {
+	if p.IsValid() {
+		return int(p)
+	}
+	return int(PreferredPresenceDurationUnknown)
 }
 
 func (d PreferredPresenceDuration) String() string {
@@ -82,8 +90,7 @@ func (d PreferredPresenceDuration) ToPreferredPresenceDuration() (time.Duration,
 
 func (d PreferredPresenceDuration) CalculateUntil(now time.Time) (*time.Time, error) {
 	if !d.IsValid() {
-		return nil, errs.Internal("Cannot calculate expiry for invalid duration.").
-			Meta("enum", "preferred presence duration")
+		return nil, ErrPreferredPresenceDurationInvalid()
 	}
 	if d.IsForever() {
 		return nil, nil
@@ -103,25 +110,6 @@ func (d *PreferredPresenceDuration) UnmarshalText(text []byte) error {
 	if err != nil {
 		return err
 	}
-	*d = parsed
-	return nil
-}
-
-func (d PreferredPresenceDuration) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, d.String()), nil
-}
-
-func (d *PreferredPresenceDuration) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		*d = PreferredPresenceDurationUnknown
-		return nil
-	}
-
-	parsed, err := ParsePreferredPresenceDurationStringBytes(data)
-	if err != nil {
-		return err
-	}
-
 	*d = parsed
 	return nil
 }

@@ -97,8 +97,11 @@ type SessionCacheDTO struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
-func NewSessionCacheDTO(s *Session) SessionCacheDTO {
-	return SessionCacheDTO{
+func NewSessionCacheDTO(s *Session) *SessionCacheDTO {
+	if s == nil {
+		return nil
+	}
+	return &SessionCacheDTO{
 		ID:               s.ID,
 		UserID:           s.UserID,
 		RefreshTokenHash: hex.EncodeToString(s.RefreshTokenHash[:]),
@@ -145,9 +148,8 @@ func UnmarshalSessionCacheDTO(b []byte) (*Session, error) {
 
 func MarshalSessionCacheDTO(sess *Session) ([]byte, error) {
 	dto := NewSessionCacheDTO(sess)
-	bytes, err := json.Marshal(dto)
-	if err != nil {
-		return nil, err
+	if dto == nil {
+		return nil, nil
 	}
-	return bytes, nil
+	return json.Marshal(dto)
 }

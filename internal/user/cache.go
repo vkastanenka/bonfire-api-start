@@ -17,15 +17,15 @@ const (
 
 func CacheKey(id uuid.UUID) string { return "user:" + "{" + id.String() + "}" }
 
-type UserCache struct {
+type Cache struct {
 	client redisdriver.Cmdable
 }
 
-func NewUserCache(client redisdriver.Cmdable) *UserCache {
-	return &UserCache{client: client}
+func NewCache(client redisdriver.Cmdable) *Cache {
+	return &Cache{client: client}
 }
 
-func (c *UserCache) Get(ctx context.Context, id uuid.UUID) (*User, error) {
+func (c *Cache) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	return redis.GetAndUnmarshal(
 		ctx,
 		c.client,
@@ -35,7 +35,7 @@ func (c *UserCache) Get(ctx context.Context, id uuid.UUID) (*User, error) {
 	)
 }
 
-func (c *UserCache) Set(ctx context.Context, u *User) error {
+func (c *Cache) Set(ctx context.Context, u *User) error {
 	if u == nil {
 		return nil
 	}
@@ -51,14 +51,14 @@ func (c *UserCache) Set(ctx context.Context, u *User) error {
 	)
 }
 
-func (c *UserCache) Delete(ctx context.Context, id uuid.UUID) error {
+func (c *Cache) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := c.client.Del(ctx, CacheKey(id)).Err(); err != nil {
 		return redis.NewError(err, redis.ResourceUser)
 	}
 	return nil
 }
 
-func (c *UserCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, []uuid.UUID, error) {
+func (c *Cache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*User, []uuid.UUID, error) {
 	return redis.GetAndUnmarshalBatch(
 		ctx,
 		c.client,
@@ -69,7 +69,7 @@ func (c *UserCache) GetBatch(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 	)
 }
 
-func (c *UserCache) SetBatch(ctx context.Context, users map[uuid.UUID]*User) error {
+func (c *Cache) SetBatch(ctx context.Context, users map[uuid.UUID]*User) error {
 	return redis.MarshalAndSetBatch(
 		ctx,
 		c.client,
@@ -81,7 +81,7 @@ func (c *UserCache) SetBatch(ctx context.Context, users map[uuid.UUID]*User) err
 	)
 }
 
-func (c *UserCache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
+func (c *Cache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
 	return redis.DeleteBatch(ctx, c.client, redis.ResourceUser, CacheKey, ids)
 }
 
@@ -103,8 +103,11 @@ type CacheDTO struct {
 	UpdatedAt              time.Time          `json:"updated_at"`
 }
 
-func NewCacheDTO(u *User) CacheDTO {
-	return CacheDTO{
+func NewCacheDTO(u *User) *CacheDTO {
+	if u == nil {
+		return nil
+	}
+	return &CacheDTO{
 		ID:                     u.ID,
 		Email:                  u.Email,
 		Username:               u.Username,
@@ -154,5 +157,8 @@ func UnmarshalCacheDTO(data []byte) (*User, error) {
 
 func MarshalCacheDTO(u *User) ([]byte, error) {
 	dto := NewCacheDTO(u)
+	if dto == nil {
+		return nil, nil
+	}
 	return json.Marshal(dto)
 }

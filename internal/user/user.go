@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
-
-const AnonymizeBatchSize = 100
-const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type User struct {
 	ID                     uuid.UUID
@@ -91,7 +89,7 @@ func (u *User) EffectivePresence(now time.Time) *presence.Presence {
 	return u.PreferredPresence
 }
 
-func (u *User) EnsureActive() error {
+func (u *User) EnsureActive() *errs.Error {
 	if u.IsDisabled() {
 		return ErrUserDisabled()
 	}
