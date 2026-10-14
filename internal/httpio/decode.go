@@ -14,6 +14,7 @@ import (
 
 	"bonfire-api/internal/pkg/errs"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/form"
 )
 
@@ -182,7 +183,13 @@ func decodePath(r *http.Request, dst any) error {
 
 	pathValues := make(url.Values, len(tags))
 	for _, tag := range tags {
-		if pathVal := r.PathValue(tag); pathVal != "" {
+		pathVal := r.PathValue(tag)
+
+		if pathVal == "" {
+			pathVal = chi.URLParam(r, tag)
+		}
+
+		if pathVal != "" {
 			pathValues.Set(tag, pathVal)
 		}
 	}
