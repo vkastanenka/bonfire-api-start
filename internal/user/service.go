@@ -223,9 +223,13 @@ type UpdatePreferredPresenceParams struct {
 func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
 	validateNow := time.Now()
 
-	until, err := p.Duration.CalculateUntil(validateNow)
-	if err != nil {
-		return nil, err
+	var until *time.Time
+	if p.Duration != nil {
+		var err error
+		until, err = p.Duration.CalculateUntil(validateNow)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	u, err := s.Get(ctx, p.UserID)
@@ -233,12 +237,17 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	if u.PreferredPresence == p.Presence {
+	presenceEqual := (u.PreferredPresence == nil && p.Presence == nil) ||
+		(u.PreferredPresence != nil && p.Presence != nil && *u.PreferredPresence == *p.Presence)
+
+	expiresAtEqual := (u.PreferredPresenceUntil == nil && until == nil) ||
+		(u.PreferredPresenceUntil != nil && until != nil && u.PreferredPresenceUntil.Equal(*until))
+
+	if presenceEqual && expiresAtEqual {
 		return u, nil
 	}
 
 	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
-
 	dbNow := time.Now()
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -248,8 +257,8 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		}
 
 		var eff *presence.Presence
-		if p := u.EffectivePresence(dbNow); p != nil && p.IsValid() {
-			eff = p
+		if effP := u.EffectivePresence(dbNow); effP != nil && effP.IsValid() {
+			eff = effP
 		}
 
 		event, err := outbox.New(

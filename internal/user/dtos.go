@@ -58,7 +58,7 @@ func NewSummaryDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]SummaryDTO {
 	return dtos
 }
 
-type ViewDTO struct {
+type DTO struct {
 	ID          uuid.UUID `json:"id"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
@@ -69,11 +69,11 @@ type ViewDTO struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
-func NewViewDTO(u *User) *ViewDTO {
+func NewDTO(u *User) *DTO {
 	if u == nil {
 		return nil
 	}
-	return &ViewDTO{
+	return &DTO{
 		ID:          u.ID,
 		Username:    u.Username,
 		DisplayName: u.DisplayName,
@@ -85,14 +85,14 @@ func NewViewDTO(u *User) *ViewDTO {
 	}
 }
 
-func NewViewDTOs(users []*User) []ViewDTO {
+func NewDTOs(users []*User) []DTO {
 	if len(users) == 0 {
 		return nil
 	}
 
-	dtos := make([]ViewDTO, 0, len(users))
+	dtos := make([]DTO, 0, len(users))
 	for _, u := range users {
-		if dto := NewViewDTO(u); dto != nil {
+		if dto := NewDTO(u); dto != nil {
 			dtos = append(dtos, *dto)
 		}
 	}
@@ -100,14 +100,14 @@ func NewViewDTOs(users []*User) []ViewDTO {
 	return dtos
 }
 
-func NewViewDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]ViewDTO {
+func NewDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]DTO {
 	if len(users) == 0 {
-		return make(map[uuid.UUID]ViewDTO)
+		return make(map[uuid.UUID]DTO)
 	}
 
-	dtos := make(map[uuid.UUID]ViewDTO, len(users))
+	dtos := make(map[uuid.UUID]DTO, len(users))
 	for id, u := range users {
-		if dto := NewViewDTO(u); dto != nil {
+		if dto := NewDTO(u); dto != nil {
 			dtos[id] = *dto
 		}
 	}

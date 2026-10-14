@@ -12,13 +12,21 @@ const (
 
 	tagUsername      = "user_username"
 	tagUsernameRules = "min=3,max=32,alphanum"
+
+	tagPreferredPresence      = "user_preferred_presence"
+	tagPreferredPresenceRules = "oneof=4 5 6"
+
+	tagPreferredPresenceDuration      = "user_preferred_presence_duration"
+	tagPreferredPresenceDurationRules = "oneof=1 2 3 4 5 6"
 )
 
 func ValidationAliases() map[string]string {
 	return map[string]string{
-		tagBio:         tagBioRules,
-		tagDisplayName: tagDisplayNameRules,
-		tagPassword:    tagPasswordRules,
-		tagUsername:    tagUsernameRules,
+		tagBio:                       tagBioRules,
+		tagDisplayName:               tagDisplayNameRules,
+		tagPassword:                  tagPasswordRules,
+		tagUsername:                  tagUsernameRules,
+		tagPreferredPresence:         tagPreferredPresenceRules,
+		tagPreferredPresenceDuration: tagPreferredPresenceDurationRules,
 	}
 }
