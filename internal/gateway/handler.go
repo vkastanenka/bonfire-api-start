@@ -1,64 +1,86 @@
 package gateway
 
-// var upgrader = websocket.Upgrader{
-// 	CheckOrigin: func(r *http.Request) bool { return true },
-// }
+import (
+	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/httpio"
+	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/presence"
+	"context"
+	"net/http"
 
-// // Handler manages WebSocket connection upgrades, query verification, and client lifecycle registration.
-// type Handler struct {
-// 	hub         *Hub
-// 	ticketCache WSTicketCache
-// 	bind        *httpio.Bind
-// }
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
 
-// // NewHandler initializes and returns a new gateway Handler instance.
-// func NewHandler(hub *Hub, ticketCache WSTicketCache, bind *httpio.Bind) *Handler {
-// 	return &Handler{
-// 		hub:         hub,
-// 		ticketCache: ticketCache,
-// 		bind:        bind,
-// 	}
-// }
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
-// // ServeWSQuery defines the required query parameters extracted during the WebSocket handshake.
-// type ServeWSQuery struct {
-// 	TicketID uuid.UUID         `form:"ticketId" validate:"required"`
-// 	Presence presence.Presence `form:"presence" validate:"required"`
-// }
+// Handler manages WebSocket connection upgrades, query verification, and client lifecycle registration.
+type Handler struct {
+	hub     *Hub
+	service *Service
+	bind    *httpio.Bind
+}
 
-// // ServeWS validates incoming query parameters, punches the connection ticket, upgrades the HTTP
-// // connection to a WebSocket, and registers the active client with the hub.
-// func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
-// 	var query ServeWSQuery
-// 	if err := h.bind.Query(r, &query); err != nil {
-// 		return err
-// 	}
+// NewHandler initializes and returns a new gateway Handler instance.
+func NewHandler(hub *Hub, service *Service, bind *httpio.Bind) *Handler {
+	return &Handler{
+		hub:     hub,
+		service: service,
+		bind:    bind,
+	}
+}
 
-// 	ctx := r.Context()
+type PrintTicketResponse struct {
+	Ticket uuid.UUID `json:"ticket"`
+}
 
-// 	userID, sessionID, err := h.ticketCache.Punch(ctx, query.TicketID)
-// 	if err != nil {
-// 		return err
-// 	}
+func (h *Handler) PrintTicket(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
+		return err
+	}
 
-// 	conn, err := upgrader.Upgrade(w, r, nil)
-// 	if err != nil {
-// 		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
-// 	}
+	ticket, err := h.service.PrintTicket(r.Context(), PrintTicketParams{
+		UserID:    claims.UserID,
+		SessionID: claims.SessionID,
+	})
+	if err != nil {
+		return err
+	}
 
-// 	client := NewClient(context.Background(), h.hub.ID(), userID, sessionID, conn)
-// 	h.hub.Register(client, query.Presence)
-// 	client.StartPumps(h.hub)
+	httpio.RespondOK(w, r, PrintTicketResponse{Ticket: ticket})
+	return nil
+}
 
-// 	return nil
-// }
+// ServeWSQuery defines the required query parameters extracted during the WebSocket handshake.
+type ServeWSQuery struct {
+	Ticket   uuid.UUID         `form:"ticket" validate:"required"`
+	Presence presence.Presence `form:"presence" validate:"required"`
+}
 
-// func (h *Handler) PrintWSTicket(w http.ResponseWriter, r *http.Request) error {
-// 	ticket, err := h.service.PrintWSTicket(r.Context())
-// 	if err != nil {
-// 		return err
-// 	}
+// ServeWS validates incoming query parameters, punches the connection ticket, upgrades the HTTP
+// connection to a WebSocket, and registers the active client with the hub.
+func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
+	var query ServeWSQuery
+	if err := h.bind.Query(r, &query); err != nil {
+		return err
+	}
 
-// 	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket})
-// 	return nil
-// }
+	userID, sessionID, err := h.service.PunchTicket(r.Context(), query.Ticket)
+	if err != nil {
+		return err
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
+	}
+
+	client := NewClient(context.Background(), h.hub.ID(), userID, sessionID, conn)
+	h.hub.Register(client, query.Presence)
+	client.StartPumps(h.hub)
+
+	return nil
+}

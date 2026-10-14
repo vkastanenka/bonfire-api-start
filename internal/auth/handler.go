@@ -17,14 +17,14 @@ type accessTokenResponse struct {
 }
 
 type Handler struct {
-	bind    *httpio.Bind
 	service *Service
+	bind    *httpio.Bind
 }
 
-func NewHandler(bind *httpio.Bind, service *Service) *Handler {
+func NewHandler(service *Service, bind *httpio.Bind) *Handler {
 	return &Handler{
-		bind:    bind,
 		service: service,
+		bind:    bind,
 	}
 }
 

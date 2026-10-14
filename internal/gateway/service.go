@@ -1,5 +1,42 @@
 package gateway
 
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
+
+type Service struct {
+	cache *Cache
+}
+
+func NewService(
+	cache *Cache,
+) *Service {
+	return &Service{
+		cache: cache,
+	}
+}
+
+type PrintTicketParams struct {
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+}
+
+func (s *Service) PrintTicket(ctx context.Context, p PrintTicketParams) (uuid.UUID, error) {
+	ticket := uuid.New()
+
+	if err := s.cache.PrintTicket(ctx, ticket, p.UserID, p.SessionID); err != nil {
+		return uuid.UUID{}, err
+	}
+
+	return ticket, nil
+}
+
+func (s *Service) PunchTicket(ctx context.Context, id uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+	return s.cache.PunchTicket(ctx, id)
+}
+
 // const (
 // 	EventUpdatePresence = "user.update_presence"
 // )
