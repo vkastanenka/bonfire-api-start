@@ -3,94 +3,127 @@ package bootstrap
 import (
 	"context"
 
-	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/user"
+
+	"github.com/google/uuid"
 )
 
-type Result struct {
-	User *user.User
-	// Friends               map[uuid.UUID]uuid.UUID         `json:"friends"`
-	// UserMembers           map[uuid.UUID]*channel.Member   `json:"userMembers"`
-	// Channels              map[uuid.UUID]*channel.Channel  `json:"channels"`
-	// ChannelPeerIDs        map[uuid.UUID][]uuid.UUID       `json:"channelPeerIDs"`
-	// ChannelMemberIDs      map[uuid.UUID][]uuid.UUID       `json:"channelMemberIDs"`
-	// FriendIDs             []uuid.UUID                     `json:"friendIDs"`
-	// PendingIDs            []uuid.UUID                     `json:"pendingIDs"`
-	// SidebarIDs            []uuid.UUID                     `json:"sidebarIDs"`
-	// Peers                 map[uuid.UUID]*user.User        `json:"peers"`
-	// PeerPresences         map[uuid.UUID]presence.Presence `json:"peerPresences"`
-	// Messages              []*channel.Message              `json:"messages"`
-	// HasMoreMessagesBefore bool                            `json:"hasMoreMessagesBefore"`
-	// HasMoreMessagesAfter  bool                            `json:"hasMoreMessagesAfter"`
-}
-
 type Service struct {
-	// channelRepo        ChannelRepository
-	// cachedChannelRepo  CachedChannelRepository
-	// memberRepo         MemberRepository
-	// cachedMemberRepo   CachedMemberRepository
-	// messageRepo        MessageRepository
-	// cachedMessageRepo  CachedMessageRepository
-	// reactionRepo       ReactionRepository
-	// outboxRepo         OutboxRepository
-	// presenceCache      PresenceCache
-	// relationRepo       RelationRepository
-	// cachedRelationRepo CachedRelationRepository
-	userRepo       UserRepository
 	cachedUserRepo CachedUserRepository
-	// tx                 TX
 }
 
 func NewService(
-	// channelRepo ChannelRepository,
-	// cachedChannelRepo CachedChannelRepository,
-	// memberRepo MemberRepository,
-	// cachedMemberRepo CachedMemberRepository,
-	// messageRepo MessageRepository,
-	// cachedMessageRepo CachedMessageRepository,
-	// reactionRepo ReactionRepository,
-	// outboxRepo OutboxRepository,
-	// presenceCache PresenceCache,
-	// relationRepo RelationRepository,
-	// cachedRelationRepo CachedRelationRepository,
-	userRepo UserRepository,
 	cachedUserRepo CachedUserRepository,
-	// tx TX,
 ) *Service {
 	return &Service{
-		// channelRepo:        channelRepo,
-		// cachedChannelRepo:  cachedChannelRepo,
-		// memberRepo:         memberRepo,
-		// cachedMemberRepo:   cachedMemberRepo,
-		// messageRepo:        messageRepo,
-		// cachedMessageRepo:  cachedMessageRepo,
-		// reactionRepo:       reactionRepo,
-		// outboxRepo:         outboxRepo,
-		// presenceCache:      presenceCache,
-		// relationRepo:       relationRepo,
-		// cachedRelationRepo: cachedRelationRepo,
-		userRepo:       userRepo,
 		cachedUserRepo: cachedUserRepo,
-		// tx:                 tx,
 	}
+}
+
+type BootstrapParams struct {
+	UserID uuid.UUID
+}
+
+type BootstrapResult struct {
+	User *user.User
 }
 
 // Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *Service) Bootstrap(ctx context.Context) (*Result, error) {
-	claims, err := appctx.GetClaims(ctx)
+func (s *Service) Bootstrap(ctx context.Context, p BootstrapParams) (*BootstrapResult, error) {
+	user, err := s.cachedUserRepo.Get(ctx, p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := s.cachedUserRepo.Get(ctx, claims.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Result{
+	return &BootstrapResult{
 		User: user,
 	}, nil
 }
+
+// type Result struct {
+// 	User *user.User
+// 	// Friends               map[uuid.UUID]uuid.UUID         `json:"friends"`
+// 	// UserMembers           map[uuid.UUID]*channel.Member   `json:"userMembers"`
+// 	// Channels              map[uuid.UUID]*channel.Channel  `json:"channels"`
+// 	// ChannelPeerIDs        map[uuid.UUID][]uuid.UUID       `json:"channelPeerIDs"`
+// 	// ChannelMemberIDs      map[uuid.UUID][]uuid.UUID       `json:"channelMemberIDs"`
+// 	// FriendIDs             []uuid.UUID                     `json:"friendIDs"`
+// 	// PendingIDs            []uuid.UUID                     `json:"pendingIDs"`
+// 	// SidebarIDs            []uuid.UUID                     `json:"sidebarIDs"`
+// 	// Peers                 map[uuid.UUID]*user.User        `json:"peers"`
+// 	// PeerPresences         map[uuid.UUID]presence.Presence `json:"peerPresences"`
+// 	// Messages              []*channel.Message              `json:"messages"`
+// 	// HasMoreMessagesBefore bool                            `json:"hasMoreMessagesBefore"`
+// 	// HasMoreMessagesAfter  bool                            `json:"hasMoreMessagesAfter"`
+// }
+
+// type Service struct {
+// 	// channelRepo        ChannelRepository
+// 	// cachedChannelRepo  CachedChannelRepository
+// 	// memberRepo         MemberRepository
+// 	// cachedMemberRepo   CachedMemberRepository
+// 	// messageRepo        MessageRepository
+// 	// cachedMessageRepo  CachedMessageRepository
+// 	// reactionRepo       ReactionRepository
+// 	// outboxRepo         OutboxRepository
+// 	// presenceCache      PresenceCache
+// 	// relationRepo       RelationRepository
+// 	// cachedRelationRepo CachedRelationRepository
+// 	userRepo       UserRepository
+// 	cachedUserRepo CachedUserRepository
+// 	// tx                 TX
+// }
+
+// func NewService(
+// 	// channelRepo ChannelRepository,
+// 	// cachedChannelRepo CachedChannelRepository,
+// 	// memberRepo MemberRepository,
+// 	// cachedMemberRepo CachedMemberRepository,
+// 	// messageRepo MessageRepository,
+// 	// cachedMessageRepo CachedMessageRepository,
+// 	// reactionRepo ReactionRepository,
+// 	// outboxRepo OutboxRepository,
+// 	// presenceCache PresenceCache,
+// 	// relationRepo RelationRepository,
+// 	// cachedRelationRepo CachedRelationRepository,
+// 	userRepo UserRepository,
+// 	cachedUserRepo CachedUserRepository,
+// 	// tx TX,
+// ) *Service {
+// 	return &Service{
+// 		// channelRepo:        channelRepo,
+// 		// cachedChannelRepo:  cachedChannelRepo,
+// 		// memberRepo:         memberRepo,
+// 		// cachedMemberRepo:   cachedMemberRepo,
+// 		// messageRepo:        messageRepo,
+// 		// cachedMessageRepo:  cachedMessageRepo,
+// 		// reactionRepo:       reactionRepo,
+// 		// outboxRepo:         outboxRepo,
+// 		// presenceCache:      presenceCache,
+// 		// relationRepo:       relationRepo,
+// 		// cachedRelationRepo: cachedRelationRepo,
+// 		userRepo:       userRepo,
+// 		cachedUserRepo: cachedUserRepo,
+// 		// tx:                 tx,
+// 	}
+// }
+
+// // Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
+// func (s *Service) Bootstrap(ctx context.Context) (*Result, error) {
+// 	claims, err := appctx.GetClaims(ctx)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	user, err := s.cachedUserRepo.Get(ctx, claims.UserID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return &Result{
+// 		User: user,
+// 	}, nil
+// }
 
 // func sortSidebar(channels []*channel.Channel, userMembersMap map[uuid.UUID]*channel.Member) {
 // 	pinnedAt := func(c *channel.Channel) time.Time {
