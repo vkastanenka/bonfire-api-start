@@ -35,12 +35,11 @@ const (
 
 // Client represents a single active, bidirectional WebSocket connection.
 type Client struct {
-	NodeID    uuid.UUID
+	Hub       *Hub
 	UserID    uuid.UUID
 	SessionID uuid.UUID
 	Conn      *websocket.Conn
 	Send      chan []byte
-	hub       *Hub
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -48,17 +47,16 @@ type Client struct {
 	wg        sync.WaitGroup
 }
 
-func (c *Client) GetNodeID() uuid.UUID    { return c.NodeID }
 func (c *Client) GetUserID() uuid.UUID    { return c.UserID }
 func (c *Client) GetSessionID() uuid.UUID { return c.SessionID }
 
 // NewClient initializes a Client instance with its own isolated cancellation context.
-func NewClient(ctx context.Context, nodeID, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
+func NewClient(ctx context.Context, hub *Hub, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
+		Hub:       hub,
 		UserID:    userID,
 		SessionID: sessionID,
-		NodeID:    nodeID,
 		Conn:      conn,
 		Send:      make(chan []byte, sendBufferLength),
 		ctx:       clientCtx,
@@ -81,8 +79,7 @@ func (c *Client) Close() {
 }
 
 // StartPumps launches the background read and write loops for the client connection.
-func (c *Client) StartPumps(hub *Hub) {
-	c.hub = hub
+func (c *Client) StartPumps() {
 	c.wg.Add(2)
 
 	go func() {
@@ -253,7 +250,7 @@ func (c *Client) writePing() error {
 // readPump receives incoming frames, refreshes read deadlines, and dispatches handlers.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.Hub.unregister <- c
 		c.Close()
 	}()
 
@@ -292,12 +289,12 @@ func (c *Client) readPump() {
 			break
 		}
 
-		c.parseMessage(msg)
+		c.handleMessage(msg)
 	}
 }
 
-// parseMessage parses inbound message envelopes and dispatches registered event handlers.
-func (c *Client) parseMessage(rawMsg []byte) {
+// handleMessage parses inbound message envelopes and dispatches registered event handlers.
+func (c *Client) handleMessage(rawMsg []byte) {
 	var msg Message
 	if err := json.Unmarshal(rawMsg, &msg); err != nil {
 		slog.WarnContext(c.ctx, "failed to unmarshal websocket message",
@@ -316,7 +313,7 @@ func (c *Client) parseMessage(rawMsg []byte) {
 		return
 	}
 
-	handler, exists := c.hub.GetHandler(msg.Type)
+	handler, exists := c.Hub.GetHandler(msg.Type)
 	if !exists {
 		slog.WarnContext(c.ctx, "unregistered websocket event type",
 			"type", msg.Type,
@@ -326,11 +323,11 @@ func (c *Client) parseMessage(rawMsg []byte) {
 		return
 	}
 
-	go c.handleMessage(handler, msg)
+	go c.executeHandler(handler, msg)
 }
 
-// handleMessage executes an event handler with timeout context controls and panic safety guarantees.
-func (c *Client) handleMessage(h MessageHandler, msg Message) {
+// executeHandler executes an event handler with timeout context controls and panic safety guarantees.
+func (c *Client) executeHandler(h MessageHandler, msg Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.ErrorContext(c.ctx, "recovered panic in websocket handler",

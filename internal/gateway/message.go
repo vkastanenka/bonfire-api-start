@@ -13,7 +13,6 @@ import (
 type ClientContext struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
-	NodeID    uuid.UUID
 }
 
 // Message defines the JSON wire format for incoming and outgoing gateway frames.
@@ -42,7 +41,6 @@ func BindMessageHandler[T any](fn TypedMessageHandler[T]) MessageHandler {
 		clientCtx := ClientContext{
 			UserID:    client.UserID,
 			SessionID: client.SessionID,
-			NodeID:    client.NodeID,
 		}
 
 		return fn(ctx, clientCtx, payload)
