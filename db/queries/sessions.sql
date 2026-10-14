@@ -68,6 +68,19 @@ WHERE
 RETURNING
     id;
 
+-- name: SessionRevokeAllExcept :many
+UPDATE
+    sessions
+SET
+    revoked_at = @now::timestamptz,
+    updated_at = @now::timestamptz
+WHERE
+    user_id = @user_id::uuid
+    AND id != @except_id::uuid
+    AND revoked_at IS NULL
+RETURNING
+    id;
+
 -- name: SessionDeleteBatchExpired :exec
 WITH targets AS (
     SELECT
