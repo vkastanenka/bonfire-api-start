@@ -2,6 +2,8 @@ package httpio
 
 import (
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -16,7 +18,7 @@ func CookieGetRefreshToken(r *http.Request) (string, error) {
 	return cookie.Value, nil
 }
 
-// CookieSetRefreshToken sets an HttpOnly, Secure, SameSite-Strict refresh token cookie.
+// CookieSetRefreshToken sets an HttpOnly, Secure refresh token cookie with environment-aware SameSite.
 func CookieSetRefreshToken(w http.ResponseWriter, token string, expires time.Time) {
 	maxAge := int(time.Until(expires).Seconds())
 	if maxAge < 0 {
@@ -31,7 +33,7 @@ func CookieSetRefreshToken(w http.ResponseWriter, token string, expires time.Tim
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: getSameSite(),
 	})
 }
 
@@ -44,6 +46,15 @@ func CookieClearRefreshToken(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: getSameSite(),
 	})
+}
+
+// getSameSite dynamically resolves SameSite mode based on the environment.
+func getSameSite() http.SameSite {
+	env := strings.ToLower(os.Getenv("APP_ENV"))
+	if env == "production" || env == "prod" {
+		return http.SameSiteStrictMode
+	}
+	return http.SameSiteLaxMode
 }

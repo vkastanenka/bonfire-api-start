@@ -1,7 +1,6 @@
 package httpio
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
@@ -42,8 +41,8 @@ func Trace(next http.Handler) http.Handler {
 		w.Header().Set("X-Trace-ID", traceID)
 
 		// Inject correlation identifiers into context and structured logger
-		ctx = context.WithValue(ctx, appctx.KeyReqID, reqID)
-		ctx = context.WithValue(ctx, appctx.KeyTraceID, traceID)
+		ctx = appctx.WithReqID(ctx, reqID)
+		ctx = appctx.WithTraceID(ctx, traceID)
 
 		ctx = logger.WithContextAttrs(ctx,
 			slog.String("request_id", reqID),

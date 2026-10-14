@@ -93,12 +93,12 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 
 // resolveKeyIdentifier extracts User ID from context if authenticated, defaulting to client IP.
 func resolveKeyIdentifier(ctx context.Context, r *http.Request) string {
-	if userID, err := appctx.GetUserID(ctx); err == nil && userID != uuid.Nil {
-		return "user:" + userID.String()
+	if claims, err := appctx.GetClaims(ctx); err == nil && claims.UserID != uuid.Nil {
+		return "user:" + claims.UserID.String()
 	}
 
-	if ipAddr, err := appctx.GetIP(ctx); err == nil {
-		return "ip:" + ipAddr.String()
+	if clientMeta, err := appctx.GetClientMeta(ctx); err == nil {
+		return "ip:" + clientMeta.IP.String()
 	}
 
 	return "ip:" + extractIP(r, false).String()

@@ -56,7 +56,7 @@ func (w *StatusRecordingWriter) Flush() {
 func (w *StatusRecordingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hj, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, errs.Internal("underlying ResponseWriter does not support hijacking")
+		return nil, nil, errs.Internal("Underlying ResponseWriter does not support hijacking.")
 	}
 
 	w.Status = http.StatusSwitchingProtocols

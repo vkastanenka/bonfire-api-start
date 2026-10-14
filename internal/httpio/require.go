@@ -1,7 +1,6 @@
 package httpio
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
@@ -47,7 +46,7 @@ func RequireAuth(t *token.Provider) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), appctx.KeyClaims, claims)
+			ctx := appctx.WithClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -2,11 +2,12 @@ package httpio
 
 import (
 	"bonfire-api/internal/appctx"
-	"context"
 	"net"
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/mileusna/useragent"
 )
 
 // WithClientMeta extracts IP, UserAgent, OS, and Browser details and attaches them to the request context.
@@ -15,95 +16,70 @@ func WithClientMeta(trustProxy bool) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := extractIP(r, trustProxy)
 			ua := r.UserAgent()
-			os, browser := parseUserAgent(ua)
+			os, client := parseOSClient(ua)
 
 			meta := appctx.ClientMeta{
 				IP:        ip,
 				UserAgent: ua,
 				OS:        os,
-				Browser:   browser,
+				Client:    client,
 			}
 
-			ctx := context.WithValue(r.Context(), appctx.KeyMeta, meta)
+			ctx := appctx.WithClientMeta(r.Context(), meta)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// parseUserAgent performs lightweight OS and browser detection from a raw User-Agent string.
-func parseUserAgent(ua string) (os string, browser string) {
+// parseOSClient performs OS and client detection from a UserAgent string.
+func parseOSClient(ua string) (os string, client string) {
 	if ua == "" {
-		return "Unknown", "Unknown"
+		return "UNKNOWN", "UNKNOWN"
 	}
 
-	uaLower := strings.ToLower(ua)
+	result := useragent.Parse(ua)
 
-	switch {
-	case strings.Contains(uaLower, "iphone") || strings.Contains(uaLower, "ipad") || strings.Contains(uaLower, "ipod"):
-		os = "iOS"
-	case strings.Contains(uaLower, "android"):
-		os = "Android"
-	case strings.Contains(uaLower, "windows"):
-		os = "Windows"
-	case strings.Contains(uaLower, "macintosh") || strings.Contains(uaLower, "mac os x"):
-		os = "macOS"
-	case strings.Contains(uaLower, "linux"):
-		os = "Linux"
-	default:
-		os = "Unknown"
+	os = result.OS
+	if os == "" {
+		os = "UNKNOWN"
 	}
 
-	switch {
-	case strings.Contains(uaLower, "edg/"), strings.Contains(uaLower, "edge/"):
-		browser = "Edge"
-	case strings.Contains(uaLower, "firefox"), strings.Contains(uaLower, "fxios"):
-		browser = "Firefox"
-	case strings.Contains(uaLower, "chrome"), strings.Contains(uaLower, "crios"):
-		browser = "Chrome"
-	case strings.Contains(uaLower, "safari"):
-		browser = "Safari"
-	default:
-		browser = "Unknown"
+	client = result.Name
+	if client == "" {
+		client = "UNKNOWN"
 	}
 
-	return os, browser
+	return os, client
 }
 
 // extractIP resolves the client IP address from proxy headers or remote connection address.
 func extractIP(r *http.Request, trustProxy bool) netip.Addr {
 	if trustProxy {
-		if apiIP := r.Header.Get("CF-Connecting-IP"); apiIP != "" {
-			if addr, err := netip.ParseAddr(strings.TrimSpace(apiIP)); err == nil {
-				return addr
+		for _, header := range []string{"CF-Connecting-IP", "X-Real-IP"} {
+			if val := strings.TrimSpace(r.Header.Get(header)); val != "" {
+				if addr, err := netip.ParseAddr(val); err == nil {
+					return addr
+				}
 			}
 		}
-		if apiIP := r.Header.Get("X-Real-IP"); apiIP != "" {
-			if addr, err := netip.ParseAddr(strings.TrimSpace(apiIP)); err == nil {
-				return addr
-			}
-		}
+
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			if len(parts) > 0 {
-				targetIP := strings.TrimSpace(parts[0])
-				if addr, err := netip.ParseAddr(targetIP); err == nil {
+			if parts := strings.Split(xff, ","); len(parts) > 0 {
+				if addr, err := netip.ParseAddr(strings.TrimSpace(parts[0])); err == nil {
 					return addr
 				}
 			}
 		}
 	}
 
-	rawIP := r.RemoteAddr
-	if ip, _, err := net.SplitHostPort(rawIP); err == nil {
-		rawIP = ip
-	}
-
-	rawIP = strings.TrimSuffix(strings.TrimPrefix(rawIP, "["), "]")
-
-	addr, err := netip.ParseAddr(rawIP)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return netip.IPv4Unspecified()
+		host = r.RemoteAddr
 	}
 
-	return addr
+	if addr, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		return addr
+	}
+
+	return netip.IPv4Unspecified()
 }

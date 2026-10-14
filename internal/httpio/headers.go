@@ -23,7 +23,7 @@ func SecurityHeaders(isProd bool) func(http.Handler) http.Handler {
 
 			// Force HTTPS connections in production environments
 			if isProd {
-				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 			}
 
 			next.ServeHTTP(w, r)
