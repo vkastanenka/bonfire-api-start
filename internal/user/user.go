@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
@@ -89,7 +88,7 @@ func (u *User) EffectivePresence(now time.Time) *presence.Presence {
 	return u.PreferredPresence
 }
 
-func (u *User) EnsureActive() *errs.Error {
+func (u *User) EnsureActive() error {
 	if u.IsDisabled() {
 		return ErrUserDisabled()
 	}

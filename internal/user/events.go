@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO
-
 const (
 	EventEmailUpdated             = "user.email_updated"
 	EventUsernameUpdated          = "user.username_updated"
@@ -35,9 +33,17 @@ type EventEmailUpdatedPayload struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+func newEmailUpdatedPayload(id uuid.UUID, email string, updatedAt time.Time) EventEmailUpdatedPayload {
+	return EventEmailUpdatedPayload{
+		UserID:    id,
+		Email:     email,
+		UpdatedAt: updatedAt,
+	}
+}
+
 func newEmailUpdatedEventHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventEmailUpdatedPayload) error {
-		return b.BroadcastToUser(ctx, p.UserID, EventEmailUpdated, p)
+		return b.BroadcastToUser(ctx, *m.ActorID, EventEmailUpdated, p)
 	})
 }
 
@@ -47,27 +53,38 @@ type EventUsernameUpdatedPayload struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+func newUsernameUpdatedPayload(id uuid.UUID, username string, updatedAt time.Time) EventUsernameUpdatedPayload {
+	return EventUsernameUpdatedPayload{
+		UserID:    id,
+		Username:  username,
+		UpdatedAt: updatedAt,
+	}
+}
+
 func newUsernameUpdatedEventHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventUsernameUpdatedPayload) error {
 		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventUsernameUpdated, p)
 	})
 }
 
-type EventPasswordUpdatedPayload struct {
-	UserID    uuid.UUID `json:"userId"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
 func newPasswordUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventPasswordUpdatedPayload) error {
-		return b.BroadcastToUser(ctx, p.UserID, EventPasswordUpdated, p)
+	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p struct{}) error {
+		return b.BroadcastToUser(ctx, *m.ActorID, EventPasswordUpdated, p, *m.SessionID)
 	})
 }
 
 type EventPreferredPresenceUpdatedPayload struct {
-	UserID    uuid.UUID         `json:"userId"`
-	Presence  presence.Presence `json:"presence"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	UserID    uuid.UUID          `json:"userId"`
+	Presence  *presence.Presence `json:"presence,omitempty"`
+	UpdatedAt time.Time          `json:"updatedAt"`
+}
+
+func newPreferredPresenceUpdatedPayload(id uuid.UUID, presence *presence.Presence, updatedAt time.Time) EventPreferredPresenceUpdatedPayload {
+	return EventPreferredPresenceUpdatedPayload{
+		UserID:    id,
+		Presence:  presence,
+		UpdatedAt: updatedAt,
+	}
 }
 
 func newPreferredPresenceUpdatedEventHandler(b Broadcaster) outbox.Handler {
@@ -85,6 +102,17 @@ type EventProfileUpdatedPayload struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+func newProfileUpdatedPayload(id uuid.UUID, displayName string, bio, avatarURL, bannerColor *string, updatedAt time.Time) EventProfileUpdatedPayload {
+	return EventProfileUpdatedPayload{
+		UserID:      id,
+		DisplayName: displayName,
+		Bio:         bio,
+		AvatarURL:   avatarURL,
+		BannerColor: bannerColor,
+		UpdatedAt:   updatedAt,
+	}
+}
+
 func newProfileUpdatedEventHandler(b Broadcaster) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventProfileUpdatedPayload) error {
 		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventProfileUpdated, p)
@@ -94,6 +122,13 @@ func newProfileUpdatedEventHandler(b Broadcaster) outbox.Handler {
 type EventDisabledPayload struct {
 	UserID    uuid.UUID `json:"userId"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func newDisabledPayload(id uuid.UUID, updatedAt time.Time) EventDisabledPayload {
+	return EventDisabledPayload{
+		UserID:    id,
+		UpdatedAt: updatedAt,
+	}
 }
 
 func newDisabledEventHandler(b Broadcaster) outbox.Handler {

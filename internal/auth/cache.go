@@ -26,6 +26,33 @@ func (s *Cache) ResetPassword(ctx context.Context, u *user.User, sess *Session, 
 	return s.commitSession(ctx, u, sess, revokedSessionIDs)
 }
 
+func (s *Cache) DeleteUserAndRevokeSessions(
+	ctx context.Context,
+	userID uuid.UUID,
+	revokedSessionIDs []uuid.UUID,
+) error {
+	userKey := user.CacheKey(userID)
+
+	_, err := s.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		pipe.Del(ctx, userKey)
+
+		if len(revokedSessionIDs) > 0 {
+			keys := make([]string, len(revokedSessionIDs))
+			for i, id := range revokedSessionIDs {
+				keys[i] = SessionCacheKey(id)
+			}
+			pipe.Del(ctx, keys...)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return redis.NewError(err, redis.ResourceAuth)
+	}
+
+	return nil
+}
+
 func (s *Cache) commitSession(
 	ctx context.Context,
 	u *user.User,

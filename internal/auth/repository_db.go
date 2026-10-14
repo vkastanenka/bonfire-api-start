@@ -119,6 +119,19 @@ func (r *SessionRepository) RevokeAll(ctx context.Context, userID uuid.UUID, now
 	return db.FromUUIDs(ids), nil
 }
 
+func (r *SessionRepository) RevokeAllExcept(ctx context.Context, userID, exceptID uuid.UUID, now time.Time) ([]uuid.UUID, error) {
+	rows, err := r.store.SessionRevokeAllExcept(ctx, db.SessionRevokeAllExceptParams{
+		UserID:   db.ToUUID(userID),
+		ExceptID: db.ToUUID(exceptID),
+		Now:      db.ToTimestamptz(now),
+	})
+	if err != nil {
+		return nil, db.NewError(err, db.ResourceSession)
+	}
+
+	return db.FromUUIDs(rows), nil
+}
+
 func (r *SessionRepository) DeleteBatchExpired(ctx context.Context, now time.Time, limitVal int) error {
 	err := r.store.SessionDeleteBatchExpired(ctx, db.SessionDeleteBatchExpiredParams{
 		Now:      db.ToTimestamptz(now),

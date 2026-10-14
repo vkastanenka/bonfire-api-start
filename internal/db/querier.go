@@ -79,6 +79,7 @@ type Querier interface {
 	SessionListValidByUserID(ctx context.Context, arg SessionListValidByUserIDParams) ([]Session, error)
 	SessionRevoke(ctx context.Context, arg SessionRevokeParams) error
 	SessionRevokeAll(ctx context.Context, arg SessionRevokeAllParams) ([]pgtype.UUID, error)
+	SessionRevokeAllExcept(ctx context.Context, arg SessionRevokeAllExceptParams) ([]pgtype.UUID, error)
 	SessionRotateRefreshTokenHash(ctx context.Context, arg SessionRotateRefreshTokenHashParams) (Session, error)
 	UserCreate(ctx context.Context, arg UserCreateParams) (User, error)
 	UserGet(ctx context.Context, id pgtype.UUID) (User, error)

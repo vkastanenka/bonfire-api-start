@@ -13,15 +13,16 @@ import (
 	"github.com/google/uuid"
 )
 
-const AnonymizeBatchSize = 100
-const ScheduleDeleteGracePeriod = 30 * 24 * time.Hour
+const anonymizeBatchLimit = 100
+const scheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type Service struct {
 	cache              *Cache
 	repo               *Repository
 	cachedRepo         *CachedRepository
-	cachedRelationRepo CachedRelationRepository
+	authCache          AuthCache
 	outboxRepo         OutboxRepository
+	cachedRelationRepo CachedRelationRepository
 	sessionCache       SessionCache
 	sessionRepo        SessionRepository
 	tx                 TX
@@ -31,6 +32,7 @@ func NewService(
 	cache *Cache,
 	repo *Repository,
 	cachedRepo *CachedRepository,
+	authCache AuthCache,
 	outboxRepo OutboxRepository,
 	cachedRelationRepo CachedRelationRepository,
 	sessionCache SessionCache,
@@ -41,6 +43,7 @@ func NewService(
 		cache:              cache,
 		repo:               repo,
 		cachedRepo:         cachedRepo,
+		authCache:          authCache,
 		outboxRepo:         outboxRepo,
 		cachedRelationRepo: cachedRelationRepo,
 		sessionCache:       sessionCache,
@@ -59,17 +62,14 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 }
 
 type UpdateEmailParams struct {
-	Password string
-	NewEmail string
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+	Password  string
+	NewEmail  string
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
+	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -78,29 +78,18 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 		return u, nil
 	}
 
-	var updatedUser *User
 	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateEmail(txCtx, claims.UserID, p.NewEmail, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.UpdateEmail(txCtx, p.UserID, p.NewEmail, now)
 		if err != nil {
 			return err
 		}
 
-		payload := EventEmailUpdatedPayload{
-			UserID:    claims.UserID,
-			Email:     updatedUser.Email,
-			UpdatedAt: now,
-		}
-
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			[]uuid.UUID{},
 			EventEmailUpdated,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, nil),
+			newEmailUpdatedPayload(u.ID, u.Email, u.UpdatedAt),
 			now,
 		)
 		if err != nil {
@@ -109,27 +98,24 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return nil, err
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	s.invalidateUserCache(ctx, claims.UserID, "email update")
+	s.cacheDelete(ctx, u.ID, "email update")
 
-	return updatedUser, nil
+	return u, nil
 }
 
 type UpdateUsernameParams struct {
+	UserID      uuid.UUID
+	SessionID   uuid.UUID
 	Password    string
 	NewUsername string
 }
 
 func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*User, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
+	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -138,31 +124,20 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 
-	var updatedUser *User
 	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateUsername(txCtx, u.ID, p.NewUsername, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.UpdateUsername(txCtx, u.ID, p.NewUsername, now)
 		if err != nil {
 			return err
 		}
 
-		payload := EventUsernameUpdatedPayload{
-			UserID:    claims.UserID,
-			Username:  updatedUser.Username,
-			UpdatedAt: now,
-		}
-
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			broadcastIDs,
 			EventUsernameUpdated,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
+			newUsernameUpdatedPayload(u.ID, u.Username, u.UpdatedAt),
 			now,
 		)
 		if err != nil {
@@ -171,32 +146,29 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return nil, err
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	s.invalidateUserCache(ctx, updatedUser.ID, "username update")
+	s.cacheDelete(ctx, u.ID, "username update")
 
-	return updatedUser, nil
+	return u, nil
 }
 
 type UpdatePasswordParams struct {
+	UserID             uuid.UUID
+	SessionID          uuid.UUID
 	CurrentPassword    string
 	NewPassword        string
 	NewPasswordConfirm string
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) error {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return err
-	}
-
 	if p.NewPassword != p.NewPasswordConfirm {
 		return ErrPasswordMismatch()
 	}
 
-	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.CurrentPassword)
+	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.CurrentPassword)
 	if err != nil {
 		return err
 	}
@@ -209,29 +181,21 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		_, err := s.repo.UpdatePasswordHash(txCtx, u.ID, newPasswordHash, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.UpdatePasswordHash(txCtx, u.ID, newPasswordHash, now)
 		if err != nil {
 			return err
 		}
 
-		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		revokedSessionIDs, err = s.sessionRepo.RevokeAllExcept(txCtx, u.ID, p.SessionID, now)
 		if err != nil {
 			return err
-		}
-
-		payload := EventPasswordUpdatedPayload{
-			UserID:    claims.UserID,
-			UpdatedAt: now,
 		}
 
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			[]uuid.UUID{},
 			EventPasswordUpdated,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, nil),
+			struct{}{},
 			now,
 		)
 		if err != nil {
@@ -240,27 +204,23 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return err
+	if txErr != nil {
+		return txErr
 	}
 
-	s.invalidateUserCache(ctx, claims.UserID, "password update")
-	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "password update")
+	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "password update")
 
 	return nil
 }
 
 type UpdatePreferredPresenceParams struct {
-	Presence *presence.Presence
-	Duration *PreferredPresenceDuration
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+	Presence  *presence.Presence
+	Duration  *PreferredPresenceDuration
 }
 
 func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	validateNow := time.Now()
 
 	until, err := p.Duration.CalculateUntil(validateNow)
@@ -268,7 +228,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return nil, err
 	}
 
-	u, err := s.Get(ctx, claims.UserID)
+	u, err := s.Get(ctx, p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -277,36 +237,25 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 
-	var updatedUser *User
 	dbNow := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdatePresence(txCtx, u.ID, p.Presence, until, dbNow)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.UpdatePreferredPresence(txCtx, u.ID, p.Presence, until, dbNow)
 		if err != nil {
 			return err
 		}
 
-		eff := presence.PresenceOnline
-		if p := updatedUser.EffectivePresence(dbNow); p != nil && p.IsValid() {
-			eff = *p
-		}
-
-		payload := EventPreferredPresenceUpdatedPayload{
-			UserID:    claims.UserID,
-			Presence:  eff,
-			UpdatedAt: dbNow,
+		var eff *presence.Presence
+		if p := u.EffectivePresence(dbNow); p != nil && p.IsValid() {
+			eff = p
 		}
 
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			broadcastIDs,
 			EventPreferredPresenceUpdated,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
+			newPreferredPresenceUpdatedPayload(u.ID, eff, u.UpdatedAt),
 			dbNow,
 		)
 		if err != nil {
@@ -315,16 +264,18 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return nil, err
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	s.invalidateUserCache(ctx, claims.UserID, "preferred presence update")
+	s.cacheDelete(ctx, p.UserID, "preferred presence update")
 
-	return updatedUser, nil
+	return u, nil
 }
 
 type UpdateProfileParams struct {
+	UserID      uuid.UUID
+	SessionID   uuid.UUID
 	DisplayName string
 	Bio         *string
 	AvatarURL   *string
@@ -332,12 +283,7 @@ type UpdateProfileParams struct {
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*User, error) {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err := s.Get(ctx, claims.UserID)
+	u, err := s.Get(ctx, p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -349,34 +295,28 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 
-	var updatedUser *User
 	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		var err error
-		updatedUser, err = s.repo.UpdateProfile(txCtx, claims.UserID, p.DisplayName, p.Bio, p.AvatarURL, p.BannerColor, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.UpdateProfile(
+			txCtx,
+			p.UserID,
+			p.DisplayName,
+			p.Bio,
+			p.AvatarURL,
+			p.BannerColor,
+			now,
+		)
 		if err != nil {
 			return err
 		}
 
-		payload := EventProfileUpdatedPayload{
-			UserID:      updatedUser.ID,
-			DisplayName: updatedUser.DisplayName,
-			Bio:         updatedUser.Bio,
-			AvatarURL:   updatedUser.AvatarURL,
-			BannerColor: updatedUser.BannerColor,
-			UpdatedAt:   updatedUser.UpdatedAt,
-		}
-
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			broadcastIDs,
 			EventProfileUpdated,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
+			newProfileUpdatedPayload(u.ID, u.DisplayName, u.Bio, u.AvatarURL, u.BannerColor, u.UpdatedAt),
 			now,
 		)
 		if err != nil {
@@ -385,36 +325,23 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return nil, err
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	s.invalidateUserCache(ctx, updatedUser.ID, "profile update")
+	s.cacheDelete(ctx, p.UserID, "profile update")
 
-	return updatedUser, nil
-}
-
-func equalStringPtr(a, b *string) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
+	return u, nil
 }
 
 type DisableParams struct {
-	Password string
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+	Password  string
 }
 
 func (s *Service) Disable(ctx context.Context, p DisableParams) error {
-	claims, err := appctx.GetClaims(ctx)
-	if err != nil {
-		return err
-	}
-
-	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
+	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return err
 	}
@@ -422,33 +349,25 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return nil
 	}
 
-	targetIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		_, err := s.repo.SetDisabled(txCtx, claims.UserID, &now, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.SetDisabled(txCtx, p.UserID, &now, now)
 		if err != nil {
 			return err
 		}
 
-		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, p.UserID, now)
 		if err != nil {
 			return err
-		}
-
-		payload := EventDisabledPayload{
-			UserID:    claims.UserID,
-			UpdatedAt: now,
 		}
 
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			targetIDs,
 			EventDisabled,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
+			newDisabledPayload(u.ID, u.UpdatedAt),
 			now,
 		)
 		if err != nil {
@@ -457,63 +376,50 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return err
+	if txErr != nil {
+		return txErr
 	}
 
-	s.invalidateUserCache(ctx, claims.UserID, "account disable")
-	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "account disable")
+	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "account disable")
 
 	return nil
 }
 
 type ScheduleDeleteParams struct {
-	Password string
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+	Password  string
 }
 
 func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) error {
-	claims, err := appctx.GetClaims(ctx)
+	u, err := s.fetchAndAuthenticate(ctx, p.UserID, p.Password)
 	if err != nil {
 		return err
 	}
-
-	u, err := s.fetchAndAuthenticate(ctx, claims.UserID, p.Password)
-	if err != nil {
-		return err
-	}
-
 	if u.IsScheduledForDeletion() {
 		return nil
 	}
 
-	targetIDs := s.getBroadcastTargetIDs(ctx, claims.UserID)
+	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
-	scheduledAt := now.Add(ScheduleDeleteGracePeriod)
+	scheduledAt := now.Add(scheduleDeleteGracePeriod)
 
-	err = s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		_, err := s.repo.SetDeleteSchedule(txCtx, claims.UserID, &scheduledAt, &now, now)
+	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
+		u, err = s.repo.SetDeleteSchedule(txCtx, p.UserID, &scheduledAt, &now, now)
 		if err != nil {
 			return err
 		}
 
-		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, claims.UserID, now)
+		revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, p.UserID, now)
 		if err != nil {
 			return err
-		}
-
-		payload := EventDisabledPayload{
-			UserID:    claims.UserID,
-			UpdatedAt: now,
 		}
 
 		event, err := outbox.New(
-			claims.UserID,
-			claims.SessionID,
-			appctx.GetTraceID(ctx),
-			targetIDs,
 			EventDisabled,
-			payload,
+			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
+			newDisabledPayload(u.ID, u.UpdatedAt),
 			now,
 		)
 		if err != nil {
@@ -522,12 +428,11 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 
 		return s.outboxRepo.Create(txCtx, event)
 	})
-	if err != nil {
-		return err
+	if txErr != nil {
+		return txErr
 	}
 
-	s.invalidateUserCache(ctx, claims.UserID, "delete schedule")
-	s.invalidateSessionCache(ctx, claims.UserID, revokedSessionIDs, "delete schedule")
+	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "schedule delete")
 
 	return nil
 }
@@ -535,7 +440,7 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 func (s *Service) AnonymizeBatch(ctx context.Context) error {
 	now := time.Now()
 
-	users, err := s.repo.ListDeleteScheduled(ctx, now, AnonymizeBatchSize)
+	users, err := s.repo.ListDeleteScheduled(ctx, now, anonymizeBatchLimit)
 	if err != nil {
 		return err
 	}
@@ -558,7 +463,7 @@ func (s *Service) AnonymizeBatch(ctx context.Context) error {
 		invalidIDs[i] = u.ID
 	}
 
-	s.invalidateUserBatchCache(ctx, invalidIDs, "batch anonymize")
+	s.cacheDeleteBatch(ctx, invalidIDs, "batch anonymize")
 
 	return nil
 }
@@ -589,41 +494,26 @@ func (s *Service) fetchValid(ctx context.Context, actorID uuid.UUID) (*User, err
 	return u, nil
 }
 
-func (s *Service) fetchBatchValid(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]*User, error) {
-	usersMap, err := s.repo.GetBatch(ctx, userIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	validUsers := make(map[uuid.UUID]*User, len(usersMap))
-	for id, u := range usersMap {
-		if u == nil || u.EnsureActive() != nil {
-			continue
-		}
-		validUsers[id] = u
-	}
-
-	return validUsers, nil
-}
-
 func (s *Service) getBroadcastTargetIDs(ctx context.Context, actorID uuid.UUID) []uuid.UUID {
-	friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, actorID)
-	if err != nil {
-		slog.WarnContext(ctx, "failed to fetch friend IDs for event broadcast, falling back to actor only",
-			slog.String("user_id", actorID.String()),
-			slog.Any("error", err),
-		)
-		friendIDs = nil
-	}
+	// friendIDs, err := s.cachedRelationRepo.GetFriendIDs(ctx, actorID)
+	// if err != nil {
+	// 	slog.WarnContext(ctx, "failed to fetch friend IDs for event broadcast, falling back to actor only",
+	// 		slog.String("user_id", actorID.String()),
+	// 		slog.Any("error", err),
+	// 	)
+	// 	friendIDs = nil
+	// }
 
-	targetIDs := make([]uuid.UUID, 0, len(friendIDs)+1)
-	targetIDs = append(targetIDs, actorID)
-	targetIDs = append(targetIDs, friendIDs...)
+	// targetIDs := make([]uuid.UUID, 0, len(friendIDs)+1)
+	// targetIDs = append(targetIDs, actorID)
+	// targetIDs = append(targetIDs, friendIDs...)
 
-	return targetIDs
+	// return targetIDs
+
+	return []uuid.UUID{actorID}
 }
 
-func (s *Service) invalidateUserCache(ctx context.Context, userID uuid.UUID, action string) {
+func (s *Service) cacheDelete(ctx context.Context, userID uuid.UUID, action string) {
 	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
@@ -635,7 +525,7 @@ func (s *Service) invalidateUserCache(ctx context.Context, userID uuid.UUID, act
 	}
 }
 
-func (s *Service) invalidateUserBatchCache(ctx context.Context, userIDs []uuid.UUID, action string) {
+func (s *Service) cacheDeleteBatch(ctx context.Context, userIDs []uuid.UUID, action string) {
 	if len(userIDs) == 0 {
 		return
 	}
@@ -651,7 +541,7 @@ func (s *Service) invalidateUserBatchCache(ctx context.Context, userIDs []uuid.U
 	}
 }
 
-func (s *Service) invalidateSessionCache(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
+func (s *Service) cacheDeleteAndRevokeSessions(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, action string) {
 	count := len(sessionIDs)
 	if count == 0 {
 		return
@@ -660,11 +550,21 @@ func (s *Service) invalidateSessionCache(ctx context.Context, userID uuid.UUID, 
 	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 
-	if err := s.sessionCache.DeleteBatch(cacheCtx, sessionIDs); err != nil {
-		slog.WarnContext(cacheCtx, "failed to invalidate session cache after "+action,
+	if err := s.authCache.DeleteUserAndRevokeSessions(cacheCtx, userID, sessionIDs); err != nil {
+		slog.WarnContext(cacheCtx, "failed to invalidate user and session cache after "+action,
 			slog.String("user_id", userID.String()),
 			slog.Int("revoked_session_count", count),
 			slog.Any("error", err),
 		)
 	}
+}
+
+func equalStringPtr(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

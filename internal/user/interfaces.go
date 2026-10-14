@@ -8,6 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
+type AuthCache interface {
+	DeleteUserAndRevokeSessions(ctx context.Context, userID uuid.UUID, revokedSessionIDs []uuid.UUID) error
+}
+
 type Broadcaster interface {
 	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
 	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
@@ -27,6 +31,7 @@ type SessionCache interface {
 
 type SessionRepository interface {
 	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) ([]uuid.UUID, error)
+	RevokeAllExcept(ctx context.Context, userID uuid.UUID, exceptID uuid.UUID, now time.Time) ([]uuid.UUID, error)
 }
 
 type TX interface {

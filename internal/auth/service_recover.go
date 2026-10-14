@@ -33,7 +33,7 @@ func (s *Service) ForgotPassword(ctx context.Context, email string) error {
 	}
 
 	if err = u.EnsureActive(); err != nil {
-		return nil
+		return err
 	}
 
 	t, _, err := s.tokenProvider.GeneratePasswordReset(u.ID)

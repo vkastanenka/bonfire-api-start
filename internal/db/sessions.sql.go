@@ -275,6 +275,46 @@ func (q *Queries) SessionRevokeAll(ctx context.Context, arg SessionRevokeAllPara
 	return items, nil
 }
 
+const sessionRevokeAllExcept = `-- name: SessionRevokeAllExcept :many
+UPDATE
+    sessions
+SET
+    revoked_at = $1::timestamptz,
+    updated_at = $1::timestamptz
+WHERE
+    user_id = $2::uuid
+    AND id != $3::uuid
+    AND revoked_at IS NULL
+RETURNING
+    id
+`
+
+type SessionRevokeAllExceptParams struct {
+	Now      pgtype.Timestamptz `json:"now"`
+	UserID   pgtype.UUID        `json:"user_id"`
+	ExceptID pgtype.UUID        `json:"except_id"`
+}
+
+func (q *Queries) SessionRevokeAllExcept(ctx context.Context, arg SessionRevokeAllExceptParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, sessionRevokeAllExcept, arg.Now, arg.UserID, arg.ExceptID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sessionRotateRefreshTokenHash = `-- name: SessionRotateRefreshTokenHash :one
 UPDATE
     sessions
