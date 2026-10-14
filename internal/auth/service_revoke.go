@@ -10,13 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type RevokeParams struct {
+type RevokeSessionParams struct {
 	UserID          uuid.UUID
 	SessionID       uuid.UUID
 	RevokeSessionID uuid.UUID
 }
 
-func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
+func (s *Service) RevokeSession(ctx context.Context, p RevokeSessionParams) error {
 	now := time.Now()
 
 	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
@@ -45,12 +45,12 @@ func (s *Service) RevokeSessionID(ctx context.Context, p RevokeParams) error {
 	return nil
 }
 
-type RevokeAllParams struct {
+type RevokeAllSessionsParams struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
 }
 
-func (s *Service) RevokeAll(ctx context.Context, p RevokeAllParams) error {
+func (s *Service) RevokeAllSessions(ctx context.Context, p RevokeAllSessionsParams) error {
 	var err error
 	var revokedSessionIDs []uuid.UUID
 

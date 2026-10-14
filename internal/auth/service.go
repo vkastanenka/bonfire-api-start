@@ -59,7 +59,7 @@ func NewService(
 	}
 }
 
-func (s *Service) ListValidUserSessions(ctx context.Context, uid uuid.UUID) ([]*Session, error) {
+func (s *Service) ListValidSessions(ctx context.Context, uid uuid.UUID) ([]*Session, error) {
 	sessions, err := s.sessionRepo.ListValidByUserID(ctx, uid, time.Now(), listValidByUserIDLimit)
 	if err != nil {
 		return nil, err

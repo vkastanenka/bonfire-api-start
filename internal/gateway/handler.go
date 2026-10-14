@@ -52,3 +52,13 @@ package gateway
 
 // 	return nil
 // }
+
+// func (h *Handler) PrintWSTicket(w http.ResponseWriter, r *http.Request) error {
+// 	ticket, err := h.service.PrintWSTicket(r.Context())
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket})
+// 	return nil
+// }

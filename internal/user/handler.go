@@ -62,13 +62,13 @@ type updateEmailRequest struct {
 }
 
 func (h *Handler) updateEmail(w http.ResponseWriter, r *http.Request) error {
-	var req updateEmailRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req updateEmailRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -92,13 +92,13 @@ type updateUsernameRequest struct {
 }
 
 func (h *Handler) updateUsername(w http.ResponseWriter, r *http.Request) error {
-	var req updateUsernameRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req updateUsernameRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -123,13 +123,13 @@ type updatePasswordRequest struct {
 }
 
 func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) error {
-	var req updatePasswordRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req updatePasswordRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -153,13 +153,13 @@ type updatePreferredPresenceRequest struct {
 }
 
 func (h *Handler) updatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
-	var req updatePreferredPresenceRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req updatePreferredPresenceRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -185,13 +185,13 @@ type updateProfileRequest struct {
 }
 
 func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) error {
-	var req updateProfileRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req updateProfileRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -216,13 +216,13 @@ type disableRequest struct {
 }
 
 func (h *Handler) disable(w http.ResponseWriter, r *http.Request) error {
-	var req disableRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req disableRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -243,13 +243,13 @@ type scheduleDeleteRequest struct {
 }
 
 func (h *Handler) scheduleDelete(w http.ResponseWriter, r *http.Request) error {
-	var req scheduleDeleteRequest
-	if err := h.bind.JSON(w, r, &req); err != nil {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
 		return err
 	}
 
-	claims, err := appctx.GetClaims(r.Context())
-	if err != nil {
+	var req scheduleDeleteRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 

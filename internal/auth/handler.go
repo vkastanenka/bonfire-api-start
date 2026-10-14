@@ -1,39 +1,123 @@
 package auth
 
 import (
-	"bonfire-api/internal/auth"
+	"net/http"
+
+	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/user"
-	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
-type AccessTokenResponse struct {
+type accessTokenResponse struct {
 	AccessToken string `json:"accessToken"`
 }
 
-type AuthHandler struct {
-	service AuthService
+type Handler struct {
 	bind    *httpio.Bind
+	service *Service
 }
 
-func NewAuthHandler(service AuthService, bind *httpio.Bind) *AuthHandler {
-	return &AuthHandler{
-		service: service,
+func NewHandler(bind *httpio.Bind, service *Service) *Handler {
+	return &Handler{
 		bind:    bind,
+		service: service,
 	}
 }
 
-type ForgotPasswordRequest struct {
+func (h *Handler) RegisterPublicRoutes(r chi.Router) {
+	r.Post("/auth/register", httpio.ToHTTPErr(h.register))
+	r.Post("/auth/login", httpio.ToHTTPErr(h.login))
+	r.Post("/auth/refresh", httpio.ToHTTPErr(h.refresh))
+	r.Post("/auth/verify", httpio.ToHTTPErr(h.verifyEmail))
+	r.Post("/auth/forgot-password", httpio.ToHTTPErr(h.forgotPassword))
+	r.Post("/auth/reset-password", httpio.ToHTTPErr(h.resetPassword))
+}
+
+func (h *Handler) RegisterAuthenticatedRoutes(r chi.Router) {
+	r.Post("/auth/resend-verify", httpio.ToHTTPErr(h.resendVerify))
+
+	r.Route("/users/@me/sessions", func(sessions chi.Router) {
+		sessions.Get("/", httpio.ToHTTPErr(h.listValidSessions))
+		sessions.Delete("/", httpio.ToHTTPErr(h.revokeAllSessions))
+		sessions.Delete("/{id}", httpio.ToHTTPErr(h.revokeSession))
+	})
+}
+
+type registerRequest struct {
+	Email       string  `json:"email" mod:"email" validate:"required,email_spec"`
+	Username    string  `json:"username" mod:"text" validate:"required,user_username"`
+	DisplayName *string `json:"displayName,omitempty" mod:"text" validate:"omitempty,user_display_name"`
+	Password    string  `json:"password" validate:"required,user_password"`
+}
+
+func (h *Handler) register(w http.ResponseWriter, r *http.Request) error {
+	clientMeta, err := appctx.GetClientMeta(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var req registerRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
+		return err
+	}
+
+	data, err := h.service.Register(r.Context(), RegisterParams{
+		Email:       req.Email,
+		Username:    req.Username,
+		DisplayName: req.DisplayName,
+		Password:    req.Password,
+		ClientMeta:  clientMeta,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
+	httpio.RespondCreated(w, r, accessTokenResponse{AccessToken: data.AccessToken})
+	return nil
+}
+
+type loginRequest struct {
+	Email    string `json:"email" mod:"email" validate:"required,email_spec"`
+	Password string `json:"password" validate:"required,user_password"`
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) error {
+	clientMeta, err := appctx.GetClientMeta(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var req loginRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
+		return err
+	}
+
+	data, err := h.service.Login(r.Context(), LoginParams{
+		Email:      req.Email,
+		Password:   req.Password,
+		ClientMeta: clientMeta,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
+	httpio.RespondOK(w, r, accessTokenResponse{AccessToken: data.AccessToken})
+	return nil
+}
+
+type forgotPasswordRequest struct {
 	Email string `json:"email" mod:"email" validate:"required,email_spec"`
 }
 
-func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) error {
-	var req ForgotPasswordRequest
-	err := h.bind.JSON(w, r, &req)
-	if err != nil {
+func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) error {
+	var req forgotPasswordRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -45,111 +129,67 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-type ResetPasswordRequest struct {
+type resetPasswordRequest struct {
 	Token    string `json:"token" validate:"required,token"`
 	Password string `json:"password" validate:"required,user_password"`
 }
 
-func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) error {
-	var req ResetPasswordRequest
-	err := h.bind.JSON(w, r, &req)
+func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) error {
+	clientMeta, err := appctx.GetClientMeta(r.Context())
 	if err != nil {
 		return err
 	}
 
-	data, err := h.service.ResetPassword(r.Context(), auth.ResetPasswordParams{
-		Token:    req.Token,
-		Password: req.Password,
+	var req resetPasswordRequest
+	if err = h.bind.JSON(w, r, &req); err != nil {
+		return err
+	}
+
+	data, err := h.service.ResetPassword(r.Context(), ResetPasswordParams{
+		Token:      req.Token,
+		Password:   req.Password,
+		ClientMeta: clientMeta,
 	})
 	if err != nil {
 		return err
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, accessTokenResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
-type LoginRequest struct {
-	Email    string `json:"email" mod:"email" validate:"required,email_spec"`
-	Password string `json:"password" validate:"required,user_password"`
-}
-
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) error {
-	// check if auth cookie before doing anything?
-
-	var req LoginRequest
-	err := h.bind.JSON(w, r, &req)
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.Login(r.Context(), auth.LoginParams{
-		Email:    req.Email,
-		Password: req.Password,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
-	return nil
-}
-
-type RegisterRequest struct {
-	Email       string  `json:"email" mod:"email" validate:"required,email_spec"`
-	Username    string  `json:"username" mod:"text" validate:"required,user_username"`
-	DisplayName *string `json:"displayName,omitempty" mod:"text" validate:"omitempty,user_display_name"`
-	Password    string  `json:"password" validate:"required,user_password"`
-}
-
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) error {
-	var req RegisterRequest
-	err := h.bind.JSON(w, r, &req)
-	if err != nil {
-		return err
-	}
-
-	data, err := h.service.Register(r.Context(), auth.RegisterParams{
-		Email:       req.Email,
-		Username:    req.Username,
-		DisplayName: req.DisplayName,
-		Password:    req.Password,
-	})
-	if err != nil {
-		return err
-	}
-
-	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondCreated(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
-	return nil
-}
-
-func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := httpio.CookieGetRefreshToken(r)
 	if err != nil {
 		return errs.Unauthenticated("Missing refresh token, please log in.").Wrap(err)
 	}
 
-	data, err := h.service.Refresh(r.Context(), refreshToken)
+	clientMeta, err := appctx.GetClientMeta(r.Context())
+	if err != nil {
+		return err
+	}
+
+	data, err := h.service.Refresh(r.Context(), RefreshParams{
+		RefreshToken: refreshToken,
+		ClientMeta:   clientMeta,
+	})
 	if err != nil {
 		return err
 	}
 
 	httpio.CookieSetRefreshToken(w, data.RefreshToken, data.RefreshTokenExpiresAt)
-	httpio.RespondOK(w, r, AccessTokenResponse{AccessToken: data.AccessToken})
+	httpio.RespondOK(w, r, accessTokenResponse{AccessToken: data.AccessToken})
 	return nil
 }
 
-type VerifyEmailRequest struct {
+type verifyEmailRequest struct {
 	Token string `json:"token" validate:"required,token"`
 }
 
-func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
-	var req VerifyEmailRequest
-	err := h.bind.JSON(w, r, &req)
-	if err != nil {
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) error {
+	var req verifyEmailRequest
+	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
 
@@ -158,12 +198,20 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 
-	httpio.RespondOK(w, r, user.ParseMe(u))
+	httpio.RespondOK(w, r, user.NewMeDTO(u))
 	return nil
 }
 
-func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error {
-	if err := h.service.ResendVerify(r.Context()); err != nil {
+func (h *Handler) resendVerify(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
+		return err
+	}
+
+	if err := h.service.ResendVerify(r.Context(), ResendVerifyParams{
+		UserID:    claims.UserID,
+		SessionID: claims.SessionID,
+	}); err != nil {
 		return err
 	}
 
@@ -171,43 +219,41 @@ func (h *AuthHandler) ResendVerify(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-type PrintWSTicketResponse struct {
-	Ticket uuid.UUID `json:"ticket"`
-}
-
-func (h *AuthHandler) PrintWSTicket(w http.ResponseWriter, r *http.Request) error {
-	ticket, err := h.service.PrintWSTicket(r.Context())
+func (h *Handler) listValidSessions(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket})
-	return nil
-}
-
-type SessionPath struct {
-	SessionID uuid.UUID `path:"sessionId" validate:"required"`
-}
-
-func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error {
-	sessions, err := h.service.ListValidByUserID(r.Context())
+	sessions, err := h.service.ListValidSessions(r.Context(), claims.UserID)
 	if err != nil {
 		return err
 	}
 
-	httpio.RespondOK(w, r, session.ParseViews(sessions))
+	httpio.RespondOK(w, r, NewSessionDTOs(sessions))
 	return nil
 }
 
-func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
-	var path SessionPath
+type sessionPath struct {
+	ID uuid.UUID `path:"id" validate:"required"`
+}
+
+func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var path sessionPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
 
-	params := session.RevokeParams{SessionID: path.SessionID}
-
-	if err := h.service.Revoke(r.Context(), params); err != nil {
+	if err := h.service.RevokeSession(r.Context(), RevokeSessionParams{
+		UserID:          claims.UserID,
+		SessionID:       claims.SessionID,
+		RevokeSessionID: path.ID,
+	}); err != nil {
 		return err
 	}
 
@@ -215,8 +261,16 @@ func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *SessionHandler) RevokeAll(w http.ResponseWriter, r *http.Request) error {
-	if err := h.service.RevokeAll(r.Context()); err != nil {
+func (h *Handler) revokeAllSessions(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
+		return err
+	}
+
+	if err := h.service.RevokeAllSessions(r.Context(), RevokeAllSessionsParams{
+		UserID:    claims.UserID,
+		SessionID: claims.SessionID,
+	}); err != nil {
 		return err
 	}
 
