@@ -40,6 +40,7 @@ type Client struct {
 	SessionID uuid.UUID
 	Conn      *websocket.Conn
 	Send      chan []byte
+	hub       *Hub
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -81,6 +82,7 @@ func (c *Client) Close() {
 
 // StartPumps launches the background read and write loops for the client connection.
 func (c *Client) StartPumps(hub *Hub) {
+	c.hub = hub
 	c.wg.Add(2)
 
 	go func() {
@@ -90,7 +92,7 @@ func (c *Client) StartPumps(hub *Hub) {
 
 	go func() {
 		defer c.wg.Done()
-		c.readPump(hub)
+		c.readPump()
 	}()
 }
 
@@ -249,9 +251,9 @@ func (c *Client) writePing() error {
 }
 
 // readPump receives incoming frames, refreshes read deadlines, and dispatches handlers.
-func (c *Client) readPump(hub *Hub) {
+func (c *Client) readPump() {
 	defer func() {
-		hub.unregister <- c
+		c.hub.unregister <- c
 		c.Close()
 	}()
 
@@ -290,15 +292,15 @@ func (c *Client) readPump(hub *Hub) {
 			break
 		}
 
-		c.dispatchFrame(hub, msg)
+		c.parseMessage(msg)
 	}
 }
 
-// dispatchFrame parses inbound frame envelopes and dispatches registered event handlers.
-func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
+// parseMessage parses inbound message envelopes and dispatches registered event handlers.
+func (c *Client) parseMessage(rawMsg []byte) {
 	var msg Message
 	if err := json.Unmarshal(rawMsg, &msg); err != nil {
-		slog.WarnContext(c.ctx, "failed to unmarshal websocket frame",
+		slog.WarnContext(c.ctx, "failed to unmarshal websocket message",
 			"error", err,
 			"user_id", c.UserID,
 			"session_id", c.SessionID,
@@ -314,7 +316,7 @@ func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
 		return
 	}
 
-	handler, exists := hub.GetHandler(msg.Type)
+	handler, exists := c.hub.GetHandler(msg.Type)
 	if !exists {
 		slog.WarnContext(c.ctx, "unregistered websocket event type",
 			"type", msg.Type,
@@ -324,11 +326,11 @@ func (c *Client) dispatchFrame(hub *Hub, rawMsg []byte) {
 		return
 	}
 
-	go c.executeHandler(handler, msg)
+	go c.handleMessage(handler, msg)
 }
 
-// executeHandler executes an event handler with timeout context controls and panic safety guarantees.
-func (c *Client) executeHandler(h MessageHandler, msg Message) {
+// handleMessage executes an event handler with timeout context controls and panic safety guarantees.
+func (c *Client) handleMessage(h MessageHandler, msg Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.ErrorContext(c.ctx, "recovered panic in websocket handler",
