@@ -7,27 +7,41 @@ import (
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/presence"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
-type Handler struct {
+// RegisterRoutes registers all user-related endpoints. Only this function is exported.
+func RegisterRoutes(r chi.Router, service *Service, bind *httpio.Bind) {
+	h := &handler{
+		service: service,
+		bind:    bind,
+	}
+
+	r.Get("/users/{id}", httpio.ToHTTPErr(h.get))
+
+	r.Route("/users/@me", func(me chi.Router) {
+		me.Patch("/email", httpio.ToHTTPErr(h.updateEmail))
+		me.Patch("/username", httpio.ToHTTPErr(h.updateUsername))
+		me.Post("/password", httpio.ToHTTPErr(h.updatePassword))
+		me.Patch("/presence", httpio.ToHTTPErr(h.updatePreferredPresence))
+		me.Patch("/profile", httpio.ToHTTPErr(h.updateProfile))
+		me.Post("/disable", httpio.ToHTTPErr(h.disable))
+		me.Delete("/", httpio.ToHTTPErr(h.scheduleDelete))
+	})
+}
+
+type handler struct {
 	service *Service
 	bind    *httpio.Bind
 }
 
-func NewHandler(service *Service, bind *httpio.Bind) *Handler {
-	return &Handler{
-		service: service,
-		bind:    bind,
-	}
-}
-
-type GetPath struct {
+type getPath struct {
 	ID uuid.UUID `path:"id" validate:"required"`
 }
 
-func (h *Handler) Get(w http.ResponseWriter, r *http.Request) error {
-	var path GetPath
+func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
+	var path getPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
 	}
@@ -41,13 +55,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type UpdateEmailRequest struct {
+type updateEmailRequest struct {
 	Password string `json:"password" validate:"required,user_password"`
 	NewEmail string `json:"newEmail" mod:"email" validate:"required,email_spec"`
 }
 
-func (h *Handler) UpdateEmail(w http.ResponseWriter, r *http.Request) error {
-	var req UpdateEmailRequest
+func (h *handler) updateEmail(w http.ResponseWriter, r *http.Request) error {
+	var req updateEmailRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -71,13 +85,13 @@ func (h *Handler) UpdateEmail(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type UpdateUsernameRequest struct {
+type updateUsernameRequest struct {
 	Password    string `json:"password" validate:"required,user_password"`
 	NewUsername string `json:"newUsername" mod:"text" validate:"required,user_username"`
 }
 
-func (h *Handler) UpdateUsername(w http.ResponseWriter, r *http.Request) error {
-	var req UpdateUsernameRequest
+func (h *handler) updateUsername(w http.ResponseWriter, r *http.Request) error {
+	var req updateUsernameRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -101,14 +115,14 @@ func (h *Handler) UpdateUsername(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type UpdatePasswordRequest struct {
+type updatePasswordRequest struct {
 	CurrentPassword    string `json:"currentPassword" validate:"required,user_password"`
 	NewPassword        string `json:"newPassword" validate:"required,user_password"`
 	NewPasswordConfirm string `json:"newPasswordConfirm" validate:"required,eqfield=NewPassword"`
 }
 
-func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) error {
-	var req UpdatePasswordRequest
+func (h *handler) updatePassword(w http.ResponseWriter, r *http.Request) error {
+	var req updatePasswordRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -132,13 +146,13 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type UpdatePreferredPresenceRequest struct {
+type updatePreferredPresenceRequest struct {
 	Presence *presence.Presence         `json:"presence,omitempty" validate:"omitempty,user_preferred_presence"`
 	Duration *PreferredPresenceDuration `json:"duration,omitempty" validate:"omitempty,user_preferred_presence_duration"`
 }
 
-func (h *Handler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
-	var req UpdatePreferredPresenceRequest
+func (h *handler) updatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
+	var req updatePreferredPresenceRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -162,15 +176,15 @@ func (h *Handler) UpdatePreferredPresence(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-type UpdateProfileRequest struct {
+type updateProfileRequest struct {
 	DisplayName string  `json:"displayName" mod:"text" validate:"required,user_display_name"`
 	Bio         *string `json:"bio,omitempty" mod:"text" validate:"omitempty,user_bio"`
 	AvatarURL   *string `json:"avatarUrl,omitempty" validate:"omitempty,url_spec"`
 	BannerColor *string `json:"bannerColor,omitempty" validate:"omitempty,hexcolor"`
 }
 
-func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) error {
-	var req UpdateProfileRequest
+func (h *handler) updateProfile(w http.ResponseWriter, r *http.Request) error {
+	var req updateProfileRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -196,12 +210,12 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type DisableRequest struct {
+type disableRequest struct {
 	Password string `json:"password" validate:"required,user_password"`
 }
 
-func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) error {
-	var req DisableRequest
+func (h *handler) disable(w http.ResponseWriter, r *http.Request) error {
+	var req disableRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
@@ -223,12 +237,12 @@ func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type ScheduleDeleteRequest struct {
+type scheduleDeleteRequest struct {
 	Password string `json:"password" validate:"required,user_password"`
 }
 
-func (h *Handler) ScheduleDelete(w http.ResponseWriter, r *http.Request) error {
-	var req ScheduleDeleteRequest
+func (h *handler) scheduleDelete(w http.ResponseWriter, r *http.Request) error {
+	var req scheduleDeleteRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
 	}
