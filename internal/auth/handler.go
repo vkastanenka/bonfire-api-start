@@ -1,4 +1,4 @@
-package handler
+package auth
 
 import (
 	"bonfire-api/internal/auth"
@@ -182,5 +182,44 @@ func (h *AuthHandler) PrintWSTicket(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	httpio.RespondOK(w, r, PrintWSTicketResponse{Ticket: ticket})
+	return nil
+}
+
+type SessionPath struct {
+	SessionID uuid.UUID `path:"sessionId" validate:"required"`
+}
+
+func (h *SessionHandler) ListValid(w http.ResponseWriter, r *http.Request) error {
+	sessions, err := h.service.ListValidByUserID(r.Context())
+	if err != nil {
+		return err
+	}
+
+	httpio.RespondOK(w, r, session.ParseViews(sessions))
+	return nil
+}
+
+func (h *SessionHandler) Revoke(w http.ResponseWriter, r *http.Request) error {
+	var path SessionPath
+	if err := h.bind.Path(r, &path); err != nil {
+		return err
+	}
+
+	params := session.RevokeParams{SessionID: path.SessionID}
+
+	if err := h.service.Revoke(r.Context(), params); err != nil {
+		return err
+	}
+
+	httpio.RespondNoContent(w)
+	return nil
+}
+
+func (h *SessionHandler) RevokeAll(w http.ResponseWriter, r *http.Request) error {
+	if err := h.service.RevokeAll(r.Context()); err != nil {
+		return err
+	}
+
+	httpio.RespondNoContent(w)
 	return nil
 }

@@ -11,13 +11,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// RegisterRoutes registers all user-related endpoints. Only this function is exported.
-func RegisterRoutes(r chi.Router, service *Service, bind *httpio.Bind) {
-	h := &handler{
-		service: service,
-		bind:    bind,
-	}
+type Handler struct {
+	bind    *httpio.Bind
+	service *Service
+}
 
+func NewHandler(bind *httpio.Bind, service *Service) *Handler {
+	return &Handler{
+		bind:    bind,
+		service: service,
+	}
+}
+
+func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/users/{id}", httpio.ToHTTPErr(h.get))
 
 	r.Route("/users/@me", func(me chi.Router) {
@@ -31,16 +37,11 @@ func RegisterRoutes(r chi.Router, service *Service, bind *httpio.Bind) {
 	})
 }
 
-type handler struct {
-	service *Service
-	bind    *httpio.Bind
-}
-
 type getPath struct {
 	ID uuid.UUID `path:"id" validate:"required"`
 }
 
-func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	var path getPath
 	if err := h.bind.Path(r, &path); err != nil {
 		return err
@@ -60,7 +61,7 @@ type updateEmailRequest struct {
 	NewEmail string `json:"newEmail" mod:"email" validate:"required,email_spec"`
 }
 
-func (h *handler) updateEmail(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) updateEmail(w http.ResponseWriter, r *http.Request) error {
 	var req updateEmailRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -90,7 +91,7 @@ type updateUsernameRequest struct {
 	NewUsername string `json:"newUsername" mod:"text" validate:"required,user_username"`
 }
 
-func (h *handler) updateUsername(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) updateUsername(w http.ResponseWriter, r *http.Request) error {
 	var req updateUsernameRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -121,7 +122,7 @@ type updatePasswordRequest struct {
 	NewPasswordConfirm string `json:"newPasswordConfirm" validate:"required,eqfield=NewPassword"`
 }
 
-func (h *handler) updatePassword(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) error {
 	var req updatePasswordRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -151,7 +152,7 @@ type updatePreferredPresenceRequest struct {
 	Duration *PreferredPresenceDuration `json:"duration,omitempty" validate:"omitempty,user_preferred_presence_duration"`
 }
 
-func (h *handler) updatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) updatePreferredPresence(w http.ResponseWriter, r *http.Request) error {
 	var req updatePreferredPresenceRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -183,7 +184,7 @@ type updateProfileRequest struct {
 	BannerColor *string `json:"bannerColor,omitempty" validate:"omitempty,hexcolor"`
 }
 
-func (h *handler) updateProfile(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	var req updateProfileRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -214,7 +215,7 @@ type disableRequest struct {
 	Password string `json:"password" validate:"required,user_password"`
 }
 
-func (h *handler) disable(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) disable(w http.ResponseWriter, r *http.Request) error {
 	var req disableRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err
@@ -241,7 +242,7 @@ type scheduleDeleteRequest struct {
 	Password string `json:"password" validate:"required,user_password"`
 }
 
-func (h *handler) scheduleDelete(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) scheduleDelete(w http.ResponseWriter, r *http.Request) error {
 	var req scheduleDeleteRequest
 	if err := h.bind.JSON(w, r, &req); err != nil {
 		return err

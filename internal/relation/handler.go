@@ -1,20 +1,16 @@
-package handler
+package relation
 
-import (
-	"bonfire-api/internal/httpio"
-)
+// type RelationHandler struct {
+// 	service RelationService
+// 	bind    *httpio.Bind
+// }
 
-type RelationHandler struct {
-	service RelationService
-	bind    *httpio.Bind
-}
-
-func NewRelationHandler(service RelationService, bind *httpio.Bind) *RelationHandler {
-	return &RelationHandler{
-		service: service,
-		bind:    bind,
-	}
-}
+// func NewRelationHandler(service RelationService, bind *httpio.Bind) *RelationHandler {
+// 	return &RelationHandler{
+// 		service: service,
+// 		bind:    bind,
+// 	}
+// }
 
 // type RelationPeerPath struct {
 // 	PeerID uuid.UUID `path:"peerId" validate:"required"`

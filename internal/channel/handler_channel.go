@@ -1,20 +1,16 @@
-package handler
+package channel
 
-import (
-	"bonfire-api/internal/httpio"
-)
+// type ChannelHandler struct {
+// 	service ChannelService
+// 	bind    *httpio.Bind
+// }
 
-type ChannelHandler struct {
-	service ChannelService
-	bind    *httpio.Bind
-}
-
-func NewChannelHandler(service ChannelService, bind *httpio.Bind) *ChannelHandler {
-	return &ChannelHandler{
-		service: service,
-		bind:    bind,
-	}
-}
+// func NewChannelHandler(service ChannelService, bind *httpio.Bind) *ChannelHandler {
+// 	return &ChannelHandler{
+// 		service: service,
+// 		bind:    bind,
+// 	}
+// }
 
 // type CreateGroupRequest struct {
 // 	PeerIDs []uuid.UUID `json:"peerIds" validate:"required"`

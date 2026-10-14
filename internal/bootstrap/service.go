@@ -20,22 +20,21 @@ func NewService(
 	}
 }
 
-type BootstrapParams struct {
+type Params struct {
 	UserID uuid.UUID
 }
 
-type BootstrapResult struct {
+type Result struct {
 	User *user.User
 }
 
-// Bootstrap fetches all channel data needed to load a channel, including details, members, and messages.
-func (s *Service) Bootstrap(ctx context.Context, p BootstrapParams) (*BootstrapResult, error) {
+func (s *Service) Bootstrap(ctx context.Context, p Params) (*Result, error) {
 	user, err := s.cachedUserRepo.Get(ctx, p.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &BootstrapResult{
+	return &Result{
 		User: user,
 	}, nil
 }

@@ -1,40 +1,38 @@
-package handler
+package channel
 
 import (
 	"time"
 
-	"bonfire-api/internal/httpio"
-
 	"github.com/google/uuid"
 )
 
-type MessageHandler struct {
-	service MessageService
-	bind    *httpio.Bind
-}
+// type MessageHandler struct {
+// 	service MessageService
+// 	bind    *httpio.Bind
+// }
 
-func NewMessageHandler(service MessageService, bind *httpio.Bind) *MessageHandler {
-	return &MessageHandler{
-		service: service,
-		bind:    bind,
-	}
-}
+// func NewMessageHandler(service MessageService, bind *httpio.Bind) *MessageHandler {
+// 	return &MessageHandler{
+// 		service: service,
+// 		bind:    bind,
+// 	}
+// }
 
-type MessagePath struct {
-	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
-	MessageID uuid.UUID `path:"messageId" validate:"required,uuid"`
-}
+// type MessagePath struct {
+// 	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
+// 	MessageID uuid.UUID `path:"messageId" validate:"required,uuid"`
+// }
 
-type ChannelMessagePath struct {
-	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
-}
+// type ChannelMessagePath struct {
+// 	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
+// }
 
-type CreateMessageRequest struct {
-	Content          *string    `json:"content"`
-	ReplyToMessageId *uuid.UUID `json:"replyToMessageId" validate:"omitempty,uuid"`
-	ForwardMessageId *uuid.UUID `json:"forwardMessageId" validate:"omitempty,uuid"`
-	ForwardChannelId *uuid.UUID `json:"forwardChannelId" validate:"omitempty,uuid"`
-}
+// type CreateMessageRequest struct {
+// 	Content          *string    `json:"content"`
+// 	ReplyToMessageId *uuid.UUID `json:"replyToMessageId" validate:"omitempty,uuid"`
+// 	ForwardMessageId *uuid.UUID `json:"forwardMessageId" validate:"omitempty,uuid"`
+// 	ForwardChannelId *uuid.UUID `json:"forwardChannelId" validate:"omitempty,uuid"`
+// }
 
 // func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) error {
 // 	actorID, err := httpio.CtxGetUserID(r.Context())

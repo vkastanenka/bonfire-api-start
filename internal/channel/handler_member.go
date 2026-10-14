@@ -1,30 +1,24 @@
-package handler
+package channel
 
-import (
-	"bonfire-api/internal/httpio"
+// type MemberHandler struct {
+// 	service MemberService
+// 	bind    *httpio.Bind
+// }
 
-	"github.com/google/uuid"
-)
+// func NewMemberHandler(service MemberService, bind *httpio.Bind) *MemberHandler {
+// 	return &MemberHandler{
+// 		service: service,
+// 		bind:    bind,
+// 	}
+// }
 
-type MemberHandler struct {
-	service MemberService
-	bind    *httpio.Bind
-}
+// type ChannelPath struct {
+// 	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
+// }
 
-func NewMemberHandler(service MemberService, bind *httpio.Bind) *MemberHandler {
-	return &MemberHandler{
-		service: service,
-		bind:    bind,
-	}
-}
-
-type ChannelPath struct {
-	ChannelID uuid.UUID `path:"channelId" validate:"required,uuid"`
-}
-
-type AddMembersRequest struct {
-	MemberIDs []uuid.UUID `json:"memberIds" validate:"required,min=1,max=100,dive,uuid"`
-}
+// type AddMembersRequest struct {
+// 	MemberIDs []uuid.UUID `json:"memberIds" validate:"required,min=1,max=100,dive,uuid"`
+// }
 
 // func (h *MemberHandler) AddMembers(w http.ResponseWriter, r *http.Request) error {
 // 	actorID, err := httpio.CtxGetUserID(r.Context())
