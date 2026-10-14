@@ -24,10 +24,10 @@ var bufferPool = sync.Pool{
 
 // Error represents an AIP-193 compliant error payload.
 type Error struct {
-	Code    int           `json:"code"`
-	Message string        `json:"message"`
-	Status  string        `json:"status"`
-	Details []errs.Detail `json:"details,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Status  string `json:"status"`
+	Details []any  `json:"details,omitempty"`
 }
 
 // ErrorResponse wraps the Error object according to standard API JSON specifications.
@@ -82,7 +82,7 @@ func respondError(w http.ResponseWriter, r *http.Request, err error) {
 
 	httpCode := e.Code.HTTPStatus()
 	publicMsg := e.Message
-	var details []errs.Detail
+	var details []any
 
 	if httpCode >= 500 {
 		publicMsg = errs.CodeInternal.Message()
