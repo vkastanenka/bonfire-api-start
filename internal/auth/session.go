@@ -88,8 +88,7 @@ func sortSessions(sessions []*Session) {
 	slices.SortFunc(sessions, func(a, b *Session) int {
 		return cmp.Or(
 			b.LastSeenAt.Compare(a.LastSeenAt),
-			b.CreatedAt.Compare(a.CreatedAt),
-			bytes.Compare(a.ID[:], b.ID[:]),
+			bytes.Compare(b.ID[:], a.ID[:]),
 		)
 	})
 }
