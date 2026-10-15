@@ -16,7 +16,7 @@ import (
 const defaultChannelBuffer = 256
 
 // Event represents a raw payload delivered from a Redis Pub/Sub channel.
-type Event struct {
+type Message struct {
 	Channel string
 	Payload string
 }
@@ -24,13 +24,13 @@ type Event struct {
 // Subscription manages the lifecycle and message streaming of an active Redis Pub/Sub connection.
 type Subscription struct {
 	pubsub *goredis.PubSub
-	ch     chan Event
+	ch     chan Message
 	done   chan struct{}
 	once   sync.Once
 }
 
 // Channel returns a receive-only channel for reading incoming Redis events.
-func (s *Subscription) Channel() <-chan Event {
+func (s *Subscription) Channel() <-chan Message {
 	return s.ch
 }
 
@@ -50,13 +50,16 @@ func (s *Subscription) Unsubscribe() error {
 	return nil
 }
 
-// Close implements io.Closer by delegating to Unsubscribe.
-func (s *Subscription) Close() error {
-	return s.Unsubscribe()
+type PubSub struct {
+	client *goredis.Client
+}
+
+func NewPubSub(client *goredis.Client) *PubSub {
+	return &PubSub{client: client}
 }
 
 // Publish transmits a payload to the specified Redis channel.
-func Publish(ctx context.Context, client goredis.Cmdable, channel string, message any) error {
+func (ps *PubSub) Publish(ctx context.Context, channel string, message any) error {
 	var payload []byte
 	var err error
 
@@ -75,7 +78,7 @@ func Publish(ctx context.Context, client goredis.Cmdable, channel string, messag
 		}
 	}
 
-	if err := client.Publish(ctx, channel, payload).Err(); err != nil {
+	if err := ps.client.Publish(ctx, channel, payload).Err(); err != nil {
 		return errs.Unavailable("Failed to publish message to channel.").
 			Reason("PUBSUB_PUBLISH_FAILED").
 			Meta("channel", channel).
@@ -85,14 +88,8 @@ func Publish(ctx context.Context, client goredis.Cmdable, channel string, messag
 }
 
 // Subscribe opens a subscription to one or more explicit Redis channels.
-func Subscribe(ctx context.Context, client *goredis.Client, channels ...string) (*Subscription, error) {
-	pb := client.Subscribe(ctx, channels...)
-	return newSubscription(ctx, pb)
-}
-
-// PSubscribe opens a pattern-based subscription matching one or more Redis channel patterns.
-func PSubscribe(ctx context.Context, client *goredis.Client, patterns ...string) (*Subscription, error) {
-	pb := client.PSubscribe(ctx, patterns...)
+func (ps *PubSub) Subscribe(ctx context.Context, channels ...string) (*Subscription, error) {
+	pb := ps.client.Subscribe(ctx, channels...)
 	return newSubscription(ctx, pb)
 }
 
@@ -109,7 +106,7 @@ func newSubscription(ctx context.Context, pb *goredis.PubSub) (*Subscription, er
 
 	sub := &Subscription{
 		pubsub: pb,
-		ch:     make(chan Event, defaultChannelBuffer),
+		ch:     make(chan Message, defaultChannelBuffer),
 		done:   make(chan struct{}),
 	}
 
@@ -119,11 +116,10 @@ func newSubscription(ctx context.Context, pb *goredis.PubSub) (*Subscription, er
 
 func (s *Subscription) listen() {
 	defer close(s.ch)
-	redisCh := s.pubsub.Channel()
 
 	for {
 		select {
-		case msg, ok := <-redisCh:
+		case msg, ok := <-s.pubsub.Channel():
 			if !ok {
 				return
 			}
@@ -134,10 +130,13 @@ func (s *Subscription) listen() {
 			default:
 			}
 
-			event := Event{Channel: msg.Channel, Payload: msg.Payload}
+			pubMsg := Message{
+				Channel: msg.Channel,
+				Payload: msg.Payload,
+			}
 
 			select {
-			case s.ch <- event:
+			case s.ch <- pubMsg:
 			case <-s.done:
 				return
 			default:

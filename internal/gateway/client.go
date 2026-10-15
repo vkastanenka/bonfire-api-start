@@ -35,9 +35,10 @@ const (
 
 // Client represents a single active, bidirectional WebSocket connection.
 type Client struct {
-	Hub       *Hub
+	ID        uuid.UUID
 	UserID    uuid.UUID
 	SessionID uuid.UUID
+	Hub       *Hub
 	Conn      *websocket.Conn
 	Send      chan []byte
 
@@ -51,12 +52,13 @@ func (c *Client) GetUserID() uuid.UUID    { return c.UserID }
 func (c *Client) GetSessionID() uuid.UUID { return c.SessionID }
 
 // NewClient initializes a Client instance with its own isolated cancellation context.
-func NewClient(ctx context.Context, hub *Hub, userID, sessionID uuid.UUID, conn *websocket.Conn) *Client {
+func NewClient(ctx context.Context, id, userID, sessionID uuid.UUID, hub *Hub, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
-		Hub:       hub,
+		ID:        id,
 		UserID:    userID,
 		SessionID: sessionID,
+		Hub:       hub,
 		Conn:      conn,
 		Send:      make(chan []byte, sendBufferLength),
 		ctx:       clientCtx,

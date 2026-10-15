@@ -4,7 +4,6 @@ import (
 	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/presence"
 	"context"
 	"net/http"
 
@@ -43,8 +42,7 @@ func (h *Handler) PrintTicket(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ticket, err := h.service.PrintTicket(r.Context(), PrintTicketParams{
-		UserID:    claims.UserID,
-		SessionID: claims.SessionID,
+		UserID: claims.UserID,
 	})
 	if err != nil {
 		return err
@@ -56,8 +54,8 @@ func (h *Handler) PrintTicket(w http.ResponseWriter, r *http.Request) error {
 
 // ServeWSQuery defines the required query parameters extracted during the WebSocket handshake.
 type ServeWSQuery struct {
-	Ticket   uuid.UUID         `form:"ticket" validate:"required"`
-	Presence presence.Presence `form:"presence" validate:"required"`
+	Ticket   uuid.UUID `form:"ticket" validate:"required"`
+	Presence Presence  `form:"presence" validate:"required"`
 }
 
 // ServeWS validates incoming query parameters, punches the connection ticket, upgrades the HTTP
@@ -68,7 +66,7 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	userID, sessionID, err := h.service.PunchTicket(r.Context(), query.Ticket)
+	userID, sessionID, clientID, err := h.service.PunchTicket(r.Context(), query.Ticket)
 	if err != nil {
 		return err
 	}
@@ -78,8 +76,8 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) error {
 		return errs.Internal("Websocket connection upgrade failed.").Wrap(err)
 	}
 
-	client := NewClient(context.Background(), h.hub, userID, sessionID, conn)
-	h.hub.Register(client, query.Presence)
+	client := NewClient(context.Background(), clientID, userID, sessionID, h.hub, conn)
+	h.hub.RegisterClient(client, query.Presence)
 	client.StartPumps()
 
 	return nil

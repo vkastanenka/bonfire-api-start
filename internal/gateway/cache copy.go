@@ -1,10 +1,12 @@
-package presence
+package gateway
 
 // var (
-// 	userPresenceTTL = 90 * time.Second
+// 	CacheTTL = 90 * time.Second
 // )
 
-// func userPresenceKey(id uuid.UUID) string { return "{user:" + id.String() + "}:presence" }
+// func CacheKey(id uuid.UUID) string {
+// 	return "user:" + "{" + id.String() + "}" + ":presence"
+// }
 
 // type PresenceCache struct {
 // 	client redisdriver.Cmdable

@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"bonfire-api/internal/presence"
 	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
@@ -12,56 +11,55 @@ import (
 	"github.com/google/uuid"
 )
 
-type service interface {
-	HandleHeartbeat(ctx context.Context, userID uuid.UUID, nodeID uuid.UUID, sessionID uuid.UUID, newPresence presence.Presence) error
-	RegisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p presence.Presence) error
-	RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
-	UnregisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
-}
-
 var clientBufferLength = 256
+
+func EventsPubSubChannel(id uuid.UUID) string {
+	return "gateway:" + id.String() + ":events"
+}
 
 type ClientRegistration struct {
 	Client   *Client
-	Presence presence.Presence
+	Presence Presence
 }
 
 type Event struct {
 	UserIDs           []uuid.UUID     `json:"user_ids,omitempty"`
 	SessionIDs        []uuid.UUID     `json:"session_ids,omitempty"`
 	ExcludeSessionIDs []uuid.UUID     `json:"exclude_session_ids,omitempty"`
-	Frame             json.RawMessage `json:"frame"`
+	Payload           json.RawMessage `json:"payload"`
 }
 
 type Hub struct {
 	id uuid.UUID
 
-	sessionIdx map[uuid.UUID]*Client
-	userIdx    map[uuid.UUID]map[uuid.UUID]*Client
+	clients        map[uuid.UUID]*Client
+	sessionClients map[uuid.UUID]map[uuid.UUID]*Client
+	userClients    map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client
 
 	register   chan ClientRegistration
 	unregister chan *Client
 
-	service  service
+	service  *Service
 	handlers map[string]MessageHandler
 
-	redisClient *goredis.Client
-	sub         *redis.Subscription
+	pubsub pubSub
+	sub    *redis.Subscription
 
 	mu    sync.RWMutex
 	subMu sync.Mutex
 }
 
-func NewHub(redisClient *goredis.Client, service service) *Hub {
+func NewHub(pubsub pubSub, service *Service) *Hub {
 	return &Hub{
-		id:          uuid.New(),
-		sessionIdx:  make(map[uuid.UUID]*Client),
-		userIdx:     make(map[uuid.UUID]map[uuid.UUID]*Client),
-		register:    make(chan ClientRegistration, clientBufferLength),
-		unregister:  make(chan *Client, clientBufferLength),
-		service:     service,
-		handlers:    make(map[string]MessageHandler),
-		redisClient: redisClient,
+		id:             uuid.New(),
+		clients:        make(map[uuid.UUID]*Client),
+		sessionClients: make(map[uuid.UUID]map[uuid.UUID]*Client),
+		userClients:    make(map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client),
+		register:       make(chan ClientRegistration, clientBufferLength),
+		unregister:     make(chan *Client, clientBufferLength),
+		service:        service,
+		handlers:       make(map[string]MessageHandler),
+		pubsub:         pubsub,
 	}
 }
 
@@ -69,14 +67,14 @@ func (h *Hub) ID() uuid.UUID {
 	return h.id
 }
 
-func (h *Hub) Register(client *Client, presence presence.Presence) {
+func (h *Hub) RegisterClient(client *Client, presence Presence) {
 	h.register <- ClientRegistration{
 		Client:   client,
 		Presence: presence,
 	}
 }
 
-func (h *Hub) Unregister(client *Client) {
+func (h *Hub) UnregisterClient(client *Client) {
 	h.unregister <- client
 }
 
@@ -94,7 +92,7 @@ func (h *Hub) GetHandler(msgType string) (MessageHandler, bool) {
 }
 
 func (h *Hub) Run(ctx context.Context) {
-	go h.listenEvents(ctx)
+	go h.subscribe(ctx)
 
 	for {
 		select {
@@ -105,155 +103,29 @@ func (h *Hub) Run(ctx context.Context) {
 			return
 
 		case reg := <-h.register:
-			h.handleRegister(ctx, reg.Client, reg.Presence)
+			h.registerClient(ctx, reg.Client, reg.Presence)
 
 		case client := <-h.unregister:
-			h.handleUnregister(ctx, client)
+			h.unregisterClient(ctx, client)
 		}
 	}
 }
 
-func (h *Hub) handleRegister(ctx context.Context, client *Client, presence presence.Presence) {
-	h.registerClient(client)
+func (h *Hub) subscribe(ctx context.Context) {
+	eventsChannel := EventsPubSubChannel(h.id)
 
-	h.registerNodeSession(ctx, client.UserID, client.SessionID, presence)
-
-	slog.Info("Client connected to gateway",
-		"node_id", h.id,
-		"user_id", client.UserID,
-		"session_id", client.SessionID,
-	)
-}
-
-func (h *Hub) registerClient(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if oldClient, exists := h.sessionIdx[client.SessionID]; exists {
-		oldClient.Close()
-	}
-
-	h.sessionIdx[client.SessionID] = client
-
-	sessions, exists := h.userIdx[client.UserID]
-	if !exists {
-		sessions = make(map[uuid.UUID]*Client)
-		h.userIdx[client.UserID] = sessions
-	}
-	sessions[client.SessionID] = client
-}
-
-func (h *Hub) registerNodeSession(ctx context.Context, userID, sessionID uuid.UUID, presence presence.Presence) {
-	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-	defer cancel()
-
-	if err := h.service.RegisterSession(reqCtx, h.id, userID, sessionID, presence); err != nil {
-		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
-	}
-}
-
-func (h *Hub) handleUnregister(ctx context.Context, client *Client) {
-	if removed := h.unregisterClient(client); !removed {
-		return
-	}
-
-	h.unregisterNodeSession(ctx, client.UserID, client.SessionID)
-	client.Close()
-
-	slog.Info("Client disconnected from gateway",
-		"node_id", h.id,
-		"user_id", client.UserID,
-		"session_id", client.SessionID,
-	)
-}
-
-func (h *Hub) unregisterClient(client *Client) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	current, exists := h.sessionIdx[client.SessionID]
-	if !exists || current != client {
-		return false
-	}
-
-	delete(h.sessionIdx, client.SessionID)
-
-	if sessions, ok := h.userIdx[client.UserID]; ok {
-		delete(sessions, client.SessionID)
-		if len(sessions) == 0 {
-			delete(h.userIdx, client.UserID)
-		}
-	}
-
-	return true
-}
-
-func (h *Hub) unregisterNodeSession(ctx context.Context, userID, sessionID uuid.UUID) {
-	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-	defer cancel()
-
-	if err := h.service.UnregisterSession(reqCtx, h.id, userID, sessionID); err != nil {
-		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
-	}
-}
-
-func (h *Hub) shutdown(shutdownCtx context.Context) {
-	h.unsubscribe()
-	h.cleanupNodes(shutdownCtx)
-	h.closeAllClients()
-}
-
-func (h *Hub) unsubscribe() {
-	h.subMu.Lock()
-	defer h.subMu.Unlock()
-	if h.sub != nil {
-		_ = h.sub.Unsubscribe()
-	}
-}
-
-func (h *Hub) cleanupNodes(ctx context.Context) {
-	h.mu.Lock()
-	userIDs := make([]uuid.UUID, 0, len(h.userIdx))
-	for rawUserID := range h.userIdx {
-		userIDs = append(userIDs, rawUserID)
-	}
-	h.mu.Unlock()
-
-	if len(userIDs) == 0 {
-		return
-	}
-
-	if err := h.service.RemoveBatchUsers(ctx, h.id, userIDs); err != nil {
-		slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
-	}
-}
-
-func (h *Hub) closeAllClients() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for _, client := range h.sessionIdx {
-		client.Close()
-	}
-	h.sessionIdx = make(map[uuid.UUID]*Client)
-	h.userIdx = make(map[uuid.UUID]map[uuid.UUID]*Client)
-}
-
-func (h *Hub) listenEvents(ctx context.Context) {
-	channelKey := cache.GatewayEventsKey(h.id)
-
-	sub, err := redis.Subscribe(ctx, h.redisClient, channelKey)
+	sub, err := h.pubsub.Subscribe(ctx, eventsChannel)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to subscribe to Redis node channel",
+		slog.ErrorContext(ctx, "failed to subscribe to redis node channel",
 			"id", h.id,
-			"channel", channelKey,
+			"channel", eventsChannel,
 			"error", err,
 		)
 		return
 	}
 
 	h.setSubscription(sub)
-	h.readEvents(ctx)
+	h.listen(ctx)
 }
 
 func (h *Hub) setSubscription(sub *redis.Subscription) {
@@ -261,40 +133,49 @@ func (h *Hub) setSubscription(sub *redis.Subscription) {
 	h.sub = sub
 	h.subMu.Unlock()
 
-	slog.Info("Subscribed to node event stream",
+	slog.Info("subscribed to node event stream",
 		"id", h.id,
 	)
 }
 
-func (h *Hub) readEvents(ctx context.Context) {
-	ch := h.sub.Channel()
+func (h *Hub) listen(ctx context.Context) {
+	h.subMu.Lock()
+	sub := h.sub
+	h.subMu.Unlock()
+
+	if sub == nil {
+		return
+	}
+
+	ch := sub.Channel()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case evt, ok := <-ch:
+		case msg, ok := <-ch:
 			if !ok {
-				slog.WarnContext(ctx, "Redis node subscription channel closed", "id", h.id)
+				slog.WarnContext(ctx, "gateway hub subscription closed", "hub_id", h.id)
 				return
 			}
-			h.safelyDispatchEvent(ctx, evt.Payload)
+			h.safelyWriteEvent(ctx, msg.Payload)
 		}
 	}
 }
 
-func (h *Hub) safelyDispatchEvent(ctx context.Context, payload string) {
+func (h *Hub) safelyWriteEvent(ctx context.Context, payload string) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.ErrorContext(ctx, "recovered from panic during event dispatch",
-				"node_id", h.id,
+			slog.ErrorContext(ctx, "recovered from panic during gateway hub event write",
+				"hub_id", h.id,
 				"error", r,
 			)
 		}
 	}()
-	h.dispatchEvent(ctx, payload)
+	h.writeEvent(ctx, payload)
 }
 
-func (h *Hub) dispatchEvent(ctx context.Context, payload string) {
+func (h *Hub) writeEvent(ctx context.Context, payload string) {
 	var event Event
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		slog.ErrorContext(ctx, "failed to unmarshal node event payload",
@@ -304,81 +185,206 @@ func (h *Hub) dispatchEvent(ctx context.Context, payload string) {
 		return
 	}
 
-	if len(event.SessionIDs) > 0 {
-		h.sendToSessions(event.SessionIDs, event.ExcludeSessionIDs, event.Frame)
-	}
-
-	if len(event.UserIDs) > 0 {
-		h.sendToUsers(event.UserIDs, event.ExcludeSessionIDs, event.Frame)
-	}
-}
-
-func (h *Hub) sendToSessions(
-	sessionIDs []uuid.UUID,
-	excludeSessionIDs []uuid.UUID,
-	message []byte,
-) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for _, sessionID := range sessionIDs {
-		if isSessionExcluded(sessionID, excludeSessionIDs) {
-			continue
-		}
+	if len(event.SessionIDs) > 0 {
+		h.writeToSessions(event.SessionIDs, event.Payload)
+	} else if len(event.UserIDs) > 0 {
+		h.writeToUsers(event.UserIDs, event.ExcludeSessionIDs, event.Payload)
+	}
+}
 
-		client, exists := h.sessionIdx[sessionID]
+func (h *Hub) writeToSessions(sessionIDs []uuid.UUID, payload []byte) {
+	for _, sessionID := range sessionIDs {
+		sessionClientsMap, exists := h.sessionClients[sessionID]
 		if !exists {
 			continue
 		}
 
-		select {
-		case client.Send <- message:
-		default:
-			slog.Warn("Client send buffer full, dropping direct message",
-				"node_id", h.id,
-				"session_id", sessionID,
-			)
+		for _, client := range sessionClientsMap {
+			select {
+			case client.Send <- payload:
+			default:
+				go client.Close()
+			}
 		}
 	}
 }
 
-func (h *Hub) sendToUsers(
-	userIDs []uuid.UUID,
-	excludeSessionIDs []uuid.UUID,
-	message []byte,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+func (h *Hub) writeToUsers(userIDs []uuid.UUID, excludeSessionIDs []uuid.UUID, payload []byte) {
+	var excludeMap map[uuid.UUID]bool
+	if len(excludeSessionIDs) > 0 {
+		excludeMap = make(map[uuid.UUID]bool, len(excludeSessionIDs))
+		for _, id := range excludeSessionIDs {
+			excludeMap[id] = true
+		}
+	}
 
 	for _, userID := range userIDs {
-		sessions, exists := h.userIdx[userID]
+		userAuthSessions, exists := h.userClients[userID]
 		if !exists {
 			continue
 		}
 
-		for sessionID, client := range sessions {
-			if isSessionExcluded(sessionID, excludeSessionIDs) {
+		for sessionID, sessionClientsMap := range userAuthSessions {
+			if excludeMap != nil && excludeMap[sessionID] {
 				continue
 			}
 
-			select {
-			case client.Send <- message:
-			default:
-				slog.Warn("Client send buffer full, dropping message",
-					"node_id", h.id,
-					"user_id", userID,
-					"session_id", client.SessionID,
-				)
+			for _, client := range sessionClientsMap {
+				select {
+				case client.Send <- payload:
+				default:
+					go client.Close()
+				}
 			}
 		}
 	}
 }
 
-func isSessionExcluded(sessionID uuid.UUID, excluded []uuid.UUID) bool {
-	for _, id := range excluded {
-		if id == sessionID {
-			return true
+func (h *Hub) shutdown(shutdownCtx context.Context) {
+	h.subMu.Lock()
+	sub := h.sub
+	h.subMu.Unlock()
+
+	if sub != nil {
+		if err := sub.Unsubscribe(); err != nil {
+			slog.ErrorContext(shutdownCtx, "failed to cleanly unsubscribe hub from redis",
+				"hub_id", h.id,
+				"error", err,
+			)
 		}
 	}
-	return false
+
+	h.clearCache(shutdownCtx)
+	h.closeAllClients()
+}
+
+// TODO
+func (h *Hub) clearCache(ctx context.Context) {
+	// h.mu.Lock()
+	// userIDs := make([]uuid.UUID, 0, len(h.userIdx))
+	// for rawUserID := range h.userIdx {
+	// 	userIDs = append(userIDs, rawUserID)
+	// }
+	// h.mu.Unlock()
+
+	// if len(userIDs) == 0 {
+	// 	return
+	// }
+
+	// if err := h.service.RemoveBatchUsers(ctx, h.id, userIDs); err != nil {
+	// 	slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
+	// }
+}
+
+func (h *Hub) closeAllClients() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, client := range h.clients {
+		client.Close()
+	}
+
+	h.clients = make(map[uuid.UUID]*Client)
+	h.sessionClients = make(map[uuid.UUID]map[uuid.UUID]*Client)
+	h.userClients = make(map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client)
+}
+
+func (h *Hub) registerClient(ctx context.Context, client *Client, presence Presence) {
+	h.setClient(client)
+
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := h.service.RegisterClient(reqCtx, h.id, client.UserID, client.SessionID, client.ID, presence); err != nil {
+		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
+	}
+
+	slog.Info("client connected to gateway hub",
+		"node_id", h.id,
+		"user_id", client.UserID,
+		"session_id", client.SessionID,
+	)
+}
+
+func (h *Hub) setClient(client *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if oldClient, exists := h.clients[client.ID]; exists {
+		oldClient.Close()
+	}
+
+	h.clients[client.ID] = client
+
+	sessionClients, exists := h.sessionClients[client.SessionID]
+	if !exists {
+		sessionClients = make(map[uuid.UUID]*Client)
+		h.sessionClients[client.SessionID] = sessionClients
+	}
+	sessionClients[client.ID] = client
+
+	userClients, exists := h.userClients[client.UserID]
+	if !exists {
+		userClients = make(map[uuid.UUID]map[uuid.UUID]*Client)
+		h.userClients[client.UserID] = userClients
+	}
+
+	userClients[client.SessionID] = sessionClients
+}
+
+func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
+	if removed := h.unsetClient(client); !removed {
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := h.service.UnregisterClient(reqCtx, h.id, client.UserID, client.SessionID, client.ID); err != nil {
+		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
+	}
+
+	client.Close()
+
+	slog.Info("Client disconnected from gateway",
+		"node_id", h.id,
+		"user_id", client.UserID,
+		"session_id", client.SessionID,
+	)
+}
+
+func (h *Hub) unsetClient(client *Client) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	current, exists := h.clients[client.ID]
+	if !exists || current != client {
+		return false
+	}
+
+	delete(h.clients, client.ID)
+
+	if sessionClients, ok := h.sessionClients[client.SessionID]; ok {
+		delete(sessionClients, client.ID)
+		if len(sessionClients) == 0 {
+			delete(h.sessionClients, client.SessionID)
+		}
+	}
+
+	if userSessions, ok := h.userClients[client.UserID]; ok {
+		if sessionClientsMap, ok2 := userSessions[client.SessionID]; ok2 {
+			delete(sessionClientsMap, client.ID)
+			if len(sessionClientsMap) == 0 {
+				delete(userSessions, client.SessionID)
+			}
+		}
+		if len(userSessions) == 0 {
+			delete(h.userClients, client.UserID)
+		}
+	}
+
+	return true
 }

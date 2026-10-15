@@ -1,4 +1,4 @@
-package presence
+package gateway
 
 import (
 	"bonfire-api/internal/pkg/parse"

@@ -1,5 +1,24 @@
 package gateway
 
+import (
+	"bonfire-api/internal/redis"
+	"context"
+
+	"github.com/google/uuid"
+)
+
+type service interface {
+	HandleHeartbeat(ctx context.Context, userID uuid.UUID, nodeID uuid.UUID, sessionID uuid.UUID, newPresence Presence) error
+	RegisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID, p Presence) error
+	RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error
+	UnregisterSession(ctx context.Context, nodeID uuid.UUID, userID uuid.UUID, sessionID uuid.UUID) error
+}
+
+type pubSub interface {
+	Publish(ctx context.Context, channel string, message any) error
+	Subscribe(ctx context.Context, channels ...string) (*redis.Subscription, error)
+}
+
 // import (
 // 	"bonfire-api/internal/presence"
 // 	"bonfire-api/internal/user"
