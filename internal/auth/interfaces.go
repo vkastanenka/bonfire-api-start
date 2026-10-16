@@ -17,7 +17,7 @@ type Broadcaster interface {
 }
 
 type CachedUserRepository interface {
-	Get(ctx context.Context, id uuid.UUID) (user.User, error)
+	Get(ctx context.Context, id uuid.UUID) (*user.User, error)
 }
 
 type Mailer interface {

@@ -7,11 +7,17 @@ import (
 
 type ctxAttrsKey struct{}
 
-// WithContextAttrs appends slog attributes to the context slice.
+// WithContextAttrs safely appends slog attributes to the context slice.
 func WithContextAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 	if len(attrs) == 0 {
 		return ctx
 	}
+
 	existing, _ := ctx.Value(ctxAttrsKey{}).([]slog.Attr)
-	return context.WithValue(ctx, ctxAttrsKey{}, append(existing, attrs...))
+
+	combined := make([]slog.Attr, len(existing)+len(attrs))
+	copy(combined, existing)
+	copy(combined[len(existing):], attrs)
+
+	return context.WithValue(ctx, ctxAttrsKey{}, combined)
 }

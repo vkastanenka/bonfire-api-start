@@ -9,11 +9,11 @@ import (
 )
 
 type Broadcaster struct {
-	cache  Cache
+	cache  *Cache
 	pubsub pubSub
 }
 
-func NewBroadcaster(cache Cache, pubsub pubSub) *Broadcaster {
+func NewBroadcaster(cache *Cache, pubsub pubSub) *Broadcaster {
 	return &Broadcaster{
 		cache:  cache,
 		pubsub: pubsub,

@@ -11,23 +11,23 @@ import (
 	redisdriver "github.com/redis/go-redis/v9"
 )
 
-type TokenCache struct {
+type Cache struct {
 	client redisdriver.Cmdable
 }
 
-func NewTokenCache(client redisdriver.Cmdable) *TokenCache {
-	return &TokenCache{client: client}
+func NewCache(client redisdriver.Cmdable) *Cache {
+	return &Cache{client: client}
 }
 
-func (c *TokenCache) ConsumePasswordReset(ctx context.Context, claims *Claims) error {
+func (c *Cache) ConsumePasswordReset(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "forgot_password", claims)
 }
 
-func (c *TokenCache) ConsumeRefresh(ctx context.Context, claims *Claims) error {
+func (c *Cache) ConsumeRefresh(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "refresh", claims)
 }
 
-func (c *TokenCache) ConsumeEmailVerify(ctx context.Context, claims *Claims) error {
+func (c *Cache) ConsumeEmailVerify(ctx context.Context, claims *Claims) error {
 	return c.consumeJTI(ctx, "email_verify", claims)
 }
 
@@ -43,7 +43,7 @@ var tokenConsumeJTIScript = redisdriver.NewScript(`
 	return 1
 `)
 
-func (c *TokenCache) consumeJTI(ctx context.Context, keyCategory string, claims *Claims) error {
+func (c *Cache) consumeJTI(ctx context.Context, keyCategory string, claims *Claims) error {
 	if claims == nil {
 		return errs.Internal("Token claims cannot be nil.").
 			Resource("type", keyCategory, "", "")

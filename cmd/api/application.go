@@ -7,24 +7,21 @@ import (
 	"net/http"
 	"time"
 
+	"bonfire-api/internal/auth"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/handler"
+	"bonfire-api/internal/health"
 	"bonfire-api/internal/token"
+	"bonfire-api/internal/user"
 
 	"github.com/go-redis/redis_rate/v10"
 )
 
 type Handlers struct {
-	Auth     *handler.AuthHandler
-	Channel  *handler.ChannelHandler
-	Gateway  *gateway.Handler
-	Health   *handler.HealthHandler
-	Member   *handler.MemberHandler
-	Message  *handler.MessageHandler
-	Relation *handler.RelationHandler
-	Session  *handler.SessionHandler
-	User     *handler.UserHandler
+	Auth    *auth.Handler
+	Gateway *gateway.Handler
+	Health  *health.Handler
+	User    *user.Handler
 }
 
 type Application struct {

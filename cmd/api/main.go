@@ -8,20 +8,16 @@ import (
 	"syscall"
 
 	"bonfire-api/internal/auth"
-	"bonfire-api/internal/cache"
-	"bonfire-api/internal/channel"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/handler"
+	"bonfire-api/internal/health"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/logger"
 	"bonfire-api/internal/pkg/validator"
 	"bonfire-api/internal/redis"
-	"bonfire-api/internal/relation"
-	"bonfire-api/internal/repository"
-	"bonfire-api/internal/session"
+	"bonfire-api/internal/shield"
 	"bonfire-api/internal/token"
 	"bonfire-api/internal/user"
 
@@ -80,7 +76,7 @@ func run(cfg *config.Config) error {
 	}
 	defer cacheClient.Close()
 
-	tokenProvider, err := token.NewProvider(token.Config{
+	tokenProvider, err := token.NewProvider(token.ProviderConfig{
 		Issuer: cfg.AppName,
 		Access: token.TypeConfig{
 			Secret: cfg.JWTAccessSecret,
@@ -109,129 +105,61 @@ func run(cfg *config.Config) error {
 	val.RegisterAliases(user.ValidationAliases())
 	bind := httpio.NewBind(val)
 
-	channelCache := cache.NewChannelCache(cacheClient)
-	gatewayCache := cache.NewGatewayCache(cacheClient)
-	memberCache := cache.NewMemberCache(cacheClient)
-	messageCache := cache.NewMessageCache(cacheClient)
-	presenceCache := cache.NewPresenceCache(cacheClient)
-	relationCache := cache.NewRelationCache(cacheClient)
-	sessionCache := cache.NewSessionCache(cacheClient)
-	tokenCache := cache.NewTokenCache(cacheClient)
-	userCache := cache.NewUserCache(cacheClient)
-	wsTicketCache := cache.NewWSTicketCache(cacheClient)
+	authCache := auth.NewCache(cacheClient)
+	sessionCache := auth.NewSessionCache(cacheClient)
+	shieldCache := shield.NewCache(cacheClient)
+	tokenCache := token.NewCache(cacheClient)
+	userCache := user.NewCache(cacheClient)
 
-	channelRepo := repository.NewChannelRepository(dbStore)
-	memberRepo := repository.NewMemberRepository(dbStore)
-	messageRepo := repository.NewMessageRepository(dbStore)
-	outboxRepo := repository.NewOutboxRepository(dbStore)
-	reactionRepo := repository.NewReactionRepository(dbStore)
-	relationRepo := repository.NewRelationRepository(dbStore)
-	sessionRepo := repository.NewSessionRepository(dbStore)
-	userRepo := repository.NewUserRepository(dbStore)
+	outboxRepo := outbox.NewRepository(dbStore)
+	sessionRepo := auth.NewSessionRepository(dbStore)
+	userRepo := user.NewRepository(dbStore)
 
-	cachedChannelRepo := repository.NewCachedChannelRepository(channelCache, channelRepo)
-	cachedMemberRepo := repository.NewCachedMemberRepository(memberCache, channelCache, memberRepo)
-	cachedMessageRepo := repository.NewCachedMessageRepository(messageCache, messageRepo)
-	cachedRelationRepo := repository.NewCachedRelationRepository(relationCache, relationRepo)
-	// cachedSessionRepo := repository.NewCachedSessionRepository(sessionCache, sessionRepo)
-	cachedUserRepo := repository.NewCachedUserRepository(userCache, userRepo)
+	cachedUserRepo := user.NewCachedRepository(userCache, userRepo)
 
-	broadcaster := gateway.NewBroadcaster(cacheClient, gatewayCache)
+	gatewayCache := gateway.NewCache(cacheClient)
+	pubsub := redis.NewPubSub(cacheClient)
+	broadcaster := gateway.NewBroadcaster(gatewayCache, pubsub)
 
 	authSvc := auth.NewService(
+		authCache,
+		sessionCache,
+		sessionRepo,
+		broadcaster,
+		outboxRepo,
+		shieldCache,
+		tokenCache,
+		tokenProvider,
 		userCache,
 		userRepo,
 		cachedUserRepo,
-		sessionCache,
-		sessionRepo,
-		outboxRepo,
-		wsTicketCache,
-		tokenCache,
-		tokenProvider,
-		dbStore,
-	)
-	channelSvc := channel.NewChannelService(
-		channelCache,
-		channelRepo,
-		memberCache,
-		memberRepo,
-		messageCache,
-		messageRepo,
-		presenceCache,
-		cachedUserRepo,
-		outboxRepo,
-		cachedRelationRepo,
 		dbStore,
 	)
 	gatewaySvc := gateway.NewService(
-		broadcaster,
 		gatewayCache,
-		presenceCache,
-		relationCache,
-		userCache,
+		broadcaster,
+		pubsub,
 	)
-	memberSvc := channel.NewMemberService(
-		memberCache,
-		memberRepo,
-		cachedMemberRepo,
-		channelCache,
-		channelRepo,
-		cachedChannelRepo,
-		messageCache,
-		messageRepo,
+	userSvc := user.NewService(
 		userCache,
 		userRepo,
 		cachedUserRepo,
-		presenceCache,
+		authCache,
+		broadcaster,
 		outboxRepo,
-		cachedRelationRepo,
+		sessionCache,
+		sessionRepo,
 		dbStore,
 	)
-	messageSvc := channel.NewMessageService(
-		messageCache,
-		messageRepo,
-		cachedMessageRepo,
-		channelRepo,
-		cachedChannelRepo,
-		memberCache,
-		memberRepo,
-		cachedMemberRepo,
-		reactionRepo,
-		userRepo,
-		cachedUserRepo,
-		outboxRepo,
-		dbStore,
-	)
-	relationSvc := relation.NewService(
-		relationCache,
-		relationRepo,
-		cachedRelationRepo,
-		channelRepo,
-		cachedChannelRepo,
-		memberRepo,
-		cachedMemberRepo,
-		outboxRepo,
-		presenceCache,
-		userCache,
-		userRepo,
-		cachedUserRepo,
-		dbStore,
-	)
-	sessionSvc := session.NewService(sessionCache, sessionRepo, outboxRepo, dbStore)
-	userSvc := user.NewService(userCache, userRepo, cachedUserRepo, cachedRelationRepo, outboxRepo, sessionCache, sessionRepo, dbStore)
 
-	authHandler := handler.NewAuthHandler(authSvc, bind)
-	channelHandler := handler.NewChannelHandler(channelSvc, bind)
-	healthHandler := handler.NewHealthHandler(dbClient, cacheClient)
-	memberHandler := handler.NewMemberHandler(memberSvc, bind)
-	messageHandler := handler.NewMessageHandler(messageSvc, bind)
-	relationHandler := handler.NewRelationHandler(relationSvc, bind)
-	sessionHandler := handler.NewSessionHandler(sessionSvc, bind)
-	userHandler := handler.NewUserHandler(userSvc, bind)
+	authHandler := auth.NewHandler(authSvc, bind)
+	healthHandler := health.NewHandler(cacheClient, dbClient)
+	userHandler := user.NewHandler(userSvc, bind)
 
-	wsHub := gateway.NewHub(cacheClient, gatewaySvc)
+	wsHub := gateway.NewHub(gatewaySvc)
 	go wsHub.Run(ctx)
-	gatewayHandler := gateway.NewHandler(wsHub, wsTicketCache, bind)
+
+	gatewayHandler := gateway.NewHandler(wsHub, gatewaySvc, bind)
 
 	outboxWorker, err := outbox.NewWorker(
 		outboxRepo,
@@ -245,22 +173,17 @@ func run(cfg *config.Config) error {
 	}
 
 	outboxWorker.Start(ctx)
-	defer outboxWorker.Stop()
+	defer outboxWorker.Stop(ctx)
 
 	app := &Application{
 		Config:      cfg,
 		RateLimiter: rateLimiter,
 		Tokens:      tokenProvider,
 		Handlers: Handlers{
-			Auth:     authHandler,
-			Channel:  channelHandler,
-			Gateway:  gatewayHandler,
-			Health:   healthHandler,
-			Member:   memberHandler,
-			Message:  messageHandler,
-			Relation: relationHandler,
-			Session:  sessionHandler,
-			User:     userHandler,
+			Auth:    authHandler,
+			Gateway: gatewayHandler,
+			Health:  healthHandler,
+			User:    userHandler,
 		},
 	}
 

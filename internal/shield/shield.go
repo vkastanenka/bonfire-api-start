@@ -26,15 +26,15 @@ func CooldownKey(domain, action, identifier string) string {
 	return "shield:cooldown:" + domain + ":" + action + ":" + cacheIdentifier(identifier)
 }
 
-type ShieldCache struct {
+type Cache struct {
 	rdb redisdriver.Cmdable
 }
 
-func NewShieldCache(rdb redisdriver.Cmdable) *ShieldCache {
-	return &ShieldCache{rdb: rdb}
+func NewCache(rdb redisdriver.Cmdable) *Cache {
+	return &Cache{rdb: rdb}
 }
 
-func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifier string) (bool, time.Duration, error) {
+func (c *Cache) GetCooldown(ctx context.Context, domain, action, identifier string) (bool, time.Duration, error) {
 	k := CooldownKey(domain, action, identifier)
 
 	ttl, err := c.rdb.TTL(ctx, k).Result()
@@ -52,7 +52,7 @@ func (c *ShieldCache) GetCooldown(ctx context.Context, domain, action, identifie
 	return true, ttl, nil
 }
 
-func (c *ShieldCache) SetCooldown(ctx context.Context, domain, action, identifier string) error {
+func (c *Cache) SetCooldown(ctx context.Context, domain, action, identifier string) error {
 	k := CooldownKey(domain, action, identifier)
 
 	err := c.rdb.Set(ctx, k, "1", defaultCooldownTTL).Err()
@@ -83,7 +83,7 @@ var recordFailureScript = redisdriver.NewScript(`
 	return count
 `)
 
-func (c *ShieldCache) RecordFailure(ctx context.Context, domain, action, identifier string) (int, error) {
+func (c *Cache) RecordFailure(ctx context.Context, domain, action, identifier string) (int, error) {
 	fKey := FailuresKey(domain, action, identifier)
 	cKey := CooldownKey(domain, action, identifier)
 
@@ -102,7 +102,7 @@ func (c *ShieldCache) RecordFailure(ctx context.Context, domain, action, identif
 	return int(count), nil
 }
 
-func (c *ShieldCache) Clear(ctx context.Context, domain, action, identifier string) error {
+func (c *Cache) Clear(ctx context.Context, domain, action, identifier string) error {
 	cKey := CooldownKey(domain, action, identifier)
 	fKey := FailuresKey(domain, action, identifier)
 

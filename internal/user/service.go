@@ -15,16 +15,15 @@ const anonymizeBatchLimit = 100
 const scheduleDeleteGracePeriod = 30 * 24 * time.Hour
 
 type Service struct {
-	cache              *Cache
-	repo               *Repository
-	cachedRepo         *CachedRepository
-	authCache          AuthCache
-	broadcaster        Broadcaster
-	outboxRepo         OutboxRepository
-	cachedRelationRepo CachedRelationRepository
-	sessionCache       SessionCache
-	sessionRepo        SessionRepository
-	tx                 TX
+	cache        *Cache
+	repo         *Repository
+	cachedRepo   *CachedRepository
+	authCache    AuthCache
+	broadcaster  Broadcaster
+	outboxRepo   OutboxRepository
+	sessionCache SessionCache
+	sessionRepo  SessionRepository
+	tx           TX
 }
 
 func NewService(
@@ -34,22 +33,20 @@ func NewService(
 	authCache AuthCache,
 	broadcaster Broadcaster,
 	outboxRepo OutboxRepository,
-	cachedRelationRepo CachedRelationRepository,
 	sessionCache SessionCache,
 	sessionRepo SessionRepository,
 	tx TX,
 ) *Service {
 	return &Service{
-		cache:              cache,
-		repo:               repo,
-		cachedRepo:         cachedRepo,
-		authCache:          authCache,
-		broadcaster:        broadcaster,
-		outboxRepo:         outboxRepo,
-		cachedRelationRepo: cachedRelationRepo,
-		sessionCache:       sessionCache,
-		sessionRepo:        sessionRepo,
-		tx:                 tx,
+		cache:        cache,
+		repo:         repo,
+		cachedRepo:   cachedRepo,
+		authCache:    authCache,
+		broadcaster:  broadcaster,
+		outboxRepo:   outboxRepo,
+		sessionCache: sessionCache,
+		sessionRepo:  sessionRepo,
+		tx:           tx,
 	}
 }
 

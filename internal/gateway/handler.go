@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -29,6 +30,14 @@ func NewHandler(hub *Hub, service *Service, bind *httpio.Bind) *Handler {
 		service: service,
 		bind:    bind,
 	}
+}
+
+func (h *Handler) RegisterPublicRoutes(r chi.Router) {
+	r.Get("/gateway/ws", httpio.ToHTTPErr(h.ServeWS))
+}
+
+func (h *Handler) RegisterAuthenticatedRoutes(r chi.Router) {
+	r.Post("/gateway/ticket", httpio.ToHTTPErr(h.PrintTicket))
 }
 
 type PrintTicketResponse struct {

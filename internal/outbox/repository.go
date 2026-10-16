@@ -13,7 +13,7 @@ type Repository struct {
 	store *db.Store
 }
 
-func NewOutboxRepository(store *db.Store) *Repository {
+func NewRepository(store *db.Store) *Repository {
 	return &Repository{
 		store: store,
 	}
