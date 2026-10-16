@@ -73,10 +73,9 @@ func (h *Handler) updateEmail(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	u, err := h.service.UpdateEmail(r.Context(), UpdateEmailParams{
-		UserID:    claims.UserID,
-		SessionID: claims.SessionID,
-		NewEmail:  req.NewEmail,
-		Password:  req.Password,
+		UserID:   claims.UserID,
+		NewEmail: req.NewEmail,
+		Password: req.Password,
 	})
 	if err != nil {
 		return err

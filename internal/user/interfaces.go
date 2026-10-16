@@ -13,8 +13,10 @@ type AuthCache interface {
 }
 
 type Broadcaster interface {
-	BroadcastToUser(ctx context.Context, recipientID uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
-	BroadcastToUsers(ctx context.Context, recipientIDs []uuid.UUID, eventType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	ToUser(ctx context.Context, recipientID uuid.UUID, messageType string, payload any, excludeSessionIDs ...uuid.UUID) error
+	ToUserSession(ctx context.Context, userID uuid.UUID, sessionID uuid.UUID, messageType string, payload any) error
+	ToUserSessions(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, messageType string, payload any) error
+	ToUsers(ctx context.Context, recipientIDs []uuid.UUID, messageType string, payload any, excludeSessionIDs ...uuid.UUID) error
 }
 
 type CachedRelationRepository interface {

@@ -49,29 +49,26 @@ func (b *Broadcaster) ToUserSession(
 	messageType string,
 	payload any,
 ) error {
-	userSessions := map[uuid.UUID][]uuid.UUID{
-		userID: {sessionID},
-	}
-	return b.ToUserSessions(ctx, userSessions, messageType, payload)
+	return b.ToUserSessions(ctx, userID, []uuid.UUID{sessionID}, messageType, payload)
 }
 
-// ToUserSessions sends targeted events to specific sessions grouped by user (map[userID][]sessionIDs).
+// ToUserSessions sends targeted events to specific sessions belonging to a single user.
 func (b *Broadcaster) ToUserSessions(
 	ctx context.Context,
-	userSessions map[uuid.UUID][]uuid.UUID,
+	userID uuid.UUID,
+	sessionIDs []uuid.UUID,
 	messageType string,
 	payload any,
 ) error {
-	if len(userSessions) == 0 {
+	if len(sessionIDs) == 0 {
 		return nil
 	}
 
-	userIDs := make([]uuid.UUID, 0, len(userSessions))
-	for userID := range userSessions {
-		userIDs = append(userIDs, userID)
+	userSessions := map[uuid.UUID][]uuid.UUID{
+		userID: sessionIDs,
 	}
 
-	return b.publish(ctx, userIDs, userSessions, nil, messageType, payload)
+	return b.publish(ctx, []uuid.UUID{userID}, userSessions, nil, messageType, payload)
 }
 
 func (b *Broadcaster) publish(

@@ -5,9 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"bonfire-api/internal/appctx"
 	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
 
 	"github.com/google/uuid"
@@ -21,6 +19,7 @@ type Service struct {
 	repo               *Repository
 	cachedRepo         *CachedRepository
 	authCache          AuthCache
+	broadcaster        Broadcaster
 	outboxRepo         OutboxRepository
 	cachedRelationRepo CachedRelationRepository
 	sessionCache       SessionCache
@@ -33,6 +32,7 @@ func NewService(
 	repo *Repository,
 	cachedRepo *CachedRepository,
 	authCache AuthCache,
+	broadcaster Broadcaster,
 	outboxRepo OutboxRepository,
 	cachedRelationRepo CachedRelationRepository,
 	sessionCache SessionCache,
@@ -44,6 +44,7 @@ func NewService(
 		repo:               repo,
 		cachedRepo:         cachedRepo,
 		authCache:          authCache,
+		broadcaster:        broadcaster,
 		outboxRepo:         outboxRepo,
 		cachedRelationRepo: cachedRelationRepo,
 		sessionCache:       sessionCache,
@@ -62,10 +63,9 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (*User, error) {
 }
 
 type UpdateEmailParams struct {
-	UserID    uuid.UUID
-	SessionID uuid.UUID
-	Password  string
-	NewEmail  string
+	UserID   uuid.UUID
+	Password string
+	NewEmail string
 }
 
 func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, error) {
@@ -80,29 +80,21 @@ func (s *Service) UpdateEmail(ctx context.Context, p UpdateEmailParams) (*User, 
 
 	now := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		u, err = s.repo.UpdateEmail(txCtx, p.UserID, p.NewEmail, now)
-		if err != nil {
-			return err
-		}
-
-		event, err := outbox.New(
-			EventEmailUpdated,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, nil),
-			newEmailUpdatedPayload(u.ID, u.Email, u.UpdatedAt),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return nil, txErr
+	u, err = s.repo.UpdateEmail(ctx, p.UserID, p.NewEmail, now)
+	if err != nil {
+		return nil, err
 	}
 
 	s.cacheDelete(ctx, u.ID, "email update")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		[]uuid.UUID{u.ID},
+		MessageEmailUpdated,
+		newEmailUpdatedPayload(u.ID, u.Email, u.UpdatedAt),
+		"failed to broadcast email updated",
+	)
 
 	return u, nil
 }
@@ -124,33 +116,23 @@ func (s *Service) UpdateUsername(ctx context.Context, p UpdateUsernameParams) (*
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
-
 	now := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		u, err = s.repo.UpdateUsername(txCtx, u.ID, p.NewUsername, now)
-		if err != nil {
-			return err
-		}
-
-		event, err := outbox.New(
-			EventUsernameUpdated,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
-			newUsernameUpdatedPayload(u.ID, u.Username, u.UpdatedAt),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return nil, txErr
+	u, err = s.repo.UpdateUsername(ctx, u.ID, p.NewUsername, now)
+	if err != nil {
+		return nil, err
 	}
 
 	s.cacheDelete(ctx, u.ID, "username update")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		s.getBroadcastTargetIDs(ctx, p.UserID),
+		MessageUsernameUpdated,
+		newUsernameUpdatedPayload(u.ID, u.Username, u.UpdatedAt),
+		"failed to broadcast username updated",
+	)
 
 	return u, nil
 }
@@ -192,23 +174,22 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 			return err
 		}
 
-		event, err := outbox.New(
-			EventPasswordUpdated,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, nil),
-			struct{}{},
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
+		return nil
 	})
 	if txErr != nil {
 		return txErr
 	}
 
 	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "password update")
+
+	s.broadcastToUserSessions(
+		ctx,
+		p.UserID,
+		revokedSessionIDs,
+		MessagePasswordUpdated,
+		nil,
+		"failed to broadcast password updated",
+	)
 
 	return nil
 }
@@ -221,6 +202,11 @@ type UpdatePreferredPresenceParams struct {
 }
 
 func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferredPresenceParams) (*User, error) {
+	isPreferred := p.Presence == nil || p.Presence.IsPreferred()
+	if !isPreferred {
+		return nil, ErrPreferredPresenceInvalid()
+	}
+
 	validateNow := time.Now()
 
 	var until *time.Time
@@ -247,37 +233,23 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 	dbNow := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		u, err = s.repo.UpdatePreferredPresence(txCtx, u.ID, p.Presence, until, dbNow)
-		if err != nil {
-			return err
-		}
-
-		var eff *gateway.Presence
-		if effP := u.EffectivePresence(dbNow); effP != nil && effP.IsValid() {
-			eff = effP
-		}
-
-		event, err := outbox.New(
-			EventPreferredPresenceUpdated,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
-			newPreferredPresenceUpdatedPayload(u.ID, eff, u.UpdatedAt),
-			dbNow,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return nil, txErr
+	u, err = s.repo.UpdatePreferredPresence(ctx, u.ID, p.Presence, until, dbNow)
+	if err != nil {
+		return nil, err
 	}
 
 	s.cacheDelete(ctx, p.UserID, "preferred presence update")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		s.getBroadcastTargetIDs(ctx, p.UserID),
+		MessagePreferredPresenceUpdated,
+		newPreferredPresenceUpdatedPayload(u.ID, u.EffectivePresence(dbNow), u.UpdatedAt),
+		"failed to broadcast preferred presence updated",
+	)
 
 	return u, nil
 }
@@ -304,41 +276,31 @@ func (s *Service) UpdateProfile(ctx context.Context, p UpdateProfileParams) (*Us
 		return u, nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
-
 	now := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		u, err = s.repo.UpdateProfile(
-			txCtx,
-			p.UserID,
-			p.DisplayName,
-			p.Bio,
-			p.AvatarURL,
-			p.BannerColor,
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		event, err := outbox.New(
-			EventProfileUpdated,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
-			newProfileUpdatedPayload(u.ID, u.DisplayName, u.Bio, u.AvatarURL, u.BannerColor, u.UpdatedAt),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return nil, txErr
+	u, err = s.repo.UpdateProfile(
+		ctx,
+		p.UserID,
+		p.DisplayName,
+		p.Bio,
+		p.AvatarURL,
+		p.BannerColor,
+		now,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	s.cacheDelete(ctx, p.UserID, "profile update")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		s.getBroadcastTargetIDs(ctx, p.UserID),
+		MessageProfileUpdated,
+		newProfileUpdatedPayload(u.ID, u.DisplayName, u.Bio, u.AvatarURL, u.BannerColor, u.UpdatedAt),
+		"failed to broadcast profile updated",
+	)
 
 	return u, nil
 }
@@ -358,7 +320,6 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 		return nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 
@@ -373,23 +334,22 @@ func (s *Service) Disable(ctx context.Context, p DisableParams) error {
 			return err
 		}
 
-		event, err := outbox.New(
-			EventDisabled,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
-			newDisabledPayload(u.ID, u.UpdatedAt),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
+		return nil
 	})
 	if txErr != nil {
 		return txErr
 	}
 
 	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "account disable")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		s.getBroadcastTargetIDs(ctx, p.UserID),
+		MessageDisabled,
+		newDisabledPayload(u.ID, u.UpdatedAt),
+		"failed to broadcast disabled",
+	)
 
 	return nil
 }
@@ -409,7 +369,6 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 		return nil
 	}
 
-	broadcastIDs := s.getBroadcastTargetIDs(ctx, p.UserID)
 	var revokedSessionIDs []uuid.UUID
 	now := time.Now()
 	scheduledAt := now.Add(scheduleDeleteGracePeriod)
@@ -425,23 +384,22 @@ func (s *Service) ScheduleDelete(ctx context.Context, p ScheduleDeleteParams) er
 			return err
 		}
 
-		event, err := outbox.New(
-			EventDisabled,
-			outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &p.SessionID, broadcastIDs),
-			newDisabledPayload(u.ID, u.UpdatedAt),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
+		return nil
 	})
 	if txErr != nil {
 		return txErr
 	}
 
 	s.cacheDeleteAndRevokeSessions(ctx, p.UserID, revokedSessionIDs, "schedule delete")
+
+	s.broadcastToUsers(
+		ctx,
+		u.ID,
+		s.getBroadcastTargetIDs(ctx, p.UserID),
+		MessageDisabled,
+		newDisabledPayload(u.ID, u.UpdatedAt),
+		"failed to broadcast schedule delete",
+	)
 
 	return nil
 }
@@ -563,6 +521,130 @@ func (s *Service) cacheDeleteAndRevokeSessions(ctx context.Context, userID uuid.
 		slog.WarnContext(cacheCtx, "failed to invalidate user and session cache after "+action,
 			slog.String("user_id", userID.String()),
 			slog.Int("revoked_session_count", count),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastEmailUpdated(ctx context.Context, p MessageEmailUpdatedPayload) {
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUser(bCtx, p.UserID, MessageEmailUpdated, p); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast email updated",
+			slog.String("user_id", p.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastUsernameUpdated(ctx context.Context, recipientIDs []uuid.UUID, p MessageUsernameUpdatedPayload) {
+	if len(recipientIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUsers(bCtx, recipientIDs, MessageUsernameUpdated, p); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast username updated",
+			slog.String("user_id", p.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastPasswordUpdated(ctx context.Context, uid uuid.UUID, revokedSessionIDs []uuid.UUID) {
+	if len(revokedSessionIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUserSessions(bCtx, uid, revokedSessionIDs, MessagePasswordUpdated, nil); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast password updated",
+			slog.String("user_id", uid.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastPreferredPresenceUpdated(ctx context.Context, recipientIDs []uuid.UUID, p MessagePreferredPresenceUpdatedPayload) {
+	if len(recipientIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUsers(bCtx, recipientIDs, MessagePreferredPresenceUpdated, p); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast preferred presence updated",
+			slog.String("user_id", p.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastProfileUpdated(ctx context.Context, recipientIDs []uuid.UUID, p MessageProfileUpdatedPayload) {
+	if len(recipientIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUsers(bCtx, recipientIDs, MessageProfileUpdated, p); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast profile updated",
+			slog.String("user_id", p.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastDisabled(ctx context.Context, recipientIDs []uuid.UUID, p MessageDisabledPayload) {
+	if len(recipientIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUsers(bCtx, recipientIDs, MessageDisabled, p); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast disabled",
+			slog.String("user_id", p.UserID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastToUsers(ctx context.Context, userID uuid.UUID, recipientIDs []uuid.UUID, messageType string, payload any, logMsg string) {
+	if len(recipientIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUsers(bCtx, recipientIDs, messageType, payload); err != nil {
+		slog.WarnContext(bCtx, logMsg,
+			slog.String("user_id", userID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastToUserSessions(ctx context.Context, userID uuid.UUID, sessionIDs []uuid.UUID, messageType string, payload any, logMsg string) {
+	if len(sessionIDs) == 0 {
+		return
+	}
+
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUserSessions(bCtx, userID, sessionIDs, messageType, payload); err != nil {
+		slog.WarnContext(bCtx, logMsg,
+			slog.String("user_id", userID.String()),
 			slog.Any("error", err),
 		)
 	}

@@ -54,6 +54,8 @@ func (h *Hub) ID() uuid.UUID {
 	return h.id
 }
 
+// TODO: ENSURE MAXIMUM NUMBER OF CLIENTS PER SESSION
+
 func (h *Hub) RegisterClient(client *Client, presence Presence) {
 	h.register <- ClientRegistration{
 		Client:   client,

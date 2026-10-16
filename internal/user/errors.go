@@ -6,6 +6,7 @@ const (
 	ErrReasonJSONMarshalFailed                = "JSON_MARSHAL_FAILED"
 	ErrReasonPasswordInvalid                  = "PASSWORD_INVALID"
 	ErrReasonPasswordMismatch                 = "PASSWORD_MISMATCH"
+	ErrReasonPreferredPresenceInvalid         = "PREFERRED_PRESENCE_INVALID"
 	ErrReasonPreferredPresenceDurationInvalid = "PREFERRED_PRESENCE_DURATION_INVALID"
 	ErrReasonPayloadRequired                  = "USER_PAYLOAD_REQUIRED"
 	ErrReasonUserDisabled                     = "USER_DISABLED"
@@ -18,9 +19,16 @@ func ErrPasswordMismatch() *errs.Error {
 		FieldViolation("currentPassword", "Passwords do not match.", "PASSWORD_MISMATCH")
 }
 
+func ErrPreferredPresenceInvalid() *errs.Error {
+	return errs.Internal("Preferred presence invalid.").
+		Reason(ErrReasonPreferredPresenceDurationInvalid).
+		FieldViolation("preferredPresence", "Invalid value.", "VALUE_INVALID")
+}
+
 func ErrPreferredPresenceDurationInvalid() *errs.Error {
-	return errs.Internal("Preferred presence duration is invalid.").
-		Reason(ErrReasonPreferredPresenceDurationInvalid)
+	return errs.InvalidArgument("Preferred presence duration is invalid.").
+		Reason(ErrReasonPreferredPresenceDurationInvalid).
+		FieldViolation("preferredPresenceDuration", "Invalid value.", "VALUE_INVALID")
 }
 
 func ErrPayloadRequired() *errs.Error {

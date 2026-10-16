@@ -2,98 +2,63 @@ package user
 
 import (
 	"bonfire-api/internal/gateway"
-	"bonfire-api/internal/outbox"
-	"context"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const (
-	EventEmailUpdated             = "user.email_updated"
-	EventUsernameUpdated          = "user.username_updated"
-	EventPasswordUpdated          = "user.password_updated"
-	EventPreferredPresenceUpdated = "user.preferred_presence_updated"
-	EventProfileUpdated           = "user.profile_updated"
-	EventDisabled                 = "user.disabled"
+	MessageEmailUpdated             = "user.email_updated"
+	MessageUsernameUpdated          = "user.username_updated"
+	MessagePasswordUpdated          = "user.password_updated"
+	MessagePreferredPresenceUpdated = "user.preferred_presence_updated"
+	MessageProfileUpdated           = "user.profile_updated"
+	MessageDisabled                 = "user.disabled"
 )
 
-func RegisterEvents(w Worker, b Broadcaster) {
-	w.RegisterHandler(EventEmailUpdated, newEmailUpdatedEventHandler(b))
-	w.RegisterHandler(EventUsernameUpdated, newUsernameUpdatedEventHandler(b))
-	w.RegisterHandler(EventPasswordUpdated, newPasswordUpdatedEventHandler(b))
-	w.RegisterHandler(EventPreferredPresenceUpdated, newPreferredPresenceUpdatedEventHandler(b))
-	w.RegisterHandler(EventProfileUpdated, newProfileUpdatedEventHandler(b))
-	w.RegisterHandler(EventDisabled, newDisabledEventHandler(b))
-}
-
-type EventEmailUpdatedPayload struct {
+type MessageEmailUpdatedPayload struct {
 	UserID    uuid.UUID `json:"userId"`
 	Email     string    `json:"email"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func newEmailUpdatedPayload(id uuid.UUID, email string, updatedAt time.Time) EventEmailUpdatedPayload {
-	return EventEmailUpdatedPayload{
+func newEmailUpdatedPayload(id uuid.UUID, email string, updatedAt time.Time) MessageEmailUpdatedPayload {
+	return MessageEmailUpdatedPayload{
 		UserID:    id,
 		Email:     email,
 		UpdatedAt: updatedAt,
 	}
 }
 
-func newEmailUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventEmailUpdatedPayload) error {
-		return b.BroadcastToUser(ctx, *m.ActorID, EventEmailUpdated, p)
-	})
-}
-
-type EventUsernameUpdatedPayload struct {
+type MessageUsernameUpdatedPayload struct {
 	UserID    uuid.UUID `json:"userId"`
 	Username  string    `json:"username"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func newUsernameUpdatedPayload(id uuid.UUID, username string, updatedAt time.Time) EventUsernameUpdatedPayload {
-	return EventUsernameUpdatedPayload{
+func newUsernameUpdatedPayload(id uuid.UUID, username string, updatedAt time.Time) MessageUsernameUpdatedPayload {
+	return MessageUsernameUpdatedPayload{
 		UserID:    id,
 		Username:  username,
 		UpdatedAt: updatedAt,
 	}
 }
 
-func newUsernameUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventUsernameUpdatedPayload) error {
-		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventUsernameUpdated, p)
-	})
-}
-
-func newPasswordUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p struct{}) error {
-		return b.BroadcastToUser(ctx, *m.ActorID, EventPasswordUpdated, p, *m.SessionID)
-	})
-}
-
-type EventPreferredPresenceUpdatedPayload struct {
+type MessagePreferredPresenceUpdatedPayload struct {
 	UserID    uuid.UUID         `json:"userId"`
 	Presence  *gateway.Presence `json:"presence,omitempty"`
 	UpdatedAt time.Time         `json:"updatedAt"`
 }
 
-func newPreferredPresenceUpdatedPayload(id uuid.UUID, presence *gateway.Presence, updatedAt time.Time) EventPreferredPresenceUpdatedPayload {
-	return EventPreferredPresenceUpdatedPayload{
+func newPreferredPresenceUpdatedPayload(id uuid.UUID, presence *gateway.Presence, updatedAt time.Time) MessagePreferredPresenceUpdatedPayload {
+	return MessagePreferredPresenceUpdatedPayload{
 		UserID:    id,
 		Presence:  presence,
 		UpdatedAt: updatedAt,
 	}
 }
 
-func newPreferredPresenceUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventPreferredPresenceUpdatedPayload) error {
-		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventPreferredPresenceUpdated, p)
-	})
-}
-
-type EventProfileUpdatedPayload struct {
+type MessageProfileUpdatedPayload struct {
 	UserID      uuid.UUID `json:"userId"`
 	DisplayName string    `json:"displayName"`
 	Bio         *string   `json:"bio,omitempty"`
@@ -102,8 +67,8 @@ type EventProfileUpdatedPayload struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-func newProfileUpdatedPayload(id uuid.UUID, displayName string, bio, avatarURL, bannerColor *string, updatedAt time.Time) EventProfileUpdatedPayload {
-	return EventProfileUpdatedPayload{
+func newProfileUpdatedPayload(id uuid.UUID, displayName string, bio, avatarURL, bannerColor *string, updatedAt time.Time) MessageProfileUpdatedPayload {
+	return MessageProfileUpdatedPayload{
 		UserID:      id,
 		DisplayName: displayName,
 		Bio:         bio,
@@ -113,26 +78,14 @@ func newProfileUpdatedPayload(id uuid.UUID, displayName string, bio, avatarURL, 
 	}
 }
 
-func newProfileUpdatedEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventProfileUpdatedPayload) error {
-		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventProfileUpdated, p)
-	})
-}
-
-type EventDisabledPayload struct {
+type MessageDisabledPayload struct {
 	UserID    uuid.UUID `json:"userId"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func newDisabledPayload(id uuid.UUID, updatedAt time.Time) EventDisabledPayload {
-	return EventDisabledPayload{
+func newDisabledPayload(id uuid.UUID, updatedAt time.Time) MessageDisabledPayload {
+	return MessageDisabledPayload{
 		UserID:    id,
 		UpdatedAt: updatedAt,
 	}
-}
-
-func newDisabledEventHandler(b Broadcaster) outbox.Handler {
-	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventDisabledPayload) error {
-		return b.BroadcastToUsers(ctx, m.RecipientIDs, EventDisabled, p)
-	})
 }
