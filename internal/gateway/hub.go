@@ -13,23 +13,12 @@ import (
 
 var clientBufferLength = 256
 
-func EventsPubSubChannel(id uuid.UUID) string {
-	return "gateway:" + id.String() + ":events"
-}
-
 type ClientRegistration struct {
 	Client   *Client
 	Presence Presence
 }
 
 type Event struct {
-	UserIDs           []uuid.UUID     `json:"user_ids,omitempty"`
-	SessionIDs        []uuid.UUID     `json:"session_ids,omitempty"`
-	ExcludeSessionIDs []uuid.UUID     `json:"exclude_session_ids,omitempty"`
-	Payload           json.RawMessage `json:"payload"`
-}
-
-type HubEvent struct {
 	ClientIDs []uuid.UUID     `json:"client_ids"`
 	Message   json.RawMessage `json:"message"`
 }
@@ -37,34 +26,27 @@ type HubEvent struct {
 type Hub struct {
 	id uuid.UUID
 
-	clients        map[uuid.UUID]*Client
-	sessionClients map[uuid.UUID]map[uuid.UUID]*Client
-	userClients    map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client
-
 	register   chan ClientRegistration
 	unregister chan *Client
 
-	service  *Service
+	clients  map[uuid.UUID]*Client
 	handlers map[string]MessageHandler
 
-	pubsub pubSub
-	sub    *redis.Subscription
+	service *Service
+	sub     *redis.Subscription
 
 	mu    sync.RWMutex
 	subMu sync.Mutex
 }
 
-func NewHub(pubsub pubSub, service *Service) *Hub {
+func NewHub(service *Service) *Hub {
 	return &Hub{
-		id:             uuid.New(),
-		clients:        make(map[uuid.UUID]*Client),
-		sessionClients: make(map[uuid.UUID]map[uuid.UUID]*Client),
-		userClients:    make(map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client),
-		register:       make(chan ClientRegistration, clientBufferLength),
-		unregister:     make(chan *Client, clientBufferLength),
-		service:        service,
-		handlers:       make(map[string]MessageHandler),
-		pubsub:         pubsub,
+		id:         uuid.New(),
+		register:   make(chan ClientRegistration, clientBufferLength),
+		unregister: make(chan *Client, clientBufferLength),
+		clients:    make(map[uuid.UUID]*Client),
+		handlers:   make(map[string]MessageHandler),
+		service:    service,
 	}
 }
 
@@ -117,13 +99,10 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (h *Hub) subscribe(ctx context.Context) {
-	eventsChannel := EventsPubSubChannel(h.id)
-
-	sub, err := h.pubsub.Subscribe(ctx, eventsChannel)
+	sub, err := h.service.SubscribeToEvents(ctx, h.id)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to subscribe to redis node channel",
-			"id", h.id,
-			"channel", eventsChannel,
+		slog.ErrorContext(ctx, "failed to subscribe to redis gateway events channel",
+			"hub_id", h.id,
 			"error", err,
 		)
 		return
@@ -139,7 +118,7 @@ func (h *Hub) setSubscription(sub *redis.Subscription) {
 	h.subMu.Unlock()
 
 	slog.Info("subscribed to node event stream",
-		"id", h.id,
+		"hub_id", h.id,
 	)
 }
 
@@ -190,60 +169,23 @@ func (h *Hub) writeEvent(ctx context.Context, payload string) {
 		return
 	}
 
+	if len(event.ClientIDs) == 0 || len(event.Message) == 0 {
+		return
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	if len(event.SessionIDs) > 0 {
-		h.writeToSessions(event.SessionIDs, event.Payload)
-	} else if len(event.UserIDs) > 0 {
-		h.writeToUsers(event.UserIDs, event.ExcludeSessionIDs, event.Payload)
-	}
-}
-
-func (h *Hub) writeToSessions(sessionIDs []uuid.UUID, payload []byte) {
-	for _, sessionID := range sessionIDs {
-		sessionClientsMap, exists := h.sessionClients[sessionID]
+	for _, clientID := range event.ClientIDs {
+		client, exists := h.clients[clientID]
 		if !exists {
 			continue
 		}
 
-		for _, client := range sessionClientsMap {
-			select {
-			case client.Send <- payload:
-			default:
-				go client.Close()
-			}
-		}
-	}
-}
-
-func (h *Hub) writeToUsers(userIDs []uuid.UUID, excludeSessionIDs []uuid.UUID, payload []byte) {
-	var excludeMap map[uuid.UUID]bool
-	if len(excludeSessionIDs) > 0 {
-		excludeMap = make(map[uuid.UUID]bool, len(excludeSessionIDs))
-		for _, id := range excludeSessionIDs {
-			excludeMap[id] = true
-		}
-	}
-
-	for _, userID := range userIDs {
-		userAuthSessions, exists := h.userClients[userID]
-		if !exists {
-			continue
-		}
-
-		for sessionID, sessionClientsMap := range userAuthSessions {
-			if excludeMap != nil && excludeMap[sessionID] {
-				continue
-			}
-
-			for _, client := range sessionClientsMap {
-				select {
-				case client.Send <- payload:
-				default:
-					go client.Close()
-				}
-			}
+		select {
+		case client.Send <- event.Message:
+		default:
+			go client.Close()
 		}
 	}
 }
@@ -266,22 +208,33 @@ func (h *Hub) shutdown(shutdownCtx context.Context) {
 	h.closeAllClients()
 }
 
-// TODO
 func (h *Hub) clearCache(ctx context.Context) {
-	// h.mu.Lock()
-	// userIDs := make([]uuid.UUID, 0, len(h.userIdx))
-	// for rawUserID := range h.userIdx {
-	// 	userIDs = append(userIDs, rawUserID)
-	// }
-	// h.mu.Unlock()
+	h.mu.Lock()
+	if len(h.clients) == 0 {
+		h.mu.Unlock()
+		return
+	}
 
-	// if len(userIDs) == 0 {
-	// 	return
-	// }
+	clientRefs := make([]ClientRef, 0, len(h.clients))
+	for _, client := range h.clients {
+		clientRefs = append(clientRefs, ClientRef{
+			UserID:    client.UserID,
+			SessionID: client.SessionID,
+			ClientID:  client.ID,
+		})
+	}
+	h.mu.Unlock()
 
-	// if err := h.service.RemoveBatchUsers(ctx, h.id, userIDs); err != nil {
-	// 	slog.ErrorContext(ctx, "failed to cleanup redis nodes", "error", err)
-	// }
+	if len(clientRefs) == 0 {
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	if err := h.service.RemoveBatchClients(reqCtx, h.id, clientRefs); err != nil {
+		slog.ErrorContext(ctx, "failed to cleanup hub clients in redis", "hub_id", h.id, "error", err)
+	}
 }
 
 func (h *Hub) closeAllClients() {
@@ -293,8 +246,6 @@ func (h *Hub) closeAllClients() {
 	}
 
 	h.clients = make(map[uuid.UUID]*Client)
-	h.sessionClients = make(map[uuid.UUID]map[uuid.UUID]*Client)
-	h.userClients = make(map[uuid.UUID]map[uuid.UUID]map[uuid.UUID]*Client)
 }
 
 func (h *Hub) registerClient(ctx context.Context, client *Client, presence Presence) {
@@ -311,6 +262,7 @@ func (h *Hub) registerClient(ctx context.Context, client *Client, presence Prese
 		"node_id", h.id,
 		"user_id", client.UserID,
 		"session_id", client.SessionID,
+		"client_id", client.ID,
 	)
 }
 
@@ -323,21 +275,6 @@ func (h *Hub) setClient(client *Client) {
 	}
 
 	h.clients[client.ID] = client
-
-	sessionClients, exists := h.sessionClients[client.SessionID]
-	if !exists {
-		sessionClients = make(map[uuid.UUID]*Client)
-		h.sessionClients[client.SessionID] = sessionClients
-	}
-	sessionClients[client.ID] = client
-
-	userClients, exists := h.userClients[client.UserID]
-	if !exists {
-		userClients = make(map[uuid.UUID]map[uuid.UUID]*Client)
-		h.userClients[client.UserID] = userClients
-	}
-
-	userClients[client.SessionID] = sessionClients
 }
 
 func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
@@ -358,6 +295,7 @@ func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
 		"node_id", h.id,
 		"user_id", client.UserID,
 		"session_id", client.SessionID,
+		"client_id", client.ID,
 	)
 }
 
@@ -371,25 +309,5 @@ func (h *Hub) unsetClient(client *Client) bool {
 	}
 
 	delete(h.clients, client.ID)
-
-	if sessionClients, ok := h.sessionClients[client.SessionID]; ok {
-		delete(sessionClients, client.ID)
-		if len(sessionClients) == 0 {
-			delete(h.sessionClients, client.SessionID)
-		}
-	}
-
-	if userSessions, ok := h.userClients[client.UserID]; ok {
-		if sessionClientsMap, ok2 := userSessions[client.SessionID]; ok2 {
-			delete(sessionClientsMap, client.ID)
-			if len(sessionClientsMap) == 0 {
-				delete(userSessions, client.SessionID)
-			}
-		}
-		if len(userSessions) == 0 {
-			delete(h.userClients, client.UserID)
-		}
-	}
-
 	return true
 }

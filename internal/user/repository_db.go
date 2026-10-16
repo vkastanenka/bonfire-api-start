@@ -282,7 +282,7 @@ func (r *Repository) UpdateBatch(ctx context.Context, users []*User) ([]*User, e
 
 func userFromRow(row db.User) *User {
 	var preferredPresence *gateway.Presence
-	if p, err := gateway.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
+	if p, err := gateway.ParsePresenceInt(db.FromInt2(row.PreferredPresence)); err == nil {
 		preferredPresence = &p
 	}
 

@@ -1,23 +1,29 @@
 package gateway
 
 import (
+	"bonfire-api/internal/redis"
 	"context"
 
 	"github.com/google/uuid"
 )
 
-const (
-	EventUpdatePresence = "user.update_presence"
-)
+// const (
+// 	EventUpdatePresence = "user.update_presence"
+// )
 
-type EventUpdatePresencePayload struct {
-	UserID   uuid.UUID `json:"userId"`
-	Presence Presence  `json:"presence"`
+// type EventUpdatePresencePayload struct {
+// 	UserID   uuid.UUID `json:"userId"`
+// 	Presence Presence  `json:"presence"`
+// }
+
+func EventsPubSubChannel(id uuid.UUID) string {
+	return "gateway:" + id.String() + ":events"
 }
 
 type Service struct {
 	cache       *Cache
 	broadcaster *Broadcaster
+	pubsub      pubSub
 	// presenceCache PresenceCache
 	// relationCache RelationCache
 	// userCache     UserCache
@@ -26,6 +32,7 @@ type Service struct {
 func NewService(
 	cache *Cache,
 	broadcaster *Broadcaster,
+	pubsub pubSub,
 	// presenceCache PresenceCache,
 	// relationCache RelationCache,
 	// userCache UserCache,
@@ -33,6 +40,7 @@ func NewService(
 	return &Service{
 		cache:       cache,
 		broadcaster: broadcaster,
+		pubsub:      pubsub,
 		// presenceCache: presenceCache,
 		// relationCache: relationCache,
 		// userCache:     userCache,
@@ -55,8 +63,19 @@ func (s *Service) PrintTicket(ctx context.Context, p PrintTicketParams) (uuid.UU
 	return ticket, nil
 }
 
-func (s *Service) PunchTicket(ctx context.Context, id uuid.UUID) (uuid.UUID, uuid.UUID, uuid.UUID, error) {
+func (s *Service) PunchTicket(ctx context.Context, id uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	return s.cache.PunchTicket(ctx, id)
+}
+
+func (s *Service) SubscribeToEvents(ctx context.Context, hubID uuid.UUID) (*redis.Subscription, error) {
+	eventsChannel := EventsPubSubChannel(hubID)
+
+	sub, err := s.pubsub.Subscribe(ctx, eventsChannel)
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
 }
 
 func (s *Service) RegisterClient(
@@ -121,6 +140,16 @@ func (s *Service) UnregisterClient(ctx context.Context, hubID, userID, sessionID
 	// }
 
 	return nil
+}
+
+type ClientRef struct {
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+	ClientID  uuid.UUID
+}
+
+func (s *Service) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clientRefs []ClientRef) error {
+	return s.cache.RemoveBatchClients(ctx, hubID, clientRefs)
 }
 
 // func (s *Service) HandleHeartbeat(

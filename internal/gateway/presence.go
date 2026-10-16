@@ -27,24 +27,28 @@ var presenceNames = [...]string{
 	PresenceInvisible: "INVISIBLE",
 }
 
-func ParseInt(i int) (Presence, error) {
+func ParsePresenceInt(i int) (Presence, error) {
 	return parse.EnumInt(i, presenceMax, "presence")
 }
 
-func ParseIntBytes(b []byte) (Presence, error) {
+func ParsePresenceIntBytes(b []byte) (Presence, error) {
 	return parse.EnumIntBytes(b, presenceMax, "presence")
 }
 
-func ParseString(s string) (Presence, error) {
+func ParsePresenceString(s string) (Presence, error) {
 	return parse.EnumString[Presence](s, presenceNames[:], "presence")
 }
 
-func ParseStringBytes(b []byte) (Presence, error) {
+func ParsePresenceStringBytes(b []byte) (Presence, error) {
 	return parse.EnumStringBytes[Presence](b, presenceNames[:], "presence")
 }
 
 func (p Presence) IsValid() bool {
 	return p > PresenceUnknown && p < presenceMax
+}
+
+func (p Presence) IsPreferred() bool {
+	return p.IsIdle() || p.IsBusy() || p.IsDND()
 }
 
 func (p Presence) Int() int {
@@ -68,16 +72,12 @@ func (p Presence) IsBusy() bool      { return p == PresenceBusy }
 func (p Presence) IsDND() bool       { return p == PresenceDND }
 func (p Presence) IsInvisible() bool { return p == PresenceInvisible }
 
-func IsPreferred(p Presence) bool {
-	return p.IsIdle() || p.IsBusy() || p.IsDND()
-}
-
 func (p Presence) MarshalText() ([]byte, error) {
 	return []byte(p.String()), nil
 }
 
 func (p *Presence) UnmarshalText(text []byte) error {
-	parsed, err := ParseString(string(text))
+	parsed, err := ParsePresenceString(string(text))
 	if err != nil {
 		return err
 	}

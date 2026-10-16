@@ -52,10 +52,10 @@ func (c *Client) GetUserID() uuid.UUID    { return c.UserID }
 func (c *Client) GetSessionID() uuid.UUID { return c.SessionID }
 
 // NewClient initializes a Client instance with its own isolated cancellation context.
-func NewClient(ctx context.Context, id, userID, sessionID uuid.UUID, hub *Hub, conn *websocket.Conn) *Client {
+func NewClient(ctx context.Context, userID, sessionID uuid.UUID, hub *Hub, conn *websocket.Conn) *Client {
 	clientCtx, cancel := context.WithCancel(ctx)
 	return &Client{
-		ID:        id,
+		ID:        uuid.New(),
 		UserID:    userID,
 		SessionID: sessionID,
 		Hub:       hub,

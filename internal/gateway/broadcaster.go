@@ -177,9 +177,9 @@ func (b *Broadcaster) publish(
 		return nil
 	}
 
-	hubEvents := make(map[uuid.UUID]HubEvent, len(hubTargets))
+	hubEvents := make(map[uuid.UUID]Event, len(hubTargets))
 	for hubID, clientIDs := range hubTargets {
-		hubEvents[hubID] = HubEvent{
+		hubEvents[hubID] = Event{
 			ClientIDs: clientIDs,
 			Message:   messageBytes,
 		}
@@ -207,7 +207,7 @@ func parseSessionClientField(field string) (uuid.UUID, uuid.UUID, error) {
 	return sessionID, clientID, nil
 }
 
-func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID]HubEvent) error {
+func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID]Event) error {
 	if len(hubEvents) == 0 {
 		return nil
 	}
