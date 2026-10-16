@@ -251,7 +251,6 @@ func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) error {
 
 	if err := h.service.RevokeSession(r.Context(), RevokeSessionParams{
 		UserID:          claims.UserID,
-		SessionID:       claims.SessionID,
 		RevokeSessionID: path.ID,
 	}); err != nil {
 		return err
@@ -268,8 +267,7 @@ func (h *Handler) revokeAllSessions(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	if err := h.service.RevokeAllSessions(r.Context(), RevokeAllSessionsParams{
-		UserID:    claims.UserID,
-		SessionID: claims.SessionID,
+		UserID: claims.UserID,
 	}); err != nil {
 		return err
 	}

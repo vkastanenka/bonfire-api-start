@@ -20,8 +20,8 @@ func NewBroadcaster(cache Cache, pubsub pubSub) *Broadcaster {
 	}
 }
 
-// BroadcastToUser broadcasts an event to a single target user with optional session exclusions.
-func (b *Broadcaster) BroadcastToUser(
+// ToUser broadcasts an event to a single target user with optional session exclusions.
+func (b *Broadcaster) ToUser(
 	ctx context.Context,
 	recipientID uuid.UUID,
 	messageType string,
@@ -31,8 +31,8 @@ func (b *Broadcaster) BroadcastToUser(
 	return b.publish(ctx, []uuid.UUID{recipientID}, nil, excludeSessionIDs, messageType, payload)
 }
 
-// BroadcastToUsers broadcasts an event to multiple target users with optional session exclusions.
-func (b *Broadcaster) BroadcastToUsers(
+// ToUsers broadcasts an event to multiple target users with optional session exclusions.
+func (b *Broadcaster) ToUsers(
 	ctx context.Context,
 	recipientIDs []uuid.UUID,
 	messageType string,
@@ -42,8 +42,8 @@ func (b *Broadcaster) BroadcastToUsers(
 	return b.publish(ctx, recipientIDs, nil, excludeSessionIDs, messageType, payload)
 }
 
-// BroadcastToUserSession sends an event to a single specific session belonging to a user.
-func (b *Broadcaster) BroadcastToUserSession(
+// ToUserSession sends an event to a single specific session belonging to a user.
+func (b *Broadcaster) ToUserSession(
 	ctx context.Context,
 	userID, sessionID uuid.UUID,
 	messageType string,
@@ -52,11 +52,11 @@ func (b *Broadcaster) BroadcastToUserSession(
 	userSessions := map[uuid.UUID][]uuid.UUID{
 		userID: {sessionID},
 	}
-	return b.BroadcastToUserSessions(ctx, userSessions, messageType, payload)
+	return b.ToUserSessions(ctx, userSessions, messageType, payload)
 }
 
-// BroadcastToUserSessions sends targeted events to specific sessions grouped by user (map[userID][]sessionIDs).
-func (b *Broadcaster) BroadcastToUserSessions(
+// ToUserSessions sends targeted events to specific sessions grouped by user (map[userID][]sessionIDs).
+func (b *Broadcaster) ToUserSessions(
 	ctx context.Context,
 	userSessions map[uuid.UUID][]uuid.UUID,
 	messageType string,

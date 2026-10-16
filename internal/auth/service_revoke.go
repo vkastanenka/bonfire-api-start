@@ -4,80 +4,41 @@ import (
 	"context"
 	"time"
 
-	"bonfire-api/internal/appctx"
-	"bonfire-api/internal/outbox"
-
 	"github.com/google/uuid"
 )
 
 type RevokeSessionParams struct {
 	UserID          uuid.UUID
-	SessionID       uuid.UUID
 	RevokeSessionID uuid.UUID
 }
 
 func (s *Service) RevokeSession(ctx context.Context, p RevokeSessionParams) error {
 	now := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if err := s.sessionRepo.Revoke(txCtx, p.RevokeSessionID, p.UserID, now); err != nil {
-			return err
-		}
-
-		event, err := outbox.New(
-			EventSessionRevoked,
-			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			newEventSessionRevokedPayload(p.RevokeSessionID),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return txErr
+	if err := s.sessionRepo.Revoke(ctx, p.RevokeSessionID, p.UserID, now); err != nil {
+		return err
 	}
 
 	s.cacheDeleteSession(ctx, p.UserID, p.RevokeSessionID, "revoke session")
+	s.broadcastSessionRevoked(ctx, p.UserID, p.RevokeSessionID, p)
 
 	return nil
 }
 
 type RevokeAllSessionsParams struct {
-	UserID    uuid.UUID
-	SessionID uuid.UUID
+	UserID uuid.UUID
 }
 
 func (s *Service) RevokeAllSessions(ctx context.Context, p RevokeAllSessionsParams) error {
-	var err error
-	var revokedSessionIDs []uuid.UUID
-
 	now := time.Now()
 
-	txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-		if revokedSessionIDs, err = s.sessionRepo.RevokeAll(txCtx, p.UserID, now); err != nil {
-			return err
-		}
-
-		event, err := outbox.New(
-			EventSessionRevokedAll,
-			outbox.NewMetadata(appctx.GetTraceID(ctx), &p.UserID, &p.SessionID, nil),
-			struct{}{},
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		return s.outboxRepo.Create(txCtx, event)
-	})
-	if txErr != nil {
-		return txErr
+	revokedSessionIDs, err := s.sessionRepo.RevokeAll(ctx, p.UserID, now)
+	if err != nil {
+		return err
 	}
 
 	s.cacheDeleteSessionBatch(ctx, p.UserID, revokedSessionIDs, "revoke all sessions")
+	s.broadcastAllSessionsRevoked(ctx, p.UserID)
 
 	return nil
 }

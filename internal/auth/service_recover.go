@@ -127,20 +127,6 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			return err
 		}
 
-		if len(revokedSessIDs) > 0 {
-			event, err := outbox.New(
-				EventSessionRevokedAll,
-				outbox.NewMetadata(appctx.GetTraceID(txCtx), &u.ID, &sess.ID, nil),
-				struct{}{},
-				now,
-			)
-			if err != nil {
-				return err
-			}
-
-			return s.outboxRepo.Create(txCtx, event)
-		}
-
 		return nil
 	})
 	if txErr != nil {
@@ -156,6 +142,10 @@ func (s *Service) ResetPassword(ctx context.Context, p ResetPasswordParams) (Res
 			slog.String("session_id", sess.ID.String()),
 			slog.Any("error", err),
 		)
+	}
+
+	if len(revokedSessIDs) > 0 {
+		s.broadcastAllSessionsRevoked(ctx, u.ID, sess.ID)
 	}
 
 	return ResetPasswordResult{

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bonfire-api/internal/appctx"
-	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
 	"context"
 	"crypto/subtle"
@@ -49,38 +48,17 @@ func (s *Service) Refresh(ctx context.Context, p RefreshParams) (RefreshResult, 
 	}
 
 	candidateBytes := crypto.HashToken(p.RefreshToken)
+	var revokedIDs []uuid.UUID
 
 	if subtle.ConstantTimeCompare(candidateBytes[:], sess.RefreshTokenHash[:]) != 1 {
-		var revokedIDs []uuid.UUID
-
-		txErr := s.tx.ExecTx(ctx, func(txCtx context.Context) error {
-			revokedIDs, err = s.sessionRepo.RevokeAll(txCtx, sess.UserID, now)
-			if err != nil {
-				return err
-			}
-
-			if len(revokedIDs) > 0 {
-				event, err := outbox.New(
-					EventSessionRevokedAll,
-					outbox.NewMetadata(appctx.GetTraceID(ctx), &sess.UserID, &sess.ID, nil),
-					struct{}{},
-					now,
-				)
-				if err != nil {
-					return err
-				}
-
-				return s.outboxRepo.Create(txCtx, event)
-			}
-
-			return nil
-		})
-		if txErr != nil {
-			return RefreshResult{}, txErr
+		revokedIDs, err = s.sessionRepo.RevokeAll(ctx, sess.UserID, now)
+		if err != nil {
+			return RefreshResult{}, err
 		}
 
 		if len(revokedIDs) > 0 {
 			s.cacheDeleteSessionBatch(ctx, claims.UserID, revokedIDs, "refresh failure")
+			s.broadcastAllSessionsRevoked(ctx, claims.UserID)
 		}
 
 		return RefreshResult{}, ErrTokenInvalid()

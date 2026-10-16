@@ -17,10 +17,16 @@ const (
 	forgotPasswordWindow   = 35 * time.Millisecond
 )
 
+const (
+	MessageSessionRevoked    = "auth.session_revoked"
+	MessageSessionRevokedAll = "auth.session_revoked_all"
+)
+
 type Service struct {
 	cache          *Cache
 	sessionCache   *SessionCache
 	sessionRepo    *SessionRepository
+	broadcaster    Broadcaster
 	outboxRepo     OutboxRepository
 	shieldCache    ShieldCache
 	tokenCache     TokenCache
@@ -35,6 +41,7 @@ func NewService(
 	cache *Cache,
 	sessionCache *SessionCache,
 	sessionRepo *SessionRepository,
+	broadcaster Broadcaster,
 	outboxRepo OutboxRepository,
 	shieldCache ShieldCache,
 	tokenCache TokenCache,
@@ -48,6 +55,7 @@ func NewService(
 		cache:          cache,
 		sessionCache:   sessionCache,
 		sessionRepo:    sessionRepo,
+		broadcaster:    broadcaster,
 		outboxRepo:     outboxRepo,
 		shieldCache:    shieldCache,
 		tokenCache:     tokenCache,
@@ -134,6 +142,31 @@ func (s *Service) cacheLogin(ctx context.Context, u *user.User, sess *Session, a
 		slog.WarnContext(cacheCtx, "failed cache login pipeline after "+action,
 			slog.String("user_id", u.ID.String()),
 			slog.String("session_id", sess.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastSessionRevoked(ctx context.Context, userID, sessionID uuid.UUID, payload any) {
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUserSession(bCtx, userID, sessionID, MessageSessionRevoked, payload); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast session revoked event",
+			slog.String("user_id", userID.String()),
+			slog.String("session_id", sessionID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+func (s *Service) broadcastAllSessionsRevoked(ctx context.Context, userID uuid.UUID, excludeSessionIDs ...uuid.UUID) {
+	bCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+
+	if err := s.broadcaster.ToUser(bCtx, userID, MessageSessionRevokedAll, nil, excludeSessionIDs...); err != nil {
+		slog.WarnContext(bCtx, "failed to broadcast all sessions revoked event",
+			slog.String("user_id", userID.String()),
 			slog.Any("error", err),
 		)
 	}
