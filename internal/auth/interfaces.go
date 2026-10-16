@@ -21,7 +21,7 @@ type CachedUserRepository interface {
 }
 
 type Mailer interface {
-	SendPasswordReset(ctx context.Context, emailAddress string, username string, resetToken string, requestedAt time.Time) error
+	SendPasswordReset(ctx context.Context, emailAddress string, resetToken string, requestedAt time.Time) error
 	SendRegister(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
 	SendResendVerification(ctx context.Context, emailAddress string, username string, token string, requestedAt time.Time) error
 }

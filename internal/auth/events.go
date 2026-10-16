@@ -59,7 +59,7 @@ func newEventPasswordResetRequestedPayload(email, username, token string, timest
 
 func newPasswordResetRequestedHandler(mailer Mailer) outbox.Handler {
 	return outbox.BindHandler(func(ctx context.Context, m outbox.Metadata, p EventPasswordResetRequestedPayload) error {
-		return mailer.SendPasswordReset(ctx, p.Email, p.Username, p.Token, p.Timestamp)
+		return mailer.SendPasswordReset(ctx, p.Email, p.Token, p.Timestamp)
 	})
 }
 
