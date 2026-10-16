@@ -36,7 +36,7 @@ func (c *Cache) PrintTicket(ctx context.Context, ticketID, userID, sessionID, cl
 	var payload [48]byte
 	copy(payload[0:16], userID[:])
 	copy(payload[16:32], sessionID[:])
-	copy(payload[32:48], clientID[:])
+	copy(payload[32:48], clientID[:]) // TODO: Add here or in the client initializer?
 
 	if err := c.client.Set(ctx, TicketCacheKey(ticketID), payload[:], TicketCacheTTL).Err(); err != nil {
 		return redis.NewError(err, redis.ResourceGateway)
@@ -74,8 +74,8 @@ var registerClientScript = redisdriver.NewScript(`
     -- Check if presence field already exists to determine if user was offline
     local wasOffline = (redis.call('HEXISTS', userKey, 'presence') == 0) and 1 or 0
 
-    -- Construct composite field name for the specific client connection
-    local fieldName = 'session:' .. sessionID .. ':client:' .. clientID
+    -- Construct composite field name: sessionID:clientID
+    local fieldName = sessionID .. ':' .. clientID
 
     -- Set/update presence and add the composite session mapping in a single atomic hash
     redis.call('HSET', userKey, 'presence', presence, fieldName, hubID)
@@ -124,7 +124,7 @@ var unregisterClientScript = redisdriver.NewScript(`
     local clientID = ARGV[3]
     local ttl = tonumber(ARGV[4])
 
-    local sessionField = 'session:' .. sessionID .. ':client:' .. clientID
+    local sessionField = sessionID .. ':' .. clientID
 
     -- Verify the session/client connection exists and belongs to this node before removing
     local currentOwnerNode = redis.call('HGET', userKey, sessionField)
@@ -170,4 +170,37 @@ func (c *Cache) UnregisterClient(
 
 	wentOffline := res == 1
 	return wentOffline, nil
+}
+
+// GetBatchUsers retrieves the raw Redis hash fields for a batch of user IDs.
+// Returns a map of userID -> hash fields.
+func (c *Cache) GetBatchUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]map[string]string, error) {
+	if len(userIDs) == 0 {
+		return make(map[uuid.UUID]map[string]string), nil
+	}
+
+	pipe := c.client.Pipeline()
+	cmds := make(map[uuid.UUID]*redisdriver.MapStringStringCmd, len(userIDs))
+
+	for _, userID := range userIDs {
+		cmds[userID] = pipe.HGetAll(ctx, UserCacheKey(userID))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redisdriver.Nil {
+		return nil, redis.NewError(err, redis.ResourceGateway)
+	}
+
+	result := make(map[uuid.UUID]map[string]string, len(userIDs))
+	for userID, cmd := range cmds {
+		res, err := cmd.Result()
+		if err != nil && err != redisdriver.Nil {
+			continue
+		}
+		if len(res) > 0 {
+			result[userID] = res
+		}
+	}
+
+	return result, nil
 }

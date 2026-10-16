@@ -29,6 +29,11 @@ type Event struct {
 	Payload           json.RawMessage `json:"payload"`
 }
 
+type HubEvent struct {
+	ClientIDs []uuid.UUID     `json:"client_ids"`
+	Message   json.RawMessage `json:"message"`
+}
+
 type Hub struct {
 	id uuid.UUID
 

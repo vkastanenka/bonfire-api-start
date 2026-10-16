@@ -2,21 +2,25 @@ package gateway
 
 import (
 	"bonfire-api/internal/pkg/errs"
+	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
+
+	redisdriver "github.com/redis/go-redis/v9"
 )
 
 type Broadcaster struct {
-	rdb          goredis.Cmdable
-	gatewayCache GatewayCache
+	rdb   redisdriver.Cmdable
+	cache Cache
 }
 
-func NewBroadcaster(rdb goredis.Cmdable, gatewayCache GatewayCache) *Broadcaster {
+func NewBroadcaster(rdb redisdriver.Cmdable, cache Cache) *Broadcaster {
 	return &Broadcaster{
-		rdb:          rdb,
-		gatewayCache: gatewayCache,
+		rdb:   rdb,
+		cache: cache,
 	}
 }
 
@@ -24,42 +28,42 @@ func NewBroadcaster(rdb goredis.Cmdable, gatewayCache GatewayCache) *Broadcaster
 func (b *Broadcaster) BroadcastToUser(
 	ctx context.Context,
 	recipientID uuid.UUID,
-	eventType string,
+	messageType string,
 	payload any,
 	excludeSessionIDs ...uuid.UUID,
 ) error {
-	return b.dispatch(ctx, []uuid.UUID{recipientID}, nil, excludeSessionIDs, eventType, payload)
+	return b.publish(ctx, []uuid.UUID{recipientID}, nil, excludeSessionIDs, messageType, payload)
 }
 
 // BroadcastToUsers broadcasts an event to multiple target users with optional session exclusions.
 func (b *Broadcaster) BroadcastToUsers(
 	ctx context.Context,
 	recipientIDs []uuid.UUID,
-	eventType string,
+	messageType string,
 	payload any,
 	excludeSessionIDs ...uuid.UUID,
 ) error {
-	return b.dispatch(ctx, recipientIDs, nil, excludeSessionIDs, eventType, payload)
+	return b.publish(ctx, recipientIDs, nil, excludeSessionIDs, messageType, payload)
 }
 
 // BroadcastToUserSession sends an event to a single specific session belonging to a user.
 func (b *Broadcaster) BroadcastToUserSession(
 	ctx context.Context,
 	userID, sessionID uuid.UUID,
-	eventType string,
+	messageType string,
 	payload any,
 ) error {
 	userSessions := map[uuid.UUID][]uuid.UUID{
 		userID: {sessionID},
 	}
-	return b.BroadcastToUserSessions(ctx, userSessions, eventType, payload)
+	return b.BroadcastToUserSessions(ctx, userSessions, messageType, payload)
 }
 
 // BroadcastToUserSessions sends targeted events to specific sessions grouped by user (map[userID][]sessionIDs).
 func (b *Broadcaster) BroadcastToUserSessions(
 	ctx context.Context,
 	userSessions map[uuid.UUID][]uuid.UUID,
-	eventType string,
+	messageType string,
 	payload any,
 	excludeSessionIDs ...uuid.UUID,
 ) error {
@@ -72,103 +76,162 @@ func (b *Broadcaster) BroadcastToUserSessions(
 		userIDs = append(userIDs, userID)
 	}
 
-	return b.dispatch(ctx, userIDs, userSessions, excludeSessionIDs, eventType, payload)
+	return b.publish(ctx, userIDs, userSessions, excludeSessionIDs, messageType, payload)
 }
 
-// dispatch is the single core method handling topology resolution, framing, and delivery.
-func (b *Broadcaster) dispatch(
+func (b *Broadcaster) publish(
 	ctx context.Context,
 	userIDs []uuid.UUID,
 	targetSessions map[uuid.UUID][]uuid.UUID,
 	excludeSessionIDs []uuid.UUID,
-	eventType string,
+	messageType string,
 	payload any,
 ) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 
-	// 1. Resolve active node topology for target users
-	nodeToUsers, err := b.gatewayCache.GetBatchUsers(ctx, userIDs)
-	if err != nil || len(nodeToUsers) == 0 {
+	userHashes, err := b.cache.GetBatchUsers(ctx, userIDs)
+	if err != nil {
 		return err
 	}
 
-	// 2. Pre-marshal payload and WS wire frame once
-	dataBytes, err := json.Marshal(payload)
+	if len(userHashes) == 0 {
+		return nil
+	}
+
+	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return errs.Internal("Failed to marshal event payload.").Wrap(err)
 	}
 
-	frameBytes, err := json.Marshal(WSMessage{
-		Type: eventType,
-		Data: dataBytes,
+	messageBytes, err := json.Marshal(Message{
+		Type: messageType,
+		Data: payloadBytes,
 	})
 	if err != nil {
-		return errs.Internal("Failed to marshal WS wire frame.").Wrap(err)
+		return errs.Internal("Failed to marshal WS message.").Wrap(err)
 	}
 
-	cleanExcludes := cleanUUIDSlice(excludeSessionIDs)
+	excludeSet := make(map[uuid.UUID]bool, len(excludeSessionIDs))
+	for _, sID := range excludeSessionIDs {
+		if sID != uuid.Nil {
+			excludeSet[sID] = true
+		}
+	}
 
-	// 3. Construct node-targeted envelopes (user-level OR session-level)
-	nodeEvents := make(map[uuid.UUID]Event, len(nodeToUsers))
-	for nodeID, activeUserIDs := range nodeToUsers {
-		if len(targetSessions) > 0 {
-			// Session-targeted mode: aggregate targeted sessionIDs on this node
-			var nodeSessionIDs []uuid.UUID
-			for _, uid := range activeUserIDs {
-				if sIDs, ok := targetSessions[uid]; ok {
-					nodeSessionIDs = append(nodeSessionIDs, sIDs...)
+	hasTargetSessions := len(targetSessions) > 0
+	targetSessionMap := make(map[uuid.UUID]map[uuid.UUID]bool, len(targetSessions))
+	if hasTargetSessions {
+		for uID, sIDs := range targetSessions {
+			sMap := make(map[uuid.UUID]bool, len(sIDs))
+			for _, sID := range sIDs {
+				if sID != uuid.Nil {
+					sMap[sID] = true
 				}
 			}
-
-			if len(nodeSessionIDs) > 0 {
-				nodeEvents[nodeID] = Event{
-					SessionIDs:        nodeSessionIDs,
-					ExcludeSessionIDs: cleanExcludes,
-					Frame:             frameBytes,
-				}
-			}
-		} else {
-			// User-targeted mode: target all sessions belonging to userIDs on this node
-			nodeEvents[nodeID] = Event{
-				UserIDs:           activeUserIDs,
-				ExcludeSessionIDs: cleanExcludes,
-				Frame:             frameBytes,
+			if len(sMap) > 0 {
+				targetSessionMap[uID] = sMap
 			}
 		}
 	}
 
-	return b.publishToNodes(ctx, nodeEvents)
-}
+	hubTargets := make(map[uuid.UUID][]uuid.UUID)
 
-func (b *Broadcaster) publishToNodes(ctx context.Context, events map[uuid.UUID]Event) error {
-	if len(events) == 0 {
+	for userID, fields := range userHashes {
+		userTargetSessions := targetSessionMap[userID]
+
+		for field, hubIDStr := range fields {
+			// Skip the presence field
+			if field == "presence" {
+				continue
+			}
+
+			// Parse composite field: session:{sessionID}:client:{clientID}
+			sessionID, clientID, err := parseSessionClientField(field)
+			if err != nil {
+				continue
+			}
+
+			// Apply filtering logic
+			if hasTargetSessions {
+				// If targeting specific sessions, the client's session must be explicitly included
+				if !userTargetSessions[sessionID] {
+					continue
+				}
+			} else {
+				// Otherwise, check if this session is in the exclusion list
+				if excludeSet[sessionID] {
+					continue
+				}
+			}
+
+			hubID, err := uuid.Parse(hubIDStr)
+			if err != nil {
+				continue
+			}
+
+			hubTargets[hubID] = append(hubTargets[hubID], clientID)
+		}
+	}
+
+	if len(hubTargets) == 0 {
 		return nil
 	}
 
-	type pubItem struct {
-		channel string
-		payload []byte
+	hubEvents := make(map[uuid.UUID]HubEvent, len(hubTargets))
+	for hubID, clientIDs := range hubTargets {
+		hubEvents[hubID] = HubEvent{
+			ClientIDs: clientIDs,
+			Message:   messageBytes,
+		}
 	}
-	pubItems := make([]pubItem, 0, len(events))
 
-	for nodeID, event := range events {
-		encoded, err := json.Marshal(event)
+	return b.publishToHubs(ctx, hubEvents)
+}
+
+func parseSessionClientField(field string) (uuid.UUID, uuid.UUID, error) {
+	// Expected format: <uuid>:<uuid> -> 36 + 1 + 36 = 73 characters
+	if len(field) != 73 || field[36] != ':' {
+		return uuid.Nil, uuid.Nil, fmt.Errorf("invalid field format")
+	}
+
+	sessionID, err := uuid.Parse(field[0:36])
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+
+	clientID, err := uuid.Parse(field[37:73])
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+
+	return sessionID, clientID, nil
+}
+
+func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID]HubEvent) error {
+	if len(hubEvents) == 0 {
+		return nil
+	}
+
+	messages := make([]redis.Message, 0, len(hubEvents))
+
+	for hubID, event := range hubEvents {
+		eventBytes, err := json.Marshal(event)
 		if err != nil {
 			return errs.Internal("Failed to marshal broadcast event envelope.").
 				Reason("BROADCAST_MARSHAL_FAILED").
 				Wrap(err)
 		}
-		pubItems = append(pubItems, pubItem{
-			channel: cache.GatewayEventsKey(nodeID),
-			payload: encoded,
+		messages = append(messages, redis.Message{
+			Channel: EventsPubSubChannel(hubID),
+			Payload: string(eventBytes),
 		})
 	}
 
-	_, err := b.rdb.Pipelined(ctx, func(pipe goredis.Pipeliner) error {
-		for _, item := range pubItems {
-			pipe.Publish(ctx, item.channel, item.payload)
+	_, err := b.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
+		for _, message := range messages {
+			pipe.Publish(ctx, message.Channel, message.Payload)
 		}
 		return nil
 	})
@@ -179,20 +242,4 @@ func (b *Broadcaster) publishToNodes(ctx context.Context, events map[uuid.UUID]E
 	}
 
 	return nil
-}
-
-func cleanUUIDSlice(ids []uuid.UUID) []uuid.UUID {
-	if len(ids) == 0 {
-		return nil
-	}
-	clean := make([]uuid.UUID, 0, len(ids))
-	for _, id := range ids {
-		if id != uuid.Nil {
-			clean = append(clean, id)
-		}
-	}
-	if len(clean) == 0 {
-		return nil
-	}
-	return clean
 }
