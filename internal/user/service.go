@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/outbox"
 	"bonfire-api/internal/pkg/crypto"
-	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
@@ -216,7 +216,7 @@ func (s *Service) UpdatePassword(ctx context.Context, p UpdatePasswordParams) er
 type UpdatePreferredPresenceParams struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
-	Presence  *presence.Presence
+	Presence  *gateway.Presence
 	Duration  *PreferredPresenceDuration
 }
 
@@ -256,7 +256,7 @@ func (s *Service) UpdatePreferredPresence(ctx context.Context, p UpdatePreferred
 			return err
 		}
 
-		var eff *presence.Presence
+		var eff *gateway.Presence
 		if effP := u.EffectivePresence(dbNow); effP != nil && effP.IsValid() {
 			eff = effP
 		}

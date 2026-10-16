@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"bonfire-api/internal/db"
-	"bonfire-api/internal/presence"
+	"bonfire-api/internal/gateway"
 
 	"github.com/google/uuid"
 )
@@ -205,7 +205,7 @@ func (r *Repository) UpdateProfile(
 func (r *Repository) UpdatePreferredPresence(
 	ctx context.Context,
 	id uuid.UUID,
-	preferredPresence *presence.Presence,
+	preferredPresence *gateway.Presence,
 	preferredPresenceUntil *time.Time,
 	updatedAt time.Time,
 ) (*User, error) {
@@ -281,8 +281,8 @@ func (r *Repository) UpdateBatch(ctx context.Context, users []*User) ([]*User, e
 }
 
 func userFromRow(row db.User) *User {
-	var preferredPresence *presence.Presence
-	if p, err := presence.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
+	var preferredPresence *gateway.Presence
+	if p, err := gateway.ParseInt(db.FromInt2(row.PreferredPresence)); err == nil {
 		preferredPresence = &p
 	}
 

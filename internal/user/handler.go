@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"bonfire-api/internal/appctx"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/httpio"
-	"bonfire-api/internal/presence"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -148,7 +148,7 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) error {
 }
 
 type updatePreferredPresenceRequest struct {
-	Presence *presence.Presence         `json:"presence,omitempty" validate:"omitempty,user_preferred_presence"`
+	Presence *gateway.Presence          `json:"presence,omitempty" validate:"omitempty,user_preferred_presence"`
 	Duration *PreferredPresenceDuration `json:"duration,omitempty" validate:"omitempty,user_preferred_presence_duration"`
 }
 

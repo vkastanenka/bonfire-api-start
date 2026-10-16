@@ -1,7 +1,7 @@
 package user
 
 import (
-	"bonfire-api/internal/presence"
+	"bonfire-api/internal/gateway"
 	"time"
 
 	"github.com/google/uuid"
@@ -116,19 +116,19 @@ func NewDTOMap(users map[uuid.UUID]*User) map[uuid.UUID]DTO {
 }
 
 type MeDTO struct {
-	ID                     uuid.UUID          `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"displayName"`
-	AvatarURL              *string            `json:"avatarUrl,omitempty"`
-	Bio                    *string            `json:"bio,omitempty"`
-	BannerColor            *string            `json:"bannerColor,omitempty"`
-	IsVerified             bool               `json:"isVerified"`
-	VerifiedAt             *time.Time         `json:"verifiedAt,omitempty"`
-	PreferredPresence      *presence.Presence `json:"preferredPresence,omitempty"`
-	PreferredPresenceUntil *time.Time         `json:"preferredPresenceUntil,omitempty"`
-	CreatedAt              time.Time          `json:"createdAt"`
-	UpdatedAt              time.Time          `json:"updatedAt"`
+	ID                     uuid.UUID         `json:"id"`
+	Email                  string            `json:"email"`
+	Username               string            `json:"username"`
+	DisplayName            string            `json:"displayName"`
+	AvatarURL              *string           `json:"avatarUrl,omitempty"`
+	Bio                    *string           `json:"bio,omitempty"`
+	BannerColor            *string           `json:"bannerColor,omitempty"`
+	IsVerified             bool              `json:"isVerified"`
+	VerifiedAt             *time.Time        `json:"verifiedAt,omitempty"`
+	PreferredPresence      *gateway.Presence `json:"preferredPresence,omitempty"`
+	PreferredPresenceUntil *time.Time        `json:"preferredPresenceUntil,omitempty"`
+	CreatedAt              time.Time         `json:"createdAt"`
+	UpdatedAt              time.Time         `json:"updatedAt"`
 }
 
 func NewMeDTO(u *User) *MeDTO {

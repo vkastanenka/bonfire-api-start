@@ -1,10 +1,9 @@
 package user
 
 import (
+	"bonfire-api/internal/gateway"
 	"fmt"
 	"time"
-
-	"bonfire-api/internal/presence"
 
 	"github.com/google/uuid"
 )
@@ -19,7 +18,7 @@ type User struct {
 	Bio                    *string
 	AvatarURL              *string
 	BannerColor            *string
-	PreferredPresence      *presence.Presence
+	PreferredPresence      *gateway.Presence
 	PreferredPresenceUntil *time.Time
 	VerifiedAt             *time.Time
 	DisabledAt             *time.Time
@@ -53,7 +52,7 @@ func Reconstitute(
 	phone *string,
 	displayName string,
 	bio, avatarURL, bannerColor *string,
-	preferredPresence *presence.Presence,
+	preferredPresence *gateway.Presence,
 	preferredPresenceUntil, verifiedAt, disabledAt, deleteScheduledAt *time.Time,
 	createdAt, updatedAt time.Time,
 ) *User {
@@ -81,7 +80,7 @@ func (u *User) IsVerified() bool             { return u.VerifiedAt != nil }
 func (u *User) IsDisabled() bool             { return u.DisabledAt != nil }
 func (u *User) IsScheduledForDeletion() bool { return u.DeleteScheduledAt != nil }
 
-func (u *User) EffectivePresence(now time.Time) *presence.Presence {
+func (u *User) EffectivePresence(now time.Time) *gateway.Presence {
 	if u.PreferredPresenceUntil != nil && now.After(*u.PreferredPresenceUntil) {
 		return nil
 	}
@@ -168,7 +167,7 @@ func (u *User) UpdateProfile(displayName string, bio, avatarURL, bannerColor *st
 	u.touch(now)
 }
 
-func (u *User) UpdatePreferredPresence(p *presence.Presence, until *time.Time, now time.Time) {
+func (u *User) UpdatePreferredPresence(p *gateway.Presence, until *time.Time, now time.Time) {
 	u.PreferredPresence = p
 	if until != nil {
 		t := until.UTC()

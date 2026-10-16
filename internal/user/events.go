@@ -1,8 +1,8 @@
 package user
 
 import (
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/outbox"
-	"bonfire-api/internal/presence"
 	"context"
 	"time"
 
@@ -74,12 +74,12 @@ func newPasswordUpdatedEventHandler(b Broadcaster) outbox.Handler {
 }
 
 type EventPreferredPresenceUpdatedPayload struct {
-	UserID    uuid.UUID          `json:"userId"`
-	Presence  *presence.Presence `json:"presence,omitempty"`
-	UpdatedAt time.Time          `json:"updatedAt"`
+	UserID    uuid.UUID         `json:"userId"`
+	Presence  *gateway.Presence `json:"presence,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 }
 
-func newPreferredPresenceUpdatedPayload(id uuid.UUID, presence *presence.Presence, updatedAt time.Time) EventPreferredPresenceUpdatedPayload {
+func newPreferredPresenceUpdatedPayload(id uuid.UUID, presence *gateway.Presence, updatedAt time.Time) EventPreferredPresenceUpdatedPayload {
 	return EventPreferredPresenceUpdatedPayload{
 		UserID:    id,
 		Presence:  presence,

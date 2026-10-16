@@ -1,7 +1,7 @@
 package user
 
 import (
-	"bonfire-api/internal/presence"
+	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
@@ -86,21 +86,21 @@ func (c *Cache) DeleteBatch(ctx context.Context, ids []uuid.UUID) error {
 }
 
 type CacheDTO struct {
-	ID                     uuid.UUID          `json:"id"`
-	Email                  string             `json:"email"`
-	Username               string             `json:"username"`
-	DisplayName            string             `json:"display_name"`
-	Phone                  *string            `json:"phone,omitempty"`
-	Bio                    *string            `json:"bio,omitempty"`
-	AvatarURL              *string            `json:"avatar_url,omitempty"`
-	BannerColor            *string            `json:"banner_color,omitempty"`
-	PreferredPresence      *presence.Presence `json:"preferred_presence,omitempty"`
-	PreferredPresenceUntil *time.Time         `json:"preferred_presence_until,omitempty"`
-	VerifiedAt             *time.Time         `json:"verified_at,omitempty"`
-	DisabledAt             *time.Time         `json:"disabled_at,omitempty"`
-	DeleteScheduledAt      *time.Time         `json:"delete_scheduled_at,omitempty"`
-	CreatedAt              time.Time          `json:"created_at"`
-	UpdatedAt              time.Time          `json:"updated_at"`
+	ID                     uuid.UUID         `json:"id"`
+	Email                  string            `json:"email"`
+	Username               string            `json:"username"`
+	DisplayName            string            `json:"display_name"`
+	Phone                  *string           `json:"phone,omitempty"`
+	Bio                    *string           `json:"bio,omitempty"`
+	AvatarURL              *string           `json:"avatar_url,omitempty"`
+	BannerColor            *string           `json:"banner_color,omitempty"`
+	PreferredPresence      *gateway.Presence `json:"preferred_presence,omitempty"`
+	PreferredPresenceUntil *time.Time        `json:"preferred_presence_until,omitempty"`
+	VerifiedAt             *time.Time        `json:"verified_at,omitempty"`
+	DisabledAt             *time.Time        `json:"disabled_at,omitempty"`
+	DeleteScheduledAt      *time.Time        `json:"delete_scheduled_at,omitempty"`
+	CreatedAt              time.Time         `json:"created_at"`
+	UpdatedAt              time.Time         `json:"updated_at"`
 }
 
 func NewCacheDTO(u *User) *CacheDTO {
