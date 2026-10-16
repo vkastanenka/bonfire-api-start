@@ -275,6 +275,19 @@ func (c *Client) readPump() {
 			)
 			return err
 		}
+
+		go func() {
+			hbCtx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 3*time.Second)
+			defer cancel()
+
+			if err := c.Hub.service.Heartbeat(hbCtx, c.UserID); err != nil {
+				slog.ErrorContext(c.ctx, "failed to extend user cache ttl on heartbeat",
+					"user_id", c.UserID,
+					"error", err,
+				)
+			}
+		}()
+
 		return nil
 	})
 

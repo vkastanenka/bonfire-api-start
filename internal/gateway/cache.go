@@ -292,13 +292,6 @@ func (c *Cache) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clientR
 	return nil
 }
 
-func (c *Cache) Heartbeat(ctx context.Context, userID uuid.UUID) error {
-	if err := c.client.Expire(ctx, UserCacheKey(userID), UserCacheTTL).Err(); err != nil {
-		return redis.NewError(err, redis.ResourceGateway)
-	}
-	return nil
-}
-
 func (c *Cache) GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error) {
 	val, err := c.client.HGet(ctx, UserCacheKey(userID), "presence").Result()
 	if err != nil {
@@ -374,4 +367,11 @@ func (c *Cache) GetBatchPresence(ctx context.Context, userIDs []uuid.UUID) (map[
 	}
 
 	return result, nil
+}
+
+func (c *Cache) Heartbeat(ctx context.Context, userID uuid.UUID) error {
+	if err := c.client.Expire(ctx, UserCacheKey(userID), UserCacheTTL).Err(); err != nil {
+		return redis.NewError(err, redis.ResourceGateway)
+	}
+	return nil
 }

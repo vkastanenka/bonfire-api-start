@@ -152,26 +152,6 @@ func (s *Service) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clien
 	return s.cache.RemoveBatchClients(ctx, hubID, clientRefs)
 }
 
-// func (s *Service) HandleHeartbeat(
-// 	ctx context.Context,
-// 	userID, nodeID, sessionID uuid.UUID,
-// 	newPresence Presence,
-// ) error {
-// 	currentPresence, err := s.presenceCache.Get(ctx, userID)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if currentPresence == PresenceOffline || (newPresence.IsValid() && newPresence != currentPresence) {
-// 		if !newPresence.IsValid() {
-// 			newPresence = PresenceOnline
-// 		}
-// 		return s.RegisterSession(ctx, userID, nodeID, sessionID, newPresence)
-// 	}
-
-// 	return s.gatewayCache.Heartbeat(ctx, userID, nodeID, sessionID)
-// }
-
-// func (s *Service) RemoveBatchUsers(ctx context.Context, nodeID uuid.UUID, userIDs []uuid.UUID) error {
-// 	return s.gatewayCache.RemoveBatchUsers(ctx, nodeID, userIDs)
-// }
+func (s *Service) Heartbeat(ctx context.Context, userID uuid.UUID) error {
+	return s.cache.Heartbeat(ctx, userID)
+}
