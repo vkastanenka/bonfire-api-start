@@ -15,7 +15,7 @@ type service interface {
 }
 
 type pubSub interface {
-	Publish(ctx context.Context, channel string, message any) error
+	PublishBatch(ctx context.Context, messages map[string]any) error
 	Subscribe(ctx context.Context, channels ...string) (*redis.Subscription, error)
 }
 

@@ -2,25 +2,21 @@ package gateway
 
 import (
 	"bonfire-api/internal/pkg/errs"
-	"bonfire-api/internal/redis"
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/google/uuid"
-
-	redisdriver "github.com/redis/go-redis/v9"
 )
 
 type Broadcaster struct {
-	rdb   redisdriver.Cmdable
-	cache Cache
+	cache  Cache
+	pubsub pubSub
 }
 
-func NewBroadcaster(rdb redisdriver.Cmdable, cache Cache) *Broadcaster {
+func NewBroadcaster(cache Cache, pubsub pubSub) *Broadcaster {
 	return &Broadcaster{
-		rdb:   rdb,
-		cache: cache,
+		cache:  cache,
+		pubsub: pubsub,
 	}
 }
 
@@ -65,7 +61,6 @@ func (b *Broadcaster) BroadcastToUserSessions(
 	userSessions map[uuid.UUID][]uuid.UUID,
 	messageType string,
 	payload any,
-	excludeSessionIDs ...uuid.UUID,
 ) error {
 	if len(userSessions) == 0 {
 		return nil
@@ -76,7 +71,7 @@ func (b *Broadcaster) BroadcastToUserSessions(
 		userIDs = append(userIDs, userID)
 	}
 
-	return b.publish(ctx, userIDs, userSessions, excludeSessionIDs, messageType, payload)
+	return b.publish(ctx, userIDs, userSessions, nil, messageType, payload)
 }
 
 func (b *Broadcaster) publish(
@@ -113,10 +108,13 @@ func (b *Broadcaster) publish(
 		return errs.Internal("Failed to marshal WS message.").Wrap(err)
 	}
 
-	excludeSet := make(map[uuid.UUID]bool, len(excludeSessionIDs))
-	for _, sID := range excludeSessionIDs {
-		if sID != uuid.Nil {
-			excludeSet[sID] = true
+	var excludeSet map[uuid.UUID]bool
+	if len(excludeSessionIDs) > 0 {
+		excludeSet = make(map[uuid.UUID]bool, len(excludeSessionIDs))
+		for _, sID := range excludeSessionIDs {
+			if sID != uuid.Nil {
+				excludeSet[sID] = true
+			}
 		}
 	}
 
@@ -137,38 +135,38 @@ func (b *Broadcaster) publish(
 	}
 
 	hubTargets := make(map[uuid.UUID][]uuid.UUID)
+	hubIDsMap := make(map[string]uuid.UUID)
 
 	for userID, fields := range userHashes {
 		userTargetSessions := targetSessionMap[userID]
 
 		for field, hubIDStr := range fields {
-			// Skip the presence field
 			if field == "presence" {
 				continue
 			}
 
-			// Parse composite field: session:{sessionID}:client:{clientID}
 			sessionID, clientID, err := parseSessionClientField(field)
 			if err != nil {
 				continue
 			}
 
-			// Apply filtering logic
 			if hasTargetSessions {
-				// If targeting specific sessions, the client's session must be explicitly included
 				if !userTargetSessions[sessionID] {
 					continue
 				}
 			} else {
-				// Otherwise, check if this session is in the exclusion list
 				if excludeSet[sessionID] {
 					continue
 				}
 			}
 
-			hubID, err := uuid.Parse(hubIDStr)
-			if err != nil {
-				continue
+			hubID, cached := hubIDsMap[hubIDStr]
+			if !cached {
+				hubID, err = uuid.Parse(hubIDStr)
+				if err != nil {
+					continue
+				}
+				hubIDsMap[hubIDStr] = hubID
 			}
 
 			hubTargets[hubID] = append(hubTargets[hubID], clientID)
@@ -193,7 +191,7 @@ func (b *Broadcaster) publish(
 func parseSessionClientField(field string) (uuid.UUID, uuid.UUID, error) {
 	// Expected format: <uuid>:<uuid> -> 36 + 1 + 36 = 73 characters
 	if len(field) != 73 || field[36] != ':' {
-		return uuid.Nil, uuid.Nil, fmt.Errorf("invalid field format")
+		return uuid.Nil, uuid.Nil, errs.Internal("Invalid gateway session client field format.")
 	}
 
 	sessionID, err := uuid.Parse(field[0:36])
@@ -214,28 +212,12 @@ func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID
 		return nil
 	}
 
-	messages := make([]redis.Message, 0, len(hubEvents))
-
+	pubMessages := make(map[string]any, len(hubEvents))
 	for hubID, event := range hubEvents {
-		eventBytes, err := json.Marshal(event)
-		if err != nil {
-			return errs.Internal("Failed to marshal broadcast event envelope.").
-				Reason("BROADCAST_MARSHAL_FAILED").
-				Wrap(err)
-		}
-		messages = append(messages, redis.Message{
-			Channel: EventsPubSubChannel(hubID),
-			Payload: string(eventBytes),
-		})
+		pubMessages[EventsPubSubChannel(hubID)] = event
 	}
 
-	_, err := b.rdb.Pipelined(ctx, func(pipe redisdriver.Pipeliner) error {
-		for _, message := range messages {
-			pipe.Publish(ctx, message.Channel, message.Payload)
-		}
-		return nil
-	})
-	if err != nil {
+	if err := b.pubsub.PublishBatch(ctx, pubMessages); err != nil {
 		return errs.Unavailable("Failed to publish broadcast events to gateway nodes.").
 			Reason("PUBSUB_BATCH_PUBLISH_FAILED").
 			Wrap(err)

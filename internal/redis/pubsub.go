@@ -87,6 +87,42 @@ func (ps *PubSub) Publish(ctx context.Context, channel string, message any) erro
 	return nil
 }
 
+// PublishBatch transmits multiple channel messages concurrently using a single Redis pipeline.
+func (ps *PubSub) PublishBatch(ctx context.Context, messages map[string]any) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	_, err := ps.client.Pipelined(ctx, func(pipe goredis.Pipeliner) error {
+		for channel, message := range messages {
+			var payload []byte
+			var err error
+
+			switch v := message.(type) {
+			case string:
+				payload = []byte(v)
+			case []byte:
+				payload = v
+			default:
+				payload, err = json.Marshal(v)
+				if err != nil {
+					return err
+				}
+			}
+			pipe.Publish(ctx, channel, payload)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return errs.Unavailable("Failed to batch publish messages to channels.").
+			Reason("PUBSUB_BATCH_PUBLISH_FAILED").
+			Wrap(err)
+	}
+
+	return nil
+}
+
 // Subscribe opens a subscription to one or more explicit Redis channels.
 func (ps *PubSub) Subscribe(ctx context.Context, channels ...string) (*Subscription, error) {
 	pb := ps.client.Subscribe(ctx, channels...)
