@@ -44,6 +44,7 @@ func (app *Application) routes() http.Handler {
 			auth.Use(httpio.RequireAuth(app.Tokens))
 
 			app.Handlers.Auth.RegisterAuthenticatedRoutes(auth)
+			app.Handlers.Bootstrap.RegisterRoutes(auth)
 			app.Handlers.User.RegisterRoutes(auth)
 			app.Handlers.Gateway.RegisterAuthenticatedRoutes(auth)
 		})

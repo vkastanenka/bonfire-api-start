@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"bonfire-api/internal/auth"
+	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
 	"bonfire-api/internal/gateway"
@@ -135,6 +136,9 @@ func run(cfg *config.Config) error {
 		cachedUserRepo,
 		dbStore,
 	)
+	bootstrapSvc := bootstrap.NewService(
+		cachedUserRepo,
+	)
 	gatewaySvc := gateway.NewService(
 		gatewayCache,
 		broadcaster,
@@ -153,6 +157,7 @@ func run(cfg *config.Config) error {
 	)
 
 	authHandler := auth.NewHandler(authSvc, bind)
+	bootstrapHandler := bootstrap.NewHandler(bootstrapSvc, bind)
 	healthHandler := health.NewHandler(cacheClient, dbClient)
 	userHandler := user.NewHandler(userSvc, bind)
 
@@ -180,10 +185,11 @@ func run(cfg *config.Config) error {
 		RateLimiter: rateLimiter,
 		Tokens:      tokenProvider,
 		Handlers: Handlers{
-			Auth:    authHandler,
-			Gateway: gatewayHandler,
-			Health:  healthHandler,
-			User:    userHandler,
+			Auth:      authHandler,
+			Bootstrap: bootstrapHandler,
+			Gateway:   gatewayHandler,
+			Health:    healthHandler,
+			User:      userHandler,
 		},
 	}
 
