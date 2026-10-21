@@ -38,6 +38,7 @@ func (h *Handler) RegisterPublicRoutes(r chi.Router) {
 }
 
 func (h *Handler) RegisterAuthenticatedRoutes(r chi.Router) {
+	r.Post("/auth/logout", httpio.ToHTTPErr(h.logout))
 	r.Post("/auth/resend-verify", httpio.ToHTTPErr(h.resendVerify))
 
 	r.Route("/users/@me/sessions", func(sessions chi.Router) {
@@ -231,6 +232,24 @@ func (h *Handler) listValidSessions(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	httpio.RespondOK(w, r, NewSessionDTOs(sessions))
+	return nil
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) error {
+	claims, err := appctx.GetClaims(r.Context())
+	if err != nil {
+		return err
+	}
+
+	if err := h.service.RevokeSession(r.Context(), RevokeSessionParams{
+		UserID:          claims.UserID,
+		RevokeSessionID: claims.SessionID,
+	}); err != nil {
+		return err
+	}
+
+	httpio.CookieClearRefreshToken(w)
+	httpio.RespondNoContent(w)
 	return nil
 }
 
