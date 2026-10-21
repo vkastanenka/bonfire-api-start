@@ -231,7 +231,7 @@ func (h *Handler) listValidSessions(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	httpio.RespondOK(w, r, NewSessionDTOs(sessions))
+	httpio.RespondOK(w, r, NewSessionDTOs(sessions, claims.SessionID))
 	return nil
 }
 
