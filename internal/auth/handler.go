@@ -256,6 +256,10 @@ func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	if claims.SessionID == path.ID {
+		httpio.CookieClearRefreshToken(w)
+	}
+
 	httpio.RespondNoContent(w)
 	return nil
 }
@@ -272,6 +276,7 @@ func (h *Handler) revokeAllSessions(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
+	httpio.CookieClearRefreshToken(w)
 	httpio.RespondNoContent(w)
 	return nil
 }
