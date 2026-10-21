@@ -23,7 +23,7 @@ func NewHandler(service *Service, bind *httpio.Bind) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Get("/bootstrap", httpio.ToHTTPErr(h.bootstrap))
+	r.Get("/users/@me", httpio.ToHTTPErr(h.bootstrap))
 }
 
 type bootstrapResponse struct {
