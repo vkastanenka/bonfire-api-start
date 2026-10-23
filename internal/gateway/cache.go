@@ -33,7 +33,7 @@ func NewCache(client redisdriver.Cmdable) *Cache {
 	return &Cache{client: client}
 }
 
-func (c *Cache) PrintTicket(ctx context.Context, ticketID, userID, sessionID, clientID uuid.UUID) error {
+func (c *Cache) PrintTicket(ctx context.Context, ticketID, userID, sessionID uuid.UUID) error {
 	var payload [32]byte
 	copy(payload[0:16], userID[:])
 	copy(payload[16:32], sessionID[:])
@@ -61,30 +61,26 @@ func (c *Cache) PunchTicket(ctx context.Context, ticketID uuid.UUID) (uuid.UUID,
 }
 
 var registerClientScript = redisdriver.NewScript(`
-	local userKey = KEYS[1]
+    local userKey = KEYS[1]
 
-	local hubID = ARGV[1]
-	local sessionID = ARGV[2]
-	local clientID = ARGV[3]
-	local presence = ARGV[4]
-	local ttl = tonumber(ARGV[5])
+    local hubID = ARGV[1]
+    local sessionID = ARGV[2]
+    local presence = ARGV[3]
+    local ttl = tonumber(ARGV[4])
 
-	-- Check if presence field already exists to determine if user was offline
-	local wasOffline = (redis.call('HEXISTS', userKey, 'presence') == 0) and 1 or 0
+    -- Check if presence field already exists to determine if user was offline
+    local wasOffline = (redis.call('HEXISTS', userKey, 'presence') == 0) and 1 or 0
 
-	-- Construct composite field name: sessionID:clientID
-	local fieldName = sessionID .. ':' .. clientID
+    -- Set/update presence and map the session directly to the hub ID
+    redis.call('HSET', userKey, 'presence', presence, sessionID, hubID)
+    redis.call('EXPIRE', userKey, ttl)
 
-	-- Set/update presence and add the composite session mapping in a single atomic hash
-	redis.call('HSET', userKey, 'presence', presence, fieldName, hubID)
-	redis.call('EXPIRE', userKey, ttl)
-
-	return wasOffline
+    return wasOffline
 `)
 
 func (c *Cache) RegisterClient(
 	ctx context.Context,
-	hubID, userID, sessionID, clientID uuid.UUID,
+	hubID, userID, sessionID uuid.UUID,
 	p Presence,
 ) (bool, error) {
 	parsedPresence := p
@@ -102,7 +98,6 @@ func (c *Cache) RegisterClient(
 		keys,
 		hubID.String(),
 		sessionID.String(),
-		clientID.String(),
 		parsedPresence.Int(),
 		int(UserCacheTTL.Seconds()),
 	).Int64()
@@ -115,39 +110,36 @@ func (c *Cache) RegisterClient(
 }
 
 var unregisterClientScript = redisdriver.NewScript(`
-	local userKey = KEYS[1]
+    local userKey = KEYS[1]
 
-	local hubID = ARGV[1]
-	local sessionID = ARGV[2]
-	local clientID = ARGV[3]
-	local ttl = tonumber(ARGV[4])
+    local hubID = ARGV[1]
+    local sessionID = ARGV[2]
+    local ttl = tonumber(ARGV[3])
 
-	local sessionField = sessionID .. ':' .. clientID
+    -- Verify the session connection exists and belongs to this node before removing
+    local currentOwnerNode = redis.call('HGET', userKey, sessionID)
+    if not currentOwnerNode or currentOwnerNode ~= hubID then
+        return 0 -- Connection not found or owned by a different node
+    end
 
-	-- Verify the session/client connection exists and belongs to this node before removing
-	local currentOwnerNode = redis.call('HGET', userKey, sessionField)
-	if not currentOwnerNode or currentOwnerNode ~= hubID then
-		return 0 -- Connection not found or owned by a different node
-	end
+    -- Remove the specific session mapping directly
+    redis.call('HDEL', userKey, sessionID)
 
-	-- Remove the specific client session mapping
-	redis.call('HDEL', userKey, sessionField)
+    -- If HLEN <= 1, only the 'presence' field remains (0 active connections)
+    if redis.call('HLEN', userKey) <= 1 then
+        redis.call('DEL', userKey)
+        return 1 -- wentOffline = true
+    end
 
-	-- If HLEN <= 1, only the 'presence' field remains (0 active connections)
-	if redis.call('HLEN', userKey) <= 1 then
-		redis.call('DEL', userKey)
-		return 1 -- wentOffline = true
-	end
+    -- Otherwise, refresh the TTL for the remaining active connections and presence
+    redis.call('EXPIRE', userKey, ttl)
 
-	-- Otherwise, refresh the TTL for the remaining active connections and presence
-	redis.call('EXPIRE', userKey, ttl)
-
-	return 0 -- wentOffline = false
+    return 0 -- wentOffline = false
 `)
 
 func (c *Cache) UnregisterClient(
 	ctx context.Context,
-	hubID, userID, sessionID, clientID uuid.UUID,
+	hubID, userID, sessionID uuid.UUID,
 ) (bool, error) {
 	keys := []string{
 		UserCacheKey(userID),
@@ -159,7 +151,6 @@ func (c *Cache) UnregisterClient(
 		keys,
 		hubID.String(),
 		sessionID.String(),
-		clientID.String(),
 		int(UserCacheTTL.Seconds()),
 	).Int64()
 	if err != nil {
@@ -202,51 +193,53 @@ func (c *Cache) GetBatchUsers(ctx context.Context, userIDs []uuid.UUID) (map[uui
 }
 
 var removeBatchClientsScript = redisdriver.NewScript(`
-	local userKey = KEYS[1]
-	local targetHubID = ARGV[1]
-	local ttl = tonumber(ARGV[2])
+    local userKey = KEYS[1]
+    local targetHubID = ARGV[1]
+    local ttl = tonumber(ARGV[2])
 
-	-- Get all fields and values from the user hash
-	local hashEntries = redis.call('HGETALL', userKey)
-	if #hashEntries == 0 then
-		return 0
-	end
+    -- Get all fields and values from the user hash
+    local hashEntries = redis.call('HGETALL', userKey)
+    if #hashEntries == 0 then
+        return 0
+    end
 
-	local fieldsToDelete = {}
-	local hasOtherHubs = false
+    local fieldsToDelete = {}
 
-	-- HGETALL returns a flat list: {field1, value1, field2, value2, ...}
-	for i = 1, #hashEntries, 2 do
-		local field = hashEntries[i]
-		local val = hashEntries[i+1]
+    -- HGETALL returns a flat list: {field1, value1, field2, value2, ...}
+    for i = 1, #hashEntries, 2 do
+        local field = hashEntries[i]
+        local val = hashEntries[i+1]
 
-		if field ~= 'presence' then
-			if val == targetHubID then
-				table.insert(fieldsToDelete, field)
-			else
-				hasOtherHubs = true
-			end
-		end
-	end
+        if field ~= 'presence' then
+            if val == targetHubID then
+                table.insert(fieldsToDelete, field)
+            end
+        end
+    end
 
-	-- If we found fields belonging to this hub, remove them
-	if #fieldsToDelete > 0 then
-		redis.call('HDEL', userKey, unpack(fieldsToDelete))
-	end
+    -- If we found session fields belonging to this hub, remove them
+    if #fieldsToDelete > 0 then
+        redis.call('HDEL', userKey, unpack(fieldsToDelete))
+    end
 
-	-- Check remaining fields (excluding 'presence')
-	local remainingLength = redis.call('HLEN', userKey)
+    -- Check remaining fields (excluding 'presence')
+    local remainingLength = redis.call('HLEN', userKey)
 
-	-- If only 'presence' remains (or 0 fields left), drop the user key entirely
-	if remainingLength <= 1 then
-		redis.call('DEL', userKey)
-		return 1 -- User went offline completely
-	else
-		-- If the user still has sessions on other hubs, refresh TTL
-		redis.call('EXPIRE', userKey, ttl)
-		return 0
-	end
+    -- If only 'presence' remains (or 0 fields left), drop the user key entirely
+    if remainingLength <= 1 then
+        redis.call('DEL', userKey)
+        return 1 -- User went offline completely
+    else
+        -- If the user still has sessions on other hubs, refresh TTL
+        redis.call('EXPIRE', userKey, ttl)
+        return 0
+    end
 `)
+
+type ClientRef struct {
+	UserID    uuid.UUID
+	SessionID uuid.UUID
+}
 
 func (c *Cache) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clientRefs []ClientRef) error {
 	if len(clientRefs) == 0 {
@@ -255,8 +248,7 @@ func (c *Cache) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clientR
 
 	userHubFields := make(map[uuid.UUID][]string)
 	for _, ref := range clientRefs {
-		field := ref.SessionID.String() + ":" + ref.ClientID.String()
-		userHubFields[ref.UserID] = append(userHubFields[ref.UserID], field)
+		userHubFields[ref.UserID] = append(userHubFields[ref.UserID], ref.SessionID.String())
 	}
 
 	userIDs := make([]uuid.UUID, 0, len(userHubFields))

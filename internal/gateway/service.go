@@ -54,9 +54,8 @@ type PrintTicketParams struct {
 
 func (s *Service) PrintTicket(ctx context.Context, p PrintTicketParams) (uuid.UUID, error) {
 	ticket := uuid.New()
-	clientID := uuid.New()
 
-	if err := s.cache.PrintTicket(ctx, ticket, p.UserID, p.SessionID, clientID); err != nil {
+	if err := s.cache.PrintTicket(ctx, ticket, p.UserID, p.SessionID); err != nil {
 		return uuid.UUID{}, err
 	}
 
@@ -80,10 +79,10 @@ func (s *Service) SubscribeToEvents(ctx context.Context, hubID uuid.UUID) (*redi
 
 func (s *Service) RegisterClient(
 	ctx context.Context,
-	hubID, userID, sessionID, clientID uuid.UUID,
+	hubID, userID, sessionID uuid.UUID,
 	p Presence,
 ) error {
-	_, err := s.cache.RegisterClient(ctx, hubID, userID, sessionID, clientID, p)
+	_, err := s.cache.RegisterClient(ctx, hubID, userID, sessionID, p)
 	if err != nil {
 		return err
 	}
@@ -112,8 +111,8 @@ func (s *Service) RegisterClient(
 	return nil
 }
 
-func (s *Service) UnregisterClient(ctx context.Context, hubID, userID, sessionID, clientID uuid.UUID) error {
-	_, err := s.cache.UnregisterClient(ctx, hubID, userID, sessionID, clientID)
+func (s *Service) UnregisterClient(ctx context.Context, hubID, userID, sessionID uuid.UUID) error {
+	_, err := s.cache.UnregisterClient(ctx, hubID, userID, sessionID)
 	if err != nil {
 		return err
 	}
@@ -140,12 +139,6 @@ func (s *Service) UnregisterClient(ctx context.Context, hubID, userID, sessionID
 	// }
 
 	return nil
-}
-
-type ClientRef struct {
-	UserID    uuid.UUID
-	SessionID uuid.UUID
-	ClientID  uuid.UUID
 }
 
 func (s *Service) RemoveBatchClients(ctx context.Context, hubID uuid.UUID, clientRefs []ClientRef) error {

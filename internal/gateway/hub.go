@@ -19,8 +19,8 @@ type ClientRegistration struct {
 }
 
 type Event struct {
-	ClientIDs []uuid.UUID     `json:"client_ids"`
-	Message   json.RawMessage `json:"message"`
+	SessionIDs []uuid.UUID     `json:"session_ids"`
+	Message    json.RawMessage `json:"message"`
 }
 
 type Hub struct {
@@ -53,8 +53,6 @@ func NewHub(service *Service) *Hub {
 func (h *Hub) ID() uuid.UUID {
 	return h.id
 }
-
-// TODO: ENSURE MAXIMUM NUMBER OF CLIENTS PER SESSION
 
 func (h *Hub) RegisterClient(client *Client, presence Presence) {
 	h.register <- ClientRegistration{
@@ -164,22 +162,19 @@ func (h *Hub) safelyWriteEvent(ctx context.Context, payload string) {
 func (h *Hub) writeEvent(ctx context.Context, payload string) {
 	var event Event
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
-		slog.ErrorContext(ctx, "failed to unmarshal node event payload",
-			"error", err,
-			"payload", payload,
-		)
+		slog.ErrorContext(ctx, "failed to unmarshal node event payload", "error", err)
 		return
 	}
 
-	if len(event.ClientIDs) == 0 || len(event.Message) == 0 {
+	if len(event.SessionIDs) == 0 || len(event.Message) == 0 {
 		return
 	}
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for _, clientID := range event.ClientIDs {
-		client, exists := h.clients[clientID]
+	for _, sessionID := range event.SessionIDs {
+		client, exists := h.clients[sessionID]
 		if !exists {
 			continue
 		}
@@ -222,7 +217,6 @@ func (h *Hub) clearCache(ctx context.Context) {
 		clientRefs = append(clientRefs, ClientRef{
 			UserID:    client.UserID,
 			SessionID: client.SessionID,
-			ClientID:  client.ID,
 		})
 	}
 	h.mu.Unlock()
@@ -256,7 +250,7 @@ func (h *Hub) registerClient(ctx context.Context, client *Client, presence Prese
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.RegisterClient(reqCtx, h.id, client.UserID, client.SessionID, client.ID, presence); err != nil {
+	if err := h.service.RegisterClient(reqCtx, h.id, client.UserID, client.SessionID, presence); err != nil {
 		slog.ErrorContext(ctx, "failed to track user connection", "error", err)
 	}
 
@@ -272,11 +266,11 @@ func (h *Hub) setClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if oldClient, exists := h.clients[client.ID]; exists {
+	if oldClient, exists := h.clients[client.SessionID]; exists {
 		oldClient.Close()
 	}
 
-	h.clients[client.ID] = client
+	h.clients[client.SessionID] = client
 }
 
 func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
@@ -287,7 +281,7 @@ func (h *Hub) unregisterClient(ctx context.Context, client *Client) {
 	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	if err := h.service.UnregisterClient(reqCtx, h.id, client.UserID, client.SessionID, client.ID); err != nil {
+	if err := h.service.UnregisterClient(reqCtx, h.id, client.UserID, client.SessionID); err != nil {
 		slog.ErrorContext(ctx, "failed to untrack user connection", "error", err)
 	}
 
@@ -305,11 +299,11 @@ func (h *Hub) unsetClient(client *Client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	current, exists := h.clients[client.ID]
+	current, exists := h.clients[client.SessionID]
 	if !exists || current != client {
 		return false
 	}
 
-	delete(h.clients, client.ID)
+	delete(h.clients, client.SessionID)
 	return true
 }

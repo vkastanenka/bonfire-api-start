@@ -142,7 +142,7 @@ func (b *Broadcaster) publish(
 				continue
 			}
 
-			sessionID, clientID, err := parseSessionClientField(field)
+			sessionID, err := uuid.Parse(field)
 			if err != nil {
 				continue
 			}
@@ -166,7 +166,7 @@ func (b *Broadcaster) publish(
 				hubIDsMap[hubIDStr] = hubID
 			}
 
-			hubTargets[hubID] = append(hubTargets[hubID], clientID)
+			hubTargets[hubID] = append(hubTargets[hubID], sessionID)
 		}
 	}
 
@@ -175,33 +175,14 @@ func (b *Broadcaster) publish(
 	}
 
 	hubEvents := make(map[uuid.UUID]Event, len(hubTargets))
-	for hubID, clientIDs := range hubTargets {
+	for hubID, sessionIDs := range hubTargets {
 		hubEvents[hubID] = Event{
-			ClientIDs: clientIDs,
-			Message:   messageBytes,
+			SessionIDs: sessionIDs,
+			Message:    messageBytes,
 		}
 	}
 
 	return b.publishToHubs(ctx, hubEvents)
-}
-
-func parseSessionClientField(field string) (uuid.UUID, uuid.UUID, error) {
-	// Expected format: <uuid>:<uuid> -> 36 + 1 + 36 = 73 characters
-	if len(field) != 73 || field[36] != ':' {
-		return uuid.Nil, uuid.Nil, errs.Internal("Invalid gateway session client field format.")
-	}
-
-	sessionID, err := uuid.Parse(field[0:36])
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-
-	clientID, err := uuid.Parse(field[37:73])
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-
-	return sessionID, clientID, nil
 }
 
 func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID]Event) error {
@@ -215,9 +196,7 @@ func (b *Broadcaster) publishToHubs(ctx context.Context, hubEvents map[uuid.UUID
 	}
 
 	if err := b.pubsub.PublishBatch(ctx, pubMessages); err != nil {
-		return errs.Unavailable("Failed to publish broadcast events to gateway nodes.").
-			Reason("PUBSUB_BATCH_PUBLISH_FAILED").
-			Wrap(err)
+		return err
 	}
 
 	return nil
