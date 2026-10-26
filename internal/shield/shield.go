@@ -10,8 +10,8 @@ import (
 
 const (
 	defaultMaxAttempts = 5
-	defaultFailuresTTL = 1 * time.Minute
-	defaultCooldownTTL = 1 * time.Minute
+	defaultFailuresTTL = 20 * time.Second
+	defaultCooldownTTL = 20 * time.Second
 )
 
 func cacheIdentifier(identifier string) string {
