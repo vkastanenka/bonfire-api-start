@@ -15,6 +15,7 @@ import (
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/httpio"
 	"bonfire-api/internal/outbox"
+	"bonfire-api/internal/pkg/errs"
 	"bonfire-api/internal/pkg/logger"
 	"bonfire-api/internal/pkg/validator"
 	"bonfire-api/internal/redis"
@@ -36,6 +37,8 @@ func main() {
 		Level:     slog.LevelInfo,
 		AddSource: cfg.IsDevelopment(),
 	})
+
+	errs.SetDomain(cfg.Domain)
 
 	if err := run(cfg); err != nil {
 		slog.Error("startup failed", slog.Any("error", err))

@@ -51,7 +51,7 @@ func (v *Validator) Validate(s any) error {
 			appErr.FieldViolation(
 				extractFieldPath(fieldErr),
 				msgForFieldError(fieldErr),
-				strings.ToUpper(fieldErr.ActualTag()),
+				reasonForFieldError(fieldErr),
 			)
 		}
 

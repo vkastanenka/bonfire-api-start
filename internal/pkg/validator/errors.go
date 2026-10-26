@@ -81,3 +81,60 @@ func formatRangeMessage(err goValidator.FieldError, stringTmpl, numericTmpl, col
 		return fmt.Sprintf(stringTmpl, err.Param())
 	}
 }
+
+// reasonForFieldError maps a single FieldError to a descriptive, gRPC-friendly error reason code.
+func reasonForFieldError(err goValidator.FieldError) string {
+	switch err.ActualTag() {
+	case "required":
+		val := err.Value()
+		if val != nil && reflect.TypeOf(val).Kind() == reflect.Ptr {
+			sv := reflect.ValueOf(val)
+			if !sv.IsNil() {
+				val = sv.Elem().Interface()
+			}
+		}
+		if valStr, ok := val.(string); ok && len(valStr) > 0 && strings.TrimSpace(valStr) == "" {
+			return "WHITESPACE_ONLY"
+		}
+		return "REQUIRED"
+
+	case "email":
+		return "INVALID_EMAIL"
+	case "alphanum":
+		return "INVALID_ALPHANUMERIC"
+	case "hexcolor":
+		return "INVALID_HEX_COLOR"
+	case "uuid":
+		return "INVALID_UUID"
+	case "url":
+		return "INVALID_URL"
+	case "eqfield":
+		return "FIELD_MISMATCH"
+	case "oneof":
+		return "INVALID_CHOICE"
+	case "ne":
+		return "INVALID_VALUE"
+	case "min":
+		return formatRangeReason(err, "MIN_LENGTH", "MIN_VALUE", "MIN_ITEMS")
+	case "max":
+		return formatRangeReason(err, "MAX_LENGTH", "MAX_VALUE", "MAX_ITEMS")
+	default:
+		return strings.ToUpper(err.ActualTag())
+	}
+}
+
+// formatRangeReason formats range reasons (min/max) dynamically based on the field's reflect.Kind.
+func formatRangeReason(err goValidator.FieldError, stringReason, numericReason, collectionReason string) string {
+	switch err.Kind() {
+	case reflect.String:
+		return stringReason
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return collectionReason
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64:
+		return numericReason
+	default:
+		return stringReason
+	}
+}

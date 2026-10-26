@@ -8,7 +8,7 @@ const (
 	tagDisplayNameRules = "min=3,max=32"
 
 	tagPassword      = "user_password"
-	tagPasswordRules = "min=12,max=72"
+	tagPasswordRules = "min=12,max=64"
 
 	tagUsername      = "user_username"
 	tagUsernameRules = "min=3,max=32,alphanum"

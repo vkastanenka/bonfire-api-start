@@ -15,6 +15,7 @@ type Config struct {
 	// Server & Environment
 	AppName            string        `env:"APP_NAME" envDefault:"bonfire-api"`
 	AppEnv             string        `env:"APP_ENV" envDefault:"development"`
+	Domain             string        `env:"DOMAIN" envDefault:"api.bonfire"`
 	Port               string        `env:"PORT" envDefault:"8080"`
 	FrontendURL        string        `env:"FRONTEND_URL,required"`
 	TrustProxy         bool          `env:"TRUST_PROXY" envDefault:"false"`

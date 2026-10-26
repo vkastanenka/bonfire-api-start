@@ -14,7 +14,7 @@ var (
 
 const (
 	tagEmail      = "email_spec"
-	tagEmailRules = "min=12,max=255"
+	tagEmailRules = "email,min=6,max=255"
 	tagHexColor   = "hexcolor"
 	tagToken      = "token"
 	tagTokenRules = "max=1024"
