@@ -78,7 +78,7 @@ func RateLimit(limiter *redis_rate.Limiter, cfg RateLimitConfig) func(http.Handl
 				}
 				w.Header().Set("Retry-After", strconv.Itoa(retrySecs))
 
-				rateLimitErr := errs.ResourceExhausted("Quota exceeded for this endpoint. Please retry after the indicated delay.").
+				rateLimitErr := errs.ResourceExhausted("Too many attempts. Please try again soon.").
 					Reason("RATE_LIMIT_EXCEEDED").
 					Meta("scope", string(cfg.Scope)).
 					Retry(res.RetryAfter)

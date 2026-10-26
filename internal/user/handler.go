@@ -26,15 +26,13 @@ func NewHandler(service *Service, bind *httpio.Bind) *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/users/{id}", httpio.ToHTTPErr(h.get))
 
-	r.Route("/users/@me", func(me chi.Router) {
-		me.Patch("/email", httpio.ToHTTPErr(h.updateEmail))
-		me.Patch("/username", httpio.ToHTTPErr(h.updateUsername))
-		me.Post("/password", httpio.ToHTTPErr(h.updatePassword))
-		me.Patch("/presence", httpio.ToHTTPErr(h.updatePreferredPresence))
-		me.Patch("/profile", httpio.ToHTTPErr(h.updateProfile))
-		me.Post("/disable", httpio.ToHTTPErr(h.disable))
-		me.Delete("/", httpio.ToHTTPErr(h.scheduleDelete))
-	})
+	r.Patch("/users/@me/email", httpio.ToHTTPErr(h.updateEmail))
+	r.Patch("/users/@me/username", httpio.ToHTTPErr(h.updateUsername))
+	r.Post("/users/@me/password", httpio.ToHTTPErr(h.updatePassword))
+	r.Patch("/users/@me/presence", httpio.ToHTTPErr(h.updatePreferredPresence))
+	r.Patch("/users/@me/profile", httpio.ToHTTPErr(h.updateProfile))
+	r.Post("/users/@me/disable", httpio.ToHTTPErr(h.disable))
+	r.Delete("/users/@me", httpio.ToHTTPErr(h.scheduleDelete))
 }
 
 type getPath struct {

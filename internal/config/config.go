@@ -50,9 +50,9 @@ type Config struct {
 	JWTEmailVerifyTTL   time.Duration `env:"JWT_EMAIL_VERIFY_TTL" envDefault:"24h"`
 	JWTPasswordResetTTL time.Duration `env:"JWT_PASSWORD_RESET_TTL" envDefault:"15m"`
 
-	AuthRateLimit         int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	AuthRateLimit         int           `env:"AUTH_RATE_LIMIT" envDefault:"20"`
 	AuthRateWindow        time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
-	PublicRateLimit       int           `env:"AUTH_RATE_LIMIT" envDefault:"5"`
+	PublicRateLimit       int           `env:"AUTH_RATE_LIMIT" envDefault:"20"`
 	PublicRateLimitWindow time.Duration `env:"AUTH_RATE_WINDOW" envDefault:"1m"`
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envDefault:"http://localhost:5173" envSeparator:","`
