@@ -49,8 +49,7 @@ func ErrTokenIssuerInvalid() *errs.Error {
 // ErrTokenMalformed returns an InvalidArgument error when the raw JWT string structure is invalid.
 func ErrTokenMalformed() *errs.Error {
 	return errs.InvalidArgument("Token is malformed.").
-		Reason(ErrReasonTokenMalformed).
-		FieldViolation("token", "provided JWT string is malformed or unparseable", "INVALID_FORMAT")
+		Reason(ErrReasonTokenMalformed)
 }
 
 // ErrTokenSignatureInvalid returns an Unauthenticated error when cryptographic signature validation fails.
