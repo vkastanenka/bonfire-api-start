@@ -104,8 +104,8 @@ func Load() (*Config, error) {
 
 func (c *Config) validate() error {
 	if c.ResendApiKey != "" {
-		if c.EmailFromAddress == "" || c.FrontendURL == "" {
-			return errors.New("EMAIL_FROM_ADDRESS and FRONTEND_URL are required when RESEND_API_KEY is provided")
+		if c.EmailFromAddress == "" {
+			return errors.New("EMAIL_FROM_ADDRESS is required when RESEND_API_KEY is provided")
 		}
 	}
 	return nil

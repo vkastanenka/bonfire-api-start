@@ -11,6 +11,7 @@ import (
 	"bonfire-api/internal/bootstrap"
 	"bonfire-api/internal/config"
 	"bonfire-api/internal/db"
+	"bonfire-api/internal/email"
 	"bonfire-api/internal/gateway"
 	"bonfire-api/internal/health"
 	"bonfire-api/internal/httpio"
@@ -109,6 +110,13 @@ func run(cfg *config.Config) error {
 	val.RegisterAliases(user.ValidationAliases())
 	bind := httpio.NewBind(val)
 
+	mailer := email.NewMailer(email.Config{
+		ResendAPIKey: cfg.ResendApiKey,
+		FromAddress:  cfg.EmailFromAddress,
+		FrontendURL:  cfg.FrontendURL,
+		OverrideTo:   cfg.EmailOverrideTo,
+	})
+
 	authCache := auth.NewCache(cacheClient)
 	sessionCache := auth.NewSessionCache(cacheClient)
 	shieldCache := shield.NewCache(cacheClient)
@@ -179,6 +187,8 @@ func run(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+
+	auth.RegisterEvents(outboxWorker, mailer, broadcaster)
 
 	outboxWorker.Start(ctx)
 	defer outboxWorker.Stop(ctx)
