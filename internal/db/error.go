@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"regexp"
 
 	"bonfire-api/internal/pkg/errs"
 
@@ -39,6 +40,26 @@ const (
 	pgCodeDeadlockDetected    = "40P01"
 	pgCodeQueryCanceled       = "57014"
 )
+
+// Database error message and reason constants aligned with validator conventions
+const (
+	errDBAlreadyExists      = "This value is already taken."
+	errDBRequired           = "This field is required."
+	errDBForeignKeyNotFound = "The selected reference does not exist or was removed."
+	errDBStringTooLong      = "Cannot exceed the maximum allowed length."
+	errDBNumericOutOfRange  = "Must be within the allowed range."
+	errDBInvalidData        = "Contains an invalid format or value."
+
+	reasonDBAlreadyExists     = "ALREADY_EXISTS"
+	reasonDBRequired          = "REQUIRED"
+	reasonDBReferenceNotFound = "REFERENCE_NOT_FOUND"
+	reasonDBStringTooLong     = "STRING_TOO_LONG"
+	reasonDBOutofRange        = "OUT_OF_RANGE"
+	reasonDBInvalidFormat     = "INVALID_FORMAT"
+)
+
+// Pre-compile the regex to extract column names dynamically from Postgres unique violation details
+var uniqueKeyRegex = regexp.MustCompile(`Key \(([^)]+)\)=`)
 
 // IsNotFoundError checks if the error represents a database record miss.
 func IsNotFoundError(err error) bool {
@@ -112,27 +133,28 @@ func handlePGError(
 
 	switch pgErr.Code {
 	case pgCodeUniqueViolation:
+		fieldName := resolveUniqueField(pgErr)
 		e = ErrDBAlreadyExists().
 			FieldViolation(
-				pgErr.ColumnName,
-				"Value is already in use.",
-				"ALREADY_EXISTS",
+				fieldName,
+				errDBAlreadyExists,
+				reasonDBAlreadyExists,
 			)
 
 	case pgCodeNotNullViolation:
 		e = ErrDBRequiredField().
 			FieldViolation(
 				pgErr.ColumnName,
-				"Field is required.",
-				"REQUIRED",
+				errDBRequired,
+				reasonDBRequired,
 			)
 
 	case pgCodeForeignKeyViolation:
 		e = ErrDBForeignKey().
 			FieldViolation(
 				pgErr.ColumnName,
-				"Referenced resource does not exist or was deleted.",
-				"REFERENCE_NOT_FOUND",
+				errDBForeignKeyNotFound,
+				reasonDBReferenceNotFound,
 			)
 
 	case pgCodeCheckViolation:
@@ -142,24 +164,24 @@ func handlePGError(
 		e = ErrDBStringTooLong().
 			FieldViolation(
 				pgErr.ColumnName,
-				"Field exceeds the maximum allowed length.",
-				"STRING_TOO_LONG",
+				errDBStringTooLong,
+				reasonDBStringTooLong,
 			)
 
 	case pgCodeNumericOutOfRange:
 		e = ErrDBNumericOutOfRange().
 			FieldViolation(
 				pgErr.ColumnName,
-				"Value is outside the allowed range.",
-				"OUT_OF_RANGE",
+				errDBNumericOutOfRange,
+				reasonDBOutofRange,
 			)
 
 	case pgCodeInvalidTextRepr:
 		e = ErrDBInvalidData().
 			FieldViolation(
 				pgErr.ColumnName,
-				"Field contains an invalid value.",
-				"INVALID_FORMAT",
+				errDBInvalidData,
+				reasonDBInvalidFormat,
 			)
 
 	case pgCodeSerializationFail,
@@ -176,6 +198,19 @@ func handlePGError(
 	e = ErrWithResource(e, resource)
 
 	return e.Wrap(origErr)
+}
+
+// resolveUniqueField extracts the conflicting column name dynamically without hardcoded maps.
+func resolveUniqueField(pgErr *pgconn.PgError) string {
+	if pgErr.ColumnName != "" {
+		return pgErr.ColumnName
+	}
+
+	if matches := uniqueKeyRegex.FindStringSubmatch(pgErr.Detail); len(matches) > 1 {
+		return matches[1]
+	}
+
+	return pgErr.ConstraintName
 }
 
 func ErrWithResource(e *errs.Error, resource Resource) *errs.Error {
